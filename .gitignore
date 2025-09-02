@@ -1,6 +1,9 @@
+.vscode
 .mypy_cache
 .pytest_cache
 artifacts
 .python-version
 *egg-info
 __pycache__
+test_temp_files
+pytest.log
