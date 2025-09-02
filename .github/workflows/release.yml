@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # fetch full history
+          tags: true
       - name: Ensure tag on main
         run: |
           echo $GITHUB_SHA
