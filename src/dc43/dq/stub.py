@@ -35,7 +35,7 @@ class StubDQClient(DQClient):
     def _status_path(self, dataset_id: str, dataset_version: str) -> str:
         d = os.path.join(self.base_path, "status", self._safe(dataset_id))
         os.makedirs(d, exist_ok=True)
-        return os.path.join(d, f"{dataset_version}.json")
+        return os.path.join(d, f"{self._safe(str(dataset_version))}.json")
 
     def expected_metrics(self, contract: OpenDataContractStandard) -> Dict[str, Any]:
         """Return a simple metric spec derived from constraints.
