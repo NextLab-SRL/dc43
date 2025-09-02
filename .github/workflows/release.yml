@@ -32,14 +32,14 @@ jobs:
       - name: Check version matches tag
         run: |
           python - <<'PY'
-import tomllib, os, sys
-with open('pyproject.toml','rb') as f:
-    version = tomllib.load(f)['project']['version']
-tag = os.environ['GITHUB_REF'].split('/')[-1]
-if f"v{version}" != tag:
-    print(f"Tag {tag} does not match version {version}")
-    sys.exit(1)
-PY
+          import tomllib, os, sys
+          with open('pyproject.toml','rb') as f:
+              version = tomllib.load(f)['project']['version']
+          tag = os.environ['GITHUB_REF'].split('/')[-1]
+          if f"v{version}" != tag:
+              print(f"Tag {tag} does not match version {version}")
+              sys.exit(1)
+          PY
       - name: Build package
         run: python -m build
       - uses: actions/upload-artifact@v4
