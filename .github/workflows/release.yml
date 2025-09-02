@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Ensure tag on main
         run: |
-          if ! git branch --contains "$GITHUB_SHA" | grep -q "main"; then
+          if ! git --no-pager branch --contains "$GITHUB_SHA" | grep -q "main"; then
             echo "Tag must point to a commit on main"
             exit 1
           fi
