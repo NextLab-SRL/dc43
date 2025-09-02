@@ -15,10 +15,7 @@ jobs:
           tags: true
       - name: Ensure tag on main
         run: |
-          git fetch origin main
-          echo $GITHUB_SHA
-          git --no-pager log
-          git --no-pager branch --contains "$GITHUB_SHA"
+          git --no-pager branch -r --contains "$GITHUB_SHA"
           if ! git --no-pager branch --contains "$GITHUB_SHA" | grep -q "main"; then
             echo "Tag must point to a commit on main"
             exit 1
