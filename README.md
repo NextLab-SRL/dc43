@@ -194,8 +194,6 @@ flowchart TD
     class E1,E2,E3 err
 ```
 
-```
-
 Notes
 
 - The library uses the official ODCS package and enforces `$schema` version `3.0.2` by default (configurable via `DC43_ODCS_REQUIRED`).
