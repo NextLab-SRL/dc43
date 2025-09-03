@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New Contract</h1>
+<form method="post">
+  <div class="mb-3">
+    <label class="form-label">Contract ID</label>
+    <input class="form-control" name="contract_id" value="{{ contract_id or '' }}"/>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Version</label>
+    <input class="form-control" name="contract_version" value="{{ contract_version or '' }}"/>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Name</label>
+    <input class="form-control" name="name" value="{{ name or '' }}"/>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Description</label>
+    <input class="form-control" name="description" value="{{ description or '' }}"/>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Columns (name:type per line)</label>
+    <textarea class="form-control" name="columns" rows="5" placeholder="order_id:bigint&#10;amount:double">{{ columns or '' }}</textarea>
+  </div>
+  <button class="btn btn-primary" type="submit">Save</button>
+</form>
+{% if error %}<div class="alert alert-danger mt-3">{{ error }}</div>{% endif %}
+{% endblock %}

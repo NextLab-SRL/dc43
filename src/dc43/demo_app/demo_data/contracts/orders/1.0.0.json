@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "orders",
+  "name": "Orders",
+  "description": {"usage": "Sample orders contract"},
+  "status": "draft",
+  "schema": [
+    {
+      "name": "orders",
+      "properties": [
+        {"name": "id", "physicalType": "integer", "required": true, "unique": true},
+        {
+          "name": "amount",
+          "physicalType": "number",
+          "required": true,
+          "quality": [
+            {"mustBeGreaterThan": 0}
+          ]
+        }
+      ]
+    }
+  ]
+}

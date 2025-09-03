@@ -130,6 +130,32 @@ if draft:
     print("Draft created:", draft.id, draft.version)  # send to workflow
 ```
 
+## Demo application
+
+A Vue-powered FastAPI application in ``dc43.demo_app`` offers a visual way to
+explore contracts, datasets and data quality results. Install the optional
+dependencies and launch the app with:
+
+```bash
+pip install ".[demo]"
+dc43-demo
+```
+
+Visit ``http://localhost:8000`` to:
+
+- Browse contracts and their versions with draft/active status.
+- Inspect dataset versions, their linked contract, validation status and
+  detailed DQ metrics derived from contract rules.
+- Highlight datasets using draft contracts and trigger validation to promote
+  them.
+
+An additional Reveal.js presentation is available at
+``http://localhost:8000/static/presentation.html`` to walk through the
+contract lifecycle and automation steps.
+
+The application also exposes an example Spark pipeline in
+``dc43.demo_app.pipeline`` used when registering new dataset versions.
+
 ## Spark Flow (Mermaid)
 
 ```mermaid
@@ -166,8 +192,6 @@ flowchart TD
 
     classDef err fill:#ffe5e5,stroke:#ff4d4f,color:#000
     class E1,E2,E3 err
-```
-
 ```
 
 Notes
