@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Datasets</h1>
+{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 <form class="row g-3 mb-4" method="post" action="/pipeline/run">
   <div class="col-md-4">
     <label class="form-label">Contract ID</label>
@@ -58,12 +60,16 @@
   const verSel = document.getElementById('contract_version');
   function updateVersions() {
     verSel.innerHTML = '';
-    (contractVersions[cidSel.value] || []).forEach(v => {
+    const versions = contractVersions[cidSel.value] || [];
+    versions.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v;
       opt.textContent = v;
       verSel.appendChild(opt);
     });
+    if (versions.length) {
+      verSel.value = versions[0];
+    }
   }
   cidSel.addEventListener('change', updateVersions);
   updateVersions();

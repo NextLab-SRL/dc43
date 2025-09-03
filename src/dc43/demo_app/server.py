@@ -25,6 +25,7 @@ from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from urllib.parse import urlencode
 
 from dc43.storage.fs import FSContractStore
 from dc43.dq.metrics import expectations_from_contract
@@ -276,6 +277,8 @@ async def list_datasets(request: Request) -> HTMLResponse:
         "contract_versions": contract_versions,
         "dataset_versions": dataset_versions,
         "dataset_names": dataset_names,
+        "message": request.query_params.get("msg"),
+        "error": request.query_params.get("error"),
     }
     return templates.TemplateResponse("datasets.html", context)
 
@@ -291,15 +294,19 @@ async def run_pipeline_endpoint(
     from .pipeline import run_pipeline
 
     input_path = str(DATA_DIR / "sample_input.json")
-    run_pipeline(
-        contract_id,
-        contract_version,
-        dataset_name,
-        dataset_version or None,
-        run_type,
-        input_path,
-    )
-    return RedirectResponse(url="/datasets", status_code=303)
+    try:
+        new_version = run_pipeline(
+            contract_id,
+            contract_version,
+            dataset_name,
+            dataset_version or None,
+            run_type,
+            input_path,
+        )
+        params = urlencode({"msg": f"Run succeeded: {dataset_name} {new_version}"})
+    except Exception as exc:  # pragma: no cover - surface pipeline errors
+        params = urlencode({"error": str(exc)})
+    return RedirectResponse(url=f"/datasets?{params}", status_code=303)
 
 
 def run() -> None:  # pragma: no cover - convenience runner

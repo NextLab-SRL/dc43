@@ -18,6 +18,7 @@ from dc43.demo_app.server import (
 )
 from dc43.dq.stub import StubDQClient
 from dc43.integration.spark_io import read_with_contract, write_with_contract
+from dc43.integration.dataset import dataset_id_from_ref
 from pyspark.sql import SparkSession
 
 
@@ -37,11 +38,18 @@ def run_pipeline(
     dataset_version: str | None,
     run_type: str,
     input_path: str,
-) -> None:
+) -> str:
     """Run an example pipeline using the stored contract."""
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     contract = store.get(contract_id, contract_version)
     dq = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
+    ds_id = dataset_id_from_ref(path=input_path)
+    dq.link_dataset_contract(
+        dataset_id=ds_id,
+        dataset_version="1.0.0",
+        contract_id=contract_id,
+        contract_version=contract_version,
+    )
     df, status = read_with_contract(
         spark,
         format="json",
@@ -49,6 +57,8 @@ def run_pipeline(
         contract=contract,
         expected_contract_version=f"=={contract_version}",
         dq_client=dq,
+        dataset_id=ds_id,
+        dataset_version="1.0.0",
         return_status=True,
     )
     # placeholder transformation could occur here
@@ -82,4 +92,4 @@ def run_pipeline(
     )
     save_records(records)
     spark.stop()
-
+    return dataset_version
