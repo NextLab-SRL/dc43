@@ -46,7 +46,11 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"dc43.demo_app" = ["demo_data/**/*", "static/**/*"]
+"dc43.demo_app" = [
+  "demo_data/**/*",
+  "static/**/*",
+  "templates/**/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -25,6 +25,7 @@ from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from urllib.parse import urlencode
 
 from dc43.storage.fs import FSContractStore
 from dc43.dq.metrics import expectations_from_contract
@@ -33,6 +34,7 @@ from open_data_contract_standard.model import (
     SchemaObject,
     SchemaProperty,
     Description,
+    Server,
 )
 from pydantic import ValidationError
 
@@ -60,9 +62,11 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static"), check_dir=F
 class DatasetRecord:
     contract_id: str
     contract_version: str
-    dataset_version: str
+    dataset_name: str = ""
+    dataset_version: str = ""
     status: str = "unknown"
     dq_details: Dict[str, Any] = field(default_factory=dict)
+    run_type: str = "unknown"
 
 
 def load_records() -> List[DatasetRecord]:
@@ -77,12 +81,29 @@ def save_records(records: List[DatasetRecord]) -> None:
 
 
 def load_contract_meta() -> List[Dict[str, Any]]:
-    return json.loads(CONTRACT_META_FILE.read_text())
+    meta = json.loads(CONTRACT_META_FILE.read_text())
+    for m in meta:
+        try:
+            contract = store.get(m["id"], m["version"])
+            server = (contract.servers or [None])[0]
+            path = ""
+            if server:
+                parts = []
+                if getattr(server, "path", None):
+                    parts.append(server.path)
+                if getattr(server, "dataset", None):
+                    parts.append(server.dataset)
+                path = "/".join(parts)
+            m["path"] = path
+        except FileNotFoundError:
+            m["path"] = ""
+    return meta
 
 
 def save_contract_meta(meta: List[Dict[str, Any]]) -> None:
+    stripped = [{k: v for k, v in m.items() if k in {"id", "version", "status"}} for m in meta]
     CONTRACT_META_FILE.write_text(
-        json.dumps(meta, indent=2), encoding="utf-8"
+        json.dumps(stripped, indent=2), encoding="utf-8"
     )
 
 
@@ -177,12 +198,7 @@ async def index() -> FileResponse:
 
 @app.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
-    contracts = []
-    for cid_dir in CONTRACT_DIR.glob("*"):
-        if cid_dir.is_dir():
-            versions = store.list_versions(cid_dir.name)
-            for v in versions:
-                contracts.append({"id": cid_dir.name, "version": v})
+    contracts = load_contract_meta()
     return templates.TemplateResponse("contracts.html", {"request": request, "contracts": contracts})
 
 
@@ -199,6 +215,7 @@ async def create_contract(
     name: str = Form(...),
     description: str = Form(""),
     columns: str = Form(""),
+    dataset_path: str = Form(""),
 ) -> HTMLResponse:
     try:
         props = []
@@ -216,8 +233,17 @@ async def create_contract(
             name=name,
             description=Description(usage=description),
             schema=[SchemaObject(name=name, properties=props)],
+            servers=[Server(server="local", type="filesystem", path=dataset_path)],
         )
         store.put(model)
+        meta = load_contract_meta()
+        for m in meta:
+            if m["id"] == contract_id and m["version"] == contract_version:
+                m.update({"status": "draft"})
+                break
+        else:
+            meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
+        save_contract_meta(meta)
         return RedirectResponse(url="/contracts", status_code=303)
     except ValidationError as ve:
         error = str(ve)
@@ -231,6 +257,7 @@ async def create_contract(
         "name": name,
         "description": description,
         "columns": columns,
+        "dataset_path": dataset_path,
     }
     return templates.TemplateResponse("new_contract.html", context)
 
@@ -238,26 +265,48 @@ async def create_contract(
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
-    contract_ids = [d.name for d in CONTRACT_DIR.glob("*") if d.is_dir()]
-    return templates.TemplateResponse(
-        "datasets.html", {"request": request, "records": records, "contract_ids": contract_ids}
-    )
+    meta = load_contract_meta()
+    contract_ids = sorted({m["id"] for m in meta})
+    contract_versions = {cid: sorted([m["version"] for m in meta if m["id"] == cid], reverse=True) for cid in contract_ids}
+    dataset_versions = sorted({r.dataset_version for r in records if r.dataset_version})
+    dataset_names = sorted({r.dataset_name for r in records if r.dataset_name})
+    context = {
+        "request": request,
+        "records": records,
+        "contract_ids": contract_ids,
+        "contract_versions": contract_versions,
+        "dataset_versions": dataset_versions,
+        "dataset_names": dataset_names,
+        "message": request.query_params.get("msg"),
+        "error": request.query_params.get("error"),
+    }
+    return templates.TemplateResponse("datasets.html", context)
 
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
 async def run_pipeline_endpoint(
     contract_id: str = Form(...),
     contract_version: str = Form(...),
-    dataset_version: str = Form(...),
+    dataset_name: str = Form(...),
+    dataset_version: str = Form(""),
+    run_type: str = Form("unknown"),
 ) -> HTMLResponse:
     from .pipeline import run_pipeline
 
     input_path = str(DATA_DIR / "sample_input.json")
-    output_dir = DATA_DIR / "outputs"
-    output_dir.mkdir(exist_ok=True)
-    output_path = str(output_dir / dataset_version)
-    run_pipeline(contract_id, contract_version, input_path, output_path, dataset_version)
-    return RedirectResponse(url="/datasets", status_code=303)
+    try:
+        new_version = run_pipeline(
+            contract_id,
+            contract_version,
+            dataset_name,
+            dataset_version or None,
+            run_type,
+            input_path,
+        )
+        params = urlencode({"msg": f"Run succeeded: {dataset_name} {new_version}"})
+    except Exception as exc:  # pragma: no cover - surface pipeline errors
+        params = urlencode({"error": str(exc)})
+    return RedirectResponse(url=f"/datasets?{params}", status_code=303)
 
 
 def run() -> None:  # pragma: no cover - convenience runner

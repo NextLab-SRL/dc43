@@ -23,6 +23,7 @@ from open_data_contract_standard.model import (
     SchemaProperty,
     CustomProperty,
     Description,
+    Server,
 )  # type: ignore
 import open_data_contract_standard as _odcs_pkg  # type: ignore
 
@@ -127,6 +128,7 @@ def build_odcs(
     properties: List[SchemaProperty] | None = None,
     schema_objects: List[SchemaObject] | None = None,
     custom_properties: List[CustomProperty] | None = None,
+    servers: List[Server] | None = None,
 ) -> OpenDataContractStandard:
     """Create a minimal ODCS document instance using typed classes.
 
@@ -144,4 +146,5 @@ def build_odcs(
         description=None if description is None else Description(usage=description),
         schema=schema_objects,  # type: ignore[arg-type]
         customProperties=custom_properties,
+        servers=servers,
     )

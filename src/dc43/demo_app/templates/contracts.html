@@ -3,10 +3,10 @@
 <h1>Contracts</h1>
 <a class="btn btn-primary mb-3" href="/contracts/new">Add Contract</a>
 <table class="table table-striped">
-    <thead><tr><th>Contract ID</th><th>Version</th></tr></thead>
+    <thead><tr><th>Contract ID</th><th>Version</th><th>Dataset Path</th></tr></thead>
     <tbody>
     {% for c in contracts %}
-    <tr><td>{{ c.id }}</td><td>{{ c.version }}</td></tr>
+    <tr><td>{{ c.id }}</td><td>{{ c.version }}</td><td>{{ c.path or '' }}</td></tr>
     {% endfor %}
     </tbody>
 </table>
