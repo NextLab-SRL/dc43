@@ -8,7 +8,7 @@ metrics to be computed and submitted.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
@@ -27,19 +27,6 @@ class DQStatus:
 
 
 class DQClient(Protocol):
-    def expected_metrics(self, contract: OpenDataContractStandard) -> Dict[str, Any]:
-        """Return a metric spec the client needs to evaluate quality.
-
-        Example shape suggested:
-        {
-          "row_count": true,
-          "fields": {
-            "amount": ["null_count", "min", "max"],
-            "currency": ["null_count", {"enum_violations": ["EUR", "USD"]}],
-          }
-        }
-        """
-
     def get_status(
         self,
         *,

@@ -5,7 +5,7 @@ import os
 from typing import Any, Dict, Optional
 
 from .base import DQClient, DQStatus
-from ..odcs import list_properties, contract_identity
+from ..odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
@@ -25,6 +25,13 @@ class StubDQClient(DQClient):
         self.block_on_violation = block_on_violation
 
     def _safe(self, s: str) -> str:
+        """Return a filesystem-safe version of ``s``.
+
+        Dataset identifiers may contain characters like ``/`` or ``:`` when
+        they originate from paths.  This helper scrubs everything but common
+        filename characters to avoid creating nested directories or invalid
+        filenames in the stub storage layout.
+        """
         return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in s)
 
     def _links_path(self, dataset_id: str) -> str:
@@ -36,34 +43,6 @@ class StubDQClient(DQClient):
         d = os.path.join(self.base_path, "status", self._safe(dataset_id))
         os.makedirs(d, exist_ok=True)
         return os.path.join(d, f"{self._safe(str(dataset_version))}.json")
-
-    def expected_metrics(self, contract: OpenDataContractStandard) -> Dict[str, Any]:
-        """Return a simple metric spec derived from constraints.
-
-        Always includes ``row_count`` and per-field ``null_count`` then
-        adds metrics for common constraints (min/max/regex/enum/unique).
-        """
-        fields: Dict[str, Any] = {}
-        for f in list_properties(contract):
-            metrics = ["null_count"]
-            # Quality-based metrics
-            if f.quality:
-                for q in f.quality:
-                    if any(v is not None for v in [q.mustBeGreaterThan, q.mustBeGreaterOrEqualTo]):
-                        metrics.append("min")
-                    if any(v is not None for v in [q.mustBeLessThan, q.mustBeLessOrEqualTo]):
-                        metrics.append("max")
-            # Logical options
-            lto = f.logicalTypeOptions or {}
-            if isinstance(lto, dict):
-                if "pattern" in lto:
-                    metrics.append({"regex_violations": lto["pattern"]})
-                if "enum" in lto:
-                    metrics.append({"enum_violations": lto["enum"]})
-            if f.unique:
-                metrics.append("distinct_count")
-            fields[f.name] = metrics
-        return {"row_count": True, "fields": fields}
 
     def get_status(
         self,
@@ -98,8 +77,9 @@ class StubDQClient(DQClient):
         blocking = self.block_on_violation
         violations = 0
         for k, v in metrics.items():
-            if k.startswith("violations.") and isinstance(v, (int, float)):
-                violations += int(v)
+            if k.startswith("violations.") or k.startswith("query."):
+                if isinstance(v, (int, float)):
+                    violations += int(v)
         status = "ok" if violations == 0 else ("block" if blocking else "warn")
         details = {"violations": violations, "metrics": metrics}
 

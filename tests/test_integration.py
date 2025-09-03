@@ -8,6 +8,7 @@ from open_data_contract_standard.model import (
     OpenDataContractStandard,
     SchemaObject,
     SchemaProperty,
+    DataQuality,
     Description,
 )
 
@@ -29,11 +30,16 @@ def make_contract():
             SchemaObject(
                 name="orders",
                 properties=[
-                    SchemaProperty(name="order_id", physicalType="bigint", required=True, unique=True),
+                    SchemaProperty(name="order_id", physicalType="bigint", required=True),
                     SchemaProperty(name="customer_id", physicalType="bigint", required=True),
                     SchemaProperty(name="order_ts", physicalType="timestamp", required=True),
                     SchemaProperty(name="amount", physicalType="double", required=True),
-                    SchemaProperty(name="currency", physicalType="string", required=True, logicalTypeOptions={"enum": ["EUR", "USD"]}),
+                    SchemaProperty(
+                        name="currency",
+                        physicalType="string",
+                        required=True,
+                        quality=[DataQuality(rule="enum", mustBe=["EUR", "USD"])],
+                    ),
                 ],
             )
         ],

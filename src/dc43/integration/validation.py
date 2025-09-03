@@ -5,7 +5,6 @@ from __future__ import annotations
 This module performs pragmatic checks:
 - required columns and optional columns presence
 - type compatibility and nullability (best-effort mapping to Spark types)
-- common constraints via SQL predicates (enum/regex/min/max)
 
 It can also align a DataFrame to a contract schema (column order and casts).
 """
@@ -24,8 +23,8 @@ except Exception:  # pragma: no cover - allow import without Spark
     def col(x):  # type: ignore
         return x
     
-from ..odcs import list_properties, field_map
-from open_data_contract_standard.model import SchemaProperty, DataQuality  # type: ignore
+from ..odcs import list_properties
+from open_data_contract_standard.model import SchemaProperty  # type: ignore
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
@@ -88,39 +87,6 @@ def _spark_type(t: str) -> str:
     return SPARK_TYPES.get(t.lower(), t.lower())
 
 
-def _build_expectations(field: SchemaProperty) -> Dict[str, str]:
-    """Translate a normalized field+constraints to SQL boolean predicates.
-
-    Returned mapping is ``name -> predicate`` suitable for DLT expectations
-    and for counting violations (``NOT (predicate)``) in Spark.
-    """
-    exps: Dict[str, str] = {}
-    n = field.name or ""
-    # required=True means NOT NULL semantics
-    if field.required:
-        exps[f"not_null_{n}"] = f"{n} IS NOT NULL"
-    # constraints from logicalTypeOptions
-    lto = field.logicalTypeOptions or {}
-    if isinstance(lto, dict):
-        if "enum" in lto and isinstance(lto["enum"], list):
-            vals = ", ".join([f"'{v}'" for v in lto["enum"]])
-            exps[f"enum_{n}"] = f"{n} IN ({vals})"
-        if "pattern" in lto:
-            exps[f"regex_{n}"] = f"{n} RLIKE '{lto['pattern']}'"
-    # constraints from quality rules
-    if field.quality:
-        for q in field.quality:
-            if q.mustBeGreaterThan is not None:
-                exps[f"min_{n}"] = f"{n} > {q.mustBeGreaterThan}"
-            if q.mustBeGreaterOrEqualTo is not None:
-                exps[f"min_{n}"] = f"{n} >= {q.mustBeGreaterOrEqualTo}"
-            if q.mustBeLessThan is not None:
-                exps[f"max_{n}"] = f"{n} < {q.mustBeLessThan}"
-            if q.mustBeLessOrEqualTo is not None:
-                exps[f"max_{n}"] = f"{n} <= {q.mustBeLessOrEqualTo}"
-    return exps
-
-
 def validate_dataframe(
     df: DataFrame,
     contract: OpenDataContractStandard,
@@ -150,7 +116,8 @@ def validate_dataframe(
         if strict_types and exp_type not in spark_type:
             errors.append(f"type mismatch for {name}: expected {exp_type}, got {spark_type}")
         # Spark often marks columns as nullable even when sources have not-null guarantees.
-        # Do not treat this as a hard error; rely on not-null expectation checks instead.
+        # Treat this as a warning so the pipeline can proceed while not-null
+        # expectations enforce the constraint at runtime.
         if f.required and nullable:
             warnings.append(f"column {name} marked nullable by Spark but required in contract")
 
@@ -158,18 +125,6 @@ def validate_dataframe(
         extras = [c for c in spark_schema.keys() if c not in fmap]
         if extras:
             warnings.append(f"extra columns present: {extras}")
-
-    # Constraint checks (best effort counts)
-    for f in fields:
-        exps = _build_expectations(f)
-        for key, expr in exps.items():
-            try:
-                failed = df.filter(f"NOT ({expr})").count()
-                metrics[f"violations.{key}"] = failed
-                if failed > 0:
-                    errors.append(f"expectation failed {key}: {failed} rows")
-            except Exception as e:  # pragma: no cover - runtime only
-                warnings.append(f"could not evaluate expectation {key}: {e}")
 
     return ValidationResult(ok=len(errors) == 0, errors=errors, warnings=warnings, metrics=metrics)
 
