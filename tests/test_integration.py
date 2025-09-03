@@ -95,3 +95,24 @@ def test_write_draft_on_mismatch(spark, tmp_path: Path):
     # persisted
     stored = drafts.get(draft.id, draft.version)
     assert stored.id == draft.id
+    assert stored.version == draft.version
+
+
+def test_write_creates_contract_when_missing(spark, tmp_path: Path):
+    data = [(1,)]
+    df = spark.createDataFrame(data, ["id"])
+    dest_dir = tmp_path / "out2"
+    store = FSContractStore(str(tmp_path / "contracts"))
+
+    vr = write_with_contract(
+        df=df,
+        contract_id="demo.output",
+        contract_version="1.0.0",
+        path=str(dest_dir),
+        mode="overwrite",
+        draft_store=store,
+    )
+    assert vr.ok
+    stored = store.get("demo.output", "1.0.0")
+    assert stored.id == "demo.output"
+    assert stored.version == "1.0.0"

@@ -167,6 +167,10 @@ contract lifecycle and automation steps.
 
 The application also exposes an example Spark pipeline in
 ``dc43.demo_app.pipeline`` used when registering new dataset versions.
+The dataset form accepts a free-form **output contract ID**; when it does not
+exist yet, `write_with_contract` derives a draft contract from the DataFrame and
+stores it automatically so the new dataset version is registered with its own
+contract.
 
 ## Spark Flow (Mermaid)
 
