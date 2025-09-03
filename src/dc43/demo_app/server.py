@@ -249,6 +249,7 @@ async def run_pipeline_endpoint(
     contract_id: str = Form(...),
     contract_version: str = Form(...),
     dataset_version: str = Form(...),
+    mode: str = Form("contract"),
 ) -> HTMLResponse:
     from .pipeline import run_pipeline
 
@@ -256,7 +257,7 @@ async def run_pipeline_endpoint(
     output_dir = DATA_DIR / "outputs"
     output_dir.mkdir(exist_ok=True)
     output_path = str(output_dir / dataset_version)
-    run_pipeline(contract_id, contract_version, input_path, output_path, dataset_version)
+    run_pipeline(contract_id, contract_version, input_path, output_path, dataset_version, mode=mode)
     return RedirectResponse(url="/datasets", status_code=303)
 
 

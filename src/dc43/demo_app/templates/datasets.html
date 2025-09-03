@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Datasets</h1>
 <form class="row g-3 mb-4" method="post" action="/pipeline/run">
-  <div class="col-md-4">
+  <div class="col-md-3">
     <label class="form-label">Contract ID</label>
     <select class="form-select" name="contract_id">
       {% for cid in contract_ids %}
@@ -10,13 +10,21 @@
       {% endfor %}
     </select>
   </div>
-  <div class="col-md-3">
+  <div class="col-md-2">
     <label class="form-label">Contract Version</label>
     <input class="form-control" name="contract_version"/>
   </div>
   <div class="col-md-3">
     <label class="form-label">Dataset Version</label>
     <input class="form-control" name="dataset_version"/>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Mode</label>
+    <select class="form-select" name="mode">
+      <option value="contract">Contract</option>
+      <option value="draft">Draft</option>
+      <option value="invalid">Invalid</option>
+    </select>
   </div>
   <div class="col-md-2 align-self-end">
     <button class="btn btn-primary w-100" type="submit">Run Pipeline</button>
