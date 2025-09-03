@@ -162,7 +162,15 @@ def read_with_contract(
     - If ``dq_client`` is provided, checks dataset status and submits metrics
       when needed; returns status when ``return_status=True``.
     """
-    if contract and not path and not table:
+    # Resolve the physical location from the contract when one is provided.
+    #
+    # ``read_with_contract`` originally only looked up the path/table when both
+    # arguments were omitted.  When tests started to rely solely on the server
+    # information contained in the contract document, this behaviour caused the
+    # reader to attempt loading an empty path (Spark then warns that *all paths
+    # were ignored*).  By always considering the contract's first server we make
+    # the function robust regardless of how the caller specifies the location.
+    if contract:
         c_path, c_table = _ref_from_contract(contract)
         path = path or c_path
         table = table or c_table
@@ -232,12 +240,19 @@ def write_with_contract(
     from the contract (``io.format``, ``io.write_options``) and user options.
     Returns a ``ValidationResult`` for pre-write checks.
     """
-    if contract and not path and not table:
+    # As with ``read_with_contract`` above, always derive the target path or
+    # table from the contract when one is supplied.  This allows callers to rely
+    # solely on the contract's server definition.
+    if contract:
         c_path, c_table = _ref_from_contract(contract)
         path = path or c_path
         table = table or c_table
+
     out_df = df
     draft_doc: Optional[OpenDataContractStandard] = None
+    # Default to an "all good" validation result; this will be replaced when a
+    # contract is actually enforced below.
+    result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
     if contract:
         ensure_version(contract)
         # validate before write and align schema for write
@@ -245,14 +260,49 @@ def write_with_contract(
         if not result.ok:
             if draft_on_mismatch:
                 ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
-                ds_ver = get_delta_version(df.sparkSession, table=table, path=path) if hasattr(df, 'sparkSession') else None
-                draft_doc = _propose_draft_from_dataframe(df, contract, bump=draft_bump, dataset_id=ds_id, dataset_version=ds_ver)
+                ds_ver = (
+                    get_delta_version(df.sparkSession, table=table, path=path)
+                    if hasattr(df, "sparkSession")
+                    else None
+                )
+                draft_doc = _propose_draft_from_dataframe(
+                    df,
+                    contract,
+                    bump=draft_bump,
+                    dataset_id=ds_id,
+                    dataset_version=ds_ver,
+                )
                 if draft_store is not None:
                     draft_store.put(draft_doc)
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
         else:
             out_df = apply_contract(df, contract, auto_cast=auto_cast)
+    elif draft_store is not None:
+        # No contract supplied: infer one from the DataFrame schema and persist as
+        # a draft so callers can review or evolve it later.
+        ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
+        ds_ver = (
+            get_delta_version(df.sparkSession, table=table, path=path)
+            if hasattr(df, "sparkSession")
+            else None
+        )
+        base = OpenDataContractStandard(
+            version="0.0.0",
+            kind="DataContract",
+            apiVersion="3.0.2",
+            id=ds_id,
+            name=ds_id,
+        )
+        draft_doc = _propose_draft_from_dataframe(
+            df,
+            base,
+            bump=draft_bump,
+            dataset_id=ds_id,
+            dataset_version=ds_ver,
+        )
+        draft_store.put(draft_doc)
+
     writer = out_df.write
     if format:
         writer = writer.format(format)
@@ -265,5 +315,6 @@ def write_with_contract(
         if not path:
             raise ValueError("Either table or path must be provided for write")
         writer.save(path)
-    vr = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
-    return (vr, draft_doc) if return_draft else vr
+    # Propagate the validation result to callers.  When ``return_draft`` is
+    # requested we include the proposed draft document as a second tuple value.
+    return (result, draft_doc) if return_draft else result
