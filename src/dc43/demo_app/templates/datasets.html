@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Datasets</h1>
+<form class="row g-3 mb-4" method="post" action="/pipeline/run">
+  <div class="col-md-4">
+    <label class="form-label">Contract ID</label>
+    <select class="form-select" name="contract_id">
+      {% for cid in contract_ids %}
+      <option value="{{ cid }}">{{ cid }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Contract Version</label>
+    <input class="form-control" name="contract_version"/>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Dataset Version</label>
+    <input class="form-control" name="dataset_version"/>
+  </div>
+  <div class="col-md-2 align-self-end">
+    <button class="btn btn-primary w-100" type="submit">Run Pipeline</button>
+  </div>
+</form>
+<table class="table table-striped">
+  <thead><tr><th>Contract ID</th><th>Contract Version</th><th>Dataset Version</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for r in records %}
+  <tr><td>{{ r.contract_id }}</td><td>{{ r.contract_version }}</td><td>{{ r.dataset_version }}</td><td>{{ r.status }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if not records %}<p>No datasets registered.</p>{% endif %}
+{% endblock %}
