@@ -137,7 +137,7 @@ explore contracts, datasets and data quality results. Install the optional
 dependencies and launch the app with:
 
 ```bash
-pip install .[demo]
+pip install ".[demo]"
 dc43-demo
 ```
 
@@ -192,8 +192,6 @@ flowchart TD
 
     classDef err fill:#ffe5e5,stroke:#ff4d4f,color:#000
     class E1,E2,E3 err
-```
-
 ```
 
 Notes
