@@ -1,0 +1,9 @@
+[
+  {
+    "contract_id": "orders",
+    "contract_version": "1.0.0",
+    "dataset_version": "v1",
+    "status": "ok",
+    "dq_details": {"violations": 0, "metrics": {"row_count": 2}}
+  }
+]

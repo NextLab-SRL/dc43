@@ -27,15 +27,25 @@ test = [
   "pytest>=7.0",
   "pyspark>=3.4",
 ]
+demo = [
+  "fastapi",
+  "uvicorn",
+  "jinja2",
+  "pyspark>=3.4",
+]
 
 [project.scripts]
 dc43 = "dc43.cli:main"
+dc43-demo = "dc43.demo_app.server:run"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"dc43.demo_app" = ["demo_data/**/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
