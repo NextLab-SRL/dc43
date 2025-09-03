@@ -39,8 +39,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
-basetemp = "test_temp_files"
+addopts = "-q --basetemp=test_temp_files"
 filterwarnings = [
   "ignore::DeprecationWarning",
 ]
