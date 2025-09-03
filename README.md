@@ -1,4 +1,4 @@
-# dc43 — Data Contracts for Databricks (Bitol v3.0.2)
+# dc43 — Data Contracts For Free!
 
 ## Overview
 
@@ -190,6 +190,7 @@ pip install open-data-contract-standard==3.0.2 pyspark
 # Tests
 
 - Install test extras and run
+
 ```bash
 pip install -e ".[test]"
 pytest

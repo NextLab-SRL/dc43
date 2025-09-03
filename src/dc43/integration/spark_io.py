@@ -165,8 +165,7 @@ def read_with_contract(
                 dataset_version=ds_ver,
             )
             if status.status in ("unknown", "stale"):
-                spec = dq_client.expected_metrics(contract)
-                m = compute_metrics(df, contract, spec)
+                m = compute_metrics(df, contract)
                 status = dq_client.submit_metrics(
                     contract=contract, dataset_id=ds_id, dataset_version=ds_ver, metrics=m
                 )
