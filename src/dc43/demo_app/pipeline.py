@@ -25,7 +25,6 @@ def run_pipeline(
     contract_id: str,
     contract_version: str,
     input_path: str,
-    output_path: str,
     dataset_version: str,
 ) -> None:
     """Run an example pipeline using the stored contract."""
@@ -42,10 +41,17 @@ def run_pipeline(
         return_status=True,
     )
     # placeholder transformation could occur here
+    server = (contract.servers or [None])[0]
+    base_path = Path(getattr(server, "path", "")) if server else Path()
+    if not base_path.is_absolute():
+        base_path = Path(DATASETS_FILE).parent / base_path
+    output_path = base_path / dataset_version
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    dataset_name = base_path.name
     write_with_contract(
         df=df,
         contract=contract,
-        path=output_path,
+        path=str(output_path),
         mode="overwrite",
         enforce=True,
     )
@@ -54,6 +60,7 @@ def run_pipeline(
         DatasetRecord(
             contract_id,
             contract_version,
+            dataset_name,
             dataset_version,
             status.status,
             status.details or {},

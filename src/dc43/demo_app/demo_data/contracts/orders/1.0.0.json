@@ -6,6 +6,13 @@
   "name": "Orders",
   "description": {"usage": "Sample orders contract"},
   "status": "draft",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "outputs/orders"
+    }
+  ],
   "schema": [
     {
       "name": "orders",
@@ -13,7 +20,7 @@
         {"name": "id", "physicalType": "integer", "required": true, "unique": true},
         {
           "name": "amount",
-          "physicalType": "number",
+          "physicalType": "double",
           "required": true,
           "quality": [
             {"mustBeGreaterThan": 0}

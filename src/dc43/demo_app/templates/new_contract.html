@@ -19,6 +19,10 @@
     <input class="form-control" name="description" value="{{ description or '' }}"/>
   </div>
   <div class="mb-3">
+    <label class="form-label">Dataset Path</label>
+    <input class="form-control" name="dataset_path" value="{{ dataset_path or '' }}"/>
+  </div>
+  <div class="mb-3">
     <label class="form-label">Columns (name:type per line)</label>
     <textarea class="form-control" name="columns" rows="5" placeholder="order_id:bigint&#10;amount:double">{{ columns or '' }}</textarea>
   </div>

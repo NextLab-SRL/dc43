@@ -10,7 +10,9 @@
   <h1 class="mb-4">DC43 Demo</h1>
   <div class="mb-3">
     <button class="btn btn-primary me-2" @click="view='datasets'">Datasets</button>
-    <button class="btn btn-secondary" @click="view='contracts'">Contracts</button>
+    <button class="btn btn-secondary me-2" @click="view='contracts'">Contracts</button>
+    <a class="btn btn-outline-primary me-2" href="/datasets">Pipeline Form</a>
+    <a class="btn btn-outline-secondary" href="/contracts">Contracts UI</a>
   </div>
 
   <div v-if="view==='datasets'">
