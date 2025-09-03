@@ -20,8 +20,13 @@ from ..dq.metrics import compute_metrics
 from .dataset import get_delta_version, dataset_id_from_ref
 from ..versioning import SemVer
 from ..odcs import contract_identity, ensure_version
-from open_data_contract_standard.model import SchemaProperty, SchemaObject, CustomProperty  # type: ignore
-from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+from open_data_contract_standard.model import (
+    SchemaProperty,
+    SchemaObject,
+    CustomProperty,
+    OpenDataContractStandard,
+    Server,
+)  # type: ignore
 from ..storage.base import ContractStore
 
 def _propose_draft_from_dataframe(
@@ -111,6 +116,29 @@ def _check_contract_version(expected: str | None, actual: str) -> None:
             raise ValueError(f"Contract version {actual} != {expected}")
 
 
+def _ref_from_contract(contract: OpenDataContractStandard) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(path, table)`` derived from the contract's first server.
+
+    The server definition may specify a direct filesystem ``path`` or a logical
+    table reference composed from ``catalog``/``schema``/``dataset`` fields.
+    """
+    if not contract.servers:
+        return None, None
+    server: Server = contract.servers[0]
+    path = getattr(server, "path", None)
+    if path:
+        return path, None
+    # Build table name from catalog/schema/database/dataset parts when present
+    last = getattr(server, "dataset", None) or getattr(server, "database", None)
+    parts = [
+        getattr(server, "catalog", None),
+        getattr(server, "schema_", None),
+        last,
+    ]
+    table = ".".join([p for p in parts if p]) if any(parts) else None
+    return None, table
+
+
 def read_with_contract(
     spark: SparkSession,
     *,
@@ -134,6 +162,12 @@ def read_with_contract(
     - If ``dq_client`` is provided, checks dataset status and submits metrics
       when needed; returns status when ``return_status=True``.
     """
+    if contract and not path and not table:
+        c_path, c_table = _ref_from_contract(contract)
+        path = path or c_path
+        table = table or c_table
+    if not path and not table:
+        raise ValueError("Either table or path must be provided for read")
     reader = spark.read.format(format)
     if options:
         reader = reader.options(**options)
@@ -198,6 +232,10 @@ def write_with_contract(
     from the contract (``io.format``, ``io.write_options``) and user options.
     Returns a ``ValidationResult`` for pre-write checks.
     """
+    if contract and not path and not table:
+        c_path, c_table = _ref_from_contract(contract)
+        path = path or c_path
+        table = table or c_table
     out_df = df
     draft_doc: Optional[OpenDataContractStandard] = None
     if contract:

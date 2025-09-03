@@ -1,5 +1,3 @@
-import os
-import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +8,7 @@ from open_data_contract_standard.model import (
     SchemaProperty,
     DataQuality,
     Description,
+    Server,
 )
 
 from dc43.integration.spark_io import read_with_contract, write_with_contract
@@ -18,7 +17,7 @@ from dc43.storage.fs import FSContractStore
 from datetime import datetime
 
 
-def make_contract():
+def make_contract(base_path: str) -> OpenDataContractStandard:
     return OpenDataContractStandard(
         version="0.1.0",
         kind="DataContract",
@@ -43,18 +42,19 @@ def make_contract():
                 ],
             )
         ],
+        servers=[Server(server="local", type="filesystem", path=base_path)],
     )
 
 
 def test_dq_integration_warn(spark, tmp_path: Path):
-    contract = make_contract()
+    data_dir = tmp_path / "parquet"
+    contract = make_contract(str(data_dir))
     # Prepare data with one enum violation for currency
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
         (2, 102, datetime(2024, 1, 2, 10, 0, 0), 20.5, "INR"),  # violation
     ]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount", "currency"])
-    data_dir = tmp_path / "parquet"
     df.write.mode("overwrite").format("parquet").save(str(data_dir))
 
     dq = StubDQClient(base_path=str(tmp_path / "dq_state"), block_on_violation=False)
@@ -62,7 +62,6 @@ def test_dq_integration_warn(spark, tmp_path: Path):
     _, status = read_with_contract(
         spark,
         format="parquet",
-        path=str(data_dir),
         contract=contract,
         enforce=False,
         dq_client=dq,
@@ -73,17 +72,16 @@ def test_dq_integration_warn(spark, tmp_path: Path):
 
 
 def test_write_draft_on_mismatch(spark, tmp_path: Path):
-    contract = make_contract()
+    dest_dir = tmp_path / "out"
+    contract = make_contract(str(dest_dir))
     # Missing required column 'currency' to trigger validation error
     data = [(1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0)]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount"])
-    dest_dir = tmp_path / "out"
     drafts = FSContractStore(str(tmp_path / "drafts"))
 
     vr, draft = write_with_contract(
         df=df,
         contract=contract,
-        path=str(dest_dir),
         mode="overwrite",
         enforce=False,              # continue writing despite mismatch
         draft_on_mismatch=True,
