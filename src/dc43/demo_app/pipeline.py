@@ -21,11 +21,20 @@ from dc43.integration.spark_io import read_with_contract, write_with_contract
 from pyspark.sql import SparkSession
 
 
+def _next_version(existing: list[str]) -> str:
+    """Return the next patch version given existing semver strings."""
+    if not existing:
+        return "1.0.0"
+    parts = [list(map(int, v.split("."))) for v in existing]
+    major, minor, patch = max(parts)
+    return f"{major}.{minor}.{patch + 1}"
+
+
 def run_pipeline(
     contract_id: str,
     contract_version: str,
     dataset_name: str,
-    dataset_version: str,
+    dataset_version: str | None,
     run_type: str,
     input_path: str,
 ) -> None:
@@ -43,6 +52,10 @@ def run_pipeline(
         return_status=True,
     )
     # placeholder transformation could occur here
+    records = load_records()
+    if not dataset_version:
+        existing = [r.dataset_version for r in records if r.dataset_name == dataset_name]
+        dataset_version = _next_version(existing)
     server = (contract.servers or [None])[0]
     base_path = Path(getattr(server, "path", "")) if server else Path()
     if not base_path.is_absolute():
@@ -56,7 +69,6 @@ def run_pipeline(
         mode="overwrite",
         enforce=True,
     )
-    records = load_records()
     records.append(
         DatasetRecord(
             contract_id,

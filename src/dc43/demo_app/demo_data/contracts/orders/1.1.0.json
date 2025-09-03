@@ -1,0 +1,32 @@
+{
+  "version": "1.1.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "orders",
+  "name": "Orders",
+  "description": {"usage": "Sample orders contract"},
+  "status": "draft",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "outputs"
+    }
+  ],
+  "schema": [
+    {
+      "name": "orders",
+      "properties": [
+        {"name": "order_id", "physicalType": "integer", "required": true, "unique": true},
+        {
+          "name": "amount",
+          "physicalType": "double",
+          "required": true,
+          "quality": [
+            {"mustBeGreaterThan": 0}
+          ]
+        }
+      ]
+    }
+  ]
+}

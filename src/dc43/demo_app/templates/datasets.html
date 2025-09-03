@@ -24,8 +24,8 @@
     </datalist>
   </div>
   <div class="col-md-2">
-    <label class="form-label">Dataset Version</label>
-    <input class="form-control" name="dataset_version" list="dataset_versions"/>
+    <label class="form-label">Dataset Version (optional)</label>
+    <input class="form-control" name="dataset_version" list="dataset_versions" placeholder="auto"/>
     <datalist id="dataset_versions">
       {% for dv in dataset_versions %}
       <option value="{{ dv }}"/>

@@ -266,7 +266,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
     meta = load_contract_meta()
     contract_ids = sorted({m["id"] for m in meta})
-    contract_versions = {cid: sorted([m["version"] for m in meta if m["id"] == cid]) for cid in contract_ids}
+    contract_versions = {cid: sorted([m["version"] for m in meta if m["id"] == cid], reverse=True) for cid in contract_ids}
     dataset_versions = sorted({r.dataset_version for r in records if r.dataset_version})
     dataset_names = sorted({r.dataset_name for r in records if r.dataset_name})
     context = {
@@ -285,7 +285,7 @@ async def run_pipeline_endpoint(
     contract_id: str = Form(...),
     contract_version: str = Form(...),
     dataset_name: str = Form(...),
-    dataset_version: str = Form(...),
+    dataset_version: str = Form(""),
     run_type: str = Form("unknown"),
 ) -> HTMLResponse:
     from .pipeline import run_pipeline
@@ -295,7 +295,7 @@ async def run_pipeline_endpoint(
         contract_id,
         contract_version,
         dataset_name,
-        dataset_version,
+        dataset_version or None,
         run_type,
         input_path,
     )
