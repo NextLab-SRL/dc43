@@ -2,26 +2,38 @@
 {% block content %}
 <h1>Datasets</h1>
 <form class="row g-3 mb-4" method="post" action="/pipeline/run">
-  <div class="col-md-4">
-    <label class="form-label">Contract ID</label>
-    <select class="form-select" name="contract_id">
+  <div class="col-md-3">
+    <label class="form-label">Input Contract ID</label>
+    <select class="form-select" name="input_contract_id">
       {% for cid in contract_ids %}
       <option value="{{ cid }}">{{ cid }}</option>
       {% endfor %}
     </select>
   </div>
-  <div class="col-md-3">
-    <label class="form-label">Contract Version</label>
-    <input class="form-control" name="contract_version"/>
+  <div class="col-md-2">
+    <label class="form-label">Input Contract Version</label>
+    <input class="form-control" name="input_contract_version"/>
   </div>
   <div class="col-md-3">
+    <label class="form-label">Output Contract ID</label>
+    <select class="form-select" name="output_contract_id">
+      {% for cid in contract_ids %}
+      <option value="{{ cid }}">{{ cid }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Output Contract Version</label>
+    <input class="form-control" name="output_contract_version"/>
+  </div>
+  <div class="col-md-2">
     <label class="form-label">Dataset Version</label>
     <input class="form-control" name="dataset_version"/>
   </div>
-  <div class="col-md-2 align-self-end">
+  <div class="col-md-12 col-lg-2 align-self-end">
     <button class="btn btn-primary w-100" type="submit">Run Pipeline</button>
   </div>
-</form>
+  </form>
 <table class="table table-striped">
   <thead><tr><th>Contract ID</th><th>Contract Version</th><th>Dataset Version</th><th>Status</th></tr></thead>
   <tbody>

@@ -6,7 +6,7 @@ High-level wrappers to read/write DataFrames while enforcing ODCS contracts
 and coordinating with an external Data Quality client when provided.
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 
 try:
     from pyspark.sql import DataFrame, SparkSession
@@ -88,6 +88,42 @@ def _propose_draft_from_dataframe(
         customProperties=cps,
     )
     return draft
+
+
+def _contract_from_dataframe(
+    df: DataFrame, cid: str, version: str = "1.0.0"
+) -> OpenDataContractStandard:
+    """Generate a minimal draft contract based solely on a DataFrame schema."""
+
+    from .validation import SPARK_TYPES as _SPARK_TYPES
+
+    props: List[SchemaProperty] = []
+    for f in df.schema.fields:  # type: ignore[attr-defined]
+        t = str(f.dataType).lower()
+        odcs_type = None
+        for k, v in _SPARK_TYPES.items():
+            if v in t:
+                odcs_type = k
+                break
+        odcs_type = odcs_type or t
+        props.append(
+            SchemaProperty(
+                name=f.name,
+                physicalType=str(odcs_type),
+                required=not f.nullable,
+            )
+        )
+
+    return OpenDataContractStandard(
+        version=version,
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id=cid,
+        name=cid,
+        status="draft",
+        schema=[SchemaObject(name=cid, properties=props)],
+        customProperties=[CustomProperty(property="draft", value=True)],
+    )
 
 
 def _check_contract_version(expected: str | None, actual: str) -> None:
@@ -179,6 +215,8 @@ def write_with_contract(
     *,
     df: DataFrame,
     contract: Optional[OpenDataContractStandard] = None,
+    contract_id: Optional[str] = None,
+    contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     format: Optional[str] = None,
@@ -186,35 +224,56 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
-    # Draft flow on mismatch
+    # Draft flow on mismatch/missing
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
+    # DQ integration
+    dq_client: Optional[DQClient] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: bool = False,
     return_draft: bool = False,
-) -> ValidationResult | Tuple[ValidationResult, Optional[OpenDataContractStandard]]:
+) -> ValidationResult | Tuple[ValidationResult, ...]:
     """Validate/align a DataFrame then write it using Spark writers.
 
-    Applies the contract schema before writing and merges IO options coming
-    from the contract (``io.format``, ``io.write_options``) and user options.
-    Returns a ``ValidationResult`` for pre-write checks.
+    If ``contract`` is not provided but ``contract_id``/``contract_version`` and
+    ``draft_store`` are, the contract will be loaded from the store or created
+    as a new draft based on ``df``. When ``dq_client`` is supplied, metrics are
+    computed after the write and submitted, potentially blocking the write when
+    violations are reported.
     """
-    out_df = df
+
+    doc = contract
     draft_doc: Optional[OpenDataContractStandard] = None
-    if contract:
-        ensure_version(contract)
-        # validate before write and align schema for write
-        result = validate_dataframe(df, contract)
+    if doc is None and draft_store and contract_id and contract_version:
+        try:
+            doc = draft_store.get(contract_id, contract_version)
+        except FileNotFoundError:
+            doc = _contract_from_dataframe(df, contract_id, contract_version)
+            draft_store.put(doc)
+
+    out_df = df
+    if doc is not None:
+        ensure_version(doc)
+        cid, cver = contract_identity(doc)
+        if contract_version:
+            _check_contract_version(f"=={contract_version}", cver)
+        result = validate_dataframe(df, doc)
         if not result.ok:
-            if draft_on_mismatch:
-                ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
-                ds_ver = get_delta_version(df.sparkSession, table=table, path=path) if hasattr(df, 'sparkSession') else None
-                draft_doc = _propose_draft_from_dataframe(df, contract, bump=draft_bump, dataset_id=ds_id, dataset_version=ds_ver)
-                if draft_store is not None:
-                    draft_store.put(draft_doc)
+            if draft_on_mismatch and draft_store is not None:
+                ds_id = dataset_id or dataset_id_from_ref(table=table, path=path)
+                draft_doc = _propose_draft_from_dataframe(
+                    df, doc, bump=draft_bump, dataset_id=ds_id, dataset_version=dataset_version
+                )
+                draft_store.put(draft_doc)
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
         else:
-            out_df = apply_contract(df, contract, auto_cast=auto_cast)
+            out_df = apply_contract(df, doc, auto_cast=auto_cast)
+    else:
+        result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
+
     writer = out_df.write
     if format:
         writer = writer.format(format)
@@ -227,5 +286,23 @@ def write_with_contract(
         if not path:
             raise ValueError("Either table or path must be provided for write")
         writer.save(path)
+
+    status: Optional[DQStatus] = None
+    if dq_client and doc is not None:
+        ds_id = dataset_id or dataset_id_from_ref(table=table, path=path)
+        ds_ver = dataset_version or "unknown"
+        m = compute_metrics(out_df, doc)
+        status = dq_client.submit_metrics(
+            contract=doc, dataset_id=ds_id, dataset_version=ds_ver, metrics=m
+        )
+        if enforce and status.status == "block":
+            raise ValueError(f"Data quality check failed: {status.details}")
+
     vr = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
-    return (vr, draft_doc) if return_draft else vr
+
+    parts: List[Any] = [vr]
+    if return_status:
+        parts.append(status)
+    if return_draft:
+        parts.append(draft_doc)
+    return tuple(parts) if len(parts) > 1 else vr

@@ -64,6 +64,18 @@ write_with_contract(
     enforce=True,
     auto_cast=True,
 )
+
+# or let the helper fetch/create the contract and handle DQ metrics
+write_with_contract(
+    df=orders_df,
+    contract_id="sales.orders",
+    contract_version="1.0.0",
+    path="/mnt/gold/sales/orders",
+    draft_store=store,
+    dq_client=dq,
+    dataset_version="2024-01-01",
+    return_status=True,
+)
 ```
 
 3) DLT usage (inside a pipeline notebook)

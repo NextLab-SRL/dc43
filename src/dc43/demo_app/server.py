@@ -246,8 +246,10 @@ async def list_datasets(request: Request) -> HTMLResponse:
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
 async def run_pipeline_endpoint(
-    contract_id: str = Form(...),
-    contract_version: str = Form(...),
+    input_contract_id: str = Form(...),
+    input_contract_version: str = Form(...),
+    output_contract_id: str = Form(...),
+    output_contract_version: str = Form(...),
     dataset_version: str = Form(...),
 ) -> HTMLResponse:
     from .pipeline import run_pipeline
@@ -256,7 +258,15 @@ async def run_pipeline_endpoint(
     output_dir = DATA_DIR / "outputs"
     output_dir.mkdir(exist_ok=True)
     output_path = str(output_dir / dataset_version)
-    run_pipeline(contract_id, contract_version, input_path, output_path, dataset_version)
+    run_pipeline(
+        input_contract_id,
+        input_contract_version,
+        output_contract_id,
+        output_contract_version,
+        input_path,
+        output_path,
+        dataset_version,
+    )
     return RedirectResponse(url="/datasets", status_code=303)
 
 
