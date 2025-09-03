@@ -24,8 +24,10 @@ from pyspark.sql import SparkSession
 def run_pipeline(
     contract_id: str,
     contract_version: str,
-    input_path: str,
+    dataset_name: str,
     dataset_version: str,
+    run_type: str,
+    input_path: str,
 ) -> None:
     """Run an example pipeline using the stored contract."""
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
@@ -45,9 +47,8 @@ def run_pipeline(
     base_path = Path(getattr(server, "path", "")) if server else Path()
     if not base_path.is_absolute():
         base_path = Path(DATASETS_FILE).parent / base_path
-    output_path = base_path / dataset_version
+    output_path = base_path / dataset_name / dataset_version
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    dataset_name = base_path.name
     write_with_contract(
         df=df,
         contract=contract,
@@ -64,6 +65,7 @@ def run_pipeline(
             dataset_version,
             status.status,
             status.details or {},
+            run_type,
         )
     )
     save_records(records)

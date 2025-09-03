@@ -65,6 +65,7 @@ class DatasetRecord:
     dataset_version: str = ""
     status: str = "unknown"
     dq_details: Dict[str, Any] = field(default_factory=dict)
+    run_type: str = "unknown"
 
 
 def load_records() -> List[DatasetRecord]:
@@ -267,12 +268,14 @@ async def list_datasets(request: Request) -> HTMLResponse:
     contract_ids = sorted({m["id"] for m in meta})
     contract_versions = {cid: sorted([m["version"] for m in meta if m["id"] == cid]) for cid in contract_ids}
     dataset_versions = sorted({r.dataset_version for r in records if r.dataset_version})
+    dataset_names = sorted({r.dataset_name for r in records if r.dataset_name})
     context = {
         "request": request,
         "records": records,
         "contract_ids": contract_ids,
         "contract_versions": contract_versions,
         "dataset_versions": dataset_versions,
+        "dataset_names": dataset_names,
     }
     return templates.TemplateResponse("datasets.html", context)
 
@@ -281,7 +284,9 @@ async def list_datasets(request: Request) -> HTMLResponse:
 async def run_pipeline_endpoint(
     contract_id: str = Form(...),
     contract_version: str = Form(...),
+    dataset_name: str = Form(...),
     dataset_version: str = Form(...),
+    run_type: str = Form("unknown"),
 ) -> HTMLResponse:
     from .pipeline import run_pipeline
 
@@ -289,8 +294,10 @@ async def run_pipeline_endpoint(
     run_pipeline(
         contract_id,
         contract_version,
-        input_path,
+        dataset_name,
         dataset_version,
+        run_type,
+        input_path,
     )
     return RedirectResponse(url="/datasets", status_code=303)
 
