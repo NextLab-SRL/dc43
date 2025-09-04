@@ -16,21 +16,38 @@
 
     <section>
       <h2>1. Define Data Contract</h2>
-      <pre><code class="language-python">from open_data_contract_standard.model import OpenDataContractStandard
+      <div style="display:flex; gap:2rem;">
+        <pre style="flex:1"><code class="language-python">from open_data_contract_standard.model import OpenDataContractStandard
 contract = OpenDataContractStandard(...)
 </code></pre>
+        <pre style="flex:1"><code class="language-json">{
+  "fields": [
+    {"name": "id", "type": "string"},
+    {"name": "amount", "type": "double"}
+  ],
+  "expectations": ["amount > 0"]
+}
+</code></pre>
+      </div>
       <p>Schema and quality rules capture structure and expectations.</p>
     </section>
 
     <section>
       <h2>2. Read with Contract</h2>
-      <pre><code class="language-python">orders_df, status = read_with_contract(
+      <div style="display:flex; gap:2rem;">
+        <pre style="flex:1"><code class="language-python">orders_df, status = read_with_contract(
     spark,
     path="orders.json",
     contract=orders_contract,
     dq_client=dq,
 )
 </code></pre>
+        <pre style="flex:1"><code class="language-json">{
+  "status": "success",
+  "violations": []
+}
+</code></pre>
+      </div>
       <p>Validates inputs and reports violations.</p>
     </section>
 
@@ -43,7 +60,8 @@ contract = OpenDataContractStandard(...)
 
     <section>
       <h2>4. Write with Contract</h2>
-      <pre><code class="language-python">result, status, draft = write_with_contract(
+      <div style="display:flex; gap:2rem;">
+        <pre style="flex:1"><code class="language-python">result, status, draft = write_with_contract(
     df,
     contract=output_contract,
     path=output_path,
@@ -51,36 +69,93 @@ contract = OpenDataContractStandard(...)
     draft_on_mismatch=True,
 )
 </code></pre>
+        <pre style="flex:1"><code class="language-json">{
+  "metrics": {
+    "row_count": 1000,
+    "missing_customers": 5
+  },
+  "draft": "orders_v2"
+}
+</code></pre>
+      </div>
       <p>Records metrics and drafts new contracts on mismatch.</p>
     </section>
 
     <section>
       <h2>5. Inspect Violations</h2>
-      <pre><code class="language-python">status = attach_failed_expectations(
+      <div style="display:flex; gap:2rem;">
+        <pre style="flex:1"><code class="language-python">status = attach_failed_expectations(
     df,
     output_contract,
     status,
     collect_examples=True,
 )
 </code></pre>
+        <pre style="flex:1"><code class="language-json">[
+  {
+    "expectation": "amount > 0",
+    "examples": ["amount=-3", "amount=0"]
+  }
+]
+</code></pre>
+      </div>
       <p>Examples help diagnose data quality issues.</p>
     </section>
 
     <section>
       <h2>6. Track Dataset Versions</h2>
-      <pre><code class="language-python">records.append(DatasetRecord(...))
+      <div style="display:flex; gap:2rem;">
+        <pre style="flex:1"><code class="language-python">records.append(DatasetRecord(...))
 save_records(records)
 </code></pre>
+        <pre style="flex:1"><code class="language-json">[
+  {
+    "version": 1,
+    "row_count": 1000,
+    "status": "success"
+  }
+]
+</code></pre>
+      </div>
       <p>History shows evolution, metrics and status.</p>
+    </section>
+
+    <section>
+      <h2>Manual Spark vs dc43</h2>
+      <div style="display:flex; gap:2rem;">
+        <div style="flex:1">
+          <h3>Manual</h3>
+          <pre><code class="language-python">df = spark.read.json("orders.json")
+validate_schema(df)
+compute_metrics(df)
+df.write.save(output_path)
+</code></pre>
+        </div>
+        <div style="flex:1">
+          <h3>dc43</h3>
+          <pre><code class="language-python">df, status = read_with_contract(spark, "orders.json", contract, dq)
+result, status, draft = write_with_contract(df, contract, output_path, dq)
+</code></pre>
+        </div>
+      </div>
+      <p>dc43 removes boilerplate and centralizes quality rules.</p>
+    </section>
+
+    <section>
+      <h2>Without vs With Contract</h2>
+      <ul>
+        <li><strong>Without:</strong> implicit schemas, ad-hoc checks, manual evolution</li>
+        <li><strong>With:</strong> versioned contracts, documented expectations, automated drafts</li>
+      </ul>
     </section>
 
     <section>
       <h2>Why dc43?</h2>
       <ul>
-        <li>Automated validation and metrics</li>
-        <li>Clear contract evolution</li>
+        <li>Fewer custom checks for data engineers and analysts</li>
+        <li>Automatic metrics and draft contracts</li>
+        <li>Traceable evolution for managers and governance</li>
         <li>Simple Spark code compared to vanilla</li>
-        <li>Confidence for data teams and governance</li>
       </ul>
     </section>
   </div>
