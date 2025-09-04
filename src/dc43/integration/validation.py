@@ -12,16 +12,9 @@ It can also align a DataFrame to a contract schema (column order and casts).
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from pyspark.sql import DataFrame
-    from pyspark.sql.functions import col
-    from pyspark.sql.types import StructType, StructField
-except Exception:  # pragma: no cover - allow import without Spark
-    DataFrame = Any  # type: ignore
-    StructType = Any  # type: ignore
-    StructField = Any  # type: ignore
-    def col(x):  # type: ignore
-        return x
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import col
+from pyspark.sql.types import StructType, StructField
     
 from ..odcs import list_properties
 from open_data_contract_standard.model import SchemaProperty  # type: ignore
@@ -144,6 +137,8 @@ def apply_contract(
     cols: List[Any] = []
     for f in list_properties(contract):
         name = f.name
+        if not name:
+            continue
         stype = _spark_type((f.physicalType or f.logicalType or "string"))
         if name in df.columns:
             if auto_cast:

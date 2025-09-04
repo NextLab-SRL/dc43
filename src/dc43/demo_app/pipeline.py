@@ -122,7 +122,7 @@ def run_pipeline(
         if output_contract:
             from dc43.versioning import SemVer
 
-            next_ver = str(SemVer.parse(contract_version).bump("minor"))
+            next_ver = str(SemVer.parse(contract_version).bump("minor")) if contract_version else "0.0.1"
             meta = load_contract_meta()
             meta.append({"id": contract_id, "version": next_ver, "status": "draft"})
             save_contract_meta(meta)
@@ -135,14 +135,14 @@ def run_pipeline(
             contract_version = draft.version
 
     combined_details = {
-        "orders": orders_status.details,
-        "customers": customers_status.details,
+        "orders": orders_status.details if orders_status else None,
+        "customers": customers_status.details if customers_status else None,
         "output": output_details,
     }
     status_value = "ok"
     if (
-        orders_status.status != "ok"
-        or customers_status.status != "ok"
+        (orders_status and orders_status.status != "ok")
+        or (customers_status and customers_status.status != "ok")
         or error is not None
     ):
         status_value = "error"
