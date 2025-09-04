@@ -15,9 +15,10 @@ from dc43.integration.spark_io import read_with_contract, write_with_contract
 from dc43.dq.stub import StubDQClient
 from dc43.storage.fs import FSContractStore
 from datetime import datetime
+import logging
 
 
-def make_contract(base_path: str) -> OpenDataContractStandard:
+def make_contract(base_path: str, fmt: str = "parquet") -> OpenDataContractStandard:
     return OpenDataContractStandard(
         version="0.1.0",
         kind="DataContract",
@@ -42,7 +43,7 @@ def make_contract(base_path: str) -> OpenDataContractStandard:
                 ],
             )
         ],
-        servers=[Server(server="local", type="filesystem", path=base_path)],
+        servers=[Server(server="local", type="filesystem", path=base_path, format=fmt)],
     )
 
 
@@ -61,7 +62,6 @@ def test_dq_integration_warn(spark, tmp_path: Path):
     # enforce=False to avoid raising on validation expectation failures
     _, status = read_with_contract(
         spark,
-        format="parquet",
         contract=contract,
         enforce=False,
         dq_client=dq,
@@ -94,6 +94,7 @@ def test_write_draft_on_mismatch(spark, tmp_path: Path):
     stored = drafts.get(draft.id, draft.version)
     assert stored.id == draft.id
     assert draft.servers and draft.servers[0].path == str(dest_dir)
+    assert draft.servers[0].format == "parquet"
 
 
 def test_inferred_contract_id_simple(spark, tmp_path: Path):
@@ -112,6 +113,7 @@ def test_inferred_contract_id_simple(spark, tmp_path: Path):
     assert draft is not None
     assert draft.id == "sample"
     assert drafts.get(draft.id, draft.version).id == "sample"
+    assert draft.servers and draft.servers[0].format == "json"
 
 
 def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
@@ -130,7 +132,6 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
         df=df,
         contract=contract,
         path=str(actual_dir),
-        format="parquet",
         mode="overwrite",
         enforce=False,
         draft_on_mismatch=True,
@@ -139,4 +140,64 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     )
     assert draft is not None
     assert draft.servers and draft.servers[0].path == str(actual_dir)
+    assert draft.servers[0].format == "parquet"
     assert any("does not match" in w for w in vr.warnings)
+
+
+def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
+    data_dir = tmp_path / "json"
+    contract = make_contract(str(data_dir), fmt="parquet")
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    df.write.mode("overwrite").json(str(data_dir))
+    with caplog.at_level(logging.WARNING):
+        read_with_contract(
+            spark,
+            contract=contract,
+            format="json",
+            enforce=False,
+        )
+    assert any(
+        "format json does not match contract server format parquet" in m
+        for m in caplog.messages
+    )
+
+
+def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
+    dest_dir = tmp_path / "out"
+    contract = make_contract(str(dest_dir), fmt="parquet")
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    drafts = FSContractStore(str(tmp_path / "drafts"))
+    with caplog.at_level(logging.WARNING):
+        vr, draft = write_with_contract(
+            df=df,
+            contract=contract,
+            path=str(dest_dir),
+            format="json",
+            mode="overwrite",
+            enforce=False,
+            draft_on_mismatch=True,
+            draft_store=drafts,
+            return_draft=True,
+        )
+    assert any(
+        "Format json does not match contract server format parquet" in w
+        for w in vr.warnings
+    )
+    assert any(
+        "format json does not match contract server format parquet" in m.lower()
+        for m in caplog.messages
+    )
+    assert draft is not None
+    assert draft.servers and draft.servers[0].format == "json"

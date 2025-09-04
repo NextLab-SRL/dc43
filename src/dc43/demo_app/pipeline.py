@@ -58,7 +58,6 @@ def run_pipeline(
     )
     orders_df, orders_status = read_with_contract(
         spark,
-        format="json",
         path=orders_path,
         contract=orders_contract,
         expected_contract_version="==1.1.0",
@@ -78,7 +77,6 @@ def run_pipeline(
     )
     customers_df, customers_status = read_with_contract(
         spark,
-        format="json",
         path=customers_path,
         contract=customers_contract,
         expected_contract_version="==1.0.0",

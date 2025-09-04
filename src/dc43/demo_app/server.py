@@ -512,30 +512,19 @@ def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: st
     server = (contract.servers or [None])[0] if contract else None
     fmt = getattr(server, "format", None)
     try:
+        if fmt == "parquet":
+            from pyspark.sql import SparkSession  # type: ignore
+            spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
+            df = spark.read.parquet(str(ds_path))
+            return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
+        if fmt == "json":
+            target = ds_path if ds_path.is_file() else next(ds_path.glob("*.json"), None)
+            if target:
+                return target.read_text()[:1000]
         if ds_path.is_file():
-            if fmt == "parquet" or ds_path.suffix == ".parquet":
-                try:
-                    from pyspark.sql import SparkSession  # type: ignore
-                    spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
-                    df = spark.read.parquet(str(ds_path))
-                    return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
-                except Exception:
-                    return ""
             return ds_path.read_text()[:1000]
         if ds_path.is_dir():
-            if fmt == "parquet" or any(p.suffix == ".parquet" for p in ds_path.glob("*.parquet")):
-                try:
-                    from pyspark.sql import SparkSession  # type: ignore
-                    spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
-                    df = spark.read.parquet(str(ds_path))
-                    return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
-                except Exception:
-                    return ""
-            target = None
-            if fmt == "json":
-                target = next(ds_path.glob("*.json"), None)
-            if not target:
-                target = next((p for p in ds_path.iterdir() if p.is_file()), None)
+            target = next((p for p in ds_path.iterdir() if p.is_file()), None)
             if target:
                 return target.read_text()[:1000]
     except Exception:
