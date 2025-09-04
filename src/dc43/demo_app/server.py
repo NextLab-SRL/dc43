@@ -41,11 +41,15 @@ from pydantic import ValidationError
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "demo_data"
 CONTRACT_DIR = DATA_DIR / "contracts"
-DATASETS_FILE = DATA_DIR / "datasets.json"
-CONTRACT_META_FILE = DATA_DIR / "contract_meta.json"
+DATA_INPUT_DIR = DATA_DIR / "data"
+RECORDS_DIR = DATA_DIR / "records"
+DATASETS_FILE = RECORDS_DIR / "datasets.json"
+CONTRACT_META_FILE = RECORDS_DIR / "contract_meta.json"
 
-CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
+DATA_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+RECORDS_DIR.mkdir(parents=True, exist_ok=True)
 if not DATASETS_FILE.exists():
     DATASETS_FILE.write_text("[]", encoding="utf-8")
 if not CONTRACT_META_FILE.exists():
@@ -338,7 +342,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
 async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
     from .pipeline import run_pipeline
 
-    input_path = str(DATA_DIR / "sample_input.json")
+    input_path = str(DATA_DIR / "orders.json")
     cfg = SCENARIOS.get(scenario)
     if not cfg:
         params = urlencode({"error": f"Unknown scenario: {scenario}"})

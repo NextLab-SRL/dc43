@@ -18,6 +18,7 @@
       "name": "orders",
       "properties": [
         {"name": "order_id", "physicalType": "integer", "required": true, "unique": true},
+        {"name": "customer_id", "physicalType": "integer", "required": true},
         {
           "name": "amount",
           "physicalType": "double",

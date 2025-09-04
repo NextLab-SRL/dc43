@@ -12,6 +12,7 @@ from pathlib import Path
 from dc43.demo_app.server import (
     store,
     DATASETS_FILE,
+    DATA_INPUT_DIR,
     DatasetRecord,
     load_records,
     save_records,
@@ -66,7 +67,7 @@ def run_pipeline(
 
     # Join with customers lookup dataset
     customers_contract = store.get("customers", "1.0.0")
-    customers_path = str(Path(DATASETS_FILE).parent / "customers.json")
+    customers_path = str(DATA_INPUT_DIR / "customers.json")
     dq.link_dataset_contract(
         dataset_id="customers",
         dataset_version="1.0.0",
@@ -96,9 +97,10 @@ def run_pipeline(
         store.get(contract_id, contract_version) if contract_id and contract_version else None
     )
     server = (output_contract.servers or [None])[0] if output_contract else None
-    base_path = Path(getattr(server, "path", "")) if server else Path(DATASETS_FILE).parent
+    data_root = Path(DATA_INPUT_DIR).parent
+    base_path = Path(getattr(server, "path", "")) if server else data_root
     if not base_path.is_absolute():
-        base_path = Path(DATASETS_FILE).parent / base_path
+        base_path = data_root / base_path
     output_path = base_path / dataset_name / dataset_version
     output_path.parent.mkdir(parents=True, exist_ok=True)
     error: Exception | None = None
