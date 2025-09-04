@@ -3,7 +3,7 @@
 <h1>Datasets</h1>
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-<form class="row g-3 mb-4" method="post" action="/pipeline/run">
+<form class="row g-3 mb-4" method="post" action="/pipeline/run" id="run-form">
   <div class="col-md-4">
     <label class="form-label">Scenario</label>
     <select class="form-select" name="scenario" id="scenario">
@@ -15,7 +15,7 @@
     <div class="form-text" id="scenario-desc"></div>
   </div>
   <div class="col-md-2 align-self-end">
-    <button class="btn btn-primary w-100" type="submit">Run Pipeline</button>
+    <button class="btn btn-primary w-100" type="submit" id="run-btn">Run Pipeline</button>
   </div>
 </form>
   <table class="table table-striped">
@@ -27,6 +27,7 @@
         <th>Version</th>
         <th>Run Type</th>
         <th>Status</th>
+        <th>Violations</th>
         <th>DQ Details</th>
       </tr>
     </thead>
@@ -39,7 +40,13 @@
         <td>{{ r.dataset_version }}</td>
         <td>{{ r.run_type }}</td>
         <td>{{ r.status }}</td>
-        <td><pre class="small mb-0">{{ r.dq_details | tojson }}</pre></td>
+        <td>{{ r.violations }}</td>
+        <td>
+          <details>
+            <summary>Show</summary>
+            <pre class="small mb-0">{{ r.dq_details | tojson(indent=2) }}</pre>
+          </details>
+        </td>
       </tr>
     {% endfor %}
     </tbody>
@@ -50,7 +57,13 @@
     const descEl = document.getElementById('scenario-desc');
     scenarioSel.addEventListener('change', () => {
       const sc = scenarios[scenarioSel.value];
-      descEl.textContent = sc ? sc.description : '';
+      descEl.innerHTML = sc ? sc.description : '';
+    });
+    const runForm = document.getElementById('run-form');
+    const runBtn = document.getElementById('run-btn');
+    runForm.addEventListener('submit', () => {
+      runBtn.disabled = true;
+      runBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Running...';
     });
 </script>
 {% if not records %}<p>No datasets registered.</p>{% endif %}

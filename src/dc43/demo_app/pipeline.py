@@ -20,6 +20,7 @@ from dc43.demo_app.server import (
     save_contract_meta,
 )
 from dc43.dq.stub import StubDQClient
+from dc43.dq.metrics import compute_metrics
 from dc43.integration.spark_io import read_with_contract, write_with_contract
 from pyspark.sql import SparkSession
 
@@ -103,6 +104,7 @@ def run_pipeline(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     error: Exception | None = None
     output_details = {}
+    output_status = None
     try:
         result, draft = write_with_contract(
             df=df,
@@ -112,10 +114,28 @@ def run_pipeline(
             draft_on_mismatch=True,
             draft_store=store,
         )
-        output_details = result.details
-        if run_type == "enforce" and output_contract is None:
-            error = ValueError("Contract required for existing mode")
-        elif not result.ok:
+        if output_contract:
+            dq.link_dataset_contract(
+                dataset_id=dataset_name,
+                dataset_version=dataset_version,
+                contract_id=contract_id or output_contract.id,
+                contract_version=contract_version or output_contract.version,
+            )
+            metrics = compute_metrics(df, output_contract)
+            output_status = dq.submit_metrics(
+                contract=output_contract,
+                dataset_id=dataset_name,
+                dataset_version=dataset_version,
+                metrics=metrics,
+            )
+            output_details = output_status.details
+            if run_type == "enforce" and output_status.status != "ok":
+                error = ValueError(f"DQ violation: {output_status.details}")
+        else:
+            output_details = result.details
+            if run_type == "enforce":
+                error = ValueError("Contract required for existing mode")
+        if result.ok is False and error is None:
             error = ValueError(f"Contract validation failed: {result.errors}")
     except ValueError as exc:
         error = exc
@@ -139,10 +159,15 @@ def run_pipeline(
         "customers": customers_status.details if customers_status else None,
         "output": output_details,
     }
+    total_violations = 0
+    for det in combined_details.values():
+        if det and isinstance(det, dict):
+            total_violations += int(det.get("violations", 0))
     status_value = "ok"
     if (
         (orders_status and orders_status.status != "ok")
         or (customers_status and customers_status.status != "ok")
+        or (output_status and output_status.status != "ok")
         or error is not None
     ):
         status_value = "error"
@@ -155,6 +180,7 @@ def run_pipeline(
             status_value,
             combined_details,
             run_type,
+            total_violations,
         )
     )
     save_records(records)
