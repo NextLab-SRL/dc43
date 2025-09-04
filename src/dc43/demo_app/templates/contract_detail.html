@@ -29,11 +29,16 @@
       <dt class="col-sm-3">Description</dt><dd class="col-sm-9">{{ contract.description.usage }}</dd>
       {% endif %}
       {% if contract.servers %}
-      <dt class="col-sm-3">Server Path</dt>
+      <dt class="col-sm-3">Servers</dt>
       <dd class="col-sm-9">
+        <ul class="list-unstyled mb-0">
         {% for s in contract.servers %}
-          {{ s.path or '' }}
+          <li>
+            {{ s.server }}{% if s.type %} ({{ s.type }}){% endif %}:
+            {% if s.path %}{{ s.path }}{% elif s.dataset %}{{ s.dataset }}{% endif %}
+          </li>
         {% endfor %}
+        </ul>
       </dd>
       {% endif %}
     </dl>

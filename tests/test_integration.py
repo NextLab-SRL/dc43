@@ -93,6 +93,7 @@ def test_write_draft_on_mismatch(spark, tmp_path: Path):
     # persisted
     stored = drafts.get(draft.id, draft.version)
     assert stored.id == draft.id
+    assert draft.servers and draft.servers[0].path == str(dest_dir)
 
 
 def test_inferred_contract_id_simple(spark, tmp_path: Path):
@@ -111,3 +112,31 @@ def test_inferred_contract_id_simple(spark, tmp_path: Path):
     assert draft is not None
     assert draft.id == "sample"
     assert drafts.get(draft.id, draft.version).id == "sample"
+
+
+def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
+    expected_dir = tmp_path / "expected"
+    actual_dir = tmp_path / "actual"
+    contract = make_contract(str(expected_dir))
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    drafts = FSContractStore(str(tmp_path / "drafts"))
+    vr, draft = write_with_contract(
+        df=df,
+        contract=contract,
+        path=str(actual_dir),
+        format="parquet",
+        mode="overwrite",
+        enforce=False,
+        draft_on_mismatch=True,
+        draft_store=drafts,
+        return_draft=True,
+    )
+    assert draft is not None
+    assert draft.servers and draft.servers[0].path == str(actual_dir)
+    assert any("does not match" in w for w in vr.warnings)

@@ -8,6 +8,7 @@ and coordinating with an external Data Quality client when provided.
 
 from typing import Any, Dict, Optional, Tuple, Literal, overload
 import logging
+from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
@@ -93,6 +94,15 @@ def _propose_draft_from_dataframe(
         first = contract_doc.schema_[0]
         schema_name = first.name or cid
 
+    servers = contract_doc.servers
+    if dataset_id:
+        if dataset_id.startswith("path:"):
+            servers = [
+                Server(server="local", type="filesystem", path=dataset_id[5:])
+            ]
+        elif dataset_id.startswith("table:"):
+            servers = [Server(server="local", dataset=dataset_id[6:])]
+
     draft = OpenDataContractStandard(
         version=nver,
         kind=contract_doc.kind,
@@ -102,6 +112,7 @@ def _propose_draft_from_dataframe(
         description=contract_doc.description,
         status="draft",
         schema=[SchemaObject(name=schema_name, properties=props)],
+        servers=servers,
         customProperties=cps,
     )
     return draft
@@ -248,6 +259,10 @@ def read_with_contract(
         c_path, c_table = _ref_from_contract(contract)
         path = path or c_path
         table = table or c_table
+        if path and c_path and Path(path).resolve() != Path(c_path).resolve():
+            logger.warning(
+                "Provided path %s does not match contract server path %s", path, c_path
+            )
     if not path and not table:
         raise ValueError("Either table or path must be provided for read")
     reader = spark.read.format(format)
@@ -411,8 +426,33 @@ def write_with_contract(
             result.warnings,
         )
         out_df = apply_contract(df, contract, auto_cast=auto_cast)
+        if path and c_path and Path(path).resolve() != Path(c_path).resolve():
+            msg = f"Path {path} does not match contract server path {c_path}"
+            logger.warning(msg)
+            result.warnings.append(msg)
+            if draft_on_mismatch and draft_doc is None:
+                ds_id = dataset_id_from_ref(table=table, path=path)
+                ds_ver = (
+                    get_delta_version(df.sparkSession, table=table, path=path)
+                    if hasattr(df, "sparkSession")
+                    else None
+                )
+                draft_doc = _propose_draft_from_dataframe(
+                    df,
+                    contract,
+                    bump=draft_bump,
+                    dataset_id=ds_id,
+                    dataset_version=ds_ver,
+                )
+                if draft_store is not None:
+                    logger.info(
+                        "Persisting draft contract %s:%s due to path mismatch",
+                        draft_doc.id,
+                        draft_doc.version,
+                    )
+                    draft_store.put(draft_doc)
         if not result.ok:
-            if draft_on_mismatch:
+            if draft_on_mismatch and draft_doc is None:
                 ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
                 ds_ver = (
                     get_delta_version(df.sparkSession, table=table, path=path)
