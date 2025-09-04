@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Any
 import json
+import shutil
+import tempfile
 
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -40,18 +42,30 @@ from pydantic import ValidationError
 from packaging.version import Version
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "demo_data"
-CONTRACT_DIR = DATA_DIR / "contracts"
-DATA_INPUT_DIR = DATA_DIR / "data"
-RECORDS_DIR = DATA_DIR / "records"
+SAMPLE_DIR = BASE_DIR / "demo_data"
+WORK_DIR = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
+CONTRACT_DIR = WORK_DIR / "contracts"
+DATA_INPUT_DIR = WORK_DIR / "data"
+RECORDS_DIR = WORK_DIR / "records"
 DATASETS_FILE = RECORDS_DIR / "datasets.json"
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
-DATA_INPUT_DIR.mkdir(parents=True, exist_ok=True)
-RECORDS_DIR.mkdir(parents=True, exist_ok=True)
-if not DATASETS_FILE.exists():
-    DATASETS_FILE.write_text("[]", encoding="utf-8")
+# Copy sample data and records into a temporary working directory so the
+# application operates on absolute paths that are isolated per run.
+shutil.copytree(SAMPLE_DIR / "data", DATA_INPUT_DIR)
+shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
+
+# Prepare contracts with absolute server paths pointing inside the working dir.
+for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
+    model = OpenDataContractStandard.model_validate_json(src.read_text())
+    for srv in model.servers or []:
+        p = Path(srv.path or "")
+        if not p.is_absolute():
+            p = (WORK_DIR / p).resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        srv.path = str(p)
+    dest = CONTRACT_DIR / src.relative_to(SAMPLE_DIR / "contracts")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(model.model_dump_json(indent=2), encoding="utf-8")
 
 store = FSContractStore(str(CONTRACT_DIR))
 
@@ -344,6 +358,7 @@ async def save_contract_edits(
     columns: str = Form(""),
     dataset_path: str = Form(""),
 ) -> HTMLResponse:
+    path = Path(dataset_path)
     try:
         props = []
         for line in columns.splitlines():
@@ -352,6 +367,8 @@ async def save_contract_edits(
                 continue
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
+        if not path.is_absolute():
+            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -360,7 +377,7 @@ async def save_contract_edits(
             name=name,
             description=Description(usage=description),
             schema=[SchemaObject(name=name, properties=props)],
-            servers=[Server(server="local", type="filesystem", path=dataset_path)],
+            servers=[Server(server="local", type="filesystem", path=str(path))],
         )
         store.put(model)
         return RedirectResponse(url=f"/contracts/{contract_id}/{contract_version}", status_code=303)
@@ -377,7 +394,7 @@ async def save_contract_edits(
         "name": name,
         "description": description,
         "columns": columns,
-        "dataset_path": dataset_path,
+        "dataset_path": str(path),
         "original_version": ver,
     }
     return templates.TemplateResponse("new_contract.html", context)
@@ -403,6 +420,7 @@ async def create_contract(
     columns: str = Form(""),
     dataset_path: str = Form(""),
 ) -> HTMLResponse:
+    path = Path(dataset_path)
     try:
         props = []
         for line in columns.splitlines():
@@ -411,6 +429,8 @@ async def create_contract(
                 continue
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
+        if not path.is_absolute():
+            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -419,7 +439,7 @@ async def create_contract(
             name=name,
             description=Description(usage=description),
             schema=[SchemaObject(name=name, properties=props)],
-            servers=[Server(server="local", type="filesystem", path=dataset_path)],
+            servers=[Server(server="local", type="filesystem", path=str(path))],
         )
         store.put(model)
         return RedirectResponse(url="/contracts", status_code=303)
@@ -435,7 +455,7 @@ async def create_contract(
         "name": name,
         "description": description,
         "columns": columns,
-        "dataset_path": dataset_path,
+        "dataset_path": str(path),
     }
     return templates.TemplateResponse("new_contract.html", context)
 
