@@ -73,6 +73,7 @@ class DatasetRecord:
     dq_details: Dict[str, Any] = field(default_factory=dict)
     run_type: str = "infer"
     violations: int = 0
+    draft_contract_version: str | None = None
 
 
 def load_records() -> List[DatasetRecord]:
@@ -255,6 +256,10 @@ async def api_datasets() -> List[Dict[str, Any]]:
     for r in records:
         rec = r.__dict__.copy()
         rec["contract_status"] = get_contract_status(r.contract_id, r.contract_version)
+        if r.draft_contract_version:
+            rec["draft_contract_status"] = get_contract_status(
+                r.contract_id, r.draft_contract_version
+            )
         out.append(rec)
     return out
 
@@ -268,6 +273,11 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
                 "contract_status": get_contract_status(r.contract_id, r.contract_version),
+                "draft_contract_status": get_contract_status(
+                    r.contract_id, r.draft_contract_version
+                )
+                if r.draft_contract_version
+                else None,
                 "expectations": expectations_from_contract(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
@@ -282,6 +292,15 @@ async def index() -> FileResponse:
 async def list_contracts(request: Request) -> HTMLResponse:
     contracts = load_contract_meta()
     return templates.TemplateResponse("contracts.html", {"request": request, "contracts": contracts})
+
+
+@app.get("/contracts/{cid}", response_class=HTMLResponse)
+async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
+    contracts = [c for c in load_contract_meta() if c["id"] == cid]
+    if not contracts:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    context = {"request": request, "contract_id": cid, "contracts": contracts}
+    return templates.TemplateResponse("contract_versions.html", context)
 
 
 @app.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
@@ -470,6 +489,10 @@ async def list_datasets(request: Request) -> HTMLResponse:
     for r in records:
         rec = r.__dict__.copy()
         rec["contract_status"] = get_contract_status(r.contract_id, r.contract_version)
+        if r.draft_contract_version:
+            rec["draft_contract_status"] = get_contract_status(
+                r.contract_id, r.draft_contract_version
+            )
         recs.append(rec)
     context = {
         "request": request,
@@ -491,6 +514,11 @@ async def dataset_detail(request: Request, dataset_version: str) -> HTMLResponse
                 "record": r,
                 "contract": contract_to_dict(contract),
                 "contract_status": get_contract_status(r.contract_id, r.contract_version),
+                "draft_contract_status": get_contract_status(
+                    r.contract_id, r.draft_contract_version
+                )
+                if r.draft_contract_version
+                else None,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")

@@ -10,6 +10,13 @@ def test_contract_detail_page():
     assert resp.status_code == 200
 
 
+def test_contract_versions_page():
+    rec = load_records()[0]
+    client = TestClient(app)
+    resp = client.get(f"/contracts/{rec.contract_id}")
+    assert resp.status_code == 200
+
+
 def test_dataset_detail_page():
     rec = load_records()[0]
     client = TestClient(app)
