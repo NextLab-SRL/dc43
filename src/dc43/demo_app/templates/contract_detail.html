@@ -2,16 +2,97 @@
 {% block content %}
 <h1>Contract {{ contract.id }} {{ contract.version }}</h1>
 <p>Status: {{ status }}</p>
-<p><a href="/api/contracts/{{ contract.id }}/{{ contract.version }}">Download JSON</a></p>
-{% if datasets %}
-<h2>Datasets</h2>
-<ul>
-  {% for d in datasets %}
-  <li><a href="/datasets/{{ d.dataset_version }}">{{ d.dataset_name }} {{ d.dataset_version }}</a> - {{ d.status }}</li>
-  {% endfor %}
- </ul>
-{% endif %}
-<h2>Contract</h2>
-<pre class="small">{{ contract | tojson(indent=2) }}</pre>
+<p>
+  <a class="btn btn-secondary btn-sm" href="/api/contracts/{{ contract.id }}/{{ contract.version }}">Download JSON</a>
+  <a class="btn btn-primary btn-sm" href="/contracts/{{ contract.id }}/{{ contract.version }}/edit">Edit</a>
+  {% if status == 'draft' %}
+  <form method="post" action="/contracts/{{ contract.id }}/{{ contract.version }}/validate" class="d-inline">
+    <button class="btn btn-success btn-sm" type="submit">Validate</button>
+  </form>
+  {% endif %}
+</p>
+
+<ul class="nav nav-tabs" id="contractTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">Overview</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="schema-tab" data-bs-toggle="tab" data-bs-target="#schema" type="button" role="tab">Schema</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="quality-tab" data-bs-toggle="tab" data-bs-target="#quality" type="button" role="tab">Quality</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="json-tab" data-bs-toggle="tab" data-bs-target="#json" type="button" role="tab">JSON</button>
+  </li>
+</ul>
+<div class="tab-content mt-3" id="contractTabsContent">
+  <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab">
+    <dl class="row">
+      <dt class="col-sm-3">Name</dt><dd class="col-sm-9">{{ contract.name }}</dd>
+      {% if contract.description and contract.description.usage %}
+      <dt class="col-sm-3">Description</dt><dd class="col-sm-9">{{ contract.description.usage }}</dd>
+      {% endif %}
+      {% if contract.servers %}
+      <dt class="col-sm-3">Server Path</dt>
+      <dd class="col-sm-9">
+        {% for s in contract.servers %}
+          {{ s.path or '' }}
+        {% endfor %}
+      </dd>
+      {% endif %}
+    </dl>
+    {% if datasets %}
+    <h5>Datasets</h5>
+    <ul>
+      {% for d in datasets %}
+      <li><a href="/datasets/{{ d.dataset_version }}">{{ d.dataset_name }} {{ d.dataset_version }}</a> - {{ d.status }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  <div class="tab-pane fade" id="schema" role="tabpanel" aria-labelledby="schema-tab">
+    <div class="accordion" id="schema-accordion">
+      {% for s in contract.schema %}
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="schema-{{ loop.index }}-h">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#schema-{{ loop.index }}">
+            {{ s.name }}
+          </button>
+        </h2>
+        <div id="schema-{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#schema-accordion">
+          <div class="accordion-body">
+            <table class="table table-sm">
+              <thead><tr><th>Name</th><th>Type</th><th>Required</th></tr></thead>
+              <tbody>
+              {% for p in s.properties %}
+              <tr><td>{{ p.name }}</td><td>{{ p.physicalType }}</td><td>{{ 'yes' if p.required else 'no' }}</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="tab-pane fade" id="quality" role="tabpanel" aria-labelledby="quality-tab">
+    {% if expectations %}
+    <table class="table table-sm">
+      <thead><tr><th>Name</th><th>Predicate</th></tr></thead>
+      <tbody>
+      {% for name, expr in expectations.items() %}
+      <tr><td>{{ name }}</td><td><code>{{ expr }}</code></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No quality rules defined.</p>
+    {% endif %}
+  </div>
+  <div class="tab-pane fade" id="json" role="tabpanel" aria-labelledby="json-tab">
+    <pre class="small">{{ contract | tojson(indent=2) }}</pre>
+  </div>
+</div>
 {% endblock %}
 

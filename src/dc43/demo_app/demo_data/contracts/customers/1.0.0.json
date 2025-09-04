@@ -5,7 +5,7 @@
   "id": "customers",
   "name": "Customers",
   "description": {"usage": "Sample customers contract"},
-  "status": "draft",
+  "status": "active",
   "servers": [
     {
       "server": "local",
