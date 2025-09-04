@@ -45,13 +45,13 @@ BASE_DIR = Path(__file__).resolve().parent
 SAMPLE_DIR = BASE_DIR / "demo_data"
 WORK_DIR = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
 CONTRACT_DIR = WORK_DIR / "contracts"
-DATA_INPUT_DIR = WORK_DIR / "data"
+DATA_DIR = WORK_DIR / "data"
 RECORDS_DIR = WORK_DIR / "records"
 DATASETS_FILE = RECORDS_DIR / "datasets.json"
 
 # Copy sample data and records into a temporary working directory so the
 # application operates on absolute paths that are isolated per run.
-shutil.copytree(SAMPLE_DIR / "data", DATA_INPUT_DIR)
+shutil.copytree(SAMPLE_DIR / "data", DATA_DIR)
 shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
 
 # Prepare contracts with absolute server paths pointing inside the working dir.
@@ -383,7 +383,7 @@ async def save_contract_edits(
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
         if not path.is_absolute():
-            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
+            path = (Path(DATA_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -445,7 +445,7 @@ async def create_contract(
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
         if not path.is_absolute():
-            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
+            path = (Path(DATA_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -500,7 +500,7 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
 
 def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
     server = (contract.servers or [None])[0] if contract else None
-    data_root = Path(DATA_INPUT_DIR).parent
+    data_root = Path(DATA_DIR).parent
     base = Path(getattr(server, "path", "")) if server else data_root
     if not base.is_absolute():
         base = data_root / base
