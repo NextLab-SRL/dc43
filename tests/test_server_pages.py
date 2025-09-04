@@ -3,6 +3,12 @@ from fastapi.testclient import TestClient
 from dc43.demo_app.server import app, load_records
 
 
+def test_contracts_page():
+    client = TestClient(app)
+    resp = client.get("/contracts")
+    assert resp.status_code == 200
+
+
 def test_contract_detail_page():
     rec = load_records()[0]
     client = TestClient(app)

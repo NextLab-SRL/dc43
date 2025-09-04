@@ -253,8 +253,10 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
-    contracts = load_contract_meta()
-    return templates.TemplateResponse("contracts.html", {"request": request, "contracts": contracts})
+    contract_ids = store.list_contracts()
+    return templates.TemplateResponse(
+        "contracts.html", {"request": request, "contracts": contract_ids}
+    )
 
 
 @app.get("/contracts/{cid}", response_class=HTMLResponse)
