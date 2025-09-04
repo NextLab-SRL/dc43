@@ -93,3 +93,21 @@ def test_write_draft_on_mismatch(spark, tmp_path: Path):
     # persisted
     stored = drafts.get(draft.id, draft.version)
     assert stored.id == draft.id
+
+
+def test_inferred_contract_id_simple(spark, tmp_path: Path):
+    dest = tmp_path / "out" / "sample" / "1.0.0"
+    df = spark.createDataFrame([(1,)], ["a"])
+    drafts = FSContractStore(str(tmp_path / "drafts"))
+    vr, draft = write_with_contract(
+        df=df,
+        path=str(dest),
+        format="json",
+        mode="overwrite",
+        draft_on_mismatch=True,
+        draft_store=drafts,
+        enforce=False,
+    )
+    assert draft is not None
+    assert draft.id == "sample"
+    assert drafts.get(draft.id, draft.version).id == "sample"
