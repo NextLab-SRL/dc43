@@ -7,6 +7,7 @@ and coordinating with an external Data Quality client when provided.
 """
 
 from typing import Any, Dict, Optional, Tuple
+import logging
 
 try:
     from pyspark.sql import DataFrame, SparkSession
@@ -28,6 +29,8 @@ from open_data_contract_standard.model import (
     Server,
 )  # type: ignore
 from ..storage.base import ContractStore
+
+logger = logging.getLogger(__name__)
 
 def _propose_draft_from_dataframe(
     df: DataFrame,
@@ -183,8 +186,15 @@ def read_with_contract(
     if contract:
         ensure_version(contract)
         cid, cver = contract_identity(contract)
+        logger.info("Reading with contract %s:%s", cid, cver)
         _check_contract_version(expected_contract_version, cver)
         result = validate_dataframe(df, contract)
+        logger.info(
+            "Read validation: ok=%s errors=%s warnings=%s",
+            result.ok,
+            result.errors,
+            result.warnings,
+        )
         if not result.ok and enforce:
             raise ValueError(f"Contract validation failed: {result.errors}")
         df = apply_contract(df, contract, auto_cast=auto_cast)
@@ -208,9 +218,11 @@ def read_with_contract(
             )
             if status.status in ("unknown", "stale"):
                 m = compute_metrics(df, contract)
+                logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
                 status = dq_client.submit_metrics(
                     contract=contract, dataset_id=ds_id, dataset_version=ds_ver, metrics=m
                 )
+        logger.info("DQ status for %s@%s: %s", ds_id, ds_ver, status.status)
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
 
@@ -255,8 +267,16 @@ def write_with_contract(
     result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
     if contract:
         ensure_version(contract)
+        cid, cver = contract_identity(contract)
+        logger.info("Writing with contract %s:%s", cid, cver)
         # validate before write and align schema for write
         result = validate_dataframe(df, contract)
+        logger.info(
+            "Write validation: ok=%s errors=%s warnings=%s",
+            result.ok,
+            result.errors,
+            result.warnings,
+        )
         if not result.ok:
             if draft_on_mismatch:
                 ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
@@ -273,6 +293,11 @@ def write_with_contract(
                     dataset_version=ds_ver,
                 )
                 if draft_store is not None:
+                    logger.info(
+                        "Persisting draft contract %s:%s due to mismatch",
+                        draft_doc.id,
+                        draft_doc.version,
+                    )
                     draft_store.put(draft_doc)
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
@@ -301,6 +326,11 @@ def write_with_contract(
             dataset_id=ds_id,
             dataset_version=ds_ver,
         )
+        logger.info(
+            "Persisting inferred draft contract %s:%s",
+            draft_doc.id,
+            draft_doc.version,
+        )
         draft_store.put(draft_doc)
 
     writer = out_df.write
@@ -310,10 +340,12 @@ def write_with_contract(
         writer = writer.options(**options)
     writer = writer.mode(mode)
     if table:
+        logger.info("Writing dataframe to table %s", table)
         writer.saveAsTable(table)
     else:
         if not path:
             raise ValueError("Either table or path must be provided for write")
+        logger.info("Writing dataframe to path %s", path)
         writer.save(path)
     # Propagate the validation result to callers.  When ``return_draft`` is
     # requested we include the proposed draft document as a second tuple value.

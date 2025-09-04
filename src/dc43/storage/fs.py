@@ -5,11 +5,14 @@ from __future__ import annotations
 Stores ODCS documents under ``{base}/{contract_id}/{version}.json``.
 """
 
+import logging
 import os
 from typing import List
 from .base import ContractStore
 from ..odcs import as_odcs_dict, ensure_version, contract_identity, to_model
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 class FSContractStore(ContractStore):
@@ -32,6 +35,7 @@ class FSContractStore(ContractStore):
         d = self._dir(cid)
         os.makedirs(d, exist_ok=True)
         p = self._path(cid, ver)
+        logger.info("Storing contract %s:%s at %s", cid, ver, p)
         with open(p, "w", encoding="utf-8") as f:
             import json
 
@@ -40,6 +44,7 @@ class FSContractStore(ContractStore):
     def get(self, contract_id: str, version: str) -> OpenDataContractStandard:
         """Read an ODCS document as a model from the filesystem."""
         p = self._path(contract_id, version)
+        logger.info("Loading contract %s:%s from %s", contract_id, version, p)
         with open(p, "r", encoding="utf-8") as f:
             import json
             return to_model(json.loads(f.read()))
