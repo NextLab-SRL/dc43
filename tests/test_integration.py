@@ -104,7 +104,7 @@ def test_inferred_contract_id_simple(spark, tmp_path: Path):
     vr, draft = write_with_contract(
         df=df,
         path=str(dest),
-        format="json",
+        format="parquet",
         mode="overwrite",
         draft_on_mismatch=True,
         draft_store=drafts,
@@ -113,7 +113,7 @@ def test_inferred_contract_id_simple(spark, tmp_path: Path):
     assert draft is not None
     assert draft.id == "sample"
     assert drafts.get(draft.id, draft.version).id == "sample"
-    assert draft.servers and draft.servers[0].format == "json"
+    assert draft.servers and draft.servers[0].format == "parquet"
 
 
 def test_write_warn_on_path_mismatch(spark, tmp_path: Path):

@@ -11,7 +11,7 @@
       "server": "local",
       "type": "filesystem",
       "path": "outputs",
-      "format": "json"
+      "format": "parquet"
     }
   ],
   "schema": [

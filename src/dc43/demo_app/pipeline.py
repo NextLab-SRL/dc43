@@ -111,6 +111,7 @@ def run_pipeline(
             df=df,
             contract=output_contract,
             path=str(output_path),
+            format=getattr(server, "format", "parquet"),
             mode="overwrite",
             enforce=False,
             draft_on_mismatch=True,

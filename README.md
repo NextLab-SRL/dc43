@@ -60,6 +60,7 @@ write_with_contract(
     df=orders_df,
     contract=contract,
     path="/mnt/gold/sales/orders",
+    format=contract.servers[0].format,
     mode="append",
     enforce=True,
     auto_cast=True,
@@ -120,6 +121,7 @@ vr, draft = write_with_contract(
     df=orders_df,
     contract=contract,
     path="/mnt/gold/sales/orders",
+    format=contract.servers[0].format,
     mode="append",
     enforce=False,                 # continue writing
     draft_on_mismatch=True,        # create a draft when schema diverges
