@@ -6,7 +6,7 @@ High-level wrappers to read/write DataFrames while enforcing ODCS contracts
 and coordinating with an external Data Quality client when provided.
 """
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Literal, overload
 import logging
 
 from pyspark.sql import DataFrame, SparkSession
@@ -138,6 +138,68 @@ def _ref_from_contract(contract: OpenDataContractStandard) -> tuple[Optional[str
     return None, table
 
 
+# Overloads help type checkers infer the return type based on ``return_status``
+# so callers can destructure the tuple without false positives.
+@overload
+def read_with_contract(
+    spark: SparkSession,
+    *,
+    format: str,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    contract: Optional[OpenDataContractStandard] = None,
+    enforce: bool = True,
+    auto_cast: bool = True,
+    dq_client: Optional[DQClient] = None,
+    expected_contract_version: Optional[str] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: Literal[True] = True,
+) -> tuple[DataFrame, Optional[DQStatus]]:
+    ...
+
+
+@overload
+def read_with_contract(
+    spark: SparkSession,
+    *,
+    format: str,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    contract: Optional[OpenDataContractStandard] = None,
+    enforce: bool = True,
+    auto_cast: bool = True,
+    dq_client: Optional[DQClient] = None,
+    expected_contract_version: Optional[str] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: Literal[False],
+) -> DataFrame:
+    ...
+
+
+@overload
+def read_with_contract(
+    spark: SparkSession,
+    *,
+    format: str,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    contract: Optional[OpenDataContractStandard] = None,
+    enforce: bool = True,
+    auto_cast: bool = True,
+    dq_client: Optional[DQClient] = None,
+    expected_contract_version: Optional[str] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: bool = True,
+) -> DataFrame | tuple[DataFrame, Optional[DQStatus]]:
+    ...
+
+
 def read_with_contract(
     spark: SparkSession,
     *,
@@ -153,7 +215,8 @@ def read_with_contract(
     expected_contract_version: Optional[str] = None,  # e.g. '==1.2.0' or '>=1.0.0'
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
-) -> Tuple[DataFrame, Optional[DQStatus]]:
+    return_status: bool = True,
+) -> DataFrame | Tuple[DataFrame, Optional[DQStatus]]:
     """Read a DataFrame and validate/enforce an ODCS contract.
 
     - If ``contract`` is provided, validates schema and aligns columns/types.
@@ -221,7 +284,69 @@ def read_with_contract(
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
 
-    return (df, status)
+    return (df, status) if return_status else df
+
+
+# Overloads allow static checkers to track the tuple return when
+# ``return_draft`` is set, avoiding "DataFrame is not iterable" warnings.
+@overload
+def write_with_contract(
+    *,
+    df: DataFrame,
+    contract: Optional[OpenDataContractStandard] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    format: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    mode: str = "append",
+    enforce: bool = True,
+    auto_cast: bool = True,
+    draft_on_mismatch: bool = False,
+    draft_store: Optional[ContractStore] = None,
+    draft_bump: str = "minor",
+    return_draft: Literal[True] = True,
+) -> tuple[ValidationResult, Optional[OpenDataContractStandard]]:
+    ...
+
+
+@overload
+def write_with_contract(
+    *,
+    df: DataFrame,
+    contract: Optional[OpenDataContractStandard] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    format: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    mode: str = "append",
+    enforce: bool = True,
+    auto_cast: bool = True,
+    draft_on_mismatch: bool = False,
+    draft_store: Optional[ContractStore] = None,
+    draft_bump: str = "minor",
+    return_draft: Literal[False],
+) -> ValidationResult:
+    ...
+
+
+@overload
+def write_with_contract(
+    *,
+    df: DataFrame,
+    contract: Optional[OpenDataContractStandard] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    format: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    mode: str = "append",
+    enforce: bool = True,
+    auto_cast: bool = True,
+    draft_on_mismatch: bool = False,
+    draft_store: Optional[ContractStore] = None,
+    draft_bump: str = "minor",
+    return_draft: bool = True,
+) -> ValidationResult | tuple[ValidationResult, Optional[OpenDataContractStandard]]:
+    ...
 
 
 def write_with_contract(
@@ -239,7 +364,8 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
-) -> Tuple[ValidationResult, Optional[OpenDataContractStandard]]:
+    return_draft: bool = True,
+) -> ValidationResult | Tuple[ValidationResult, Optional[OpenDataContractStandard]]:
     """Validate/align a DataFrame then write it using Spark writers.
 
     Applies the contract schema before writing and merges IO options coming
@@ -343,4 +469,4 @@ def write_with_contract(
         writer.save(path)
     # Propagate the validation result to callers.  When ``return_draft`` is
     # requested we include the proposed draft document as a second tuple value.
-    return (result, draft_doc)
+    return (result, draft_doc) if return_draft else result
