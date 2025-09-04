@@ -125,13 +125,14 @@ def run_pipeline(
             examples_limit=examples_limit,
         )
 
+    error: ValueError | None = None
     if run_type == "enforce":
         if not output_contract:
-            raise ValueError("Contract required for existing mode")
-        if output_status and output_status.status != "ok":
-            raise ValueError(f"DQ violation: {output_status.details}")
-        if not result.ok:
-            raise ValueError(f"Contract validation failed: {result.errors}")
+            error = ValueError("Contract required for existing mode")
+        elif output_status and output_status.status != "ok":
+            error = ValueError(f"DQ violation: {output_status.details}")
+        elif not result.ok:
+            error = ValueError(f"Contract validation failed: {result.errors}")
 
     draft_version: str | None = draft.version if draft else None
     output_details = {**result.details, **(output_status.details if output_status else {})}
@@ -150,6 +151,7 @@ def run_pipeline(
         (orders_status and orders_status.status != "ok")
         or (customers_status and customers_status.status != "ok")
         or (output_status and output_status.status != "ok")
+        or error is not None
     ):
         status_value = "error"
     records.append(
@@ -167,4 +169,6 @@ def run_pipeline(
     )
     save_records(records)
     spark.stop()
+    if error:
+        raise error
     return dataset_version
