@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, Optional
 
 from .base import DQClient, DQStatus
 from ..odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 class StubDQClient(DQClient):
@@ -23,6 +26,7 @@ class StubDQClient(DQClient):
     def __init__(self, base_path: str, *, block_on_violation: bool = True):
         self.base_path = base_path.rstrip("/")
         self.block_on_violation = block_on_violation
+        logger.info("Initialized StubDQClient at %s", self.base_path)
 
     def _safe(self, s: str) -> str:
         """Return a filesystem-safe version of ``s``.
@@ -53,6 +57,7 @@ class StubDQClient(DQClient):
         dataset_version: str,
     ) -> DQStatus:
         path = self._status_path(dataset_id, dataset_version)
+        logger.debug("Fetching DQ status from %s", path)
         if not os.path.exists(path):
             return DQStatus(status="unknown", reason="no-status-for-version")
         with open(path, "r", encoding="utf-8") as f:
@@ -85,6 +90,7 @@ class StubDQClient(DQClient):
 
         # Persist status
         path = self._status_path(dataset_id, dataset_version)
+        logger.info("Persisting DQ status %s for %s@%s to %s", status, dataset_id, dataset_version, path)
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"status": status, "details": details}, f)
         # Ensure link exists
@@ -105,6 +111,14 @@ class StubDQClient(DQClient):
         contract_version: str,
     ) -> None:
         path = self._links_path(dataset_id)
+        logger.info(
+            "Linking dataset %s@%s to contract %s:%s at %s",
+            dataset_id,
+            dataset_version,
+            contract_id,
+            contract_version,
+            path,
+        )
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"contract_id": contract_id, "contract_version": contract_version, "dataset_version": dataset_version}, f)
 
@@ -115,4 +129,6 @@ class StubDQClient(DQClient):
             return None
         with open(path, "r", encoding="utf-8") as f:
             d = json.load(f)
-        return f"{d.get('contract_id')}:{d.get('contract_version')}"
+        link = f"{d.get('contract_id')}:{d.get('contract_version')}"
+        logger.debug("Found contract link for %s -> %s", dataset_id, link)
+        return link

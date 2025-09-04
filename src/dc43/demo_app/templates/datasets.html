@@ -4,15 +4,26 @@
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 <form class="row g-3 mb-4" method="post" action="/pipeline/run">
-  <div class="col-md-4">
+  <div class="col-md-3">
+    <label class="form-label">Scenario</label>
+    <select class="form-select" id="scenario">
+      <option value="">(custom)</option>
+      <option value="no-contract">No contract provided</option>
+      <option value="ok">Existing contract OK</option>
+      <option value="dq">Existing contract fails DQ</option>
+      <option value="schema-dq">Contract fails schema and DQ</option>
+    </select>
+  </div>
+  <div class="col-md-3">
     <label class="form-label">Contract ID</label>
     <select class="form-select" name="contract_id" id="contract_id">
+      <option value="">(none)</option>
       {% for cid in contract_ids %}
       <option value="{{ cid }}">{{ cid }}</option>
       {% endfor %}
     </select>
   </div>
-  <div class="col-md-4">
+  <div class="col-md-2">
     <label class="form-label">Contract Version</label>
     <select class="form-select" name="contract_version" id="contract_version"></select>
   </div>
@@ -37,42 +48,99 @@
   <div class="col-md-2">
     <label class="form-label">Run Type</label>
     <select class="form-select" name="run_type">
-      <option value="new">New output without contract</option>
-      <option value="known">Output with known valid contract</option>
-      <option value="unknown">Unknown</option>
+      <option value="infer">Infer contract from data</option>
+      <option value="enforce">Enforce existing contract</option>
     </select>
   </div>
   <div class="col-md-2 align-self-end">
     <button class="btn btn-primary w-100" type="submit">Run Pipeline</button>
   </div>
 </form>
-<table class="table table-striped">
-  <thead><tr><th>Contract ID</th><th>Contract Version</th><th>Dataset</th><th>Version</th><th>Run Type</th><th>Status</th></tr></thead>
-  <tbody>
-  {% for r in records %}
-  <tr><td>{{ r.contract_id }}</td><td>{{ r.contract_version }}</td><td>{{ r.dataset_name }}</td><td>{{ r.dataset_version }}</td><td>{{ r.run_type }}</td><td>{{ r.status }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Contract ID</th>
+        <th>Contract Version</th>
+        <th>Dataset</th>
+        <th>Version</th>
+        <th>Run Type</th>
+        <th>Status</th>
+        <th>DQ Details</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in records %}
+      <tr>
+        <td>{{ r.contract_id }}</td>
+        <td>{{ r.contract_version }}</td>
+        <td>{{ r.dataset_name }}</td>
+        <td>{{ r.dataset_version }}</td>
+        <td>{{ r.run_type }}</td>
+        <td>{{ r.status }}</td>
+        <td><pre class="small mb-0">{{ r.dq_details | tojson }}</pre></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
 <script>
-  const contractVersions = {{ contract_versions | tojson }};
-  const cidSel = document.getElementById('contract_id');
-  const verSel = document.getElementById('contract_version');
-  function updateVersions() {
-    verSel.innerHTML = '';
+    const contractVersions = {{ contract_versions | tojson }};
+    const cidSel = document.getElementById('contract_id');
+    const verSel = document.getElementById('contract_version');
+    const scenarioSel = document.getElementById('scenario');
+    const dsName = document.querySelector('input[name="dataset_name"]');
+    const runTypeSel = document.querySelector('select[name="run_type"]');
+    function updateVersions() {
     const versions = contractVersions[cidSel.value] || [];
+    verSel.innerHTML = '';
+    if (!versions.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '';
+      verSel.appendChild(opt);
+      return;
+    }
     versions.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v;
       opt.textContent = v;
       verSel.appendChild(opt);
     });
-    if (versions.length) {
-      verSel.value = versions[0];
-    }
+    verSel.value = versions[0];
   }
-  cidSel.addEventListener('change', updateVersions);
-  updateVersions();
+    cidSel.addEventListener('change', updateVersions);
+    updateVersions();
+    function applyScenario() {
+      switch (scenarioSel.value) {
+        case 'no-contract':
+          dsName.value = 'result-no-existing-contract';
+          cidSel.value = '';
+          updateVersions();
+          runTypeSel.value = 'enforce';
+          break;
+        case 'ok':
+          dsName.value = 'output-ok-contract';
+          cidSel.value = 'orders_enriched';
+          updateVersions();
+          verSel.value = '1.0.0';
+          runTypeSel.value = 'enforce';
+          break;
+        case 'dq':
+          dsName.value = 'output-wrong-quality';
+          cidSel.value = 'orders_enriched';
+          updateVersions();
+          verSel.value = '1.1.0';
+          runTypeSel.value = 'enforce';
+          break;
+        case 'schema-dq':
+          dsName.value = 'output-ko';
+          cidSel.value = 'orders_enriched';
+          updateVersions();
+          verSel.value = '2.0.0';
+          runTypeSel.value = 'enforce';
+          break;
+      }
+    }
+    scenarioSel.addEventListener('change', applyScenario);
 </script>
 {% if not records %}<p>No datasets registered.</p>{% endif %}
 {% endblock %}

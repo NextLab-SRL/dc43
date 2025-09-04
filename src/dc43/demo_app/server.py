@@ -66,7 +66,7 @@ class DatasetRecord:
     dataset_version: str = ""
     status: str = "unknown"
     dq_details: Dict[str, Any] = field(default_factory=dict)
-    run_type: str = "unknown"
+    run_type: str = "infer"
 
 
 def load_records() -> List[DatasetRecord]:
@@ -285,19 +285,19 @@ async def list_datasets(request: Request) -> HTMLResponse:
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
 async def run_pipeline_endpoint(
-    contract_id: str = Form(...),
-    contract_version: str = Form(...),
+    contract_id: str = Form(""),
+    contract_version: str = Form(""),
     dataset_name: str = Form(...),
     dataset_version: str = Form(""),
-    run_type: str = Form("unknown"),
+    run_type: str = Form("infer"),
 ) -> HTMLResponse:
     from .pipeline import run_pipeline
 
     input_path = str(DATA_DIR / "sample_input.json")
     try:
         new_version = run_pipeline(
-            contract_id,
-            contract_version,
+            contract_id or None,
+            contract_version or None,
             dataset_name,
             dataset_version or None,
             run_type,
