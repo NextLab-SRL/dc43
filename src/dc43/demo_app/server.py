@@ -137,6 +137,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "contract_version": "1.1.0",
             "dataset_name": "output-wrong-quality",
             "run_type": "enforce",
+            "collect_examples": True,
+            "examples_limit": 3,
         },
     },
     "schema-dq": {
@@ -370,6 +372,8 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p["dataset_name"],
             p.get("dataset_version"),
             p.get("run_type", "infer"),
+            p.get("collect_examples", False),
+            p.get("examples_limit", 5),
         )
         params = urlencode({"msg": f"Run succeeded: {p['dataset_name']} {new_version}"})
     except Exception as exc:  # pragma: no cover - surface pipeline errors

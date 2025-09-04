@@ -34,13 +34,27 @@
     <tbody>
     {% for r in records %}
       <tr>
-        <td>{{ r.contract_id }}</td>
-        <td>{{ r.contract_version }}</td>
+        <td><a href="/api/contracts/{{ r.contract_id }}/{{ r.contract_version }}" target="_blank">{{ r.contract_id }}</a></td>
+        <td><a href="/api/contracts/{{ r.contract_id }}/{{ r.contract_version }}" target="_blank">{{ r.contract_version }}</a></td>
         <td>{{ r.dataset_name }}</td>
-        <td>{{ r.dataset_version }}</td>
+        <td><a href="/api/datasets/{{ r.dataset_version }}" target="_blank">{{ r.dataset_version }}</a></td>
         <td>{{ r.run_type }}</td>
-        <td>{{ r.status }}</td>
-        <td>{{ r.violations }}</td>
+        <td>
+          {{ r.status }}
+          {% if r.dq_details.get('output', {}).get('warnings') %}
+            <span class="text-warning ms-1" title="Schema warnings">&#9888;</span>
+          {% endif %}
+        </td>
+        <td>
+          {% set fails = r.dq_details.get('output', {}).get('failed_expectations', {}) %}
+          {% if fails %}
+            {% for key, info in fails.items() %}
+              <div>{{ key }} ({{ info.count }})</div>
+            {% endfor %}
+          {% else %}
+            {{ r.violations }}
+          {% endif %}
+        </td>
         <td>
           <details>
             <summary>Show</summary>
