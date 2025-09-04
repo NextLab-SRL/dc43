@@ -28,6 +28,19 @@ from ..storage.base import ContractStore
 
 logger = logging.getLogger(__name__)
 
+
+def _simple_contract_id(dataset_id: str) -> str:
+    """Return a human-friendly contract id from a dataset reference."""
+    from pathlib import Path
+
+    if dataset_id.startswith("path:"):
+        p = Path(dataset_id[5:])
+        # Use the parent directory name, dropping version segments
+        return p.parent.name or p.name
+    if dataset_id.startswith("table:"):
+        return dataset_id.split(":", 1)[1]
+    return dataset_id
+
 def _propose_draft_from_dataframe(
     df: DataFrame,
     contract_doc: OpenDataContractStandard,
@@ -389,7 +402,7 @@ def write_with_contract(
         ensure_version(contract)
         cid, cver = contract_identity(contract)
         logger.info("Writing with contract %s:%s", cid, cver)
-        # validate before write and align schema for write
+        # validate before write and always align schema for downstream metrics
         result = validate_dataframe(df, contract)
         logger.info(
             "Write validation: ok=%s errors=%s warnings=%s",
@@ -397,6 +410,7 @@ def write_with_contract(
             result.errors,
             result.warnings,
         )
+        out_df = apply_contract(df, contract, auto_cast=auto_cast)
         if not result.ok:
             if draft_on_mismatch:
                 ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
@@ -421,12 +435,11 @@ def write_with_contract(
                     draft_store.put(draft_doc)
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
-        else:
-            out_df = apply_contract(df, contract, auto_cast=auto_cast)
     elif draft_store is not None:
         # No contract supplied: infer one from the DataFrame schema and persist as
         # a draft so callers can review or evolve it later.
-        ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
+        ds_id_raw = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
+        ds_id = _simple_contract_id(ds_id_raw)
         ds_ver = (
             get_delta_version(df.sparkSession, table=table, path=path)
             if hasattr(df, "sparkSession")
@@ -443,7 +456,7 @@ def write_with_contract(
             df,
             base,
             bump=draft_bump,
-            dataset_id=ds_id,
+            dataset_id=ds_id_raw,
             dataset_version=ds_ver,
         )
         logger.info(

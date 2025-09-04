@@ -20,8 +20,9 @@ from dc43.demo_app.server import (
     save_contract_meta,
 )
 from dc43.dq.stub import StubDQClient
-from dc43.dq.metrics import compute_metrics
+from dc43.dq.metrics import compute_metrics, expectations_from_contract
 from dc43.integration.spark_io import read_with_contract, write_with_contract
+from dc43.integration.validation import apply_contract
 from pyspark.sql import SparkSession
 
 
@@ -111,6 +112,7 @@ def run_pipeline(
             contract=output_contract,
             path=str(output_path),
             mode="overwrite",
+            enforce=False,
             draft_on_mismatch=True,
             draft_store=store,
         )
@@ -121,16 +123,29 @@ def run_pipeline(
                 contract_id=contract_id or output_contract.id,
                 contract_version=contract_version or output_contract.version,
             )
-            metrics = compute_metrics(df, output_contract)
+            aligned_df = apply_contract(df, output_contract)
+            metrics = compute_metrics(aligned_df, output_contract)
             output_status = dq.submit_metrics(
                 contract=output_contract,
                 dataset_id=dataset_name,
                 dataset_version=dataset_version,
                 metrics=metrics,
             )
-            output_details = output_status.details
-            if run_type == "enforce" and output_status.status != "ok":
-                error = ValueError(f"DQ violation: {output_status.details}")
+            output_details = {**result.details, **output_status.details}
+            if output_status.status != "ok":
+                failed_examples = {}
+                exps = expectations_from_contract(output_contract)
+                for key, expr in exps.items():
+                    metric_key = f"violations.{key}"
+                    if output_status.details["metrics"].get(metric_key, 0) > 0:
+                        failed_examples[key] = [
+                            r.asDict()
+                            for r in aligned_df.filter(f"NOT ({expr})").limit(5).collect()
+                        ]
+                if failed_examples:
+                    output_details["failed_examples"] = failed_examples
+                if run_type == "enforce":
+                    error = ValueError(f"DQ violation: {output_status.details}")
         else:
             output_details = result.details
             if run_type == "enforce":
