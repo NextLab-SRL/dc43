@@ -5,7 +5,7 @@
   "id": "orders_enriched",
   "name": "Orders Enriched",
   "description": {"usage": "Orders joined with customers"},
-  "status": "draft",
+  "status": "active",
   "servers": [
     {
       "server": "local",

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Dataset {{ record.dataset_name }} {{ record.dataset_version }}</h1>
-<p>Contract: <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_id }} {{ record.contract_version }}</a></p>
+<p>Contract: <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_id }} {{ record.contract_version }}</a> - {{ contract_status }}</p>
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>
 {% set fails = record.dq_details.get('output', {}).get('failed_expectations', {}) %}
 <h2>Data Quality Details</h2>

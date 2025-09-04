@@ -37,6 +37,7 @@ from open_data_contract_standard.model import (
     Server,
 )
 from pydantic import ValidationError
+from packaging.version import Version
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "demo_data"
@@ -295,8 +296,111 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "contract": contract_to_dict(contract),
         "status": get_contract_status(cid, ver),
         "datasets": datasets,
+        "expectations": expectations_from_contract(contract),
     }
     return templates.TemplateResponse("contract_detail.html", context)
+
+
+def _next_version(ver: str) -> str:
+    v = Version(ver)
+    return f"{v.major}.{v.minor}.{v.micro + 1}"
+
+
+@app.get("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
+async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLResponse:
+    try:
+        contract = store.get(cid, ver)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    status = get_contract_status(cid, ver)
+    new_ver = _next_version(ver) if status == "active" else ver
+    server = (contract.servers or [None])[0]
+    path = getattr(server, "path", "") if server else ""
+    props = []
+    if contract.schema:
+        props = contract.schema[0].properties or []
+    columns = "\n".join(f"{p.name}:{p.physicalType}" for p in props)
+    context = {
+        "request": request,
+        "editing": True,
+        "contract_id": contract.id,
+        "contract_version": new_ver,
+        "name": contract.name,
+        "description": getattr(contract.description, "usage", ""),
+        "dataset_path": path,
+        "columns": columns,
+        "original_version": ver,
+    }
+    return templates.TemplateResponse("new_contract.html", context)
+
+
+@app.post("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
+async def save_contract_edits(
+    request: Request,
+    cid: str,
+    ver: str,
+    contract_id: str = Form(...),
+    contract_version: str = Form(...),
+    name: str = Form(...),
+    description: str = Form(""),
+    columns: str = Form(""),
+    dataset_path: str = Form(""),
+) -> HTMLResponse:
+    try:
+        props = []
+        for line in columns.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            col_name, col_type = [p.strip() for p in line.split(":", 1)]
+            props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
+        model = OpenDataContractStandard(
+            version=contract_version,
+            kind="DataContract",
+            apiVersion="3.0.2",
+            id=contract_id,
+            name=name,
+            description=Description(usage=description),
+            schema=[SchemaObject(name=name, properties=props)],
+            servers=[Server(server="local", type="filesystem", path=dataset_path)],
+        )
+        store.put(model)
+        meta = load_contract_meta()
+        orig_status = get_contract_status(cid, ver)
+        if orig_status == "active" and contract_version != ver:
+            meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
+        else:
+            for m in meta:
+                if m["id"] == contract_id and m["version"] == contract_version:
+                    m["status"] = "draft"
+                    break
+            else:
+                meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
+        save_contract_meta(meta)
+        return RedirectResponse(url=f"/contracts/{contract_id}/{contract_version}", status_code=303)
+    except ValidationError as ve:
+        error = str(ve)
+    except Exception as exc:  # pragma: no cover - display any other error
+        error = str(exc)
+    context = {
+        "request": request,
+        "editing": True,
+        "error": error,
+        "contract_id": contract_id,
+        "contract_version": contract_version,
+        "name": name,
+        "description": description,
+        "columns": columns,
+        "dataset_path": dataset_path,
+        "original_version": ver,
+    }
+    return templates.TemplateResponse("new_contract.html", context)
+
+
+@app.post("/contracts/{cid}/{ver}/validate")
+async def html_validate_contract(cid: str, ver: str) -> HTMLResponse:
+    set_contract_status(cid, ver, "active")
+    return RedirectResponse(url=f"/contracts/{cid}/{ver}", status_code=303)
 
 
 @app.get("/contracts/new", response_class=HTMLResponse)
@@ -362,9 +466,14 @@ async def create_contract(
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
+    recs = []
+    for r in records:
+        rec = r.__dict__.copy()
+        rec["contract_status"] = get_contract_status(r.contract_id, r.contract_version)
+        recs.append(rec)
     context = {
         "request": request,
-        "records": records,
+        "records": recs,
         "scenarios": SCENARIOS,
         "message": request.query_params.get("msg"),
         "error": request.query_params.get("error"),

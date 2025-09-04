@@ -5,7 +5,7 @@
   "id": "orders",
   "name": "Orders",
   "description": {"usage": "Sample orders contract"},
-  "status": "draft",
+  "status": "active",
   "servers": [
     {
       "server": "local",

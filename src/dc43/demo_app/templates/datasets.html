@@ -23,6 +23,7 @@
       <tr>
         <th>Contract ID</th>
         <th>Contract Version</th>
+        <th>Contract Status</th>
         <th>Dataset</th>
         <th>Version</th>
         <th>Run Type</th>
@@ -36,6 +37,7 @@
       <tr>
         <td><a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_id }}</a></td>
         <td><a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a></td>
+        <td>{{ r.contract_status }}</td>
         <td>{{ r.dataset_name }}</td>
         <td><a href="/datasets/{{ r.dataset_version }}">{{ r.dataset_version }}</a></td>
         <td>{{ r.run_type }}</td>

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>New Contract</h1>
+<h1>{{ 'Edit Contract' if editing else 'New Contract' }}</h1>
 <form method="post">
   <div class="mb-3">
     <label class="form-label">Contract ID</label>
-    <input class="form-control" name="contract_id" value="{{ contract_id or '' }}"/>
+    <input class="form-control" name="contract_id" value="{{ contract_id or '' }}" {% if editing %}readonly{% endif %}/>
   </div>
   <div class="mb-3">
     <label class="form-label">Version</label>
