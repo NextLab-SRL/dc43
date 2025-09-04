@@ -4,53 +4,15 @@
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 <form class="row g-3 mb-4" method="post" action="/pipeline/run">
-  <div class="col-md-3">
+  <div class="col-md-4">
     <label class="form-label">Scenario</label>
-    <select class="form-select" id="scenario">
-      <option value="">(custom)</option>
-      <option value="no-contract">No contract provided</option>
-      <option value="ok">Existing contract OK</option>
-      <option value="dq">Existing contract fails DQ</option>
-      <option value="schema-dq">Contract fails schema and DQ</option>
-    </select>
-  </div>
-  <div class="col-md-3">
-    <label class="form-label">Contract ID</label>
-    <select class="form-select" name="contract_id" id="contract_id">
-      <option value="">(none)</option>
-      {% for cid in contract_ids %}
-      <option value="{{ cid }}">{{ cid }}</option>
+    <select class="form-select" name="scenario" id="scenario">
+      <option value="">Select a scenario</option>
+      {% for key, sc in scenarios.items() %}
+      <option value="{{ key }}">{{ sc.label }}</option>
       {% endfor %}
     </select>
-  </div>
-  <div class="col-md-2">
-    <label class="form-label">Contract Version</label>
-    <select class="form-select" name="contract_version" id="contract_version"></select>
-  </div>
-  <div class="col-md-2">
-    <label class="form-label">Dataset Name</label>
-    <input class="form-control" name="dataset_name" list="dataset_names"/>
-    <datalist id="dataset_names">
-      {% for dn in dataset_names %}
-      <option value="{{ dn }}"/>
-      {% endfor %}
-    </datalist>
-  </div>
-  <div class="col-md-2">
-    <label class="form-label">Dataset Version (optional)</label>
-    <input class="form-control" name="dataset_version" list="dataset_versions" placeholder="auto"/>
-    <datalist id="dataset_versions">
-      {% for dv in dataset_versions %}
-      <option value="{{ dv }}"/>
-      {% endfor %}
-    </datalist>
-  </div>
-  <div class="col-md-2">
-    <label class="form-label">Run Type</label>
-    <select class="form-select" name="run_type">
-      <option value="infer">Infer contract from data</option>
-      <option value="enforce">Enforce existing contract</option>
-    </select>
+    <div class="form-text" id="scenario-desc"></div>
   </div>
   <div class="col-md-2 align-self-end">
     <button class="btn btn-primary w-100" type="submit">Run Pipeline</button>
@@ -83,64 +45,13 @@
     </tbody>
   </table>
 <script>
-    const contractVersions = {{ contract_versions | tojson }};
-    const cidSel = document.getElementById('contract_id');
-    const verSel = document.getElementById('contract_version');
+    const scenarios = {{ scenarios | tojson }};
     const scenarioSel = document.getElementById('scenario');
-    const dsName = document.querySelector('input[name="dataset_name"]');
-    const runTypeSel = document.querySelector('select[name="run_type"]');
-    function updateVersions() {
-    const versions = contractVersions[cidSel.value] || [];
-    verSel.innerHTML = '';
-    if (!versions.length) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '';
-      verSel.appendChild(opt);
-      return;
-    }
-    versions.forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = v;
-      opt.textContent = v;
-      verSel.appendChild(opt);
+    const descEl = document.getElementById('scenario-desc');
+    scenarioSel.addEventListener('change', () => {
+      const sc = scenarios[scenarioSel.value];
+      descEl.textContent = sc ? sc.description : '';
     });
-    verSel.value = versions[0];
-  }
-    cidSel.addEventListener('change', updateVersions);
-    updateVersions();
-    function applyScenario() {
-      switch (scenarioSel.value) {
-        case 'no-contract':
-          dsName.value = 'result-no-existing-contract';
-          cidSel.value = '';
-          updateVersions();
-          runTypeSel.value = 'enforce';
-          break;
-        case 'ok':
-          dsName.value = 'output-ok-contract';
-          cidSel.value = 'orders_enriched';
-          updateVersions();
-          verSel.value = '1.0.0';
-          runTypeSel.value = 'enforce';
-          break;
-        case 'dq':
-          dsName.value = 'output-wrong-quality';
-          cidSel.value = 'orders_enriched';
-          updateVersions();
-          verSel.value = '1.1.0';
-          runTypeSel.value = 'enforce';
-          break;
-        case 'schema-dq':
-          dsName.value = 'output-ko';
-          cidSel.value = 'orders_enriched';
-          updateVersions();
-          verSel.value = '2.0.0';
-          runTypeSel.value = 'enforce';
-          break;
-      }
-    }
-    scenarioSel.addEventListener('change', applyScenario);
 </script>
 {% if not records %}<p>No datasets registered.</p>{% endif %}
 {% endblock %}
