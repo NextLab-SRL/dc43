@@ -65,7 +65,10 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
         srv.path = str(p)
     dest = CONTRACT_DIR / src.relative_to(SAMPLE_DIR / "contracts")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+    dest.write_text(
+        model.model_dump_json(indent=2, by_alias=True, exclude_none=True),
+        encoding="utf-8",
+    )
 
 store = FSContractStore(str(CONTRACT_DIR))
 
