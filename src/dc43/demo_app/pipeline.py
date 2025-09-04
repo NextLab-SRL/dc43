@@ -18,7 +18,9 @@ from dc43.demo_app.server import (
     save_records,
 )
 from dc43.dq.stub import StubDQClient
+from dc43.dq.spark_metrics import attach_failed_expectations
 from dc43.integration.spark_io import read_with_contract, write_with_contract
+from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import SparkSession
 
 
@@ -29,6 +31,22 @@ def _next_version(existing: list[str]) -> str:
     parts = [list(map(int, v.split("."))) for v in existing]
     major, minor, patch = max(parts)
     return f"{major}.{minor}.{patch + 1}"
+
+
+def _resolve_output_path(
+    contract: OpenDataContractStandard | None,
+    dataset_name: str,
+    dataset_version: str,
+) -> Path:
+    """Return output path for dataset relative to contract servers."""
+    server = (contract.servers or [None])[0] if contract else None
+    data_root = Path(DATA_INPUT_DIR).parent
+    base_path = Path(getattr(server, "path", "")) if server else data_root
+    if not base_path.is_absolute():
+        base_path = data_root / base_path
+    out = base_path / dataset_name / dataset_version
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 def run_pipeline(
@@ -80,13 +98,8 @@ def run_pipeline(
     output_contract = (
         store.get(contract_id, contract_version) if contract_id and contract_version else None
     )
+    output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
     server = (output_contract.servers or [None])[0] if output_contract else None
-    data_root = Path(DATA_INPUT_DIR).parent
-    base_path = Path(getattr(server, "path", "")) if server else data_root
-    if not base_path.is_absolute():
-        base_path = data_root / base_path
-    output_path = base_path / dataset_name / dataset_version
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     result, output_status, draft = write_with_contract(
         df=df,
@@ -101,9 +114,16 @@ def run_pipeline(
         dataset_id=dataset_name,
         dataset_version=dataset_version,
         return_status=True,
-        collect_examples=collect_examples,
-        examples_limit=examples_limit,
     )
+
+    if output_status and output_contract:
+        output_status = attach_failed_expectations(
+            df,
+            output_contract,
+            output_status,
+            collect_examples=collect_examples,
+            examples_limit=examples_limit,
+        )
 
     if run_type == "enforce":
         if not output_contract:

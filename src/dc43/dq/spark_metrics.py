@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Metrics and expectation helpers for Data Quality orchestration.
+"""Spark-specific metrics and expectation helpers for Data Quality orchestration.
 
 Derives metrics directly from ODCS ``DataQuality`` rules defined on
-``SchemaProperty`` and ``SchemaObject`` entries. Returned metrics use
-``violations.*`` keys for rule failures and ``query.*`` for custom SQL
-checks.
+``SchemaProperty`` and ``SchemaObject`` entries using Spark DataFrames.
+Returned metrics use ``violations.*`` keys for rule failures and ``query.*``
+for custom SQL checks.
 """
 
 from typing import Any, Dict, List
@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover
     DataFrame = Any  # type: ignore
 
 from open_data_contract_standard.model import OpenDataContractStandard, SchemaProperty  # type: ignore
+from .base import DQStatus
 
 
 def _field_expectations(field: SchemaProperty) -> Dict[str, str]:
@@ -88,3 +89,36 @@ def compute_metrics(df: DataFrame, contract: OpenDataContractStandard) -> Dict[s
                         metrics[f"query.{name}"] = val
 
     return metrics
+
+
+def attach_failed_expectations(
+    df: DataFrame,
+    contract: OpenDataContractStandard,
+    status: DQStatus,
+    *,
+    collect_examples: bool = False,
+    examples_limit: int = 5,
+) -> DQStatus:
+    """Augment a :class:`~dc43.dq.base.DQStatus` with failed expectations.
+
+    Inspects ``status.details['metrics']`` to identify violated expectations and
+    optionally collects example rows for each failure.
+    """
+    metrics_map = status.details.get("metrics", {}) if status.details else {}
+    exps = expectations_from_contract(contract)
+    failures: Dict[str, Dict[str, Any]] = {}
+    for key, expr in exps.items():
+        cnt = metrics_map.get(f"violations.{key}", 0)
+        if cnt > 0:
+            info: Dict[str, Any] = {"count": cnt, "expression": expr}
+            if collect_examples:
+                info["examples"] = [
+                    r.asDict()
+                    for r in df.filter(f"NOT ({expr})").limit(examples_limit).collect()
+                ]
+            failures[key] = info
+    if failures:
+        if not status.details:
+            status.details = {}
+        status.details["failed_expectations"] = failures
+    return status

@@ -14,7 +14,7 @@ from pyspark.sql import DataFrame, SparkSession
 
 from .validation import validate_dataframe, apply_contract, ValidationResult
 from ..dq.base import DQClient, DQStatus
-from ..dq.metrics import compute_metrics, expectations_from_contract
+from ..dq.spark_metrics import compute_metrics
 from .dataset import get_delta_version, dataset_id_from_ref
 from ..versioning import SemVer
 from ..odcs import contract_identity, ensure_version
@@ -357,8 +357,6 @@ def write_with_contract(
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[True],
-    collect_examples: bool = False,
-    examples_limit: int = 5,
     return_draft: Literal[True],
 ) -> tuple[ValidationResult, Optional[DQStatus], Optional[OpenDataContractStandard]]:
     ...
@@ -383,8 +381,6 @@ def write_with_contract(
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[True],
-    collect_examples: bool = False,
-    examples_limit: int = 5,
     return_draft: Literal[False],
 ) -> tuple[ValidationResult, Optional[DQStatus]]:
     ...
@@ -409,8 +405,6 @@ def write_with_contract(
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[False] = False,
-    collect_examples: bool = False,
-    examples_limit: int = 5,
     return_draft: Literal[True] = True,
 ) -> tuple[ValidationResult, Optional[OpenDataContractStandard]]:
     ...
@@ -435,8 +429,6 @@ def write_with_contract(
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[False] = False,
-    collect_examples: bool = False,
-    examples_limit: int = 5,
     return_draft: Literal[False] = False,
 ) -> ValidationResult:
     ...
@@ -462,8 +454,6 @@ def write_with_contract(
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: bool = False,
-    collect_examples: bool = False,
-    examples_limit: int = 5,
     return_draft: bool = True,
 ) -> Any:
     """Validate/align a DataFrame then write it using Spark writers.
@@ -645,23 +635,6 @@ def write_with_contract(
             status = dq_client.submit_metrics(
                 contract=contract, dataset_id=ds_id, dataset_version=ds_ver, metrics=metrics
             )
-            exps = expectations_from_contract(contract)
-            metrics_map = status.details.get("metrics", {}) if status.details else {}
-            failures: Dict[str, Dict[str, Any]] = {}
-            for key, expr in exps.items():
-                cnt = metrics_map.get(f"violations.{key}", 0)
-                if cnt > 0:
-                    info: Dict[str, Any] = {"count": cnt, "expression": expr}
-                    if collect_examples:
-                        info["examples"] = [
-                            r.asDict()
-                            for r in out_df.filter(f"NOT ({expr})").limit(examples_limit).collect()
-                        ]
-                    failures[key] = info
-            if failures:
-                if not status.details:
-                    status.details = {}
-                status.details["failed_expectations"] = failures
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ violation: {status.details}")
 

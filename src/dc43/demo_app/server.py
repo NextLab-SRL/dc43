@@ -30,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from urllib.parse import urlencode
 
 from dc43.storage.fs import FSContractStore
-from dc43.dq.metrics import expectations_from_contract
+from dc43.dq.spark_metrics import expectations_from_contract
 from open_data_contract_standard.model import (
     OpenDataContractStandard,
     SchemaObject,
