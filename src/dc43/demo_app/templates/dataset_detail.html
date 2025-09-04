@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Dataset {{ record.dataset_name }} {{ record.dataset_version }}</h1>
+<p><a href="/datasets/{{ record.dataset_name }}">Back to versions</a></p>
 <p>Contract: <a href="/contracts/{{ record.contract_id }}">{{ record.contract_id }}</a>
 <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_version }}</a></p>
 {% if record.draft_contract_version %}
@@ -8,42 +9,24 @@
 {% endif %}
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>
 {% set fails = record.dq_details.get('output', {}).get('failed_expectations', {}) %}
-<h2>Data Quality Details</h2>
-<div class="accordion" id="dq-details">
-  <div class="accordion-item">
-    <h2 class="accordion-header" id="heading-input">
-      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-input">Input</button>
-    </h2>
-    <div id="collapse-input" class="accordion-collapse collapse" aria-labelledby="heading-input" data-bs-parent="#dq-details">
-      <div class="accordion-body">
-        {% for key in ['orders', 'customers'] %}
-          {% if record.dq_details.get(key) %}
-          <h6 class="text-capitalize">{{ key }}</h6>
-          <pre class="small">{{ record.dq_details.get(key) | tojson(indent=2) }}</pre>
-          {% endif %}
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-  <div class="accordion-item">
-    <h2 class="accordion-header" id="heading-output">
-      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-output">Output</button>
-    </h2>
-    <div id="collapse-output" class="accordion-collapse collapse" aria-labelledby="heading-output" data-bs-parent="#dq-details">
-      <div class="accordion-body">
-        {% if fails %}
-          {% for key, info in fails.items() %}
-            <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
-            {% if info.examples %}
-              <details class="small"><summary>Examples</summary><pre class="small mb-0">{{ info.examples | tojson(indent=2) }}</pre></details>
-            {% endif %}
-            </div>
-          {% endfor %}
-        {% endif %}
-        <pre class="small mb-0">{{ record.dq_details.get('output') | tojson(indent=2) }}</pre>
-      </div>
-    </div>
-  </div>
-</div>
+<h2>Data Quality</h2>
+{% if fails %}
+<table class="table table-sm">
+  <thead><tr><th>Name</th><th>Predicate</th><th>Count</th></tr></thead>
+  <tbody>
+  {% for key, info in fails.items() %}
+  <tr><td>{{ key }}</td><td><code>{{ info.expression }}</code></td><td>{{ info.count }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No data quality failures.</p>
+{% endif %}
+<h2>Details</h2>
+<pre class="small">{{ record.dq_details.get('output') | tojson(indent=2) }}</pre>
+{% if data_preview %}
+<h2>Data</h2>
+<pre class="small">{{ data_preview }}</pre>
+{% endif %}
 {% endblock %}
 

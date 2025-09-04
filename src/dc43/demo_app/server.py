@@ -454,15 +454,39 @@ async def list_datasets(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("datasets.html", context)
 
 
-@app.get("/datasets/{dataset_version}", response_class=HTMLResponse)
-async def dataset_detail(request: Request, dataset_version: str) -> HTMLResponse:
+@app.get("/datasets/{dataset_name}", response_class=HTMLResponse)
+async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
+    records = [r.__dict__.copy() for r in load_records() if r.dataset_name == dataset_name]
+    context = {"request": request, "dataset_name": dataset_name, "records": records}
+    return templates.TemplateResponse("dataset_versions.html", context)
+
+
+def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
+    server = (contract.servers or [None])[0] if contract else None
+    data_root = Path(DATA_INPUT_DIR).parent
+    base = Path(getattr(server, "path", "")) if server else data_root
+    if not base.is_absolute():
+        base = data_root / base
+    return base / dataset_name / dataset_version
+
+
+@app.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
+async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
     for r in load_records():
-        if r.dataset_version == dataset_version:
+        if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
             contract = store.get(r.contract_id, r.contract_version)
+            ds_path = _dataset_path(contract, dataset_name, dataset_version)
+            preview = ""
+            if ds_path.exists():
+                for p in ds_path.glob("*"):
+                    if p.is_file():
+                        preview = p.read_text()[:1000]
+                        break
             context = {
                 "request": request,
                 "record": r,
                 "contract": contract_to_dict(contract),
+                "data_preview": preview,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")
