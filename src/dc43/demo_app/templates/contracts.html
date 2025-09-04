@@ -3,21 +3,15 @@
 <h1>Contracts</h1>
 <a class="btn btn-primary mb-3" href="/contracts/new">Add Contract</a>
 <table class="table table-striped">
-    <thead><tr><th>Contract ID</th><th>Version</th><th>Status</th><th>Dataset Path</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Contract ID</th><th>Version</th><th>Dataset Path</th><th>Actions</th></tr></thead>
     <tbody>
     {% for c in contracts %}
     <tr>
       <td><a href="/contracts/{{ c.id }}/{{ c.version }}">{{ c.id }}</a></td>
       <td><a href="/contracts/{{ c.id }}/{{ c.version }}">{{ c.version }}</a></td>
-      <td>{{ c.status }}</td>
       <td>{{ c.path or '' }}</td>
       <td>
         <a class="btn btn-sm btn-primary" href="/contracts/{{ c.id }}/{{ c.version }}/edit">Edit</a>
-        {% if c.status == 'draft' %}
-        <form method="post" action="/contracts/{{ c.id }}/{{ c.version }}/validate" class="d-inline">
-          <button class="btn btn-sm btn-success" type="submit">Validate</button>
-        </form>
-        {% endif %}
       </td>
     </tr>
     {% endfor %}

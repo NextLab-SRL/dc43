@@ -45,7 +45,6 @@ CONTRACT_DIR = DATA_DIR / "contracts"
 DATA_INPUT_DIR = DATA_DIR / "data"
 RECORDS_DIR = DATA_DIR / "records"
 DATASETS_FILE = RECORDS_DIR / "datasets.json"
-CONTRACT_META_FILE = RECORDS_DIR / "contract_meta.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,8 +52,6 @@ DATA_INPUT_DIR.mkdir(parents=True, exist_ok=True)
 RECORDS_DIR.mkdir(parents=True, exist_ok=True)
 if not DATASETS_FILE.exists():
     DATASETS_FILE.write_text("[]", encoding="utf-8")
-if not CONTRACT_META_FILE.exists():
-    CONTRACT_META_FILE.write_text("[]", encoding="utf-8")
 
 store = FSContractStore(str(CONTRACT_DIR))
 
@@ -164,49 +161,32 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
 
 
 def load_contract_meta() -> List[Dict[str, Any]]:
-    meta = json.loads(CONTRACT_META_FILE.read_text())
-    for m in meta:
-        try:
-            contract = store.get(m["id"], m["version"])
+    """Return contract info derived from the store without extra metadata."""
+    meta: List[Dict[str, Any]] = []
+    for cid in store.list_contracts():
+        for ver in store.list_versions(cid):
+            try:
+                contract = store.get(cid, ver)
+            except FileNotFoundError:
+                continue
             server = (contract.servers or [None])[0]
             path = ""
             if server:
-                parts = []
+                parts: List[str] = []
                 if getattr(server, "path", None):
                     parts.append(server.path)
                 if getattr(server, "dataset", None):
                     parts.append(server.dataset)
                 path = "/".join(parts)
-            m["path"] = path
-        except FileNotFoundError:
-            m["path"] = ""
+            meta.append({"id": cid, "version": ver, "path": path})
     return meta
 
 
 def save_contract_meta(meta: List[Dict[str, Any]]) -> None:
-    stripped = [{k: v for k, v in m.items() if k in {"id", "version", "status"}} for m in meta]
-    CONTRACT_META_FILE.write_text(
-        json.dumps(stripped, indent=2), encoding="utf-8"
-    )
+    """No-op retained for backwards compatibility."""
+    return None
 
 
-def get_contract_status(cid: str, ver: str) -> str:
-    meta = load_contract_meta()
-    for m in meta:
-        if m["id"] == cid and m["version"] == ver:
-            return m.get("status", "unknown")
-    return "unknown"
-
-
-def set_contract_status(cid: str, ver: str, status: str) -> None:
-    meta = load_contract_meta()
-    for m in meta:
-        if m["id"] == cid and m["version"] == ver:
-            m["status"] = status
-            break
-    else:
-        meta.append({"id": cid, "version": ver, "status": status})
-    save_contract_meta(meta)
 
 
 def contract_to_dict(c: OpenDataContractStandard) -> Dict[str, Any]:
@@ -237,7 +217,6 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     expectations = expectations_from_contract(contract)
     return {
         "contract": contract_to_dict(contract),
-        "status": get_contract_status(cid, ver),
         "datasets": datasets,
         "expectations": expectations,
     }
@@ -245,23 +224,13 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
 
 @app.post("/api/contracts/{cid}/{ver}/validate")
 async def api_validate_contract(cid: str, ver: str) -> Dict[str, str]:
-    set_contract_status(cid, ver, "active")
     return {"status": "active"}
 
 
 @app.get("/api/datasets")
 async def api_datasets() -> List[Dict[str, Any]]:
     records = load_records()
-    out: List[Dict[str, Any]] = []
-    for r in records:
-        rec = r.__dict__.copy()
-        rec["contract_status"] = get_contract_status(r.contract_id, r.contract_version)
-        if r.draft_contract_version:
-            rec["draft_contract_status"] = get_contract_status(
-                r.contract_id, r.draft_contract_version
-            )
-        out.append(rec)
-    return out
+    return [r.__dict__.copy() for r in records]
 
 
 @app.get("/api/datasets/{dataset_version}")
@@ -272,12 +241,6 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
-                "contract_status": get_contract_status(r.contract_id, r.contract_version),
-                "draft_contract_status": get_contract_status(
-                    r.contract_id, r.draft_contract_version
-                )
-                if r.draft_contract_version
-                else None,
                 "expectations": expectations_from_contract(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
@@ -296,9 +259,25 @@ async def list_contracts(request: Request) -> HTMLResponse:
 
 @app.get("/contracts/{cid}", response_class=HTMLResponse)
 async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
-    contracts = [c for c in load_contract_meta() if c["id"] == cid]
-    if not contracts:
+    versions = store.list_versions(cid)
+    if not versions:
         raise HTTPException(status_code=404, detail="Contract not found")
+    contracts = []
+    for ver in versions:
+        try:
+            contract = store.get(cid, ver)
+        except FileNotFoundError:
+            continue
+        server = (contract.servers or [None])[0]
+        path = ""
+        if server:
+            parts: List[str] = []
+            if getattr(server, "path", None):
+                parts.append(server.path)
+            if getattr(server, "dataset", None):
+                parts.append(server.dataset)
+            path = "/".join(parts)
+        contracts.append({"id": cid, "version": ver, "path": path})
     context = {"request": request, "contract_id": cid, "contracts": contracts}
     return templates.TemplateResponse("contract_versions.html", context)
 
@@ -313,7 +292,6 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
     context = {
         "request": request,
         "contract": contract_to_dict(contract),
-        "status": get_contract_status(cid, ver),
         "datasets": datasets,
         "expectations": expectations_from_contract(contract),
     }
@@ -331,8 +309,7 @@ async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLRespon
         contract = store.get(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    status = get_contract_status(cid, ver)
-    new_ver = _next_version(ver) if status == "active" else ver
+    new_ver = _next_version(ver)
     server = (contract.servers or [None])[0]
     path = getattr(server, "path", "") if server else ""
     props = []
@@ -384,18 +361,6 @@ async def save_contract_edits(
             servers=[Server(server="local", type="filesystem", path=dataset_path)],
         )
         store.put(model)
-        meta = load_contract_meta()
-        orig_status = get_contract_status(cid, ver)
-        if orig_status == "active" and contract_version != ver:
-            meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
-        else:
-            for m in meta:
-                if m["id"] == contract_id and m["version"] == contract_version:
-                    m["status"] = "draft"
-                    break
-            else:
-                meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
-        save_contract_meta(meta)
         return RedirectResponse(url=f"/contracts/{contract_id}/{contract_version}", status_code=303)
     except ValidationError as ve:
         error = str(ve)
@@ -418,7 +383,6 @@ async def save_contract_edits(
 
 @app.post("/contracts/{cid}/{ver}/validate")
 async def html_validate_contract(cid: str, ver: str) -> HTMLResponse:
-    set_contract_status(cid, ver, "active")
     return RedirectResponse(url=f"/contracts/{cid}/{ver}", status_code=303)
 
 
@@ -456,14 +420,6 @@ async def create_contract(
             servers=[Server(server="local", type="filesystem", path=dataset_path)],
         )
         store.put(model)
-        meta = load_contract_meta()
-        for m in meta:
-            if m["id"] == contract_id and m["version"] == contract_version:
-                m.update({"status": "draft"})
-                break
-        else:
-            meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
-        save_contract_meta(meta)
         return RedirectResponse(url="/contracts", status_code=303)
     except ValidationError as ve:
         error = str(ve)
@@ -487,13 +443,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
     recs = []
     for r in records:
-        rec = r.__dict__.copy()
-        rec["contract_status"] = get_contract_status(r.contract_id, r.contract_version)
-        if r.draft_contract_version:
-            rec["draft_contract_status"] = get_contract_status(
-                r.contract_id, r.draft_contract_version
-            )
-        recs.append(rec)
+        recs.append(r.__dict__.copy())
     context = {
         "request": request,
         "records": recs,
@@ -513,12 +463,6 @@ async def dataset_detail(request: Request, dataset_version: str) -> HTMLResponse
                 "request": request,
                 "record": r,
                 "contract": contract_to_dict(contract),
-                "contract_status": get_contract_status(r.contract_id, r.contract_version),
-                "draft_contract_status": get_contract_status(
-                    r.contract_id, r.draft_contract_version
-                )
-                if r.draft_contract_version
-                else None,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")

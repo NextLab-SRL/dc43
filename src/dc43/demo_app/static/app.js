@@ -21,9 +21,7 @@ createApp({
     openContract(id, ver) {
       fetch(`/api/contracts/${id}/${ver}`).then(r => r.json()).then(d => { this.contractDetail = d; this.view = 'contract-detail'; });
     },
-    validateContract(id, ver) {
-      fetch(`/api/contracts/${id}/${ver}/validate`, {method: 'POST'}).then(() => this.refresh());
-    }
+    // validation endpoint removed
   },
   mounted() {
     this.refresh();

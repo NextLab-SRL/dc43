@@ -27,13 +27,12 @@
   <div v-if="view==='datasets'">
     <h2>Datasets</h2>
     <table class="table">
-      <thead><tr><th>Dataset Version</th><th>Contract</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Dataset Version</th><th>Contract</th><th>Status</th></tr></thead>
       <tbody>
-        <tr v-for="ds in datasets" :key="ds.dataset_version" :class="{'table-warning': ds.contract_status==='draft'}">
+        <tr v-for="ds in datasets" :key="ds.dataset_version">
           <td><a href="#" @click.prevent="openDataset(ds.dataset_version)">{{ ds.dataset_version }}</a></td>
-          <td>{{ ds.contract_id }}:{{ ds.contract_version }} <span class="badge bg-warning text-dark" v-if="ds.contract_status==='draft'">draft</span></td>
+          <td>{{ ds.contract_id }}:{{ ds.contract_version }}</td>
           <td>{{ ds.status }}</td>
-          <td v-if="ds.contract_status==='draft'"><button class="btn btn-sm btn-outline-primary" @click="validateContract(ds.contract_id, ds.contract_version)">Validate</button></td>
         </tr>
       </tbody>
     </table>
@@ -69,11 +68,10 @@
   <div v-if="view==='contracts'">
     <h2>Contracts</h2>
     <table class="table">
-      <thead><tr><th>Contract</th><th>Status</th></tr></thead>
+      <thead><tr><th>Contract</th></tr></thead>
       <tbody>
         <tr v-for="c in contracts" :key="c.id + c.version">
           <td><a href="#" @click.prevent="openContract(c.id, c.version)">{{c.id}}:{{c.version}}</a></td>
-          <td>{{ c.status }}</td>
         </tr>
       </tbody>
     </table>
@@ -82,7 +80,6 @@
   <div v-if="view==='contract-detail'">
     <button class="btn btn-link" @click="view='contracts'">&larr; Back</button>
     <h2>Contract {{contractDetail.contract.id}}:{{contractDetail.contract.version}}</h2>
-    <p><strong>Status:</strong> {{contractDetail.status}}</p>
     <div>
       <h3>Schema</h3>
       <ul>

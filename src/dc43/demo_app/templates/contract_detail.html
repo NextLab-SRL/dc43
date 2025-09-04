@@ -1,15 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Contract {{ contract.id }} {{ contract.version }}</h1>
-<p>Status: {{ status }}</p>
 <p>
   <a class="btn btn-secondary btn-sm" href="/api/contracts/{{ contract.id }}/{{ contract.version }}">Download JSON</a>
   <a class="btn btn-primary btn-sm" href="/contracts/{{ contract.id }}/{{ contract.version }}/edit">Edit</a>
-  {% if status == 'draft' %}
-  <form method="post" action="/contracts/{{ contract.id }}/{{ contract.version }}/validate" class="d-inline">
-    <button class="btn btn-success btn-sm" type="submit">Validate</button>
-  </form>
-  {% endif %}
 </p>
 
 <ul class="nav nav-tabs" id="contractTabs" role="tablist">
@@ -52,29 +46,17 @@
     {% endif %}
   </div>
   <div class="tab-pane fade" id="schema" role="tabpanel" aria-labelledby="schema-tab">
-    <div class="accordion" id="schema-accordion">
-      {% for s in contract.schema %}
-      <div class="accordion-item">
-        <h2 class="accordion-header" id="schema-{{ loop.index }}-h">
-          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#schema-{{ loop.index }}">
-            {{ s.name }}
-          </button>
-        </h2>
-        <div id="schema-{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#schema-accordion">
-          <div class="accordion-body">
-            <table class="table table-sm">
-              <thead><tr><th>Name</th><th>Type</th><th>Required</th></tr></thead>
-              <tbody>
-              {% for p in s.properties %}
-              <tr><td>{{ p.name }}</td><td>{{ p.physicalType }}</td><td>{{ 'yes' if p.required else 'no' }}</td></tr>
-              {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
+    {% for s in contract.schema %}
+      <h5>{{ s.name }}</h5>
+      <table class="table table-sm">
+        <thead><tr><th>Name</th><th>Type</th><th>Required</th></tr></thead>
+        <tbody>
+        {% for p in s.properties %}
+        <tr><td>{{ p.name }}</td><td>{{ p.physicalType }}</td><td>{{ 'yes' if p.required else 'no' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
   </div>
   <div class="tab-pane fade" id="quality" role="tabpanel" aria-labelledby="quality-tab">
     {% if expectations %}
