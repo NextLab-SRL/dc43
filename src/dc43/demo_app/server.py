@@ -71,6 +71,7 @@ class DatasetRecord:
     status: str = "unknown"
     dq_details: Dict[str, Any] = field(default_factory=dict)
     run_type: str = "infer"
+    violations: int = 0
 
 
 def load_records() -> List[DatasetRecord]:
@@ -91,8 +92,12 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
     "no-contract": {
         "label": "No contract provided",
         "description": (
-            "Run without an output contract. Uses orders:1.1.0 and customers:1.0.0 "
-            "as input and is expected to error."
+            "<p>Run the pipeline without supplying an output contract.</p>"
+            "<ul>"
+            "<li>Reads orders:1.1.0 and customers:1.0.0.</li>"
+            "<li>Write is attempted in <em>enforce</em> mode so the missing contract"
+            " triggers an error.</li>"
+            "</ul>"
         ),
         "params": {
             "contract_id": None,
@@ -104,8 +109,11 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
     "ok": {
         "label": "Existing contract OK",
         "description": (
-            "Enforce contract orders_enriched:1.0.0 on valid data. "
-            "Produces a new dataset version with status ok."
+            "<p>Happy path using contract <code>orders_enriched:1.0.0</code>.</p>"
+            "<ul>"
+            "<li>Input data matches the contract schema and quality rules.</li>"
+            "<li>The pipeline writes a new dataset version and records an OK status.</li>"
+            "</ul>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -117,8 +125,12 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
     "dq": {
         "label": "Existing contract fails DQ",
         "description": (
-            "Enforce contract orders_enriched:1.1.0 which triggers a data quality "
-            "violation and results in an error."
+            "<p>Demonstrates a data quality failure.</p>"
+            "<ul>"
+            "<li>Contract <code>orders_enriched:1.1.0</code> requires amount &gt; 100.</li>"
+            "<li>Sample data contains smaller amounts, producing DQ violations.</li>"
+            "<li>The pipeline blocks the write and surfaces an error.</li>"
+            "</ul>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -130,8 +142,12 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
     "schema-dq": {
         "label": "Contract fails schema and DQ",
         "description": (
-            "Enforce contract orders_enriched:2.0.0 causing schema mismatch and "
-            "data quality errors. A draft contract is produced."
+            "<p>Shows combined schema and data quality issues.</p>"
+            "<ul>"
+            "<li>Contract <code>orders_enriched:2.0.0</code> introduces new fields.</li>"
+            "<li>The DataFrame does not match the schema and violates quality rules.</li>"
+            "<li>A draft contract is generated for review and the run fails.</li>"
+            "</ul>"
         ),
         "params": {
             "contract_id": "orders_enriched",
