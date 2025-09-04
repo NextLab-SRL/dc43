@@ -283,6 +283,22 @@ async def list_contracts(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("contracts.html", {"request": request, "contracts": contracts})
 
 
+@app.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
+async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
+    try:
+        contract = store.get(cid, ver)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    datasets = [r for r in load_records() if r.contract_id == cid and r.contract_version == ver]
+    context = {
+        "request": request,
+        "contract": contract_to_dict(contract),
+        "status": get_contract_status(cid, ver),
+        "datasets": datasets,
+    }
+    return templates.TemplateResponse("contract_detail.html", context)
+
+
 @app.get("/contracts/new", response_class=HTMLResponse)
 async def new_contract_form(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("new_contract.html", {"request": request})
@@ -354,6 +370,21 @@ async def list_datasets(request: Request) -> HTMLResponse:
         "error": request.query_params.get("error"),
     }
     return templates.TemplateResponse("datasets.html", context)
+
+
+@app.get("/datasets/{dataset_version}", response_class=HTMLResponse)
+async def dataset_detail(request: Request, dataset_version: str) -> HTMLResponse:
+    for r in load_records():
+        if r.dataset_version == dataset_version:
+            contract = store.get(r.contract_id, r.contract_version)
+            context = {
+                "request": request,
+                "record": r,
+                "contract": contract_to_dict(contract),
+                "contract_status": get_contract_status(r.contract_id, r.contract_version),
+            }
+            return templates.TemplateResponse("dataset_detail.html", context)
+    raise HTTPException(status_code=404, detail="Dataset not found")
 
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
