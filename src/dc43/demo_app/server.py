@@ -84,6 +84,65 @@ def save_records(records: List[DatasetRecord]) -> None:
     )
 
 
+# Predefined pipeline scenarios exposed in the UI. Each scenario describes the
+# parameters passed to the example pipeline along with a human readable
+# description shown to the user.
+SCENARIOS: Dict[str, Dict[str, Any]] = {
+    "no-contract": {
+        "label": "No contract provided",
+        "description": (
+            "Run without an output contract. Uses orders:1.1.0 and customers:1.0.0 "
+            "as input and is expected to error."
+        ),
+        "params": {
+            "contract_id": None,
+            "contract_version": None,
+            "dataset_name": "result-no-existing-contract",
+            "run_type": "enforce",
+        },
+    },
+    "ok": {
+        "label": "Existing contract OK",
+        "description": (
+            "Enforce contract orders_enriched:1.0.0 on valid data. "
+            "Produces a new dataset version with status ok."
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.0.0",
+            "dataset_name": "output-ok-contract",
+            "run_type": "enforce",
+        },
+    },
+    "dq": {
+        "label": "Existing contract fails DQ",
+        "description": (
+            "Enforce contract orders_enriched:1.1.0 which triggers a data quality "
+            "violation and results in an error."
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "dataset_name": "output-wrong-quality",
+            "run_type": "enforce",
+        },
+    },
+    "schema-dq": {
+        "label": "Contract fails schema and DQ",
+        "description": (
+            "Enforce contract orders_enriched:2.0.0 causing schema mismatch and "
+            "data quality errors. A draft contract is produced."
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "2.0.0",
+            "dataset_name": "output-ko",
+            "run_type": "enforce",
+        },
+    },
+}
+
+
 def load_contract_meta() -> List[Dict[str, Any]]:
     meta = json.loads(CONTRACT_META_FILE.read_text())
     for m in meta:
@@ -269,18 +328,10 @@ async def create_contract(
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
-    meta = load_contract_meta()
-    contract_ids = sorted({m["id"] for m in meta})
-    contract_versions = {cid: sorted([m["version"] for m in meta if m["id"] == cid], reverse=True) for cid in contract_ids}
-    dataset_versions = sorted({r.dataset_version for r in records if r.dataset_version})
-    dataset_names = sorted({r.dataset_name for r in records if r.dataset_name})
     context = {
         "request": request,
         "records": records,
-        "contract_ids": contract_ids,
-        "contract_versions": contract_versions,
-        "dataset_versions": dataset_versions,
-        "dataset_names": dataset_names,
+        "scenarios": SCENARIOS,
         "message": request.query_params.get("msg"),
         "error": request.query_params.get("error"),
     }
@@ -288,26 +339,25 @@ async def list_datasets(request: Request) -> HTMLResponse:
 
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
-async def run_pipeline_endpoint(
-    contract_id: str = Form(""),
-    contract_version: str = Form(""),
-    dataset_name: str = Form(...),
-    dataset_version: str = Form(""),
-    run_type: str = Form("infer"),
-) -> HTMLResponse:
+async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
     from .pipeline import run_pipeline
 
-    input_path = str(DATA_INPUT_DIR / "orders.json")
+    input_path = str(DATA_DIR / "orders.json")
+    cfg = SCENARIOS.get(scenario)
+    if not cfg:
+        params = urlencode({"error": f"Unknown scenario: {scenario}"})
+        return RedirectResponse(url=f"/datasets?{params}", status_code=303)
+    p = cfg["params"]
     try:
         new_version = run_pipeline(
-            contract_id or None,
-            contract_version or None,
-            dataset_name,
-            dataset_version or None,
-            run_type,
+            p.get("contract_id"),
+            p.get("contract_version"),
+            p["dataset_name"],
+            p.get("dataset_version"),
+            p.get("run_type", "infer"),
             input_path,
         )
-        params = urlencode({"msg": f"Run succeeded: {dataset_name} {new_version}"})
+        params = urlencode({"msg": f"Run succeeded: {p['dataset_name']} {new_version}"})
     except Exception as exc:  # pragma: no cover - surface pipeline errors
         params = urlencode({"error": str(exc)})
     return RedirectResponse(url=f"/datasets?{params}", status_code=303)
