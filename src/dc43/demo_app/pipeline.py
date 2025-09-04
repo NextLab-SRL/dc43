@@ -42,6 +42,8 @@ def _resolve_output_path(
     server = (contract.servers or [None])[0] if contract else None
     data_root = Path(DATA_DIR).parent
     base_path = Path(getattr(server, "path", "")) if server else data_root
+    if base_path.suffix:
+        base_path = base_path.parent
     if not base_path.is_absolute():
         base_path = data_root / base_path
     out = base_path / dataset_name / dataset_version
@@ -64,7 +66,7 @@ def run_pipeline(
 
     # Read primary orders dataset with its contract
     orders_contract = store.get("orders", "1.1.0")
-    orders_path = str(DATA_DIR / "orders.json")
+    orders_path = str(DATA_DIR / "orders/1.1.0/orders.json")
     orders_df, orders_status = read_with_contract(
         spark,
         path=orders_path,
@@ -72,12 +74,12 @@ def run_pipeline(
         expected_contract_version="==1.1.0",
         dq_client=dq,
         dataset_id="orders",
-        dataset_version="1.0.0",
+        dataset_version="1.1.0",
     )
 
     # Join with customers lookup dataset
     customers_contract = store.get("customers", "1.0.0")
-    customers_path = str(DATA_DIR / "customers.json")
+    customers_path = str(DATA_DIR / "customers/1.0.0/customers.json")
     customers_df, customers_status = read_with_contract(
         spark,
         path=customers_path,

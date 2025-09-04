@@ -61,7 +61,8 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
         p = Path(srv.path or "")
         if not p.is_absolute():
             p = (WORK_DIR / p).resolve()
-        p.mkdir(parents=True, exist_ok=True)
+        base = p.parent if p.suffix else p
+        base.mkdir(parents=True, exist_ok=True)
         srv.path = str(p)
     dest = CONTRACT_DIR / src.relative_to(SAMPLE_DIR / "contracts")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -82,12 +83,14 @@ for _r in _sample_records:
     _srv = (_c.servers or [None])[0]
     if not _srv or not _srv.path:
         continue
-    _base = Path(_srv.path)
-    _ds_dir = _base / _r["dataset_name"] / _r["dataset_version"]
-    _ds_dir.mkdir(parents=True, exist_ok=True)
+    _dest = Path(_srv.path)
     _src = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
-    if _src.exists():
-        shutil.copy2(_src, _ds_dir / _src.name)
+    if not _src.exists():
+        continue
+    base = _dest.parent if _dest.suffix else _dest
+    _ds_dir = base / _r["dataset_name"] / _r["dataset_version"]
+    _ds_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_src, _ds_dir / _src.name)
 
 app = FastAPI(title="DC43 Demo")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -502,6 +505,8 @@ def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, 
     server = (contract.servers or [None])[0] if contract else None
     data_root = Path(DATA_DIR).parent
     base = Path(getattr(server, "path", "")) if server else data_root
+    if base.suffix:
+        base = base.parent
     if not base.is_absolute():
         base = data_root / base
     return base / dataset_name / dataset_version
