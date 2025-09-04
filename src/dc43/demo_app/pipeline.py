@@ -8,20 +8,19 @@ recording the dataset version in the demo app's registry.
 """
 
 from pathlib import Path
-from typing import Any, Dict
 
 from dc43.demo_app.server import (
     store,
     DATASETS_FILE,
-    DATA_INPUT_DIR,
+    DATA_DIR,
     DatasetRecord,
     load_records,
     save_records,
 )
 from dc43.dq.stub import StubDQClient
-from dc43.dq.metrics import compute_metrics, expectations_from_contract
+from dc43.dq.spark_metrics import attach_failed_expectations
 from dc43.integration.spark_io import read_with_contract, write_with_contract
-from dc43.integration.validation import apply_contract
+from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import SparkSession
 
 
@@ -32,6 +31,24 @@ def _next_version(existing: list[str]) -> str:
     parts = [list(map(int, v.split("."))) for v in existing]
     major, minor, patch = max(parts)
     return f"{major}.{minor}.{patch + 1}"
+
+
+def _resolve_output_path(
+    contract: OpenDataContractStandard | None,
+    dataset_name: str,
+    dataset_version: str,
+) -> Path:
+    """Return output path for dataset relative to contract servers."""
+    server = (contract.servers or [None])[0] if contract else None
+    data_root = Path(DATA_DIR).parent
+    base_path = Path(getattr(server, "path", "")) if server else data_root
+    if base_path.suffix:
+        base_path = base_path.parent
+    if not base_path.is_absolute():
+        base_path = data_root / base_path
+    out = base_path / dataset_name / dataset_version
+    out.parent.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 def run_pipeline(
@@ -49,13 +66,7 @@ def run_pipeline(
 
     # Read primary orders dataset with its contract
     orders_contract = store.get("orders", "1.1.0")
-    orders_path = str(DATA_INPUT_DIR / "orders.json")
-    dq.link_dataset_contract(
-        dataset_id="orders",
-        dataset_version="1.0.0",
-        contract_id="orders",
-        contract_version="1.1.0",
-    )
+    orders_path = str(DATA_DIR / "orders/1.1.0/orders.json")
     orders_df, orders_status = read_with_contract(
         spark,
         path=orders_path,
@@ -63,18 +74,12 @@ def run_pipeline(
         expected_contract_version="==1.1.0",
         dq_client=dq,
         dataset_id="orders",
-        dataset_version="1.0.0",
+        dataset_version="1.1.0",
     )
 
     # Join with customers lookup dataset
     customers_contract = store.get("customers", "1.0.0")
-    customers_path = str(DATA_INPUT_DIR / "customers.json")
-    dq.link_dataset_contract(
-        dataset_id="customers",
-        dataset_version="1.0.0",
-        contract_id="customers",
-        contract_version="1.0.0",
-    )
+    customers_path = str(DATA_DIR / "customers/1.0.0/customers.json")
     customers_df, customers_status = read_with_contract(
         spark,
         path=customers_path,
@@ -95,74 +100,44 @@ def run_pipeline(
     output_contract = (
         store.get(contract_id, contract_version) if contract_id and contract_version else None
     )
+    output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
     server = (output_contract.servers or [None])[0] if output_contract else None
-    data_root = Path(DATA_INPUT_DIR).parent
-    base_path = Path(getattr(server, "path", "")) if server else data_root
-    if not base_path.is_absolute():
-        base_path = data_root / base_path
-    output_path = base_path / dataset_name / dataset_version
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    error: Exception | None = None
-    output_details = {}
-    output_status = None
-    draft_version: str | None = None
-    try:
-        result, draft = write_with_contract(
-            df=df,
-            contract=output_contract,
-            path=str(output_path),
-            format=getattr(server, "format", "parquet"),
-            mode="overwrite",
-            enforce=False,
-            draft_on_mismatch=True,
-            draft_store=store,
+
+    result, output_status, draft = write_with_contract(
+        df=df,
+        contract=output_contract,
+        path=str(output_path),
+        format=getattr(server, "format", "parquet"),
+        mode="overwrite",
+        enforce=False,
+        draft_on_mismatch=True,
+        draft_store=store,
+        dq_client=dq,
+        dataset_id=dataset_name,
+        dataset_version=dataset_version,
+        return_status=True,
+    )
+
+    if output_status and output_contract:
+        output_status = attach_failed_expectations(
+            df,
+            output_contract,
+            output_status,
+            collect_examples=collect_examples,
+            examples_limit=examples_limit,
         )
-        if output_contract:
-            dq.link_dataset_contract(
-                dataset_id=dataset_name,
-                dataset_version=dataset_version,
-                contract_id=contract_id or output_contract.id,
-                contract_version=contract_version or output_contract.version,
-            )
-            aligned_df = apply_contract(df, output_contract)
-            metrics = compute_metrics(aligned_df, output_contract)
-            output_status = dq.submit_metrics(
-                contract=output_contract,
-                dataset_id=dataset_name,
-                dataset_version=dataset_version,
-                metrics=metrics,
-            )
-            output_details = {**result.details, **output_status.details}
-            if output_status.status != "ok":
-                failures: Dict[str, Dict[str, Any]] = {}
-                exps = expectations_from_contract(output_contract)
-                metrics = output_status.details.get("metrics", {})
-                for key, expr in exps.items():
-                    metric_key = f"violations.{key}"
-                    count = metrics.get(metric_key, 0)
-                    if count > 0:
-                        info: Dict[str, Any] = {"count": count, "expression": expr}
-                        if collect_examples:
-                            info["examples"] = [
-                                r.asDict()
-                                for r in aligned_df.filter(f"NOT ({expr})").limit(examples_limit).collect()
-                            ]
-                        failures[key] = info
-                if failures:
-                    output_details["failed_expectations"] = failures
-                if run_type == "enforce":
-                    error = ValueError(f"DQ violation: {output_status.details}")
-        else:
-            output_details = result.details
-            if run_type == "enforce":
-                error = ValueError("Contract required for existing mode")
-        if result.ok is False and error is None:
+
+    error: ValueError | None = None
+    if run_type == "enforce":
+        if not output_contract:
+            error = ValueError("Contract required for existing mode")
+        elif output_status and output_status.status != "ok":
+            error = ValueError(f"DQ violation: {output_status.details}")
+        elif not result.ok:
             error = ValueError(f"Contract validation failed: {result.errors}")
-    except ValueError as exc:
-        error = exc
-    else:
-        if draft:
-            draft_version = draft.version
+
+    draft_version: str | None = draft.version if draft else None
+    output_details = {**result.details, **(output_status.details if output_status else {})}
 
     combined_details = {
         "orders": orders_status.details if orders_status else None,

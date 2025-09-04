@@ -14,7 +14,7 @@ from pyspark.sql import DataFrame, SparkSession
 
 from .validation import validate_dataframe, apply_contract, ValidationResult
 from ..dq.base import DQClient, DQStatus
-from ..dq.metrics import compute_metrics
+from ..dq.spark_metrics import compute_metrics
 from .dataset import get_delta_version, dataset_id_from_ref
 from ..versioning import SemVer
 from ..odcs import contract_identity, ensure_version
@@ -304,11 +304,18 @@ def read_with_contract(
         ds_id = dataset_id or dataset_id_from_ref(table=table, path=path)
         ds_ver = dataset_version or get_delta_version(spark, table=table, path=path) or "unknown"
 
-        # Check dataset->contract linkage if tracked
+        # Check dataset->contract linkage if tracked; link when missing
         linked = dq_client.get_linked_contract_version(dataset_id=ds_id)
         if linked and linked != f"{cid}:{cver}":
             status = DQStatus(status="block", reason=f"dataset linked to {linked}")
         else:
+            if not linked:
+                dq_client.link_dataset_contract(
+                    dataset_id=ds_id,
+                    dataset_version=ds_ver,
+                    contract_id=cid,
+                    contract_version=cver,
+                )
             status = dq_client.get_status(
                 contract_id=cid,
                 contract_version=cver,
@@ -328,8 +335,9 @@ def read_with_contract(
     return (df, status) if return_status else df
 
 
-# Overloads allow static checkers to track the tuple return when
-# ``return_draft`` is set, avoiding "DataFrame is not iterable" warnings.
+# Overloads allow static checkers to track the tuple return when combinations of
+# ``return_draft`` and ``return_status`` are requested, avoiding "DataFrame is
+# not iterable" warnings.
 @overload
 def write_with_contract(
     *,
@@ -345,6 +353,58 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
+    dq_client: Optional[DQClient] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: Literal[True],
+    return_draft: Literal[True],
+) -> tuple[ValidationResult, Optional[DQStatus], Optional[OpenDataContractStandard]]:
+    ...
+
+
+@overload
+def write_with_contract(
+    *,
+    df: DataFrame,
+    contract: Optional[OpenDataContractStandard] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    format: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    mode: str = "append",
+    enforce: bool = True,
+    auto_cast: bool = True,
+    draft_on_mismatch: bool = False,
+    draft_store: Optional[ContractStore] = None,
+    draft_bump: str = "minor",
+    dq_client: Optional[DQClient] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: Literal[True],
+    return_draft: Literal[False],
+) -> tuple[ValidationResult, Optional[DQStatus]]:
+    ...
+
+
+@overload
+def write_with_contract(
+    *,
+    df: DataFrame,
+    contract: Optional[OpenDataContractStandard] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    format: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    mode: str = "append",
+    enforce: bool = True,
+    auto_cast: bool = True,
+    draft_on_mismatch: bool = False,
+    draft_store: Optional[ContractStore] = None,
+    draft_bump: str = "minor",
+    dq_client: Optional[DQClient] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: Literal[False] = False,
     return_draft: Literal[True] = True,
 ) -> tuple[ValidationResult, Optional[OpenDataContractStandard]]:
     ...
@@ -365,28 +425,12 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
-    return_draft: Literal[False],
+    dq_client: Optional[DQClient] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: Literal[False] = False,
+    return_draft: Literal[False] = False,
 ) -> ValidationResult:
-    ...
-
-
-@overload
-def write_with_contract(
-    *,
-    df: DataFrame,
-    contract: Optional[OpenDataContractStandard] = None,
-    path: Optional[str] = None,
-    table: Optional[str] = None,
-    format: Optional[str] = None,
-    options: Optional[Dict[str, str]] = None,
-    mode: str = "append",
-    enforce: bool = True,
-    auto_cast: bool = True,
-    draft_on_mismatch: bool = False,
-    draft_store: Optional[ContractStore] = None,
-    draft_bump: str = "minor",
-    return_draft: bool = True,
-) -> ValidationResult | tuple[ValidationResult, Optional[OpenDataContractStandard]]:
     ...
 
 
@@ -405,8 +449,13 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
+    # DQ integration
+    dq_client: Optional[DQClient] = None,
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    return_status: bool = False,
     return_draft: bool = True,
-) -> ValidationResult | Tuple[ValidationResult, Optional[OpenDataContractStandard]]:
+) -> Any:
     """Validate/align a DataFrame then write it using Spark writers.
 
     Applies the contract schema before writing and merges IO options coming
@@ -565,6 +614,35 @@ def write_with_contract(
             raise ValueError("Either table or path must be provided for write")
         logger.info("Writing dataframe to path %s", path)
         writer.save(path)
-    # Propagate the validation result to callers.  When ``return_draft`` is
-    # requested we include the proposed draft document as a second tuple value.
-    return (result, draft_doc) if return_draft else result
+
+    # DQ integration after write
+    status: Optional[DQStatus] = None
+    if dq_client and contract:
+        ds_id = dataset_id or dataset_id_from_ref(table=table, path=path)
+        ds_ver = dataset_version or get_delta_version(df.sparkSession, table=table, path=path) or "unknown"
+        linked = dq_client.get_linked_contract_version(dataset_id=ds_id)
+        if linked and linked != f"{cid}:{cver}":
+            status = DQStatus(status="block", reason=f"dataset linked to {linked}")
+        else:
+            if not linked:
+                dq_client.link_dataset_contract(
+                    dataset_id=ds_id,
+                    dataset_version=ds_ver,
+                    contract_id=cid,
+                    contract_version=cver,
+                )
+            metrics = compute_metrics(out_df, contract)
+            status = dq_client.submit_metrics(
+                contract=contract, dataset_id=ds_id, dataset_version=ds_ver, metrics=metrics
+            )
+        if enforce and status and status.status == "block":
+            raise ValueError(f"DQ violation: {status.details}")
+
+    # Propagate the validation result to callers.
+    if return_status and return_draft:
+        return result, status, draft_doc
+    if return_status:
+        return result, status
+    if return_draft:
+        return result, draft_doc
+    return result

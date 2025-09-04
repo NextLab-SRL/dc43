@@ -30,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from urllib.parse import urlencode
 
 from dc43.storage.fs import FSContractStore
-from dc43.dq.metrics import expectations_from_contract
+from dc43.dq.spark_metrics import expectations_from_contract
 from open_data_contract_standard.model import (
     OpenDataContractStandard,
     SchemaObject,
@@ -45,13 +45,13 @@ BASE_DIR = Path(__file__).resolve().parent
 SAMPLE_DIR = BASE_DIR / "demo_data"
 WORK_DIR = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
 CONTRACT_DIR = WORK_DIR / "contracts"
-DATA_INPUT_DIR = WORK_DIR / "data"
+DATA_DIR = WORK_DIR / "data"
 RECORDS_DIR = WORK_DIR / "records"
 DATASETS_FILE = RECORDS_DIR / "datasets.json"
 
 # Copy sample data and records into a temporary working directory so the
 # application operates on absolute paths that are isolated per run.
-shutil.copytree(SAMPLE_DIR / "data", DATA_INPUT_DIR)
+shutil.copytree(SAMPLE_DIR / "data", DATA_DIR)
 shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
 
 # Prepare contracts with absolute server paths pointing inside the working dir.
@@ -61,7 +61,8 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
         p = Path(srv.path or "")
         if not p.is_absolute():
             p = (WORK_DIR / p).resolve()
-        p.mkdir(parents=True, exist_ok=True)
+        base = p.parent if p.suffix else p
+        base.mkdir(parents=True, exist_ok=True)
         srv.path = str(p)
     dest = CONTRACT_DIR / src.relative_to(SAMPLE_DIR / "contracts")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -82,12 +83,14 @@ for _r in _sample_records:
     _srv = (_c.servers or [None])[0]
     if not _srv or not _srv.path:
         continue
-    _base = Path(_srv.path)
-    _ds_dir = _base / _r["dataset_name"] / _r["dataset_version"]
-    _ds_dir.mkdir(parents=True, exist_ok=True)
+    _dest = Path(_srv.path)
     _src = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
-    if _src.exists():
-        shutil.copy2(_src, _ds_dir / _src.name)
+    if not _src.exists():
+        continue
+    base = _dest.parent if _dest.suffix else _dest
+    _ds_dir = base / _r["dataset_name"] / _r["dataset_version"]
+    _ds_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_src, _ds_dir / _src.name)
 
 app = FastAPI(title="DC43 Demo")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -383,7 +386,7 @@ async def save_contract_edits(
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
         if not path.is_absolute():
-            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
+            path = (Path(DATA_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -445,7 +448,7 @@ async def create_contract(
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
         if not path.is_absolute():
-            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
+            path = (Path(DATA_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -500,8 +503,10 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
 
 def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
     server = (contract.servers or [None])[0] if contract else None
-    data_root = Path(DATA_INPUT_DIR).parent
+    data_root = Path(DATA_DIR).parent
     base = Path(getattr(server, "path", "")) if server else data_root
+    if base.suffix:
+        base = base.parent
     if not base.is_absolute():
         base = data_root / base
     return base / dataset_name / dataset_version
