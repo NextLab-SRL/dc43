@@ -109,6 +109,7 @@ def run_pipeline(
     error: Exception | None = None
     output_details = {}
     output_status = None
+    draft_version: str | None = None
     try:
         result, draft = write_with_contract(
             df=df,
@@ -169,13 +170,13 @@ def run_pipeline(
             meta = load_contract_meta()
             meta.append({"id": contract_id, "version": next_ver, "status": "draft"})
             save_contract_meta(meta)
+            draft_version = next_ver
     else:
         if draft:
             meta = load_contract_meta()
             meta.append({"id": draft.id, "version": draft.version, "status": "draft"})
             save_contract_meta(meta)
-            contract_id = draft.id
-            contract_version = draft.version
+            draft_version = draft.version
 
     combined_details = {
         "orders": orders_status.details if orders_status else None,
@@ -204,6 +205,7 @@ def run_pipeline(
             combined_details,
             run_type,
             total_violations,
+            draft_contract_version=draft_version,
         )
     )
     save_records(records)
