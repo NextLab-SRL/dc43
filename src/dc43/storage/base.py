@@ -20,6 +20,11 @@ class ContractStore(ABC):
         ...
 
     @abstractmethod
+    def list_contracts(self) -> List[str]:
+        """List all contract identifiers available in the store."""
+        ...
+
+    @abstractmethod
     def list_versions(self, contract_id: str) -> List[str]:
         """List available versions for a given contract id."""
         ...

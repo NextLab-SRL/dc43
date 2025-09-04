@@ -10,7 +10,8 @@
     {
       "server": "local",
       "type": "filesystem",
-      "path": "outputs"
+      "path": "outputs",
+      "format": "parquet"
     }
   ],
   "schema": [

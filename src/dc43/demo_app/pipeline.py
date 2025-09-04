@@ -17,8 +17,6 @@ from dc43.demo_app.server import (
     DatasetRecord,
     load_records,
     save_records,
-    load_contract_meta,
-    save_contract_meta,
 )
 from dc43.dq.stub import StubDQClient
 from dc43.dq.metrics import compute_metrics, expectations_from_contract
@@ -60,7 +58,6 @@ def run_pipeline(
     )
     orders_df, orders_status = read_with_contract(
         spark,
-        format="json",
         path=orders_path,
         contract=orders_contract,
         expected_contract_version="==1.1.0",
@@ -80,7 +77,6 @@ def run_pipeline(
     )
     customers_df, customers_status = read_with_contract(
         spark,
-        format="json",
         path=customers_path,
         contract=customers_contract,
         expected_contract_version="==1.0.0",
@@ -115,6 +111,7 @@ def run_pipeline(
             df=df,
             contract=output_contract,
             path=str(output_path),
+            format=getattr(server, "format", "parquet"),
             mode="overwrite",
             enforce=False,
             draft_on_mismatch=True,
@@ -163,19 +160,8 @@ def run_pipeline(
             error = ValueError(f"Contract validation failed: {result.errors}")
     except ValueError as exc:
         error = exc
-        if output_contract:
-            from dc43.versioning import SemVer
-
-            next_ver = str(SemVer.parse(contract_version).bump("minor")) if contract_version else "0.0.1"
-            meta = load_contract_meta()
-            meta.append({"id": contract_id, "version": next_ver, "status": "draft"})
-            save_contract_meta(meta)
-            draft_version = next_ver
     else:
         if draft:
-            meta = load_contract_meta()
-            meta.append({"id": draft.id, "version": draft.version, "status": "draft"})
-            save_contract_meta(meta)
             draft_version = draft.version
 
     combined_details = {

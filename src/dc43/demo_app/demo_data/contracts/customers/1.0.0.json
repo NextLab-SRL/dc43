@@ -10,7 +10,8 @@
     {
       "server": "local",
       "type": "filesystem",
-      "path": "lookup"
+      "path": "lookup",
+      "format": "json"
     }
   ],
   "schema": [

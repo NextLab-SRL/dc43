@@ -20,9 +20,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Any
 import json
+import shutil
+import tempfile
 
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from urllib.parse import urlencode
@@ -40,23 +42,52 @@ from pydantic import ValidationError
 from packaging.version import Version
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "demo_data"
-CONTRACT_DIR = DATA_DIR / "contracts"
-DATA_INPUT_DIR = DATA_DIR / "data"
-RECORDS_DIR = DATA_DIR / "records"
+SAMPLE_DIR = BASE_DIR / "demo_data"
+WORK_DIR = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
+CONTRACT_DIR = WORK_DIR / "contracts"
+DATA_INPUT_DIR = WORK_DIR / "data"
+RECORDS_DIR = WORK_DIR / "records"
 DATASETS_FILE = RECORDS_DIR / "datasets.json"
-CONTRACT_META_FILE = RECORDS_DIR / "contract_meta.json"
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-CONTRACT_DIR.mkdir(parents=True, exist_ok=True)
-DATA_INPUT_DIR.mkdir(parents=True, exist_ok=True)
-RECORDS_DIR.mkdir(parents=True, exist_ok=True)
-if not DATASETS_FILE.exists():
-    DATASETS_FILE.write_text("[]", encoding="utf-8")
-if not CONTRACT_META_FILE.exists():
-    CONTRACT_META_FILE.write_text("[]", encoding="utf-8")
+# Copy sample data and records into a temporary working directory so the
+# application operates on absolute paths that are isolated per run.
+shutil.copytree(SAMPLE_DIR / "data", DATA_INPUT_DIR)
+shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
+
+# Prepare contracts with absolute server paths pointing inside the working dir.
+for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
+    model = OpenDataContractStandard.model_validate_json(src.read_text())
+    for srv in model.servers or []:
+        p = Path(srv.path or "")
+        if not p.is_absolute():
+            p = (WORK_DIR / p).resolve()
+        p.mkdir(parents=True, exist_ok=True)
+        srv.path = str(p)
+    dest = CONTRACT_DIR / src.relative_to(SAMPLE_DIR / "contracts")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        model.model_dump_json(indent=2, by_alias=True, exclude_none=True),
+        encoding="utf-8",
+    )
 
 store = FSContractStore(str(CONTRACT_DIR))
+
+# Populate server paths with sample datasets matching recorded versions
+_sample_records = json.loads((RECORDS_DIR / "datasets.json").read_text())
+for _r in _sample_records:
+    try:
+        _c = store.get(_r["contract_id"], _r["contract_version"])
+    except FileNotFoundError:
+        continue
+    _srv = (_c.servers or [None])[0]
+    if not _srv or not _srv.path:
+        continue
+    _base = Path(_srv.path)
+    _ds_dir = _base / _r["dataset_name"] / _r["dataset_version"]
+    _ds_dir.mkdir(parents=True, exist_ok=True)
+    _src = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
+    if _src.exists():
+        shutil.copy2(_src, _ds_dir / _src.name)
 
 app = FastAPI(title="DC43 Demo")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -164,62 +195,40 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
 
 
 def load_contract_meta() -> List[Dict[str, Any]]:
-    meta = json.loads(CONTRACT_META_FILE.read_text())
-    for m in meta:
-        try:
-            contract = store.get(m["id"], m["version"])
+    """Return contract info derived from the store without extra metadata."""
+    meta: List[Dict[str, Any]] = []
+    for cid in store.list_contracts():
+        for ver in store.list_versions(cid):
+            try:
+                contract = store.get(cid, ver)
+            except FileNotFoundError:
+                continue
             server = (contract.servers or [None])[0]
             path = ""
             if server:
-                parts = []
+                parts: List[str] = []
                 if getattr(server, "path", None):
                     parts.append(server.path)
                 if getattr(server, "dataset", None):
                     parts.append(server.dataset)
                 path = "/".join(parts)
-            m["path"] = path
-        except FileNotFoundError:
-            m["path"] = ""
+            meta.append({"id": cid, "version": ver, "path": path})
     return meta
 
 
 def save_contract_meta(meta: List[Dict[str, Any]]) -> None:
-    stripped = [{k: v for k, v in m.items() if k in {"id", "version", "status"}} for m in meta]
-    CONTRACT_META_FILE.write_text(
-        json.dumps(stripped, indent=2), encoding="utf-8"
-    )
+    """No-op retained for backwards compatibility."""
+    return None
 
 
-def get_contract_status(cid: str, ver: str) -> str:
-    meta = load_contract_meta()
-    for m in meta:
-        if m["id"] == cid and m["version"] == ver:
-            return m.get("status", "unknown")
-    return "unknown"
-
-
-def set_contract_status(cid: str, ver: str, status: str) -> None:
-    meta = load_contract_meta()
-    for m in meta:
-        if m["id"] == cid and m["version"] == ver:
-            m["status"] = status
-            break
-    else:
-        meta.append({"id": cid, "version": ver, "status": status})
-    save_contract_meta(meta)
 
 
 def contract_to_dict(c: OpenDataContractStandard) -> Dict[str, Any]:
+    """Return a plain dict for a contract using public field aliases."""
     try:
-        data = c.model_dump()
-    except AttributeError:  # pydantic v1 fallback
-        data = c.dict()  # type: ignore
-    # Pydantic names the "schema" field "schema_" to avoid clashing with the
-    # ``BaseModel.schema`` method. Rename it here so the client can simply
-    # access ``contract.schema`` without worrying about the underscore suffix.
-    if "schema_" in data:
-        data["schema"] = data.pop("schema_")
-    return data
+        return c.model_dump(by_alias=True, exclude_none=True)
+    except AttributeError:  # pragma: no cover - Pydantic v1 fallback
+        return c.dict(by_alias=True, exclude_none=True)  # type: ignore[call-arg]
 
 
 @app.get("/api/contracts")
@@ -237,7 +246,6 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     expectations = expectations_from_contract(contract)
     return {
         "contract": contract_to_dict(contract),
-        "status": get_contract_status(cid, ver),
         "datasets": datasets,
         "expectations": expectations,
     }
@@ -245,23 +253,13 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
 
 @app.post("/api/contracts/{cid}/{ver}/validate")
 async def api_validate_contract(cid: str, ver: str) -> Dict[str, str]:
-    set_contract_status(cid, ver, "active")
     return {"status": "active"}
 
 
 @app.get("/api/datasets")
 async def api_datasets() -> List[Dict[str, Any]]:
     records = load_records()
-    out: List[Dict[str, Any]] = []
-    for r in records:
-        rec = r.__dict__.copy()
-        rec["contract_status"] = get_contract_status(r.contract_id, r.contract_version)
-        if r.draft_contract_version:
-            rec["draft_contract_status"] = get_contract_status(
-                r.contract_id, r.draft_contract_version
-            )
-        out.append(rec)
-    return out
+    return [r.__dict__.copy() for r in records]
 
 
 @app.get("/api/datasets/{dataset_version}")
@@ -272,33 +270,45 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
-                "contract_status": get_contract_status(r.contract_id, r.contract_version),
-                "draft_contract_status": get_contract_status(
-                    r.contract_id, r.draft_contract_version
-                )
-                if r.draft_contract_version
-                else None,
                 "expectations": expectations_from_contract(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
 
 
-@app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(str(BASE_DIR / "static" / "index.html"))
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
-    contracts = load_contract_meta()
-    return templates.TemplateResponse("contracts.html", {"request": request, "contracts": contracts})
+    contract_ids = store.list_contracts()
+    return templates.TemplateResponse(
+        "contracts.html", {"request": request, "contracts": contract_ids}
+    )
 
 
 @app.get("/contracts/{cid}", response_class=HTMLResponse)
 async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
-    contracts = [c for c in load_contract_meta() if c["id"] == cid]
-    if not contracts:
+    versions = store.list_versions(cid)
+    if not versions:
         raise HTTPException(status_code=404, detail="Contract not found")
+    contracts = []
+    for ver in versions:
+        try:
+            contract = store.get(cid, ver)
+        except FileNotFoundError:
+            continue
+        server = (contract.servers or [None])[0]
+        path = ""
+        if server:
+            parts: List[str] = []
+            if getattr(server, "path", None):
+                parts.append(server.path)
+            if getattr(server, "dataset", None):
+                parts.append(server.dataset)
+            path = "/".join(parts)
+        contracts.append({"id": cid, "version": ver, "path": path})
     context = {"request": request, "contract_id": cid, "contracts": contracts}
     return templates.TemplateResponse("contract_versions.html", context)
 
@@ -313,7 +323,6 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
     context = {
         "request": request,
         "contract": contract_to_dict(contract),
-        "status": get_contract_status(cid, ver),
         "datasets": datasets,
         "expectations": expectations_from_contract(contract),
     }
@@ -331,8 +340,7 @@ async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLRespon
         contract = store.get(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    status = get_contract_status(cid, ver)
-    new_ver = _next_version(ver) if status == "active" else ver
+    new_ver = _next_version(ver)
     server = (contract.servers or [None])[0]
     path = getattr(server, "path", "") if server else ""
     props = []
@@ -365,6 +373,7 @@ async def save_contract_edits(
     columns: str = Form(""),
     dataset_path: str = Form(""),
 ) -> HTMLResponse:
+    path = Path(dataset_path)
     try:
         props = []
         for line in columns.splitlines():
@@ -373,6 +382,8 @@ async def save_contract_edits(
                 continue
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
+        if not path.is_absolute():
+            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -381,21 +392,9 @@ async def save_contract_edits(
             name=name,
             description=Description(usage=description),
             schema=[SchemaObject(name=name, properties=props)],
-            servers=[Server(server="local", type="filesystem", path=dataset_path)],
+            servers=[Server(server="local", type="filesystem", path=str(path))],
         )
         store.put(model)
-        meta = load_contract_meta()
-        orig_status = get_contract_status(cid, ver)
-        if orig_status == "active" and contract_version != ver:
-            meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
-        else:
-            for m in meta:
-                if m["id"] == contract_id and m["version"] == contract_version:
-                    m["status"] = "draft"
-                    break
-            else:
-                meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
-        save_contract_meta(meta)
         return RedirectResponse(url=f"/contracts/{contract_id}/{contract_version}", status_code=303)
     except ValidationError as ve:
         error = str(ve)
@@ -410,7 +409,7 @@ async def save_contract_edits(
         "name": name,
         "description": description,
         "columns": columns,
-        "dataset_path": dataset_path,
+        "dataset_path": str(path),
         "original_version": ver,
     }
     return templates.TemplateResponse("new_contract.html", context)
@@ -418,7 +417,6 @@ async def save_contract_edits(
 
 @app.post("/contracts/{cid}/{ver}/validate")
 async def html_validate_contract(cid: str, ver: str) -> HTMLResponse:
-    set_contract_status(cid, ver, "active")
     return RedirectResponse(url=f"/contracts/{cid}/{ver}", status_code=303)
 
 
@@ -437,6 +435,7 @@ async def create_contract(
     columns: str = Form(""),
     dataset_path: str = Form(""),
 ) -> HTMLResponse:
+    path = Path(dataset_path)
     try:
         props = []
         for line in columns.splitlines():
@@ -445,6 +444,8 @@ async def create_contract(
                 continue
             col_name, col_type = [p.strip() for p in line.split(":", 1)]
             props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
+        if not path.is_absolute():
+            path = (Path(DATA_INPUT_DIR).parent / path).resolve()
         model = OpenDataContractStandard(
             version=contract_version,
             kind="DataContract",
@@ -453,17 +454,9 @@ async def create_contract(
             name=name,
             description=Description(usage=description),
             schema=[SchemaObject(name=name, properties=props)],
-            servers=[Server(server="local", type="filesystem", path=dataset_path)],
+            servers=[Server(server="local", type="filesystem", path=str(path))],
         )
         store.put(model)
-        meta = load_contract_meta()
-        for m in meta:
-            if m["id"] == contract_id and m["version"] == contract_version:
-                m.update({"status": "draft"})
-                break
-        else:
-            meta.append({"id": contract_id, "version": contract_version, "status": "draft"})
-        save_contract_meta(meta)
         return RedirectResponse(url="/contracts", status_code=303)
     except ValidationError as ve:
         error = str(ve)
@@ -477,7 +470,7 @@ async def create_contract(
         "name": name,
         "description": description,
         "columns": columns,
-        "dataset_path": dataset_path,
+        "dataset_path": str(path),
     }
     return templates.TemplateResponse("new_contract.html", context)
 
@@ -487,13 +480,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
     recs = []
     for r in records:
-        rec = r.__dict__.copy()
-        rec["contract_status"] = get_contract_status(r.contract_id, r.contract_version)
-        if r.draft_contract_version:
-            rec["draft_contract_status"] = get_contract_status(
-                r.contract_id, r.draft_contract_version
-            )
-        recs.append(rec)
+        recs.append(r.__dict__.copy())
     context = {
         "request": request,
         "records": recs,
@@ -504,21 +491,58 @@ async def list_datasets(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("datasets.html", context)
 
 
-@app.get("/datasets/{dataset_version}", response_class=HTMLResponse)
-async def dataset_detail(request: Request, dataset_version: str) -> HTMLResponse:
+@app.get("/datasets/{dataset_name}", response_class=HTMLResponse)
+async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
+    records = [r.__dict__.copy() for r in load_records() if r.dataset_name == dataset_name]
+    context = {"request": request, "dataset_name": dataset_name, "records": records}
+    return templates.TemplateResponse("dataset_versions.html", context)
+
+
+def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
+    server = (contract.servers or [None])[0] if contract else None
+    data_root = Path(DATA_INPUT_DIR).parent
+    base = Path(getattr(server, "path", "")) if server else data_root
+    if not base.is_absolute():
+        base = data_root / base
+    return base / dataset_name / dataset_version
+
+
+def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> str:
+    ds_path = _dataset_path(contract, dataset_name, dataset_version)
+    server = (contract.servers or [None])[0] if contract else None
+    fmt = getattr(server, "format", None)
+    try:
+        if fmt == "parquet":
+            from pyspark.sql import SparkSession  # type: ignore
+            spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
+            df = spark.read.parquet(str(ds_path))
+            return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
+        if fmt == "json":
+            target = ds_path if ds_path.is_file() else next(ds_path.glob("*.json"), None)
+            if target:
+                return target.read_text()[:1000]
+        if ds_path.is_file():
+            return ds_path.read_text()[:1000]
+        if ds_path.is_dir():
+            target = next((p for p in ds_path.iterdir() if p.is_file()), None)
+            if target:
+                return target.read_text()[:1000]
+    except Exception:
+        return ""
+    return ""
+
+
+@app.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
+async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
     for r in load_records():
-        if r.dataset_version == dataset_version:
+        if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
             contract = store.get(r.contract_id, r.contract_version)
+            preview = _dataset_preview(contract, dataset_name, dataset_version)
             context = {
                 "request": request,
                 "record": r,
                 "contract": contract_to_dict(contract),
-                "contract_status": get_contract_status(r.contract_id, r.contract_version),
-                "draft_contract_status": get_contract_status(
-                    r.contract_id, r.draft_contract_version
-                )
-                if r.draft_contract_version
-                else None,
+                "data_preview": preview,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")

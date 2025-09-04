@@ -49,6 +49,17 @@ class FSContractStore(ContractStore):
             import json
             return to_model(json.loads(f.read()))
 
+    def list_contracts(self) -> List[str]:
+        """List all contract identifiers stored under the base path."""
+        if not os.path.isdir(self.base_path):
+            return []
+        ids: List[str] = []
+        for name in os.listdir(self.base_path):
+            d = os.path.join(self.base_path, name)
+            if os.path.isdir(d) and any(f.endswith(".json") for f in os.listdir(d)):
+                ids.append(name)
+        return ids
+
     def list_versions(self, contract_id: str) -> List[str]:
         """List versions present on disk for ``contract_id``."""
         d = self._dir(contract_id)

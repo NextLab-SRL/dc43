@@ -117,6 +117,14 @@ class DeltaContractStore(ContractStore):
         import json
         return to_model(json.loads(row[0][0]))
 
+    def list_contracts(self) -> List[str]:
+        """Return all distinct contract identifiers present in the table."""
+        ref = self._table_ref()
+        rows = self.spark.sql(
+            f"SELECT DISTINCT contract_id FROM {ref}"
+        ).collect()
+        return [r[0] for r in rows]
+
     def list_versions(self, contract_id: str) -> List[str]:
         """List available versions recorded in the Delta table."""
         ref = self._table_ref()
