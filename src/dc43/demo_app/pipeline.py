@@ -8,6 +8,7 @@ recording the dataset version in the demo app's registry.
 """
 
 from pathlib import Path
+from typing import Any, Dict
 
 from dc43.demo_app.server import (
     store,
@@ -41,6 +42,8 @@ def run_pipeline(
     dataset_name: str,
     dataset_version: str | None,
     run_type: str,
+    collect_examples: bool = False,
+    examples_limit: int = 5,
 ) -> str:
     """Run an example pipeline using the stored contract."""
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
@@ -133,17 +136,22 @@ def run_pipeline(
             )
             output_details = {**result.details, **output_status.details}
             if output_status.status != "ok":
-                failed_examples = {}
+                failures: Dict[str, Dict[str, Any]] = {}
                 exps = expectations_from_contract(output_contract)
+                metrics = output_status.details.get("metrics", {})
                 for key, expr in exps.items():
                     metric_key = f"violations.{key}"
-                    if output_status.details["metrics"].get(metric_key, 0) > 0:
-                        failed_examples[key] = [
-                            r.asDict()
-                            for r in aligned_df.filter(f"NOT ({expr})").limit(5).collect()
-                        ]
-                if failed_examples:
-                    output_details["failed_examples"] = failed_examples
+                    count = metrics.get(metric_key, 0)
+                    if count > 0:
+                        info: Dict[str, Any] = {"count": count, "expression": expr}
+                        if collect_examples:
+                            info["examples"] = [
+                                r.asDict()
+                                for r in aligned_df.filter(f"NOT ({expr})").limit(examples_limit).collect()
+                            ]
+                        failures[key] = info
+                if failures:
+                    output_details["failed_expectations"] = failures
                 if run_type == "enforce":
                     error = ValueError(f"DQ violation: {output_status.details}")
         else:

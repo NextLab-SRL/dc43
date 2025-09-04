@@ -137,6 +137,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "contract_version": "1.1.0",
             "dataset_name": "output-wrong-quality",
             "run_type": "enforce",
+            "collect_examples": True,
+            "examples_limit": 3,
         },
     },
     "schema-dq": {
@@ -281,6 +283,22 @@ async def list_contracts(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("contracts.html", {"request": request, "contracts": contracts})
 
 
+@app.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
+async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
+    try:
+        contract = store.get(cid, ver)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    datasets = [r for r in load_records() if r.contract_id == cid and r.contract_version == ver]
+    context = {
+        "request": request,
+        "contract": contract_to_dict(contract),
+        "status": get_contract_status(cid, ver),
+        "datasets": datasets,
+    }
+    return templates.TemplateResponse("contract_detail.html", context)
+
+
 @app.get("/contracts/new", response_class=HTMLResponse)
 async def new_contract_form(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("new_contract.html", {"request": request})
@@ -354,6 +372,21 @@ async def list_datasets(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("datasets.html", context)
 
 
+@app.get("/datasets/{dataset_version}", response_class=HTMLResponse)
+async def dataset_detail(request: Request, dataset_version: str) -> HTMLResponse:
+    for r in load_records():
+        if r.dataset_version == dataset_version:
+            contract = store.get(r.contract_id, r.contract_version)
+            context = {
+                "request": request,
+                "record": r,
+                "contract": contract_to_dict(contract),
+                "contract_status": get_contract_status(r.contract_id, r.contract_version),
+            }
+            return templates.TemplateResponse("dataset_detail.html", context)
+    raise HTTPException(status_code=404, detail="Dataset not found")
+
+
 @app.post("/pipeline/run", response_class=HTMLResponse)
 async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
     from .pipeline import run_pipeline
@@ -370,6 +403,8 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p["dataset_name"],
             p.get("dataset_version"),
             p.get("run_type", "infer"),
+            p.get("collect_examples", False),
+            p.get("examples_limit", 5),
         )
         params = urlencode({"msg": f"Run succeeded: {p['dataset_name']} {new_version}"})
     except Exception as exc:  # pragma: no cover - surface pipeline errors

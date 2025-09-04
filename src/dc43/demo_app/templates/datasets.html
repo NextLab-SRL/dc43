@@ -34,17 +34,67 @@
     <tbody>
     {% for r in records %}
       <tr>
-        <td>{{ r.contract_id }}</td>
-        <td>{{ r.contract_version }}</td>
+        <td><a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_id }}</a></td>
+        <td><a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a></td>
         <td>{{ r.dataset_name }}</td>
-        <td>{{ r.dataset_version }}</td>
+        <td><a href="/datasets/{{ r.dataset_version }}">{{ r.dataset_version }}</a></td>
         <td>{{ r.run_type }}</td>
-        <td>{{ r.status }}</td>
-        <td>{{ r.violations }}</td>
+        <td>
+          {{ r.status }}
+          {% if r.dq_details.get('output', {}).get('warnings') %}
+            <span class="text-warning ms-1" title="Schema warnings">&#9888;</span>
+          {% endif %}
+        </td>
+        <td>
+          {% set fails = r.dq_details.get('output', {}).get('failed_expectations', {}) %}
+          {% if fails %}
+            {% for key, info in fails.items() %}
+              <div>{{ key }} ({{ info.count }})</div>
+            {% endfor %}
+          {% else %}
+            {{ r.violations }}
+          {% endif %}
+        </td>
         <td>
           <details>
             <summary>Show</summary>
-            <pre class="small mb-0">{{ r.dq_details | tojson(indent=2) }}</pre>
+            <div class="accordion mt-2" id="dq-{{ loop.index }}">
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="dq-input-{{ loop.index }}-h">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-input-{{ loop.index }}">Input</button>
+                </h2>
+                <div id="dq-input-{{ loop.index }}" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    {% for key in ['orders', 'customers'] %}
+                      {% if r.dq_details.get(key) %}
+                      <h6 class="text-capitalize">{{ key }}</h6>
+                      <pre class="small">{{ r.dq_details.get(key) | tojson(indent=2) }}</pre>
+                      {% endif %}
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="dq-output-{{ loop.index }}-h">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-output-{{ loop.index }}">Output</button>
+                </h2>
+                <div id="dq-output-{{ loop.index }}" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    {% set fails = r.dq_details.get('output', {}).get('failed_expectations', {}) %}
+                    {% if fails %}
+                      {% for key, info in fails.items() %}
+                        <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
+                        {% if info.examples %}
+                          <details class="small"><summary>Examples</summary><pre class="small mb-0">{{ info.examples | tojson(indent=2) }}</pre></details>
+                        {% endif %}
+                        </div>
+                      {% endfor %}
+                    {% endif %}
+                    <pre class="small mb-0">{{ r.dq_details.get('output') | tojson(indent=2) }}</pre>
+                  </div>
+                </div>
+              </div>
+            </div>
           </details>
         </td>
       </tr>
