@@ -34,6 +34,7 @@ def test_dataset_detail_page():
     client = TestClient(app)
     resp = client.get(f"/datasets/{rec.dataset_name}/{rec.dataset_version}")
     assert resp.status_code == 200
+    assert "order_id" in resp.text
 
 
 def test_dataset_versions_page():

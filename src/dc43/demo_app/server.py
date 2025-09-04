@@ -72,6 +72,23 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
 
 store = FSContractStore(str(CONTRACT_DIR))
 
+# Populate server paths with sample datasets matching recorded versions
+_sample_records = json.loads((RECORDS_DIR / "datasets.json").read_text())
+for _r in _sample_records:
+    try:
+        _c = store.get(_r["contract_id"], _r["contract_version"])
+    except FileNotFoundError:
+        continue
+    _srv = (_c.servers or [None])[0]
+    if not _srv or not _srv.path:
+        continue
+    _base = Path(_srv.path)
+    _ds_dir = _base / _r["dataset_name"] / _r["dataset_version"]
+    _ds_dir.mkdir(parents=True, exist_ok=True)
+    _src = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
+    if _src.exists():
+        shutil.copy2(_src, _ds_dir / _src.name)
+
 app = FastAPI(title="DC43 Demo")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static"), check_dir=False), name="static")
@@ -490,18 +507,48 @@ def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, 
     return base / dataset_name / dataset_version
 
 
+def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> str:
+    ds_path = _dataset_path(contract, dataset_name, dataset_version)
+    server = (contract.servers or [None])[0] if contract else None
+    fmt = getattr(server, "format", None)
+    try:
+        if ds_path.is_file():
+            if fmt == "parquet" or ds_path.suffix == ".parquet":
+                try:
+                    from pyspark.sql import SparkSession  # type: ignore
+                    spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
+                    df = spark.read.parquet(str(ds_path))
+                    return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
+                except Exception:
+                    return ""
+            return ds_path.read_text()[:1000]
+        if ds_path.is_dir():
+            if fmt == "parquet" or any(p.suffix == ".parquet" for p in ds_path.glob("*.parquet")):
+                try:
+                    from pyspark.sql import SparkSession  # type: ignore
+                    spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
+                    df = spark.read.parquet(str(ds_path))
+                    return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
+                except Exception:
+                    return ""
+            target = None
+            if fmt == "json":
+                target = next(ds_path.glob("*.json"), None)
+            if not target:
+                target = next((p for p in ds_path.iterdir() if p.is_file()), None)
+            if target:
+                return target.read_text()[:1000]
+    except Exception:
+        return ""
+    return ""
+
+
 @app.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
     for r in load_records():
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
             contract = store.get(r.contract_id, r.contract_version)
-            ds_path = _dataset_path(contract, dataset_name, dataset_version)
-            preview = ""
-            if ds_path.exists():
-                for p in ds_path.glob("*"):
-                    if p.is_file():
-                        preview = p.read_text()[:1000]
-                        break
+            preview = _dataset_preview(contract, dataset_name, dataset_version)
             context = {
                 "request": request,
                 "record": r,
