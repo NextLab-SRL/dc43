@@ -39,7 +39,6 @@ def run_pipeline(
     dataset_name: str,
     dataset_version: str | None,
     run_type: str,
-    input_path: str,
 ) -> str:
     """Run an example pipeline using the stored contract."""
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
@@ -47,6 +46,7 @@ def run_pipeline(
 
     # Read primary orders dataset with its contract
     orders_contract = store.get("orders", "1.1.0")
+    orders_path = str(DATA_INPUT_DIR / "orders.json")
     dq.link_dataset_contract(
         dataset_id="orders",
         dataset_version="1.0.0",
@@ -56,13 +56,12 @@ def run_pipeline(
     orders_df, orders_status = read_with_contract(
         spark,
         format="json",
-        path=input_path,
+        path=orders_path,
         contract=orders_contract,
         expected_contract_version="==1.1.0",
         dq_client=dq,
         dataset_id="orders",
         dataset_version="1.0.0",
-        return_status=True,
     )
 
     # Join with customers lookup dataset
@@ -83,7 +82,6 @@ def run_pipeline(
         dq_client=dq,
         dataset_id="customers",
         dataset_version="1.0.0",
-        return_status=True,
     )
 
     df = orders_df.join(customers_df, "customer_id")
@@ -113,7 +111,6 @@ def run_pipeline(
             mode="overwrite",
             draft_on_mismatch=True,
             draft_store=store,
-            return_draft=True,
         )
         output_details = result.details
         if run_type == "enforce" and output_contract is None:

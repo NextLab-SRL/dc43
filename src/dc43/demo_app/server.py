@@ -342,7 +342,6 @@ async def list_datasets(request: Request) -> HTMLResponse:
 async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
     from .pipeline import run_pipeline
 
-    input_path = str(DATA_DIR / "orders.json")
     cfg = SCENARIOS.get(scenario)
     if not cfg:
         params = urlencode({"error": f"Unknown scenario: {scenario}"})
@@ -355,7 +354,6 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p["dataset_name"],
             p.get("dataset_version"),
             p.get("run_type", "infer"),
-            input_path,
         )
         params = urlencode({"msg": f"Run succeeded: {p['dataset_name']} {new_version}"})
     except Exception as exc:  # pragma: no cover - surface pipeline errors

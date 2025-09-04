@@ -9,11 +9,7 @@ and coordinating with an external Data Quality client when provided.
 from typing import Any, Dict, Optional, Tuple
 import logging
 
-try:
-    from pyspark.sql import DataFrame, SparkSession
-except Exception:  # pragma: no cover
-    SparkSession = Any  # type: ignore
-    DataFrame = Any  # type: ignore
+from pyspark.sql import DataFrame, SparkSession
 
 from .validation import validate_dataframe, apply_contract, ValidationResult
 from ..dq.base import DQClient, DQStatus
@@ -157,8 +153,7 @@ def read_with_contract(
     expected_contract_version: Optional[str] = None,  # e.g. '==1.2.0' or '>=1.0.0'
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
-    return_status: bool = False,
-) -> DataFrame:
+) -> Tuple[DataFrame, Optional[DQStatus]]:
     """Read a DataFrame and validate/enforce an ODCS contract.
 
     - If ``contract`` is provided, validates schema and aligns columns/types.
@@ -226,7 +221,7 @@ def read_with_contract(
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
 
-    return (df, status) if return_status else df
+    return (df, status)
 
 
 def write_with_contract(
@@ -244,8 +239,7 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
-    return_draft: bool = False,
-) -> ValidationResult | Tuple[ValidationResult, Optional[OpenDataContractStandard]]:
+) -> Tuple[ValidationResult, Optional[OpenDataContractStandard]]:
     """Validate/align a DataFrame then write it using Spark writers.
 
     Applies the contract schema before writing and merges IO options coming
@@ -349,4 +343,4 @@ def write_with_contract(
         writer.save(path)
     # Propagate the validation result to callers.  When ``return_draft`` is
     # requested we include the proposed draft document as a second tuple value.
-    return (result, draft_doc) if return_draft else result
+    return (result, draft_doc)
