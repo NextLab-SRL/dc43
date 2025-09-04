@@ -35,6 +35,11 @@ class ValidationResult:
     warnings: List[str]
     metrics: Dict[str, Any]
 
+    @property
+    def details(self) -> Dict[str, Any]:
+        """Structured representation combining errors, warnings and metrics."""
+        return {"errors": self.errors, "warnings": self.warnings, "metrics": self.metrics}
+
 
 def _schema_from_spark(df: DataFrame) -> Dict[str, Tuple[str, bool]]:
     """Extract a simplified mapping ``name -> (spark_type, nullable)``."""
