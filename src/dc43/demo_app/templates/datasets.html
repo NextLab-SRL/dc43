@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Datasets</h1>
+<h1>Pipeline Runs</h1>
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 <form class="row g-3 mb-4" method="post" action="/pipeline/run" id="run-form">
@@ -122,5 +122,5 @@
       runBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Running...';
     });
 </script>
-{% if not records %}<p>No datasets registered.</p>{% endif %}
+{% if not records %}<p>No runs recorded.</p>{% endif %}
 {% endblock %}
