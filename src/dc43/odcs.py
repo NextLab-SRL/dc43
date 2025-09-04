@@ -56,7 +56,15 @@ def odcs_package_version() -> Optional[str]:
 
 def to_model(doc: Dict[str, Any]) -> OpenDataContractStandard:
     """Convert a JSON-like dict to ``OpenDataContractStandard`` model."""
-    d = doc
+    # Work with a shallow copy so we can normalize field names without
+    # mutating the caller's object.
+    d = dict(doc)
+    # Pydantic exposes the ``schema`` field as ``schema_`` on the model to
+    # avoid clashing with ``BaseModel.schema``. When contracts are serialized
+    # without aliases this key may appear on disk. Map it back to the public
+    # "schema" name so validation succeeds regardless of the source format.
+    if "schema_" in d and "schema" not in d:
+        d["schema"] = d.pop("schema_")
     # try from_dict
     if hasattr(OpenDataContractStandard, "from_dict"):
         try:

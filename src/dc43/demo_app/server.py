@@ -207,16 +207,11 @@ def save_contract_meta(meta: List[Dict[str, Any]]) -> None:
 
 
 def contract_to_dict(c: OpenDataContractStandard) -> Dict[str, Any]:
+    """Return a plain dict for a contract using public field aliases."""
     try:
-        data = c.model_dump()
-    except AttributeError:  # pydantic v1 fallback
-        data = c.dict()  # type: ignore
-    # Pydantic names the "schema" field "schema_" to avoid clashing with the
-    # ``BaseModel.schema`` method. Rename it here so the client can simply
-    # access ``contract.schema`` without worrying about the underscore suffix.
-    if "schema_" in data:
-        data["schema"] = data.pop("schema_")
-    return data
+        return c.model_dump(by_alias=True, exclude_none=True)
+    except AttributeError:  # pragma: no cover - Pydantic v1 fallback
+        return c.dict(by_alias=True, exclude_none=True)  # type: ignore[call-arg]
 
 
 @app.get("/api/contracts")
