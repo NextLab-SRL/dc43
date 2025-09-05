@@ -2,32 +2,285 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>dc43 demo presentation</title>
+  <title>dc43 pipeline presentation</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reveal.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/theme/white.css">
+  <style>
+    pre {font-size:0.8em; max-height:400px; overflow:auto;}
+  </style>
 </head>
 <body>
 <div class="reveal">
   <div class="slides">
     <section>
-      <h1>dc43 Demo</h1>
-      <p>Data contracts, automation and quality checks</p>
+      <h1>dc43 Pipeline Demo</h1>
+      <p>From contracts to trusted data</p>
     </section>
+
     <section>
-      <h2>1. Author Contract</h2>
-      <p>Describe schema and quality rules using ODCS.</p>
+      <h2>Why Data Contracts?</h2>
+      <p>Without clear agreements, data pipelines rely on tribal knowledge and manual checks.</p>
     </section>
+
     <section>
-      <h2>2. Register Dataset Versions</h2>
-      <p>Pipelines write data and log dataset versions automatically.</p>
+      <h2>Manual Step 1: Infer Schema</h2>
+      <ul>
+        <li>Developers inspect files to guess structure</li>
+        <li>Ad-hoc scripts enforce types</li>
+        <li>Evolution requires email coordination</li>
+      </ul>
     </section>
+
     <section>
-      <h2>3. Validate and Collect Metrics</h2>
-      <p>Contracts drive data validation and DQ metric computation.</p>
+      <h2>Manual Step 2: Validate Inputs</h2>
+      <ul>
+        <li>Custom validators scattered across jobs</li>
+        <li>Late discovery of wrong or missing fields</li>
+      </ul>
     </section>
+
     <section>
-      <h2>4. Review & Promote</h2>
-      <p>UI highlights drafts, violations and contract status.</p>
+      <h2>Manual Step 3: Compute Metrics</h2>
+      <ul>
+        <li>Separate jobs count rows and nulls</li>
+        <li>Hard to compare across runs</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Manual Step 4: Track Versions</h2>
+      <ul>
+        <li>Spreadsheet or wiki for dataset history</li>
+        <li>No link between code and documentation</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Manual Step 5: Communicate Changes</h2>
+      <ul>
+        <li>Emails and meetings to share updates</li>
+        <li>Consumers discover breaking changes too late</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Manual Pipeline Pain</h2>
+      <p>Error-prone, slow feedback, and little governance.</p>
+    </section>
+
+    <section>
+      <h2>Enter dc43</h2>
+      <p>A thin wrapper around Spark that enforces contracts and records lineage.</p>
+    </section>
+
+    <section>
+      <h2>1. Define Data Contract</h2>
+      <pre><code class="language-python">from open_data_contract_standard.model import OpenDataContractStandard
+
+contract = OpenDataContractStandard(
+    name="orders",
+    version="1.0.0",
+    fields=[
+        {"name": "id", "type": "string"},
+        {"name": "amount", "type": "double"},
+        {"name": "customer_id", "type": "string"}
+    ],
+    expectations=["amount > 0", "customer_id not null"]
+)</code></pre>
+    </section>
+
+    <section>
+      <h2>Contract JSON</h2>
+      <pre><code class="language-json">{
+  "name": "orders",
+  "version": "1.0.0",
+  "fields": [
+    {"name": "id", "type": "string"},
+    {"name": "amount", "type": "double"},
+    {"name": "customer_id", "type": "string"}
+  ],
+  "expectations": ["amount > 0", "customer_id not null"]
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>2. Read with Contract</h2>
+      <pre><code class="language-python">orders_df, status = read_with_contract(
+    spark,
+    path="orders.json",
+    contract=contract,
+    dq_client=dq
+)</code></pre>
+    </section>
+
+    <section>
+      <h2>Read Status</h2>
+      <pre><code class="language-json">{
+  "status": "fail",
+  "violations": [
+    {"row": 42, "field": "amount", "message": "amount must be > 0"}
+  ]
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>Manual Alternative</h2>
+      <pre><code class="language-python">df = spark.read.json("orders.json")
+errors = validate_schema(df)
+if errors:
+    raise ValueError(errors)</code></pre>
+    </section>
+
+    <section>
+      <h2>3. Transform with Spark</h2>
+      <pre><code class="language-python">enriched = orders_df.join(customers_df, "customer_id")\
+    .withColumn("total", orders_df.amount * 1.2)</code></pre>
+    </section>
+
+    <section>
+      <h2>Transformation Output</h2>
+      <pre><code class="language-json">[
+  {"id": "1", "total": 12.0},
+  {"id": "2", "total": -6.0}
+]</code></pre>
+      <p>Negative totals will trigger contract checks later.</p>
+    </section>
+
+    <section>
+      <h2>4. Write with Contract</h2>
+      <pre><code class="language-python">result, status, draft = write_with_contract(
+    enriched,
+    contract=contract,
+    path="out/orders",
+    dq_client=dq,
+    draft_on_mismatch=True
+)</code></pre>
+    </section>
+
+    <section>
+      <h2>Write Result</h2>
+      <pre><code class="language-json">{
+  "metrics": {"row_count": 2, "negative_total": 1},
+  "draft": {
+    "version": "1.1.0",
+    "changes": ["allow negative total"]
+  }
+}</code></pre>
+    </section>
+
+    <section>
+      <h2>Metrics vs Manual</h2>
+      <pre><code class="language-python"># manual
+row_count = enriched.count()
+negatives = enriched.filter("total < 0").count()</code></pre>
+    </section>
+
+    <section>
+      <h2>5. Inspect Violations</h2>
+      <pre><code class="language-python">status = attach_failed_expectations(
+    enriched,
+    contract,
+    status,
+    collect_examples=True
+)</code></pre>
+    </section>
+
+    <section>
+      <h2>Violation Report</h2>
+      <pre><code class="language-json">[
+  {
+    "expectation": "amount > 0",
+    "examples": [{"id": "2", "amount": -5.0}]
+  }
+]</code></pre>
+    </section>
+
+    <section>
+      <h2>6. Track Dataset Versions</h2>
+      <pre><code class="language-python">records.append(DatasetRecord(
+    name="orders_enriched",
+    version=1,
+    status=status.status,
+    metrics=result.metrics
+))
+save_records(records)</code></pre>
+    </section>
+
+    <section>
+      <h2>Version History</h2>
+      <pre><code class="language-json">[
+  {"version": 1, "row_count": 2, "status": "fail"}
+]</code></pre>
+    </section>
+
+    <section>
+      <h2>Pipeline Comparison</h2>
+      <div style="display:flex; gap:2rem;">
+        <div style="flex:1">
+          <h3>Manual</h3>
+          <ul>
+            <li>Separate scripts for validation and metrics</li>
+            <li>Manual tracking of versions</li>
+            <li>Inconsistent rules</li>
+          </ul>
+        </div>
+        <div style="flex:1">
+          <h3>dc43</h3>
+          <ul>
+            <li>Contracts enforce schema and rules</li>
+            <li>Metrics captured on write</li>
+            <li>History recorded automatically</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>With vs Without Contracts</h2>
+      <ul>
+        <li><strong>Without:</strong> implicit schemas, late errors, manual docs</li>
+        <li><strong>With:</strong> versioned definitions, early validation, consistent governance</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Benefits for Data Engineers</h2>
+      <ul>
+        <li>Less boilerplate Spark code</li>
+        <li>Early detection of issues</li>
+        <li>Automatic metrics for monitoring</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Benefits for Governance</h2>
+      <ul>
+        <li>Traceable changes across versions</li>
+        <li>Clear contracts between producers and consumers</li>
+        <li>Audit-friendly metrics and violations</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Contract Evolution</h2>
+      <pre><code class="language-json"># v1.0.0
+{"fields": [{"name": "amount", "type": "double"}]}
+# v1.1.0
+{"fields": [{"name": "amount", "type": "double", "nullable": true}]}</code></pre>
+    </section>
+
+    <section>
+      <h2>Summary</h2>
+      <ul>
+        <li>Contracts define, validate, and document data</li>
+        <li>dc43 automates metrics and versioning</li>
+        <li>Manual steps shrink, reliability grows</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Get Started</h2>
+      <p>pip install dc43 &rarr; build your first contract today.</p>
     </section>
   </div>
 </div>
