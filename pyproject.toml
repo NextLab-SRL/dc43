@@ -28,6 +28,7 @@ test = [
   "pyspark>=3.4",
   "fastapi",
   "httpx",
+  "jinja2",
 ]
 demo = [
   "fastapi",
