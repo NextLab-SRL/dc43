@@ -26,6 +26,8 @@ spark = []
 test = [
   "pytest>=7.0",
   "pyspark>=3.4",
+  "fastapi",
+  "httpx",
 ]
 demo = [
   "fastapi",
