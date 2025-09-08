@@ -27,8 +27,9 @@ test = [
   "pytest>=7.0",
   "pyspark>=3.4",
   "fastapi",
-  "httpx",
   "jinja2",
+  "python-multipart",
+  "httpx",
 ]
 demo = [
   "fastapi",
