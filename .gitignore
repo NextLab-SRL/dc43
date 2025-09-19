@@ -8,3 +8,4 @@ __pycache__
 test_temp_files
 pytest.log
 build
+.DS_Store

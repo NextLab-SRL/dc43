@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>dc43 pipeline presentation</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reveal.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/theme/white.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/theme/white.css">
   <style>
     pre {font-size:0.8em; max-height:400px; overflow:auto;}
   </style>
@@ -78,28 +78,56 @@
       <pre><code class="language-python">from open_data_contract_standard.model import OpenDataContractStandard
 
 contract = OpenDataContractStandard(
-    name="orders",
-    version="1.0.0",
-    fields=[
-        {"name": "id", "type": "string"},
-        {"name": "amount", "type": "double"},
-        {"name": "customer_id", "type": "string"}
-    ],
-    expectations=["amount > 0", "customer_id not null"]
+  version="0.1.0",
+  kind="DataContract",
+  apiVersion="3.0.2",
+  id="test.orders",
+  name="Orders",
+  description=Description(usage="Orders facts"),
+  schema=[
+    SchemaObject(
+      name="orders",
+      properties=[
+        SchemaProperty(name="order_id", physicalType="bigint", required=True),
+        SchemaProperty(name="customer_id", physicalType="bigint", required=True),
+        SchemaProperty(name="order_ts", physicalType="timestamp", required=True),
+        SchemaProperty(name="amount", physicalType="double", required=True),
+        SchemaProperty(
+          name="currency",
+          physicalType="string",
+          required=True,
+          quality=[DataQuality(rule="enum", mustBe=["EUR", "USD"])],
+        ),
+      ],
+    )
+  ],
 )</code></pre>
     </section>
 
     <section>
       <h2>Contract JSON</h2>
       <pre><code class="language-json">{
-  "name": "orders",
-  "version": "1.0.0",
-  "fields": [
-    {"name": "id", "type": "string"},
-    {"name": "amount", "type": "double"},
-    {"name": "customer_id", "type": "string"}
-  ],
-  "expectations": ["amount > 0", "customer_id not null"]
+  "version": "1.1.0",  "kind": "DataContract", "apiVersion": "3.0.2",
+  "id": "orders",
+  "name": "Orders",
+  "description": {"usage": "Sample orders contract"},
+  "status": "active",
+  "servers": [ { "server": "local", "type": "filesystem", "path": "data/orders.json", "format": "json" } ],
+  "schema": [
+    {
+      "name": "orders",
+      "properties": [
+        {"name": "order_id", "physicalType": "integer", "required": true, "unique": true},
+        {"name": "customer_id", "physicalType": "integer", "required": true},
+        {"name": "order_ts", "physicalType": "string", "required": true},
+        {
+          "name": "amount", "physicalType": "double", "required": true,
+          "quality": [ { "mustBeGreaterThan": 0 } ]
+        },
+        {"name": "currency", "physicalType": "string", "required": true}
+      ]
+    }
+  ]
 }</code></pre>
     </section>
 
@@ -214,6 +242,33 @@ save_records(records)</code></pre>
     </section>
 
     <section>
+      <h2>Logic Flow</h2>
+      <div class="r-stack">
+        <div class="fragment fade-in-then-out">
+          <h4>Read-Write</h4>
+          <img 
+          data-preview-image
+          src="flow.png" 
+          alt="">
+        </div>
+        <div class="fragment fade-in-then-out">
+        <h4>Read</h4>
+        <img 
+        data-preview-image
+        src="flow-read.png" 
+        alt="">
+        </div>
+        <div class="fragment fade-in-then-out">
+        <h4>Write</h4>
+        <img 
+        data-preview-image
+        src="flow-write.png" 
+        alt="">
+        </div>
+      </div>
+    </section>
+
+    <section>
       <h2>Pipeline Comparison</h2>
       <div style="display:flex; gap:2rem;">
         <div style="flex:1">
@@ -284,7 +339,7 @@ save_records(records)</code></pre>
     </section>
   </div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
 <script>
   Reveal.initialize();
 </script>

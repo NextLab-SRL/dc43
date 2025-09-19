@@ -161,7 +161,7 @@ The application also exposes an example Spark pipeline in
 ## Spark Flow (Mermaid)
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph Read
       U[User code / Notebook] --> RWC{read_with_contract}
       RWC --> SR["spark.read.format(...).load"]
@@ -201,7 +201,7 @@ Notes
 - The library uses the official ODCS package and enforces `$schema` version `3.0.2` by default (configurable via `DC43_ODCS_REQUIRED`).
 - Validation focuses on practical checks: presence, types, nullability and common constraints (enum, regex, min/max, unique best-effort).
 - DLT helpers translate constraints into `expect` expressions when feasible.
- - DQ orchestration: the IO wrapper checks schema vs contract and consults the DQ client. If dataset version is newer than DQ’s known version, it computes the required metrics and submits them, then enforces the resulting status if requested.
+- DQ orchestration: the IO wrapper checks schema vs contract and consults the DQ client. If dataset version is newer than DQ’s known version, it computes the required metrics and submits them, then enforces the resulting status if requested.
 
 Local Dev
 
