@@ -160,7 +160,6 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.0.0",
-            "dataset_name": "output-ok-contract",
             "run_type": "enforce",
         },
     },
@@ -177,7 +176,6 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
-            "dataset_name": "output-wrong-quality",
             "run_type": "enforce",
             "collect_examples": True,
             "examples_limit": 3,
@@ -196,7 +194,6 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "2.0.0",
-            "dataset_name": "output-ko",
             "run_type": "enforce",
         },
     },
@@ -572,16 +569,17 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         return RedirectResponse(url=f"/datasets?{params}", status_code=303)
     p = cfg["params"]
     try:
-        new_version = run_pipeline(
+        dataset_name, new_version = run_pipeline(
             p.get("contract_id"),
             p.get("contract_version"),
-            p["dataset_name"],
+            p.get("dataset_name"),
             p.get("dataset_version"),
             p.get("run_type", "infer"),
             p.get("collect_examples", False),
             p.get("examples_limit", 5),
         )
-        params = urlencode({"msg": f"Run succeeded: {p['dataset_name']} {new_version}"})
+        label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
+        params = urlencode({"msg": f"Run succeeded: {label} {new_version}"})
     except Exception as exc:  # pragma: no cover - surface pipeline errors
         params = urlencode({"error": str(exc)})
     return RedirectResponse(url=f"/datasets?{params}", status_code=303)

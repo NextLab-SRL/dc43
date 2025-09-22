@@ -54,13 +54,20 @@ def _resolve_output_path(
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
-    dataset_name: str,
+    dataset_name: str | None,
     dataset_version: str | None,
     run_type: str,
     collect_examples: bool = False,
     examples_limit: int = 5,
-) -> str:
-    """Run an example pipeline using the stored contract."""
+    ) -> tuple[str, str]:
+    """Run an example pipeline using the stored contract.
+
+    When an output contract is supplied the dataset name is derived from the
+    contract identifier so the recorded runs and filesystem layout match the
+    declared server path.  Callers may supply a custom name when no contract is
+    available.  Returns the dataset name used along with the materialized
+    version.
+    """
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     dq = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
 
@@ -93,13 +100,21 @@ def run_pipeline(
     df = orders_df.join(customers_df, "customer_id")
 
     records = load_records()
+    output_contract = (
+        store.get(contract_id, contract_version) if contract_id and contract_version else None
+    )
+    if output_contract and getattr(output_contract, "id", None):
+        # Align dataset naming with the contract so recorded versions and paths
+        # remain consistent with the declared server definition.
+        dataset_name = output_contract.id
+    elif not dataset_name:
+        dataset_name = contract_id or "result"
     if not dataset_version:
         existing = [r.dataset_version for r in records if r.dataset_name == dataset_name]
         dataset_version = _next_version(existing)
 
-    output_contract = (
-        store.get(contract_id, contract_version) if contract_id and contract_version else None
-    )
+    assert dataset_name
+    assert dataset_version
     output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
     server = (output_contract.servers or [None])[0] if output_contract else None
 
@@ -197,4 +212,4 @@ def run_pipeline(
     spark.stop()
     if error:
         raise error
-    return dataset_version
+    return dataset_name, dataset_version
