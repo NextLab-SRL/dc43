@@ -166,6 +166,31 @@ def _ref_from_contract(contract: OpenDataContractStandard) -> tuple[Optional[str
     return None, table
 
 
+def _paths_compatible(provided: str, contract_path: str) -> bool:
+    """Return ``True`` when ``provided`` is consistent with ``contract_path``.
+
+    Contracts often describe the root of a dataset (``/data/orders.parquet``)
+    while pipelines write versioned outputs beneath it (``/data/orders/1.2.0``).
+    This helper treats those layouts as compatible so validation focuses on
+    actual mismatches instead of expected directory structures.
+    """
+
+    try:
+        actual = Path(provided).resolve()
+        expected = Path(contract_path).resolve()
+    except OSError:
+        return False
+
+    if actual == expected:
+        return True
+
+    base = expected.parent / expected.stem if expected.suffix else expected
+    if actual == base:
+        return True
+
+    return base in actual.parents
+
+
 # Overloads help type checkers infer the return type based on ``return_status``
 # so callers can destructure the tuple without false positives.
 @overload
@@ -265,7 +290,7 @@ def read_with_contract(
         c_fmt = contract.servers[0].format if contract.servers else None
         path = path or c_path
         table = table or c_table
-        if path and c_path and Path(path).resolve() != Path(c_path).resolve():
+        if path and c_path and not _paths_compatible(path, c_path):
             logger.warning(
                 "Provided path %s does not match contract server path %s", path, c_path
             )
@@ -517,7 +542,7 @@ def write_with_contract(
                     )
                     draft_store.put(draft_doc)
         format = format or c_fmt
-        if path and c_path and Path(path).resolve() != Path(c_path).resolve():
+        if path and c_path and not _paths_compatible(path, c_path):
             msg = f"Path {path} does not match contract server path {c_path}"
             logger.warning(msg)
             result.warnings.append(msg)

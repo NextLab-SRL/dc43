@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
 from pyspark.sql.functions import col
 from pyspark.sql.types import StructType, StructField
     
@@ -102,6 +103,11 @@ def validate_dataframe(
     fmap = {f.name: f for f in fields if f.name}
     spark_schema = _schema_from_spark(df)
 
+    # For required columns Spark often reports ``nullable=True`` even when the
+    # underlying source never produces null values (e.g. JSON inference).  When
+    # this happens we inspect the actual data once so we can distinguish genuine
+    # violations from metadata noise.
+    nullable_required: List[str] = []
     for name, f in fmap.items():
         if name not in spark_schema:
             if f.required:
@@ -113,11 +119,43 @@ def validate_dataframe(
         exp_type = _spark_type((f.physicalType or f.logicalType or "string"))
         if strict_types and exp_type not in spark_type:
             errors.append(f"type mismatch for {name}: expected {exp_type}, got {spark_type}")
-        # Spark often marks columns as nullable even when sources have not-null guarantees.
-        # Treat this as a warning so the pipeline can proceed while not-null
-        # expectations enforce the constraint at runtime.
         if f.required and nullable:
-            warnings.append(f"column {name} marked nullable by Spark but required in contract")
+            nullable_required.append(name)
+
+    null_counts: Dict[str, int] = {}
+    if nullable_required:
+        try:
+            aggregations = [
+                F.sum(F.when(col(name).isNull(), 1).otherwise(0)).alias(name)
+                for name in nullable_required
+            ]
+            # ``collect`` is safe here because the result is a single row with
+            # aggregated counts, keeping the validation overhead minimal even
+            # for large datasets.
+            counts = df.select(*aggregations).collect()[0].asDict()
+            null_counts = {name: int(counts.get(name) or 0) for name in nullable_required}
+        except Exception:  # pragma: no cover - defensively handle Spark errors
+            # Fallback to flagging a warning when counts cannot be computed.
+            null_counts = {name: -1 for name in nullable_required}
+
+    for name, f in fmap.items():
+        if name not in spark_schema:
+            continue
+        _, nullable = spark_schema[name]
+        if f.required and nullable:
+            nulls = null_counts.get(name)
+            if nulls is None:
+                warnings.append(
+                    f"column {name} marked nullable by Spark but required in contract"
+                )
+            elif nulls < 0:
+                warnings.append(
+                    f"column {name} required by contract but nullability could not be verified"
+                )
+            elif nulls > 0:
+                errors.append(
+                    f"column {name} contains {nulls} null value(s) but is required in the contract"
+                )
 
     if not allow_extra_columns:
         extras = [c for c in spark_schema.keys() if c not in fmap]

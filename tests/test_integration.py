@@ -144,6 +144,30 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     assert any("does not match" in w for w in vr.warnings)
 
 
+def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
+    base_dir = tmp_path / "data"
+    contract_path = base_dir / "orders_enriched.parquet"
+    contract = make_contract(str(contract_path))
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    target = base_dir / "orders_enriched" / "1.0.0"
+    with caplog.at_level(logging.WARNING):
+        vr, _ = write_with_contract(
+            df=df,
+            contract=contract,
+            path=str(target),
+            mode="overwrite",
+            enforce=False,
+        )
+    assert not any("does not match contract server path" in msg for msg in caplog.messages)
+    assert not any("does not match" in w for w in vr.warnings)
+
+
 def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     data_dir = tmp_path / "json"
     contract = make_contract(str(data_dir), fmt="parquet")

@@ -10,6 +10,14 @@ from open_data_contract_standard.model import (
 
 from dc43.integration.validation import validate_dataframe, apply_contract
 from datetime import datetime
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    LongType,
+    TimestampType,
+    DoubleType,
+    StringType,
+)
 
 
 def make_contract():
@@ -62,6 +70,26 @@ def test_validate_type_mismatch(spark):
     # amount is string but expected double, should report mismatch
     assert not res.ok
     assert any("type mismatch" in e for e in res.errors)
+
+
+def test_validate_required_nulls(spark):
+    contract = make_contract()
+    data = [
+        (1, None, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    schema = StructType(
+        [
+            StructField("order_id", LongType(), False),
+            StructField("customer_id", LongType(), True),
+            StructField("order_ts", TimestampType(), True),
+            StructField("amount", DoubleType(), True),
+            StructField("currency", StringType(), True),
+        ]
+    )
+    df = spark.createDataFrame(data, schema=schema)
+    res = validate_dataframe(df, contract)
+    assert not res.ok
+    assert any("contains" in e and "null" in e for e in res.errors)
 
 
 def test_apply_contract_aligns_and_casts(spark):

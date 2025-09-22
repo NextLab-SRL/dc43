@@ -137,7 +137,22 @@ def run_pipeline(
             error = ValueError(f"Contract validation failed: {result.errors}")
 
     draft_version: str | None = draft.version if draft else None
-    output_details = {**result.details, **(output_status.details if output_status else {})}
+    dq_details = output_status.details if output_status else {}
+    output_details = result.details.copy()
+    if dq_details:
+        dq_metrics = dq_details.get("metrics", {})
+        if dq_metrics:
+            merged_metrics = {**dq_metrics, **output_details.get("metrics", {})}
+            output_details["metrics"] = merged_metrics
+        if "violations" in dq_details and "violations" not in output_details:
+            output_details["violations"] = dq_details["violations"]
+        other = {
+            k: v
+            for k, v in dq_details.items()
+            if k not in ("metrics", "violations")
+        }
+        if other:
+            output_details.setdefault("dq_status", other)
 
     combined_details = {
         "orders": orders_status.details if orders_status else None,
@@ -146,13 +161,22 @@ def run_pipeline(
     }
     total_violations = 0
     for det in combined_details.values():
-        if det and isinstance(det, dict):
-            total_violations += int(det.get("violations", 0))
+        if not det or not isinstance(det, dict):
+            continue
+        total_violations += int(det.get("violations", 0) or 0)
+        errs = det.get("errors")
+        if isinstance(errs, list):
+            total_violations += len(errs)
+        fails = det.get("failed_expectations")
+        if isinstance(fails, dict):
+            total_violations += sum(int(info.get("count", 0) or 0) for info in fails.values())
+
     status_value = "ok"
     if (
         (orders_status and orders_status.status != "ok")
         or (customers_status and customers_status.status != "ok")
         or (output_status and output_status.status != "ok")
+        or result.errors
         or error is not None
     ):
         status_value = "error"
