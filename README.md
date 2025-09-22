@@ -10,8 +10,10 @@
   - IO helpers for read/write with contract enforcement
   - Storage backends: filesystem (DBFS/UC volumes) and Delta table
 - DLT helpers: build expectations from contracts
-  - DQ orchestration: pluggable client interface; stub implementation provided
+- DQ orchestration: pluggable client interface; stub implementation provided
 - Bitol/ODCS support: relies on the official `open-data-contract-standard` models (v3.0.2). No internal stubs.
+
+See [`docs/collibra-contract-integration.md`](docs/collibra-contract-integration.md) for guidance on orchestrating contract drafts and validations through Collibra while dc43 enforces the resulting specifications.
 
 ## Install
 
