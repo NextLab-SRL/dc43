@@ -18,7 +18,9 @@ Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
+from uuid import uuid4
+from threading import Lock
 import json
 import shutil
 import tempfile
@@ -198,6 +200,27 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         },
     },
 }
+
+
+_FLASH_LOCK = Lock()
+_FLASH_MESSAGES: Dict[str, Dict[str, str | None]] = {}
+
+
+def queue_flash(message: str | None = None, error: str | None = None) -> str:
+    """Store a transient flash payload and return a lookup token."""
+
+    token = uuid4().hex
+    with _FLASH_LOCK:
+        _FLASH_MESSAGES[token] = {"message": message, "error": error}
+    return token
+
+
+def pop_flash(token: str) -> Tuple[str | None, str | None]:
+    """Return and remove the flash payload associated with ``token``."""
+
+    with _FLASH_LOCK:
+        payload = _FLASH_MESSAGES.pop(token, None) or {}
+    return payload.get("message"), payload.get("error")
 
 
 def load_contract_meta() -> List[Dict[str, Any]]:
@@ -485,12 +508,20 @@ async def list_datasets(request: Request) -> HTMLResponse:
     recs = []
     for r in records:
         recs.append(r.__dict__.copy())
+    flash_token = request.query_params.get("flash")
+    flash_message: str | None = None
+    flash_error: str | None = None
+    if flash_token:
+        flash_message, flash_error = pop_flash(flash_token)
+    else:
+        flash_message = request.query_params.get("msg")
+        flash_error = request.query_params.get("error")
     context = {
         "request": request,
         "records": recs,
         "scenarios": SCENARIOS,
-        "message": request.query_params.get("msg"),
-        "error": request.query_params.get("error"),
+        "message": flash_message,
+        "error": flash_error,
     }
     return templates.TemplateResponse("datasets.html", context)
 
@@ -579,9 +610,11 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("examples_limit", 5),
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
-        params = urlencode({"msg": f"Run succeeded: {label} {new_version}"})
+        token = queue_flash(message=f"Run succeeded: {label} {new_version}")
+        params = urlencode({"flash": token})
     except Exception as exc:  # pragma: no cover - surface pipeline errors
-        params = urlencode({"error": str(exc)})
+        token = queue_flash(error=str(exc))
+        params = urlencode({"flash": token})
     return RedirectResponse(url=f"/datasets?{params}", status_code=303)
 
 

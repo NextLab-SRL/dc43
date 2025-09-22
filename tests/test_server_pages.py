@@ -1,6 +1,12 @@
 from fastapi.testclient import TestClient
 
-from dc43.demo_app.server import app, load_records, save_records, DatasetRecord
+from dc43.demo_app.server import (
+    app,
+    load_records,
+    save_records,
+    DatasetRecord,
+    queue_flash,
+)
 
 
 def test_contracts_page():
@@ -72,4 +78,17 @@ def test_dataset_pages_without_contract():
         assert "No contract recorded for this run" in resp_detail.text
     finally:
         save_records(original)
+
+
+def test_flash_message_consumed_once():
+    token = queue_flash(message="Hello there", error=None)
+    client = TestClient(app)
+
+    first = client.get(f"/datasets?flash={token}")
+    assert first.status_code == 200
+    assert "Hello there" in first.text
+
+    second = client.get(f"/datasets?flash={token}")
+    assert second.status_code == 200
+    assert "Hello there" not in second.text
 

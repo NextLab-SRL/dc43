@@ -53,3 +53,44 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
             .config("spark.ui.enabled", "false") \
             .config("spark.sql.shuffle.partitions", "2") \
             .getOrCreate()
+
+
+def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_schema"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+
+    try:
+        with pytest.raises(ValueError) as excinfo:
+            pipeline.run_pipeline(
+                contract_id="orders_enriched",
+                contract_version="2.0.0",
+                dataset_name=None,
+                dataset_version=None,
+                run_type="enforce",
+            )
+
+        message = str(excinfo.value)
+        assert "DQ violation" in message
+        assert "Schema validation failed" in message
+
+        updated = pipeline.load_records()
+        last = updated[-1]
+        output = last.dq_details.get("output", {})
+        assert output.get("errors")
+        fails = output.get("failed_expectations", {})
+        assert fails
+        assert last.violations >= len(output.get("errors", []))
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        SparkSession.builder.master("local[2]") \
+            .appName("dc43-tests") \
+            .config("spark.ui.enabled", "false") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .getOrCreate()

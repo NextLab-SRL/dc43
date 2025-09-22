@@ -73,19 +73,28 @@
           {% endif %}
         </td>
         <td>{{ r.run_type }}</td>
+        {% set output_details = r.dq_details.get('output', {}) %}
         <td>
           {{ r.status }}
-          {% if r.dq_details.get('output', {}).get('warnings') %}
+          {% if output_details.get('warnings') %}
             <span class="text-warning ms-1" title="Schema warnings">&#9888;</span>
+          {% endif %}
+          {% if output_details.get('errors') %}
+            <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
           {% endif %}
         </td>
         <td>
-          {% set fails = r.dq_details.get('output', {}).get('failed_expectations', {}) %}
+          {% set fails = output_details.get('failed_expectations', {}) %}
+          {% set schema_errors = output_details.get('errors', []) %}
+          {% if schema_errors %}
+            <div>Schema errors: {{ schema_errors | length }}</div>
+          {% endif %}
           {% if fails %}
             {% for key, info in fails.items() %}
               <div>{{ key }} ({{ info.count }})</div>
             {% endfor %}
-          {% else %}
+          {% endif %}
+          {% if not fails and not schema_errors %}
             {{ r.violations }}
           {% endif %}
         </td>
@@ -114,7 +123,7 @@
                 </h2>
                 <div id="dq-output-{{ loop.index }}" class="accordion-collapse collapse">
                   <div class="accordion-body">
-                    {% set fails = r.dq_details.get('output', {}).get('failed_expectations', {}) %}
+                    {% set fails = output_details.get('failed_expectations', {}) %}
                     {% if fails %}
                       {% for key, info in fails.items() %}
                         <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
@@ -124,7 +133,18 @@
                         </div>
                       {% endfor %}
                     {% endif %}
-                    <pre class="small mb-0">{{ r.dq_details.get('output') | tojson(indent=2) }}</pre>
+                    {% set schema_errors = output_details.get('errors', []) %}
+                    {% if schema_errors %}
+                      <div class="mb-2">
+                        <strong>Schema errors</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for err in schema_errors %}
+                            <li>{{ err }}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    <pre class="small mb-0">{{ output_details | tojson(indent=2) }}</pre>
                   </div>
                 </div>
               </div>

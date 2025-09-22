@@ -148,15 +148,21 @@ def run_pipeline(
     if run_type == "enforce":
         if not output_contract:
             error = ValueError("Contract required for existing mode")
-        elif output_status and output_status.status != "ok":
-            detail_msg: dict[str, Any] = dict(output_status.details or {})
-            if output_status.reason:
-                detail_msg["reason"] = output_status.reason
-            error = ValueError(
-                f"DQ violation: {detail_msg or output_status.status}"
-            )
-        elif not result.ok:
-            error = ValueError(f"Contract validation failed: {result.errors}")
+        else:
+            issues: list[str] = []
+            if output_status and output_status.status != "ok":
+                detail_msg: dict[str, Any] = dict(output_status.details or {})
+                if output_status.reason:
+                    detail_msg["reason"] = output_status.reason
+                issues.append(
+                    f"DQ violation: {detail_msg or output_status.status}"
+                )
+            if not result.ok:
+                issues.append(
+                    f"Schema validation failed: {result.errors}"
+                )
+            if issues:
+                error = ValueError("; ".join(issues))
 
     draft_version: str | None = draft.version if draft else None
     output_details = result.details.copy()
