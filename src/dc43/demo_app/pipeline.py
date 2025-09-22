@@ -8,6 +8,7 @@ recording the dataset version in the demo app's registry.
 """
 
 from pathlib import Path
+from typing import Any
 
 from dc43.demo_app.server import (
     store,
@@ -54,13 +55,21 @@ def _resolve_output_path(
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
-    dataset_name: str,
+    dataset_name: str | None,
     dataset_version: str | None,
     run_type: str,
     collect_examples: bool = False,
     examples_limit: int = 5,
-) -> str:
-    """Run an example pipeline using the stored contract."""
+    ) -> tuple[str, str]:
+    """Run an example pipeline using the stored contract.
+
+    When an output contract is supplied the dataset name is derived from the
+    contract identifier so the recorded runs and filesystem layout match the
+    declared server path.  Callers may supply a custom name when no contract is
+    available.  Returns the dataset name used along with the materialized
+    version.
+    """
+    existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     dq = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
 
@@ -93,13 +102,21 @@ def run_pipeline(
     df = orders_df.join(customers_df, "customer_id")
 
     records = load_records()
+    output_contract = (
+        store.get(contract_id, contract_version) if contract_id and contract_version else None
+    )
+    if output_contract and getattr(output_contract, "id", None):
+        # Align dataset naming with the contract so recorded versions and paths
+        # remain consistent with the declared server definition.
+        dataset_name = output_contract.id
+    elif not dataset_name:
+        dataset_name = contract_id or "result"
     if not dataset_version:
         existing = [r.dataset_version for r in records if r.dataset_name == dataset_name]
         dataset_version = _next_version(existing)
 
-    output_contract = (
-        store.get(contract_id, contract_version) if contract_id and contract_version else None
-    )
+    assert dataset_name
+    assert dataset_version
     output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
     server = (output_contract.servers or [None])[0] if output_contract else None
 
@@ -131,13 +148,54 @@ def run_pipeline(
     if run_type == "enforce":
         if not output_contract:
             error = ValueError("Contract required for existing mode")
-        elif output_status and output_status.status != "ok":
-            error = ValueError(f"DQ violation: {output_status.details}")
-        elif not result.ok:
-            error = ValueError(f"Contract validation failed: {result.errors}")
+        else:
+            issues: list[str] = []
+            if output_status and output_status.status != "ok":
+                detail_msg: dict[str, Any] = dict(output_status.details or {})
+                if output_status.reason:
+                    detail_msg["reason"] = output_status.reason
+                issues.append(
+                    f"DQ violation: {detail_msg or output_status.status}"
+                )
+            if not result.ok:
+                issues.append(
+                    f"Schema validation failed: {result.errors}"
+                )
+            if issues:
+                error = ValueError("; ".join(issues))
 
     draft_version: str | None = draft.version if draft else None
-    output_details = {**result.details, **(output_status.details if output_status else {})}
+    output_details = result.details.copy()
+    dq_payload: dict[str, Any] = {}
+    if output_status:
+        dq_payload = dict(output_status.details or {})
+        dq_payload.setdefault("status", output_status.status)
+        if output_status.reason:
+            dq_payload.setdefault("reason", output_status.reason)
+
+        dq_metrics = dq_payload.get("metrics", {})
+        if dq_metrics:
+            merged_metrics = {**dq_metrics, **output_details.get("metrics", {})}
+            output_details["metrics"] = merged_metrics
+        if "violations" in dq_payload:
+            output_details["violations"] = dq_payload["violations"]
+        if "failed_expectations" in dq_payload:
+            output_details["failed_expectations"] = dq_payload["failed_expectations"]
+
+        summary = dict(output_details.get("dq_status", {}))
+        summary.setdefault("status", dq_payload.get("status", output_status.status))
+        if dq_payload.get("reason"):
+            summary.setdefault("reason", dq_payload["reason"])
+        extras = {
+            k: v
+            for k, v in dq_payload.items()
+            if k
+            not in ("metrics", "violations", "failed_expectations", "status", "reason")
+        }
+        if extras:
+            summary.update(extras)
+        if summary:
+            output_details["dq_status"] = summary
 
     combined_details = {
         "orders": orders_status.details if orders_status else None,
@@ -146,13 +204,22 @@ def run_pipeline(
     }
     total_violations = 0
     for det in combined_details.values():
-        if det and isinstance(det, dict):
-            total_violations += int(det.get("violations", 0))
+        if not det or not isinstance(det, dict):
+            continue
+        total_violations += int(det.get("violations", 0) or 0)
+        errs = det.get("errors")
+        if isinstance(errs, list):
+            total_violations += len(errs)
+        fails = det.get("failed_expectations")
+        if isinstance(fails, dict):
+            total_violations += sum(int(info.get("count", 0) or 0) for info in fails.values())
+
     status_value = "ok"
     if (
         (orders_status and orders_status.status != "ok")
         or (customers_status and customers_status.status != "ok")
         or (output_status and output_status.status != "ok")
+        or result.errors
         or error is not None
     ):
         status_value = "error"
@@ -170,7 +237,8 @@ def run_pipeline(
         )
     )
     save_records(records)
-    spark.stop()
+    if not existing_session:
+        spark.stop()
     if error:
         raise error
-    return dataset_version
+    return dataset_name, dataset_version

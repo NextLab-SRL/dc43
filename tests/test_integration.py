@@ -144,6 +144,30 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     assert any("does not match" in w for w in vr.warnings)
 
 
+def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
+    base_dir = tmp_path / "data"
+    contract_path = base_dir / "orders_enriched.parquet"
+    contract = make_contract(str(contract_path))
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    target = base_dir / "orders_enriched" / "1.0.0"
+    with caplog.at_level(logging.WARNING):
+        vr, _ = write_with_contract(
+            df=df,
+            contract=contract,
+            path=str(target),
+            mode="overwrite",
+            enforce=False,
+        )
+    assert not any("does not match contract server path" in msg for msg in caplog.messages)
+    assert not any("does not match" in w for w in vr.warnings)
+
+
 def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     data_dir = tmp_path / "json"
     contract = make_contract(str(data_dir), fmt="parquet")
@@ -201,3 +225,107 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     )
     assert draft is not None
     assert draft.servers and draft.servers[0].format == "json"
+
+
+def test_write_dq_violation_creates_draft(spark, tmp_path: Path):
+    dest_dir = tmp_path / "dq_out"
+    contract = make_contract(str(dest_dir))
+    # Tighten quality rule to trigger a violation for the sample data below.
+    contract.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=100)]
+
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 50.0, "EUR"),
+        (2, 102, datetime(2024, 1, 2, 10, 0, 0), 60.0, "USD"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    drafts = FSContractStore(str(tmp_path / "drafts"))
+    dq = StubDQClient(base_path=str(tmp_path / "dq_state"))
+    vr, status, draft = write_with_contract(
+        df=df,
+        contract=contract,
+        mode="overwrite",
+        enforce=False,
+        draft_on_mismatch=True,
+        draft_store=drafts,
+        dq_client=dq,
+        return_status=True,
+    )
+
+    assert vr.ok
+    assert status is not None
+    assert status.status == "block"
+    assert status.details and status.details.get("violations", 0) > 0
+    assert draft is not None
+    assert draft.status == "draft"
+    assert any(cp.property == "dq_feedback" for cp in (draft.customProperties or []))
+    assert drafts.get(draft.id, draft.version).id == draft.id
+
+
+def test_write_updates_link_for_contract_upgrade(spark, tmp_path: Path):
+    dest_dir = tmp_path / "upgrade"
+    contract_v1 = make_contract(str(dest_dir))
+    data_ok = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 500.0, "EUR"),
+        (2, 102, datetime(2024, 1, 2, 11, 0, 0), 750.0, "USD"),
+    ]
+    df_ok = spark.createDataFrame(
+        data_ok,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    dq = StubDQClient(base_path=str(tmp_path / "dq_state_upgrade"))
+    _, status_ok, _ = write_with_contract(
+        df=df_ok,
+        contract=contract_v1,
+        mode="overwrite",
+        enforce=False,
+        dq_client=dq,
+        return_status=True,
+    )
+
+    assert status_ok is not None
+    assert status_ok.status == "ok"
+
+    dataset_ref = f"path:{dest_dir}"
+    assert (
+        dq.get_linked_contract_version(dataset_id=dataset_ref)
+        == f"{contract_v1.id}:{contract_v1.version}"
+    )
+
+    contract_v2 = make_contract(str(dest_dir))
+    contract_v2.version = "0.2.0"
+    contract_v2.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=800)]
+
+    data_bad = [
+        (3, 103, datetime(2024, 1, 3, 12, 0, 0), 200.0, "EUR"),
+        (4, 104, datetime(2024, 1, 4, 12, 30, 0), 100.0, "USD"),
+    ]
+    df_bad = spark.createDataFrame(
+        data_bad,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    drafts = FSContractStore(str(tmp_path / "drafts_upgrade"))
+    _, status_block, draft = write_with_contract(
+        df=df_bad,
+        contract=contract_v2,
+        mode="overwrite",
+        enforce=False,
+        draft_on_mismatch=True,
+        draft_store=drafts,
+        dq_client=dq,
+        return_status=True,
+    )
+
+    assert status_block is not None
+    assert status_block.status == "block"
+    assert status_block.details and status_block.details.get("violations", 0) > 0
+    assert (
+        dq.get_linked_contract_version(dataset_id=dataset_ref)
+        == f"{contract_v2.id}:{contract_v2.version}"
+    )
+    assert draft is not None

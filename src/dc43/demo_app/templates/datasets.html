@@ -35,29 +35,66 @@
     <tbody>
     {% for r in records %}
       <tr>
-        <td><a href="/contracts/{{ r.contract_id }}">{{ r.contract_id }}</a></td>
-        <td><a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a></td>
         <td>
-          {% if r.draft_contract_version %}
-            <a href="/contracts/{{ r.contract_id }}/{{ r.draft_contract_version }}">{{ r.draft_contract_version }}</a>
+          {% if r.contract_id %}
+            <a href="/contracts/{{ r.contract_id }}">{{ r.contract_id }}</a>
+          {% else %}
+            <span class="text-muted">No contract</span>
           {% endif %}
         </td>
-        <td>{{ r.dataset_name }}</td>
-        <td><a href="/datasets/{{ r.dataset_name }}/{{ r.dataset_version }}">{{ r.dataset_version }}</a></td>
+        <td>
+          {% if r.contract_id and r.contract_version %}
+            <a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a>
+          {% elif r.contract_id %}
+            <span class="text-muted">No version</span>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.contract_id and r.draft_contract_version %}
+            <a href="/contracts/{{ r.contract_id }}/{{ r.draft_contract_version }}">{{ r.draft_contract_version }}</a>
+          {% elif r.draft_contract_version %}
+            <span class="text-muted">{{ r.draft_contract_version }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.dataset_name %}
+            <a href="/datasets/{{ r.dataset_name }}">{{ r.dataset_name }}</a>
+          {% else %}
+            <span class="text-muted">Unnamed</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.dataset_name %}
+            <a href="/datasets/{{ r.dataset_name }}/{{ r.dataset_version }}">{{ r.dataset_version }}</a>
+          {% else %}
+            {{ r.dataset_version }}
+          {% endif %}
+        </td>
         <td>{{ r.run_type }}</td>
+        {% set output_details = r.dq_details.get('output', {}) %}
         <td>
           {{ r.status }}
-          {% if r.dq_details.get('output', {}).get('warnings') %}
+          {% if output_details.get('warnings') %}
             <span class="text-warning ms-1" title="Schema warnings">&#9888;</span>
+          {% endif %}
+          {% if output_details.get('errors') %}
+            <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
           {% endif %}
         </td>
         <td>
-          {% set fails = r.dq_details.get('output', {}).get('failed_expectations', {}) %}
+          {% set fails = output_details.get('failed_expectations', {}) %}
+          {% set schema_errors = output_details.get('errors', []) %}
+          {% if schema_errors %}
+            <div>Schema errors: {{ schema_errors | length }}</div>
+          {% endif %}
           {% if fails %}
             {% for key, info in fails.items() %}
               <div>{{ key }} ({{ info.count }})</div>
             {% endfor %}
-          {% else %}
+          {% endif %}
+          {% if not fails and not schema_errors %}
             {{ r.violations }}
           {% endif %}
         </td>
@@ -86,7 +123,7 @@
                 </h2>
                 <div id="dq-output-{{ loop.index }}" class="accordion-collapse collapse">
                   <div class="accordion-body">
-                    {% set fails = r.dq_details.get('output', {}).get('failed_expectations', {}) %}
+                    {% set fails = output_details.get('failed_expectations', {}) %}
                     {% if fails %}
                       {% for key, info in fails.items() %}
                         <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
@@ -96,7 +133,18 @@
                         </div>
                       {% endfor %}
                     {% endif %}
-                    <pre class="small mb-0">{{ r.dq_details.get('output') | tojson(indent=2) }}</pre>
+                    {% set schema_errors = output_details.get('errors', []) %}
+                    {% if schema_errors %}
+                      <div class="mb-2">
+                        <strong>Schema errors</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for err in schema_errors %}
+                            <li>{{ err }}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    <pre class="small mb-0">{{ output_details | tojson(indent=2) }}</pre>
                   </div>
                 </div>
               </div>

@@ -8,8 +8,16 @@
   <tr>
     <td><a href="/datasets/{{ dataset_name }}/{{ r.dataset_version }}">{{ r.dataset_version }}</a></td>
     <td>
-      <a href="/contracts/{{ r.contract_id }}">{{ r.contract_id }}</a>
-      <a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a>
+      {% if r.contract_id %}
+        <a href="/contracts/{{ r.contract_id }}">{{ r.contract_id }}</a>
+        {% if r.contract_version %}
+          <a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a>
+        {% else %}
+          <span class="text-muted">No version</span>
+        {% endif %}
+      {% else %}
+        <span class="text-muted">No contract</span>
+      {% endif %}
     </td>
     <td>{{ r.status }}</td>
   </tr>

@@ -18,7 +18,9 @@ Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
+from uuid import uuid4
+from threading import Lock
 import json
 import shutil
 import tempfile
@@ -160,7 +162,6 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.0.0",
-            "dataset_name": "output-ok-contract",
             "run_type": "enforce",
         },
     },
@@ -177,7 +178,6 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
-            "dataset_name": "output-wrong-quality",
             "run_type": "enforce",
             "collect_examples": True,
             "examples_limit": 3,
@@ -196,11 +196,31 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "2.0.0",
-            "dataset_name": "output-ko",
             "run_type": "enforce",
         },
     },
 }
+
+
+_FLASH_LOCK = Lock()
+_FLASH_MESSAGES: Dict[str, Dict[str, str | None]] = {}
+
+
+def queue_flash(message: str | None = None, error: str | None = None) -> str:
+    """Store a transient flash payload and return a lookup token."""
+
+    token = uuid4().hex
+    with _FLASH_LOCK:
+        _FLASH_MESSAGES[token] = {"message": message, "error": error}
+    return token
+
+
+def pop_flash(token: str) -> Tuple[str | None, str | None]:
+    """Return and remove the flash payload associated with ``token``."""
+
+    with _FLASH_LOCK:
+        payload = _FLASH_MESSAGES.pop(token, None) or {}
+    return payload.get("message"), payload.get("error")
 
 
 def load_contract_meta() -> List[Dict[str, Any]]:
@@ -488,12 +508,20 @@ async def list_datasets(request: Request) -> HTMLResponse:
     recs = []
     for r in records:
         recs.append(r.__dict__.copy())
+    flash_token = request.query_params.get("flash")
+    flash_message: str | None = None
+    flash_error: str | None = None
+    if flash_token:
+        flash_message, flash_error = pop_flash(flash_token)
+    else:
+        flash_message = request.query_params.get("msg")
+        flash_error = request.query_params.get("error")
     context = {
         "request": request,
         "records": recs,
         "scenarios": SCENARIOS,
-        "message": request.query_params.get("msg"),
-        "error": request.query_params.get("error"),
+        "message": flash_message,
+        "error": flash_error,
     }
     return templates.TemplateResponse("datasets.html", context)
 
@@ -545,12 +573,17 @@ def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: st
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
     for r in load_records():
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
-            contract = store.get(r.contract_id, r.contract_version)
-            preview = _dataset_preview(contract, dataset_name, dataset_version)
+            contract_obj: OpenDataContractStandard | None = None
+            if r.contract_id and r.contract_version:
+                try:
+                    contract_obj = store.get(r.contract_id, r.contract_version)
+                except FileNotFoundError:
+                    contract_obj = None
+            preview = _dataset_preview(contract_obj, dataset_name, dataset_version)
             context = {
                 "request": request,
                 "record": r,
-                "contract": contract_to_dict(contract),
+                "contract": contract_to_dict(contract_obj) if contract_obj else None,
                 "data_preview": preview,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
@@ -567,18 +600,21 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         return RedirectResponse(url=f"/datasets?{params}", status_code=303)
     p = cfg["params"]
     try:
-        new_version = run_pipeline(
+        dataset_name, new_version = run_pipeline(
             p.get("contract_id"),
             p.get("contract_version"),
-            p["dataset_name"],
+            p.get("dataset_name"),
             p.get("dataset_version"),
             p.get("run_type", "infer"),
             p.get("collect_examples", False),
             p.get("examples_limit", 5),
         )
-        params = urlencode({"msg": f"Run succeeded: {p['dataset_name']} {new_version}"})
+        label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
+        token = queue_flash(message=f"Run succeeded: {label} {new_version}")
+        params = urlencode({"flash": token})
     except Exception as exc:  # pragma: no cover - surface pipeline errors
-        params = urlencode({"error": str(exc)})
+        token = queue_flash(error=str(exc))
+        params = urlencode({"flash": token})
     return RedirectResponse(url=f"/datasets?{params}", status_code=303)
 
 
