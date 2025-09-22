@@ -8,6 +8,7 @@ recording the dataset version in the demo app's registry.
 """
 
 from pathlib import Path
+from typing import Any
 
 from dc43.demo_app.server import (
     store,
@@ -68,6 +69,7 @@ def run_pipeline(
     available.  Returns the dataset name used along with the materialized
     version.
     """
+    existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     dq = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
 
@@ -147,27 +149,47 @@ def run_pipeline(
         if not output_contract:
             error = ValueError("Contract required for existing mode")
         elif output_status and output_status.status != "ok":
-            error = ValueError(f"DQ violation: {output_status.details}")
+            detail_msg: dict[str, Any] = dict(output_status.details or {})
+            if output_status.reason:
+                detail_msg["reason"] = output_status.reason
+            error = ValueError(
+                f"DQ violation: {detail_msg or output_status.status}"
+            )
         elif not result.ok:
             error = ValueError(f"Contract validation failed: {result.errors}")
 
     draft_version: str | None = draft.version if draft else None
-    dq_details = output_status.details if output_status else {}
     output_details = result.details.copy()
-    if dq_details:
-        dq_metrics = dq_details.get("metrics", {})
+    dq_payload: dict[str, Any] = {}
+    if output_status:
+        dq_payload = dict(output_status.details or {})
+        dq_payload.setdefault("status", output_status.status)
+        if output_status.reason:
+            dq_payload.setdefault("reason", output_status.reason)
+
+        dq_metrics = dq_payload.get("metrics", {})
         if dq_metrics:
             merged_metrics = {**dq_metrics, **output_details.get("metrics", {})}
             output_details["metrics"] = merged_metrics
-        if "violations" in dq_details and "violations" not in output_details:
-            output_details["violations"] = dq_details["violations"]
-        other = {
+        if "violations" in dq_payload:
+            output_details["violations"] = dq_payload["violations"]
+        if "failed_expectations" in dq_payload:
+            output_details["failed_expectations"] = dq_payload["failed_expectations"]
+
+        summary = dict(output_details.get("dq_status", {}))
+        summary.setdefault("status", dq_payload.get("status", output_status.status))
+        if dq_payload.get("reason"):
+            summary.setdefault("reason", dq_payload["reason"])
+        extras = {
             k: v
-            for k, v in dq_details.items()
-            if k not in ("metrics", "violations")
+            for k, v in dq_payload.items()
+            if k
+            not in ("metrics", "violations", "failed_expectations", "status", "reason")
         }
-        if other:
-            output_details.setdefault("dq_status", other)
+        if extras:
+            summary.update(extras)
+        if summary:
+            output_details["dq_status"] = summary
 
     combined_details = {
         "orders": orders_status.details if orders_status else None,
@@ -209,7 +231,8 @@ def run_pipeline(
         )
     )
     save_records(records)
-    spark.stop()
+    if not existing_session:
+        spark.stop()
     if error:
         raise error
     return dataset_name, dataset_version

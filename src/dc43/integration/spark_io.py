@@ -50,6 +50,7 @@ def _propose_draft_from_dataframe(
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     data_format: Optional[str] = None,
+    dq_feedback: Optional[Dict[str, Any]] = None,
 ) -> OpenDataContractStandard:
     """Create a draft ODCS doc based on the DataFrame schema and base contract.
 
@@ -89,6 +90,8 @@ def _propose_draft_from_dataframe(
     cps.append(CustomProperty(property="draft", value=True))
     cps.append(CustomProperty(property="base_version", value=ver))
     cps.append(CustomProperty(property="provenance", value={"dataset_id": dataset_id, "dataset_version": dataset_version}))
+    if dq_feedback:
+        cps.append(CustomProperty(property="dq_feedback", value=dq_feedback))
 
     schema_name = cid
     if contract_doc.schema_:
@@ -642,26 +645,104 @@ def write_with_contract(
 
     # DQ integration after write
     status: Optional[DQStatus] = None
+    dq_feedback_payload: Optional[Dict[str, Any]] = None
+    dq_dataset_id: Optional[str] = None
+    dq_dataset_version: Optional[str] = None
     if dq_client and contract:
-        ds_id = dataset_id or dataset_id_from_ref(table=table, path=path)
-        ds_ver = dataset_version or get_delta_version(df.sparkSession, table=table, path=path) or "unknown"
-        linked = dq_client.get_linked_contract_version(dataset_id=ds_id)
-        if linked and linked != f"{cid}:{cver}":
-            status = DQStatus(status="block", reason=f"dataset linked to {linked}")
-        else:
+        dq_dataset_id = dataset_id or dataset_id_from_ref(table=table, path=path)
+        dq_dataset_version = (
+            dataset_version
+            or get_delta_version(df.sparkSession, table=table, path=path)
+            or "unknown"
+        )
+        linked = dq_client.get_linked_contract_version(dataset_id=dq_dataset_id)
+        target_link = f"{cid}:{cver}"
+        if linked and linked != target_link:
+            linked_id, _, _ = linked.partition(":")
+            if linked_id == cid:
+                logger.info(
+                    "Updating DQ link for %s from %s to %s",
+                    dq_dataset_id,
+                    linked,
+                    target_link,
+                )
+                dq_client.link_dataset_contract(
+                    dataset_id=dq_dataset_id,
+                    dataset_version=dq_dataset_version,
+                    contract_id=cid,
+                    contract_version=cver,
+                )
+                linked = target_link
+            else:
+                status = DQStatus(status="block", reason=f"dataset linked to {linked}")
+        if status is None:
             if not linked:
                 dq_client.link_dataset_contract(
-                    dataset_id=ds_id,
-                    dataset_version=ds_ver,
+                    dataset_id=dq_dataset_id,
+                    dataset_version=dq_dataset_version,
                     contract_id=cid,
                     contract_version=cver,
                 )
             metrics = compute_metrics(out_df, contract)
             status = dq_client.submit_metrics(
-                contract=contract, dataset_id=ds_id, dataset_version=ds_ver, metrics=metrics
+                contract=contract,
+                dataset_id=dq_dataset_id,
+                dataset_version=dq_dataset_version,
+                metrics=metrics,
             )
+        if status:
+            dq_feedback_payload = {"status": status.status}
+            if status.reason:
+                dq_feedback_payload["reason"] = status.reason
+            if status.details:
+                dq_feedback_payload["details"] = status.details
+        violation_total = 0
+        metrics_detail: Dict[str, Any] = {}
+        if status and status.details:
+            try:
+                violation_total = int(status.details.get("violations") or 0)
+            except (TypeError, ValueError):
+                violation_total = 0
+            metrics_detail = status.details.get("metrics") or {}
+        should_infer_draft_from_dq = (
+            draft_on_mismatch
+            and draft_doc is None
+            and status is not None
+            and status.status in ("warn", "block")
+            and (
+                violation_total > 0
+                or any(
+                    int(metrics_detail.get(key) or 0) > 0
+                    for key in metrics_detail
+                    if key.startswith("violations.")
+                )
+            )
+        )
+        if should_infer_draft_from_dq:
+            ds_id_for_draft = dq_dataset_id or dataset_id_from_ref(table=table, path=path)
+            ds_ver_for_draft = dq_dataset_version
+            draft_doc = _propose_draft_from_dataframe(
+                df,
+                contract,
+                bump=draft_bump,
+                dataset_id=ds_id_for_draft,
+                dataset_version=ds_ver_for_draft,
+                data_format=format,
+                dq_feedback=dict(dq_feedback_payload or {}),
+            )
+            if draft_store is not None:
+                logger.info(
+                    "Persisting draft contract %s:%s due to dq status %s",
+                    draft_doc.id,
+                    draft_doc.version,
+                    status.status,
+                )
+                draft_store.put(draft_doc)
         if enforce and status and status.status == "block":
-            raise ValueError(f"DQ violation: {status.details}")
+            details_snapshot: Dict[str, Any] = status.details or {}
+            if status.reason:
+                details_snapshot = {**details_snapshot, "reason": status.reason}
+            raise ValueError(f"DQ violation: {details_snapshot or status.status}")
 
     # Propagate the validation result to callers.
     if return_status and return_draft:
