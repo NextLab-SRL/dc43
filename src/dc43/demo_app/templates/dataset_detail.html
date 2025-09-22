@@ -2,9 +2,20 @@
 {% block content %}
 <h1>Dataset {{ record.dataset_name }} {{ record.dataset_version }}</h1>
 <p><a href="/datasets/{{ record.dataset_name }}">Back to versions</a></p>
-<p>Contract: <a href="/contracts/{{ record.contract_id }}">{{ record.contract_id }}</a>
-<a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_version }}</a></p>
-{% if record.draft_contract_version %}
+<p>
+  Contract:
+  {% if record.contract_id %}
+    <a href="/contracts/{{ record.contract_id }}">{{ record.contract_id }}</a>
+    {% if record.contract_version %}
+      <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_version }}</a>
+    {% else %}
+      <span class="text-muted">No version</span>
+    {% endif %}
+  {% else %}
+    <span class="text-muted">No contract recorded for this run.</span>
+  {% endif %}
+</p>
+{% if record.contract_id and record.draft_contract_version %}
 <p>Draft Contract: <a href="/contracts/{{ record.contract_id }}/{{ record.draft_contract_version }}">{{ record.draft_contract_version }}</a></p>
 {% endif %}
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>

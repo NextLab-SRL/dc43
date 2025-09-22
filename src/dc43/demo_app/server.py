@@ -545,12 +545,17 @@ def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: st
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
     for r in load_records():
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
-            contract = store.get(r.contract_id, r.contract_version)
-            preview = _dataset_preview(contract, dataset_name, dataset_version)
+            contract_obj: OpenDataContractStandard | None = None
+            if r.contract_id and r.contract_version:
+                try:
+                    contract_obj = store.get(r.contract_id, r.contract_version)
+                except FileNotFoundError:
+                    contract_obj = None
+            preview = _dataset_preview(contract_obj, dataset_name, dataset_version)
             context = {
                 "request": request,
                 "record": r,
-                "contract": contract_to_dict(contract),
+                "contract": contract_to_dict(contract_obj) if contract_obj else None,
                 "data_preview": preview,
             }
             return templates.TemplateResponse("dataset_detail.html", context)

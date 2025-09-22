@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from dc43.demo_app.server import app, load_records
+from dc43.demo_app.server import app, load_records, save_records, DatasetRecord
 
 
 def test_contracts_page():
@@ -42,4 +42,34 @@ def test_dataset_versions_page():
     client = TestClient(app)
     resp = client.get(f"/datasets/{rec.dataset_name}")
     assert resp.status_code == 200
+
+
+def test_dataset_pages_without_contract():
+    original = load_records()
+    record = DatasetRecord(
+        contract_id="",
+        contract_version="",
+        dataset_name="missing-contract-dataset",
+        dataset_version="1.0.0",
+        status="error",
+        dq_details={},
+        run_type="enforce",
+        violations=0,
+    )
+    save_records([*original, record])
+    client = TestClient(app)
+    try:
+        resp = client.get("/datasets")
+        assert resp.status_code == 200
+        assert "No contract" in resp.text
+
+        resp_versions = client.get("/datasets/missing-contract-dataset")
+        assert resp_versions.status_code == 200
+        assert "No contract" in resp_versions.text
+
+        resp_detail = client.get("/datasets/missing-contract-dataset/1.0.0")
+        assert resp_detail.status_code == 200
+        assert "No contract recorded for this run" in resp_detail.text
+    finally:
+        save_records(original)
 
