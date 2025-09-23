@@ -1,8 +1,6 @@
-# Data Contract Management Options
+# Contract Manager / Store Component
 
-dc43 resolves and stores Open Data Contract Standard (ODCS) documents through a pluggable `ContractStore` interface. This note
-explains the responsibilities of that component, how it fits into the architecture, and the available implementations you can
-mix and match with external catalogs.
+The contract manager sits in the **governance layer** of dc43. It resolves and stores Open Data Contract Standard (ODCS) documents through a pluggable `ContractStore` interface and exposes lifecycle metadata to stewards. This guide explains the responsibilities of that component, how it fits into the architecture, and the available implementations you can mix and match with external catalogs.
 
 ## Responsibilities of a Contract Manager
 

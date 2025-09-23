@@ -13,18 +13,13 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 
 from .validation import validate_dataframe, apply_contract, ValidationResult
-from ..dq.base import DQClient, DQStatus
-from ..dq.spark_metrics import compute_metrics
+from ..dq.interface import DQClient, DQStatus
+from ..dq.engine.spark import compute_metrics
 from .dataset import get_delta_version, dataset_id_from_ref
+from ..drafting import draft_from_dataframe
 from ..versioning import SemVer
 from ..odcs import contract_identity, ensure_version
-from open_data_contract_standard.model import (
-    SchemaProperty,
-    SchemaObject,
-    CustomProperty,
-    OpenDataContractStandard,
-    Server,
-)  # type: ignore
+from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 from ..storage.base import ContractStore
 
 logger = logging.getLogger(__name__)
@@ -41,89 +36,6 @@ def _simple_contract_id(dataset_id: str) -> str:
     if dataset_id.startswith("table:"):
         return dataset_id.split(":", 1)[1]
     return dataset_id
-
-def _propose_draft_from_dataframe(
-    df: DataFrame,
-    contract_doc: OpenDataContractStandard,
-    *,
-    bump: str = "minor",
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
-    data_format: Optional[str] = None,
-    dq_feedback: Optional[Dict[str, Any]] = None,
-) -> OpenDataContractStandard:
-    """Create a draft ODCS doc based on the DataFrame schema and base contract.
-
-    - Copies io/expectations/metadata from base, bumps version, replaces fields
-    - Adds metadata.draft=true and provenance info
-    """
-    from .validation import SPARK_TYPES as _SPARK_TYPES  # reuse mapping
-    from pyspark.sql import functions as F
-
-    # Build new field list from df schema
-    props = []
-    for f in df.schema.fields:  # type: ignore[attr-defined]
-        t = str(f.dataType).lower()
-        # Inverse mapping: crude normalization of Spark dtype string
-        # Heuristic: find key whose spark type matches suffix in dtype string
-        odcs_type = None
-        for k, v in _SPARK_TYPES.items():
-            if v in t:
-                odcs_type = k
-                break
-        odcs_type = odcs_type or t
-        props.append(
-            SchemaProperty(
-                name=f.name,
-                physicalType=str(odcs_type),
-                required=not f.nullable,
-            )
-        )
-
-    # Bump version
-    cid, ver = contract_identity(contract_doc)
-    sv = SemVer.parse(ver)
-    nver = str(sv.bump("minor" if bump not in ("major", "patch") else bump))
-
-    # Preserve existing customProperties and append draft metadata
-    cps = list(contract_doc.customProperties or [])
-    cps.append(CustomProperty(property="draft", value=True))
-    cps.append(CustomProperty(property="base_version", value=ver))
-    cps.append(CustomProperty(property="provenance", value={"dataset_id": dataset_id, "dataset_version": dataset_version}))
-    if dq_feedback:
-        cps.append(CustomProperty(property="dq_feedback", value=dq_feedback))
-
-    schema_name = cid
-    if contract_doc.schema_:
-        first = contract_doc.schema_[0]
-        schema_name = first.name or cid
-
-    servers = contract_doc.servers
-    if dataset_id:
-        base_fmt = data_format
-        if not base_fmt and contract_doc.servers:
-            base_fmt = contract_doc.servers[0].format
-        if dataset_id.startswith("path:"):
-            servers = [
-                Server(server="local", type="filesystem", path=dataset_id[5:], format=base_fmt)
-            ]
-        elif dataset_id.startswith("table:"):
-            servers = [Server(server="local", dataset=dataset_id[6:], format=base_fmt)]
-
-    draft = OpenDataContractStandard(
-        version=nver,
-        kind=contract_doc.kind,
-        apiVersion=contract_doc.apiVersion,
-        id=cid,
-        name=contract_doc.name or cid,
-        description=contract_doc.description,
-        status="draft",
-        schema=[SchemaObject(name=schema_name, properties=props)],
-        servers=servers,
-        customProperties=cps,
-    )
-    return draft
-
 
 def _check_contract_version(expected: str | None, actual: str) -> None:
     """Check expected contract version constraint against an actual version.
@@ -529,7 +441,7 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = _propose_draft_from_dataframe(
+                draft_doc = draft_from_dataframe(
                     df,
                     contract,
                     bump=draft_bump,
@@ -556,7 +468,7 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = _propose_draft_from_dataframe(
+                draft_doc = draft_from_dataframe(
                     df,
                     contract,
                     bump=draft_bump,
@@ -579,7 +491,7 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = _propose_draft_from_dataframe(
+                draft_doc = draft_from_dataframe(
                     df,
                     contract,
                     bump=draft_bump,
@@ -613,7 +525,7 @@ def write_with_contract(
             id=ds_id,
             name=ds_id,
         )
-        draft_doc = _propose_draft_from_dataframe(
+        draft_doc = draft_from_dataframe(
             df,
             base,
             bump=draft_bump,
@@ -721,7 +633,7 @@ def write_with_contract(
         if should_infer_draft_from_dq:
             ds_id_for_draft = dq_dataset_id or dataset_id_from_ref(table=table, path=path)
             ds_ver_for_draft = dq_dataset_version
-            draft_doc = _propose_draft_from_dataframe(
+            draft_doc = draft_from_dataframe(
                 df,
                 contract,
                 bump=draft_bump,

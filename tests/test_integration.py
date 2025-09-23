@@ -12,7 +12,7 @@ from open_data_contract_standard.model import (
 )
 
 from dc43.integration.spark_io import read_with_contract, write_with_contract
-from dc43.dq.stub import StubDQClient
+from dc43.dq.stubs import StubDQClient
 from dc43.storage.fs import FSContractStore
 from datetime import datetime
 import logging

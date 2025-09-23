@@ -1,6 +1,6 @@
-"""Compatibility shim for Spark data-quality helpers."""
+"""Data-quality engines backed by execution runtimes."""
 
-from .engine.spark import (
+from .spark import (
     attach_failed_expectations,
     compute_metrics,
     expectations_from_contract,

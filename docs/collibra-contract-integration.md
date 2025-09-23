@@ -1,12 +1,12 @@
 # Collibra-Orchestrated Data Contract Lifecycle
 
-This document outlines how dc43 can integrate with [Collibra Data Products](https://productresources.collibra.com/docs/collibra/latest/Content/Assets/DataProducts/co_data-product.htm) to manage the lifecycle of data contracts alongside datasets and pipelines.
+This document outlines how dc43 can integrate with [Collibra Data Products](https://productresources.collibra.com/docs/collibra/latest/Content/Assets/DataProducts/co_data-product.htm) to manage the lifecycle of data contracts alongside datasets and pipelines. Collibra can simultaneously fulfil the **contract manager**, **data-quality governance interface**, and steward workflow requirements described in the main architecture.
 
 ## Goals
 
 * Centralize contract ownership and approval inside Collibra while dc43 continues to enforce the resulting specifications in Spark and Delta Live Tables (DLT).
 * Re-use Collibra's native notions of **Data Products**, **Ports**, and **Contracts** to model the same artefacts surfaced by dc43.
-* Allow pipelines to react automatically when Collibra validates a contract (for example by re-running a pipeline to fix or update datasets).
+* Allow pipelines to react automatically when Collibra validates a contract (for example by re-running a pipeline to fix or update datasets) and synchronize quality verdicts back to stewards.
 
 ## Conceptual Mapping
 
@@ -19,6 +19,16 @@ Collibra exposes "Data Contracts" as first-class objects attached to Data Produc
 | Draft contract (ODCS JSON) | Collibra contract in `Draft` status | Drafts originate from dc43 `write_with_contract(..., draft_on_mismatch=True)` workflows. |
 | Validation status | Collibra contract workflow state (`Validated`, `Rejected`, ...) | Collibra becomes the source of truth. |
 | Dataset version status | Collibra Data Product status or custom attribute | Optionally updated when the contract is promoted. |
+
+## Component Touchpoints
+
+| dc43 component | Collibra capability | Notes |
+| --- | --- | --- |
+| Contract manager/store | Data Product contract APIs | `CollibraContractStore` delegates to the REST endpoints exposed for ports and versions. |
+| Contract drafter | Workflow-driven drafts | `write_with_contract` can call `CollibraContractGateway.submit_draft` instead of persisting to a filesystem bucket. |
+| Data quality governance | Workflow states & custom attributes | Collibra workflows and attributes can store dataset ↔ contract compatibility and expose steward approvals. |
+| Data quality engine | External metrics sink | Use the metrics emitted by `dc43.dq.engine.spark` to update Collibra status via the gateway. |
+| Integration layer | Stewardship triggers | Collibra webhooks or scheduled polls notify pipelines to re-run when a contract is validated. |
 
 ## Architecture Variant: Collibra-Governed Contracts
 
