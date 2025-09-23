@@ -36,6 +36,11 @@ status = attach_failed_expectations(
 )
 ```
 
+`submit_metrics` delegates the final compatibility verdict to whichever DQ
+governance adapter you configure (filesystem stub, Collibra, bespoke service).
+The Spark engine concerns itself with collecting metrics and surfacing failure
+context.
+
 ## Extending the Spark engine
 
 * **Domain-specific metrics** – append calculated KPIs to the returned

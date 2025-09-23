@@ -1,6 +1,6 @@
 # Collibra-Orchestrated Data Contract Lifecycle
 
-This document outlines how dc43 can integrate with [Collibra Data Products](https://productresources.collibra.com/docs/collibra/latest/Content/Assets/DataProducts/co_data-product.htm) to manage the lifecycle of data contracts alongside datasets and pipelines. Collibra can simultaneously fulfil the **contract manager**, **data-quality governance interface**, and steward workflow requirements described in the main architecture.
+This document outlines how dc43 can integrate with [Collibra Data Products](https://productresources.collibra.com/docs/collibra/latest/Content/Assets/DataProducts/co_data-product.htm) to manage the lifecycle of data contracts alongside datasets and pipelines. Collibra can simultaneously fulfil the **contract manager**, **data-quality governance interface**, and steward workflow requirements described in the main architecture while remaining the system of record for the compatibility matrix. Pair this guide with the [Collibra contract store reference](../contract-store/collibra.md) for low-level API mappings.
 
 ## Goals
 
@@ -26,8 +26,8 @@ Collibra exposes "Data Contracts" as first-class objects attached to Data Produc
 | --- | --- | --- |
 | Contract manager/store | Data Product contract APIs | `CollibraContractStore` delegates to the REST endpoints exposed for ports and versions. |
 | Contract drafter | Workflow-driven drafts | `write_with_contract` can call `CollibraContractGateway.submit_draft` instead of persisting to a filesystem bucket. |
-| Data quality governance | Workflow states & custom attributes | Collibra workflows and attributes can store dataset ↔ contract compatibility and expose steward approvals. |
-| Data quality engine | External metrics sink | Use the metrics emitted by `dc43.dq.engine.spark` to update Collibra status via the gateway. |
+| Data quality governance | Workflow states & custom attributes | Collibra workflows and attributes store dataset ↔ contract compatibility, including the latest metrics digest and steward verdict. |
+| Data quality engine | External metrics sink | Use the metrics emitted by `dc43.dq.engine.spark` (or other engines) to update Collibra status via the gateway; Collibra persists the verdict. |
 | Integration layer | Stewardship triggers | Collibra webhooks or scheduled polls notify pipelines to re-run when a contract is validated. |
 
 ## Architecture Variant: Collibra-Governed Contracts
@@ -71,7 +71,7 @@ This variation extends the generic architecture with Collibra as the system of r
 1. **Draft proposal**: dc43 detects a schema mismatch while writing and produces an ODCS draft. Instead of storing it in the file-based draft store, it invokes a Collibra client that registers or updates the draft contract on the appropriate port.
 2. **Collibra review**: Data Stewards review the draft contract and run their validation workflow inside Collibra. They can enrich the metadata (owners, SLAs, linked policies) before marking it as `Validated`.
 3. **Pipeline trigger**: A Collibra webhook or scheduled poll notifies dc43 that the contract has been validated. dc43 resolves the latest validated contract and re-runs the associated pipeline (e.g. via Databricks Jobs or DLT expectations) to enforce the new schema and update datasets.
-4. **Continuous checks**: Downstream reads call `read_with_contract` with a Collibra-backed resolver to ensure consumers always use a validated version. Data quality hooks (DQ client) can persist statuses back into Collibra if desired.
+4. **Continuous checks**: Downstream reads call `read_with_contract` with a Collibra-backed resolver to ensure consumers always use a validated version. Data quality hooks (DQ client) persist metric payloads and statuses back into Collibra so stewards retain the compatibility matrix history.
 
 ## Data-quality orchestration
 
@@ -81,7 +81,37 @@ evaluate rules. Feed those metrics into the Collibra gateway to transition
 workflow states and update compatibility matrices. In many deployments the heavy
 lifting happens in a specialised observability tool while Collibra stores the
 resulting verdicts, triggers steward tasks, and notifies pipelines when
-remediation is complete.
+remediation is complete. Collibra is therefore responsible for:
+
+1. Persisting each dataset↔contract pairing as a Collibra relation or custom
+   asset with the latest metrics digest.
+2. Running or coordinating the steward workflow that evaluates the metrics and
+   approves or blocks the dataset version.
+3. Exposing APIs (polling or webhooks) so dc43's `DQClient` can request the
+   current verdict before serving data.
+
+## Compatibility matrix modelling
+
+Represent the compatibility matrix explicitly in Collibra so stewards and
+pipelines share the same truth:
+
+* **Asset design** – create a custom asset type such as `Dataset Contract
+  Evaluation` linked to the Data Product port (dataset) and the Collibra contract
+  version. Store attributes like dataset version identifier, last metric
+  snapshot, steward owner, and expiry.
+* **Status fields** – reuse Collibra workflow states (`Draft`, `In Review`,
+  `Validated`, `Blocked`) or custom enumerations to mirror dc43's `DQStatus`
+  values. The dc43 adapter should map `ok/warn/block/unknown` to the same state
+  machine.
+* **Metric storage** – persist the raw metrics JSON or an aggregated digest so
+  stewards can inspect failure counts. For large payloads, upload documents to a
+  Collibra attachment and store the link.
+* **Audit trail** – enable workflow history and comments to document why a
+  dataset version was approved or rejected. dc43 can surface this context back
+  to pipelines via the `details` field on `DQStatus`.
+
+Document the asset identifiers and state mappings in your Collibra gateway
+configuration so new datasets automatically follow the same conventions.
 
 ## Implementation Strategy
 
@@ -109,10 +139,10 @@ contract = store.latest("sales.orders")
 
 ### Integration Points in dc43
 
-* **Contract resolution**: Add a `CollibraContractStore` implementing the existing store interface (`get`, `latest`, `put`, ...), delegating to the Collibra gateway. `latest(..., status="Validated")` would filter by Collibra status.
+* **Contract resolution**: Add a `CollibraContractStore` implementing the existing store interface (`get`, `latest`, `put`, ...), delegating to the Collibra gateway. `latest(..., status="Validated")` filters by Collibra workflow state so runtimes only consume approved versions.
 * **Draft creation**: Extend `write_with_contract`'s draft hook to call `submit_draft`. The stub store remains available for environments without Collibra.
-* **Pipeline orchestration**: Introduce a lightweight service (e.g. an Airflow DAG or Databricks Job) that subscribes to Collibra webhooks. When a contract transitions to `Validated`, it triggers the downstream pipeline and optionally records dataset remediation status back into Collibra via `update_status`.
-* **DQ feedback loop**: Optionally integrate the `dq_client` so validation outcomes are synced to Collibra attributes, giving stewards visibility into enforcement history.
+* **Pipeline orchestration**: Introduce a lightweight service (e.g. an Airflow DAG or Databricks Job) that subscribes to Collibra webhooks. When a contract transitions to `Validated`, it triggers the downstream pipeline and records dataset remediation status back into Collibra via `update_status`.
+* **DQ feedback loop**: Integrate the `dq_client` so metric submissions create or update the compatibility asset, store failure summaries, and transition workflow states. This keeps the Collibra matrix authoritative.
 
 ## Operational Considerations
 

@@ -16,6 +16,40 @@ pipelines where a full governance platform is not available.
 * Can be queried by `read_with_contract` / `write_with_contract` to gate
   access to datasets.
 
+### Storage layout
+
+```
+/mnt/dq_state/
+├── links/
+│   └── sales.orders.json
+└── status/
+    └── sales.orders/
+        ├── 2024-06-01T10-00-00Z.json
+        └── 2024-06-02T10-00-00Z.json
+```
+
+* `links/<dataset_id>.json` stores the latest approved contract reference.
+* `status/<dataset_id>/<dataset_version>.json` captures the compatibility
+  verdict and metrics for a given dataset version.
+
+Each status file contains a payload similar to:
+
+```json
+{
+  "status": "block",
+  "details": {
+    "violations": 3,
+    "metrics": {
+      "row_count": 100,
+      "violations.not_null_order_id": 3
+    }
+  }
+}
+```
+
+Set `block_on_violation=False` when initial validation runs should emit warnings
+instead of blocking downstream reads.
+
 ## When to use it
 
 Use the stub client when you need end-to-end flows without provisioning a

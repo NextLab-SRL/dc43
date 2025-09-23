@@ -19,14 +19,15 @@ At minimum it must be able to:
 3. **Return a status** (`ok`, `warn`, `block`, or `unknown`) indicating
    whether the dataset version satisfies the contract.
 4. **Receive metrics** emitted by the DQ engine so it can compute or
-   update the status.
+   update the status **and persist the compatibility matrix entry** for
+   the dataset↔contract pair.
 
 ```mermaid
 flowchart LR
     Runtime["Execution layer"] --> Metrics["Metrics & verdict requests"]
     Metrics --> DQClient["DQ governance adapter"]
-    DQClient --> Catalog["Compatibility matrix"]
-    Catalog --> Runtime
+    DQClient --> Catalog["Compatibility matrix\n(authoritative)"]
+    Catalog --> Runtime["Execution layer"]
     DQClient --> Stewardship["Steward workflows / alerts"]
 ```
 
@@ -56,7 +57,7 @@ Technology-specific guides live under
 [`docs/implementations/data-quality-governance/`](implementations/data-quality-governance/):
 
 - [Filesystem stub client](implementations/data-quality-governance/stub.md)
-- [Collibra quality workflows](implementations/collibra/contract-integration.md#data-quality-orchestration)
+- [Collibra quality workflows](implementations/data-quality-governance/collibra.md)
 
 When you build adapters for Soda, Great Expectations, Datadog, or other
 platforms, document them in the same folder to describe how they manage
