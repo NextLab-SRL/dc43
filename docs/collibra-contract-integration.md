@@ -31,8 +31,8 @@ Collibra exposes "Data Contracts" as first-class objects attached to Data Produc
 
 ### API Client
 
-* **Preferred**: Implement a Collibra client that wraps their REST APIs for Data Products and Contracts. It should support authentication, search (find the correct Data Product port for a dataset), create/update contract drafts, and fetch the latest validated contract. dc43 ships with `HttpCollibraContractGateway` to cover this use case—provide a mapping of contract identifiers to `{data_product, port}` pairs and optional access tokens.
-* **Fallback / Testing**: Provide a stub with an in-memory or filesystem-backed catalogue that mirrors the API surface. dc43 includes `StubCollibraContractGateway` for unit tests and local development.
+* **Preferred**: Implement a Collibra client that wraps their REST APIs for Data Products and Contracts. It should support authentication, search (find the correct Data Product port for a dataset), create/update contract drafts, and fetch the latest validated contract. dc43 ships with `HttpCollibraContractGateway`, which targets the endpoints documented in the Collibra Data Products API (for example `GET /rest/2.0/dataproducts/{dataProductId}/ports/{portId}/contracts` for listing versions and `PUT /rest/2.0/dataproducts/{dataProductId}/ports/{portId}/contracts/{version}` for upserts). Provide a mapping of contract identifiers to `{data_product, port}` pairs and optional access tokens.
+* **Fallback / Testing**: Provide a stub reusing the filesystem contract store so no extra persistence layer is required. dc43 includes `StubCollibraContractGateway`, which stores ODCS payloads on disk through `FSContractStore` while keeping Collibra-specific metadata (status, timestamps) in memory for tests and local development.
 
 Both clients should expose a small interface consumed by dc43 components:
 

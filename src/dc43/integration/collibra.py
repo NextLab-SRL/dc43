@@ -10,14 +10,17 @@ calls.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import json
-from typing import Dict, List, Mapping, Optional, Protocol, Tuple
+import tempfile
+from typing import Dict, List, Optional, Protocol, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from ..odcs import as_odcs_dict, contract_identity, ensure_version
+from ..storage.fs import FSContractStore
 from ..versioning import SemVer
 
 
@@ -85,42 +88,74 @@ def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
 
 
 class StubCollibraContractGateway(CollibraContractGateway):
-    """In-memory gateway used for tests and demos."""
+    """Filesystem-backed stub gateway used for tests and demos."""
 
-    def __init__(self, *, catalog: Optional[Mapping[str, Tuple[str, str]]] = None):
+    def __init__(
+        self,
+        *,
+        base_path: Optional[str] = None,
+        catalog: Optional[Mapping[str, Tuple[str, str]]] = None,
+    ) -> None:
         self._catalog: Dict[str, Tuple[str, str]] = dict(catalog or {})
-        self._contracts: Dict[str, Dict[str, Dict[str, object]]] = {}
+        if base_path is None:
+            self._temp_dir = tempfile.TemporaryDirectory(prefix="dc43-collibra-stub-")
+            base_path = self._temp_dir.name
+        else:
+            self._temp_dir = None
+        self._store = FSContractStore(base_path)
+        self._metadata: Dict[str, Dict[str, Dict[str, object]]] = {}
+
+    def close(self) -> None:
+        if getattr(self, "_temp_dir", None) is not None:
+            self._temp_dir.cleanup()
+            self._temp_dir = None
+
+    def __del__(self) -> None:  # pragma: no cover - best effort cleanup
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _register_if_missing(self, contract_id: str) -> None:
         self._catalog.setdefault(contract_id, ("data-product", "port"))
-        self._contracts.setdefault(contract_id, {})
+        self._metadata.setdefault(contract_id, {})
+
+    def _version_info(self, contract_id: str, version: str) -> Dict[str, object]:
+        self._register_if_missing(contract_id)
+        info = self._metadata[contract_id].setdefault(
+            version,
+            {"status": "Draft", "updated_at": None},
+        )
+        return info
 
     def list_contracts(self) -> List[str]:
-        return sorted(self._catalog.keys() | self._contracts.keys())
+        contracts = set(self._catalog.keys()) | set(self._store.list_contracts())
+        return sorted(contracts)
 
     def list_versions(self, contract_id: str) -> List[ContractSummary]:
-        versions = []
-        for ver, entry in self._contracts.get(contract_id, {}).items():
+        versions: List[ContractSummary] = []
+        for ver in self._store.list_versions(contract_id):
+            info = self._version_info(contract_id, ver)
             versions.append(
                 ContractSummary(
                     contract_id=contract_id,
                     version=ver,
-                    status=str(entry.get("status", "Draft")),
-                    updated_at=entry.get("updated_at"),
+                    status=str(info.get("status", "Draft")),
+                    updated_at=info.get("updated_at"),
                 )
             )
         versions.sort(key=lambda s: _semver_key(s.version))
         return versions
 
     def get_contract(self, contract_id: str, version: str) -> Mapping[str, object]:
-        versions = self._contracts.get(contract_id)
-        if not versions or version not in versions:
-            raise LookupError(f"Contract {contract_id}:{version} not found in stub Collibra store")
-        stored = versions[version]
-        doc = stored.get("document")
-        if not isinstance(doc, Mapping):
-            raise TypeError("Stored contract payload must be a mapping")
-        return json.loads(json.dumps(doc))
+        try:
+            model = self._store.get(contract_id, version)
+        except FileNotFoundError as exc:
+            raise LookupError(
+                f"Contract {contract_id}:{version} not found in stub Collibra store"
+            ) from exc
+        payload = as_odcs_dict(model)
+        return json.loads(json.dumps(payload))
 
     def upsert_contract(
         self,
@@ -130,34 +165,31 @@ class StubCollibraContractGateway(CollibraContractGateway):
     ) -> None:
         ensure_version(contract)
         cid, ver = contract_identity(contract)
-        self._register_if_missing(cid)
-        payload = as_odcs_dict(contract)
-        entry = self._contracts.setdefault(cid, {}).setdefault(ver, {})
-        entry["document"] = payload
-        entry["status"] = status
-        entry["updated_at"] = _now()
+        self._store.put(contract)
+        info = self._version_info(cid, ver)
+        info["status"] = status
+        info["updated_at"] = _now()
 
     def submit_draft(self, contract: OpenDataContractStandard) -> None:
         self.upsert_contract(contract, status="Draft")
 
     def update_status(self, contract_id: str, version: str, status: str) -> None:
-        versions = self._contracts.get(contract_id)
-        if not versions or version not in versions:
+        if version not in self._store.list_versions(contract_id):
             raise LookupError(f"Contract {contract_id}:{version} not found in stub Collibra store")
-        versions[version]["status"] = status
-        versions[version]["updated_at"] = _now()
+        info = self._version_info(contract_id, version)
+        info["status"] = status
+        info["updated_at"] = _now()
 
     def get_validated_contract(self, contract_id: str) -> Mapping[str, object]:
         validated = [s for s in self.list_versions(contract_id) if s.status == "Validated"]
         if not validated:
             raise LookupError(f"No validated contract found for {contract_id}")
-        validated.sort(key=lambda s: _semver_key(s.version))
-        latest = validated[-1]
+        latest = max(validated, key=lambda s: _semver_key(s.version))
         return self.get_contract(contract_id, latest.version)
 
 
 class HttpCollibraContractGateway(CollibraContractGateway):
-    """HTTP implementation talking to Collibra's REST API."""
+    """HTTP implementation aligned with Collibra Data Products REST API."""
 
     def __init__(
         self,
@@ -167,6 +199,7 @@ class HttpCollibraContractGateway(CollibraContractGateway):
         timeout: float = 10.0,
         contract_catalog: Optional[Mapping[str, Tuple[str, str]]] = None,
         client=None,
+        contracts_endpoint_template: str = "/rest/2.0/dataproducts/{data_product}/ports/{port}/contracts",
     ) -> None:
         try:
             import httpx  # type: ignore
@@ -177,6 +210,7 @@ class HttpCollibraContractGateway(CollibraContractGateway):
         self._base_url = base_url.rstrip("/")
         self._token = token
         self._catalog: Dict[str, Tuple[str, str]] = dict(contract_catalog or {})
+        self._contracts_endpoint_template = contracts_endpoint_template
         if client is None:
             self._client = httpx.Client(base_url=self._base_url, timeout=timeout)
             self._owns_client = True
@@ -205,19 +239,32 @@ class HttpCollibraContractGateway(CollibraContractGateway):
             raise LookupError(f"Contract {contract_id} is not registered in the Collibra catalog")
         return self._catalog[contract_id]
 
+    def _contracts_url(self, data_product: str, port: str, suffix: str = "") -> str:
+        return self._contracts_endpoint_template.format(data_product=data_product, port=port) + suffix
+
     def list_contracts(self) -> List[str]:
         return sorted(self._catalog.keys())
 
     def list_versions(self, contract_id: str) -> List[ContractSummary]:
         data_product, port = self._locate(contract_id)
         resp = self._client.get(
-            f"/data-products/{data_product}/ports/{port}/contracts",
+            self._contracts_url(data_product, port),
             headers=self._headers(),
         )
         resp.raise_for_status()
         payload = resp.json()
         summaries: List[ContractSummary] = []
-        for item in payload.get("data", []):
+        items = []
+        if isinstance(payload, Mapping):
+            if "data" in payload and isinstance(payload["data"], list):
+                items = payload["data"]
+            elif "results" in payload and isinstance(payload["results"], list):
+                items = payload["results"]
+            elif "contracts" in payload and isinstance(payload["contracts"], list):
+                items = payload["contracts"]
+        if not items and isinstance(payload, list):
+            items = payload
+        for item in items:
             version = item.get("version")
             if not version:
                 continue
@@ -235,13 +282,16 @@ class HttpCollibraContractGateway(CollibraContractGateway):
     def get_contract(self, contract_id: str, version: str) -> Mapping[str, object]:
         data_product, port = self._locate(contract_id)
         resp = self._client.get(
-            f"/data-products/{data_product}/ports/{port}/contracts/{version}",
+            self._contracts_url(data_product, port, f"/{version}"),
             headers=self._headers(),
         )
         resp.raise_for_status()
         payload = resp.json()
-        if "contract" in payload:
-            return payload["contract"]
+        if isinstance(payload, Mapping):
+            if "contract" in payload:
+                return payload["contract"]
+            if "data" in payload and isinstance(payload["data"], Mapping):
+                return payload["data"]
         return payload
 
     def upsert_contract(
@@ -255,9 +305,9 @@ class HttpCollibraContractGateway(CollibraContractGateway):
         contract_id, version = contract_identity(contract)
         data_product, port = self._locate(contract_id)
         resp = self._client.put(
-            f"/data-products/{data_product}/ports/{port}/contracts/{version}",
-            headers=self._headers() | {"content-type": "application/json"},
-            content=json.dumps({"status": status, "contract": contract_dict}),
+            self._contracts_url(data_product, port, f"/{version}"),
+            headers=self._headers(),
+            json={"status": status, "contract": contract_dict},
         )
         resp.raise_for_status()
 
@@ -267,9 +317,9 @@ class HttpCollibraContractGateway(CollibraContractGateway):
     def update_status(self, contract_id: str, version: str, status: str) -> None:
         data_product, port = self._locate(contract_id)
         resp = self._client.patch(
-            f"/data-products/{data_product}/ports/{port}/contracts/{version}",
-            headers=self._headers() | {"content-type": "application/json"},
-            content=json.dumps({"status": status}),
+            self._contracts_url(data_product, port, f"/{version}"),
+            headers=self._headers(),
+            json={"status": status},
         )
         resp.raise_for_status()
 
