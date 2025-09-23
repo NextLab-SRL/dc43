@@ -15,8 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.functions import col
-from pyspark.sql.types import StructType, StructField
-    
+
 from dc43.odcs import list_properties
 from open_data_contract_standard.model import SchemaProperty  # type: ignore
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
@@ -31,6 +30,7 @@ class ValidationResult:
     - ``warnings``: soft issues (e.g., extra columns when not allowed)
     - ``metrics``: counts of expectation violations and other measures
     """
+
     ok: bool
     errors: List[str]
     warnings: List[str]
@@ -39,11 +39,13 @@ class ValidationResult:
     @property
     def details(self) -> Dict[str, Any]:
         """Structured representation combining errors, warnings and metrics."""
+
         return {"errors": self.errors, "warnings": self.warnings, "metrics": self.metrics}
 
 
 def _schema_from_spark(df: DataFrame) -> Dict[str, Tuple[str, bool]]:
     """Extract a simplified mapping ``name -> (spark_type, nullable)``."""
+
     schema: Dict[str, Tuple[str, bool]] = {}
     for f in df.schema.fields:  # type: ignore[attr-defined]
         t = str(f.dataType).lower()
@@ -83,6 +85,7 @@ SPARK_TYPES = {
 
 def _spark_type(t: str) -> str:
     """Return a Spark SQL type name for a given ODCS primitive type string."""
+
     return SPARK_TYPES.get(t.lower(), t.lower())
 
 
@@ -94,6 +97,7 @@ def validate_dataframe(
     allow_extra_columns: bool = True,
 ) -> ValidationResult:
     """Validate a Spark ``DataFrame`` against an ODCS contract (dict/object)."""
+
     errors: List[str] = []
     warnings: List[str] = []
     metrics: Dict[str, Any] = {}
@@ -177,6 +181,7 @@ def apply_contract(
     - Optionally casts types best-effort using Spark SQL ``CAST`` semantics.
     - Selects only columns present in the contract, preserving order.
     """
+
     cols: List[Any] = []
     for f in list_properties(contract):
         name = f.name
@@ -195,3 +200,11 @@ def apply_contract(
 
     out = df.select(*cols) if select_only_contract_columns else df
     return out
+
+
+__all__ = [
+    "ValidationResult",
+    "validate_dataframe",
+    "apply_contract",
+    "SPARK_TYPES",
+]

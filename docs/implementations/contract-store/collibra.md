@@ -31,7 +31,7 @@ gateway configuration so dc43 can route writes and reads consistently.
 ## Configuration example
 
 ```python
-from dc43.components.integration.collibra import HttpCollibraContractGateway
+from dc43.components.contract_store import HttpCollibraContractGateway
 from dc43.components.contract_store.impl.collibra import CollibraContractStore
 
 gateway = HttpCollibraContractGateway(

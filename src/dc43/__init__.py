@@ -5,11 +5,7 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .components.integration import (
-    ValidationResult,
-    validate_dataframe,
-    apply_contract,
-)
+from .components.data_quality import apply_contract, validate_dataframe, ValidationResult
 from .odcs import (
     BITOL_SCHEMA_URL,
     as_odcs_dict,

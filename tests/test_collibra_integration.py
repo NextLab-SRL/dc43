@@ -5,7 +5,10 @@ from datetime import datetime
 
 import pytest
 
-from dc43.components.integration.collibra import HttpCollibraContractGateway, StubCollibraContractGateway
+from dc43.components.contract_store import (
+    HttpCollibraContractGateway,
+    StubCollibraContractGateway,
+)
 from dc43.components.contract_store.impl.collibra import CollibraContractStore
 from dc43.odcs import build_odcs
 from open_data_contract_standard.model import SchemaProperty, SchemaObject, Server  # type: ignore

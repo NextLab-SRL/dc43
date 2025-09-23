@@ -70,7 +70,7 @@ A Collibra-backed `DQClient` typically combines the existing Collibra gateway
 used for contract resolution with calls that manage compatibility assets:
 
 ```python
-from dc43.components.integration.collibra import HttpCollibraContractGateway
+from dc43.components.contract_store import HttpCollibraContractGateway
 from dc43.components.data_quality.governance import DQStatus
 
 class CollibraDQClient:

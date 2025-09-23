@@ -33,7 +33,7 @@ def draft_from_dataframe(
 ) -> OpenDataContractStandard:
     """Create a draft ODCS document based on a Spark DataFrame."""
 
-    from dc43.components.integration.validation import SPARK_TYPES as _SPARK_TYPES  # local import to avoid cycles
+    from dc43.components.data_quality.validation import SPARK_TYPES as _SPARK_TYPES  # local import to avoid cycles
 
     props = []
     for field in df.schema.fields:  # type: ignore[attr-defined]

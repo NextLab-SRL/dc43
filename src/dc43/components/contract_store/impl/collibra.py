@@ -5,7 +5,10 @@ from typing import List, Optional
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from ..interface import ContractStore
-from dc43.components.integration.collibra import CollibraContractGateway, _semver_key
+from dc43.components.contract_store.collibra_gateway import (
+    CollibraContractGateway,
+    _semver_key,
+)
 from dc43.odcs import ensure_version, to_model
 
 
