@@ -1,0 +1,51 @@
+# Integration Layer (Spark & DLT Adapters)
+
+dc43 keeps governance logic decoupled from runtime execution. The integration layer provides adapters that apply contracts, call the data quality engine, and coordinate with platform-specific services such as Delta, Unity Catalog, or DLT expectations.
+
+## Responsibilities
+
+1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
+2. **Validate and coerce data** using `validate_dataframe` / `apply_contract` while respecting enforcement flags.
+3. **Bridge runtime metrics** to the `DQClient` and contract drafter when mismatches occur.
+4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`, `expectations_from_contract`).
+
+```mermaid
+flowchart TD
+    ContractStore["Contract Store"] --> IO["dc43.integration.spark_io"]
+    IO --> Spark["Spark Jobs / DLT"]
+    IO --> Drafter["Contract Drafter"]
+    IO --> DQEngine["DQ Engine"]
+    DQEngine --> DQClient["DQ Governance"]
+```
+
+## Spark & Delta Helpers
+
+The canonical implementation lives in [`src/dc43/integration`](../../src/dc43/integration):
+
+* `spark_io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames.
+* `dataset.py` — Utilities to infer dataset ids and Delta versions.
+* `validation.py` — Core validation and casting helpers shared across adapters.
+* `dlt_helpers.py` — Functions to translate ODCS expectations into Delta Live Tables expectations.
+
+Pipelines typically import these helpers directly:
+
+```python
+from dc43.integration.spark_io import read_with_contract, write_with_contract
+
+validated_df, status = read_with_contract(
+    spark,
+    format="delta",
+    path="/mnt/gold/sales/orders",
+    contract=contract,
+    dq_client=dq_client,
+    return_status=True,
+)
+```
+
+## Adding New Integrations
+
+* **Engine adapters**: Port the same interface to warehouses (Snowflake), streaming platforms (Structured Streaming), or SQL endpoints.
+* **Orchestration hooks**: Trigger contract resolution from workflow tools (Airflow, dbt, Databricks Jobs) by wrapping the integration API.
+* **Platform-specific metadata**: Augment dataset ids with cluster/job identifiers or lineage metadata for governance audit trails.
+
+Keep the integration layer thin: it should delegate to the contract drafter, DQ engine, and governance interfaces rather than re-implementing them.

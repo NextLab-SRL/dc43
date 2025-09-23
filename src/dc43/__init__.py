@@ -25,7 +25,7 @@ try:
     from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 except Exception:  # pragma: no cover
     OpenDataContractStandard = None  # type: ignore
-from .dq.base import DQClient, DQStatus
+from .dq.interface import DQClient, DQStatus
 
 __all__ = [
     "SemVer",

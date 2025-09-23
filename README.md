@@ -2,60 +2,93 @@
 
 ## Overview
 
-- Purpose: Generate, store, evolve and apply data contracts in Databricks pipelines, using standard Spark IO and Delta Live Tables (DLT) where possible.
-- Contract style: Bitol/ODCS v3.0.2 JSON. Maps to Spark schemas and DLT expectations.
-- Core features:
-  - SemVer helpers for version checks
-  - Validation and auto-casting for Spark DataFrames
-  - IO helpers for read/write with contract enforcement
-- Storage backends: filesystem (DBFS/UC volumes), Delta table, and Collibra via `CollibraContractStore`
-- DLT helpers: build expectations from contracts
-- DQ orchestration: pluggable client interface; stub implementation provided
-- Bitol/ODCS support: relies on the official `open-data-contract-standard` models (v3.0.2). No internal stubs.
+### Conceptual platform
 
-See [`docs/collibra-contract-integration.md`](docs/collibra-contract-integration.md) for guidance on orchestrating contract drafts and validations through Collibra while dc43 enforces the resulting specifications.
+dc43 is a governance-first toolkit that separates the **concepts** of data contract management from their **implementations**. At its core it provides:
 
-Additional component guides:
+- Contract lifecycle management primitives to draft, review, approve, and retire ODCS contracts. _Note: dc43 currently targets ODCS 3.0.2; a compatibility table will follow as the spec evolves._
+- Extensible interfaces for contract storage, drafting, and data quality orchestration that keep governance decisions close to the data contract owner.
+- Runtime helpers to apply approved specifications in compute platforms while feeding observations back to governance workflows.
 
-- [`docs/contract-management-options.md`](docs/contract-management-options.md) — compare contract storage backends (filesystem, Delta, Collibra, and custom catalogs).
-- [`docs/data-quality-component.md`](docs/data-quality-component.md) — understand the responsibilities of the data-quality client and possible integrations.
+### Provided integrations
+
+On top of the conceptual platform, dc43 ships opinionated integrations that you can adopt or replace:
+
+- Spark & DLT pipelines via `dc43.integration.spark_io` and associated helpers for validation, auto-casting, and contract-aware IO.
+- Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
+- A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
+
+See [`docs/implementations/data-quality-governance/collibra.md`](docs/implementations/data-quality-governance/collibra.md) for end-to-end orchestration guidance when Collibra owns stewardship workflows. Component deep dives cover the [contract store](docs/component-contract-store.md), [contract drafter](docs/component-contract-drafter.md), [data-quality governance interface](docs/component-data-quality-governance.md), [data-quality engine](docs/component-data-quality-engine.md), and [integration layer](docs/component-integration-layer.md). Each component links to implementation catalogs under [`docs/implementations/`](docs/implementations/) so you can pick technology-specific guides (Spark, Delta, Collibra, ...).
+
+## Component model
+
+dc43 exposes a small set of well-defined components. Swap any of them without rewriting the rest of the stack:
+
+| Layer | Component | Responsibility |
+| --- | --- | --- |
+| Governance | **Contract manager/store interface** | Retrieve, version, and persist contracts from catalog-backed or file-based sources. |
+| Governance | **Data quality manager interface** | Coordinate with an external DQ governance tool (e.g., Collibra, Unity Catalog) that records dataset↔contract alignment and approval state. |
+| Authoring support | **Contract drafter module** | Generate ODCS drafts from observed data or schema drift events before handing them back to governance. |
+| Runtime services | **Data-quality metrics engine** | Collect contract-driven metrics in execution engines and forward them to the governance tool for status evaluation. |
+| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43.integration`). |
+
+Guides for each component live under `docs/`:
+
+- Contract store: [`component-contract-store.md`](docs/component-contract-store.md)
+- Contract drafter: [`component-contract-drafter.md`](docs/component-contract-drafter.md)
+- Data-quality governance interface: [`component-data-quality-governance.md`](docs/component-data-quality-governance.md)
+- Data-quality engine: [`component-data-quality-engine.md`](docs/component-data-quality-engine.md)
+- Integration layer: [`component-integration-layer.md`](docs/component-integration-layer.md); Spark & DLT adapter: [`implementations/integration/spark-dlt.md`](docs/implementations/integration/spark-dlt.md)
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph Governance & Authoring
-        Authoring["Authoring Tools<br/>JSON · Git · Notebooks"]
-        Stewardship["Stewardship & Workflow<br/>Catalogs · Approval"]
+    subgraph Governance & Stewardship
+        Authoring["Authoring Tools\nJSON · Git · Notebooks"]
+        ContractStore["Contract Store Interface\nGit · Filesystem · APIs"]
+        DQTool["Data Quality Governance Tool\nCatalog · Collibra"]
     end
 
-    subgraph Contract Storage
-        Versioned["Versioned Store<br/>Git · Filesystem · Delta"]
-        Catalog["Catalog / API-backed Store"]
+    subgraph Lifecycle Services
+        DraftModule["Contract Drafter Module"]
+        DQManager["Data Quality Manager Interface"]
     end
 
-    subgraph Runtime Enforcement
-        IOHelpers["dc43 IO Helpers<br/>read_with_contract / write_with_contract"]
-        Pipelines["Spark Jobs / DLT Pipelines"]
+    subgraph Runtime Execution
+        DQEngine["Data Quality Engine\nmetrics generation"]
+        IOHelpers["Integration Adapters\nSpark · DLT"]
+        Pipelines["Business Pipelines"]
     end
 
-    subgraph Feedback & Evolution
-        Drafts["Draft Generation"]
-        DQ["External Data Quality Orchestrator"]
-    end
-
-    Authoring --> Versioned
-    Stewardship --> Catalog
-    Versioned --> IOHelpers
-    Catalog --> IOHelpers
-    IOHelpers --> Pipelines
-    IOHelpers --> Drafts
-    Pipelines --> DQ
-    Drafts --> Stewardship
-    DQ --> Stewardship
+    Authoring -->|publish / review| ContractStore
+    ContractStore -->|serve versions| IOHelpers
+    ContractStore -->|seed drafts| DraftModule
+    DraftModule -->|return proposals| Authoring
+    IOHelpers -->|apply contracts| Pipelines
+    Pipelines -->|observations| IOHelpers
+    IOHelpers -->|metrics & schema drift| DQEngine
+    DQEngine -->|metrics package| DQManager
+    DQManager -->|submit metrics| DQTool
+    DQTool -->|compatibility verdict| DQManager
+    DQTool -->|validated versions| ContractStore
+    DQManager -->|notify runtime| IOHelpers
 ```
 
-This high-level view separates governance, storage, runtime enforcement, and feedback loops so you can plug in different catalog or storage implementations (filesystem, Delta, Collibra, etc.) without changing how dc43 applies contracts. The external data-quality orchestrator maintains the dataset ↔ contract compatibility matrix and feeds stewardship workflows with the latest validation results. Architecture variations—such as Collibra-governed contracts—are detailed in dedicated docs.
+This architecture clarifies how governance assets, lifecycle services, and runtime execution collaborate:
+
+- Governance systems own the authoritative contract store and the data-quality tool. Labeled edges (`publish / review`, `validated versions`) highlight how those systems steer approvals.
+- Lifecycle services—drafting and data-quality management—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the DQ manager relays metrics, waits for a verdict, and shares compatibility context with both stewards and pipelines.
+- Integration adapters inside runtime engines (Spark, DLT, …) apply contracts, emit observations, and react when governance signals change.
+
+### Node & edge glossary
+
+- **Contract store interface** – pluggable storage adapters (filesystem, Delta, Collibra) that resolve authoritative contract versions.
+- **Data quality manager interface** – the dc43 protocol that hands metrics to the governance platform and retrieves compatibility verdicts.
+- **Data quality governance tool** – catalog or observability system (Collibra, Unity Catalog, bespoke services) that persists the compatibility matrix and performs the actual check evaluation once it receives metrics.
+- **Metrics package** – the bundle of row counts, expectation results, and schema drift context emitted by the runtime so the governance tool can recompute the dataset↔contract status.
+
+Variations—such as Collibra-governed contracts or bespoke storage backends—slot into the same model by substituting implementations of the interfaces described above.
 
 ## Install
 
@@ -139,7 +172,7 @@ latest = store.latest("sales.orders")
 
 ```python
 from dc43.integration.spark_io import read_with_contract
-from dc43.dq.stub import StubDQClient
+from dc43.dq.stubs import StubDQClient
 
 dq = StubDQClient(base_path="/mnt/dq_state")
 df, status = read_with_contract(
