@@ -1,5 +1,5 @@
-"""Stub implementations of the :mod:`dc43.dq.interface` protocol."""
+"""Compatibility shim for :mod:`dc43.components.data_quality.governance.stubs`."""
 
-from .fs import StubDQClient
+from dc43.components.data_quality.governance.stubs import StubDQClient
 
 __all__ = ["StubDQClient"]

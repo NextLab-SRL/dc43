@@ -1,6 +1,6 @@
-"""Data-quality engines backed by execution runtimes."""
+"""Compatibility shim for :mod:`dc43.components.data_quality.engine`."""
 
-from .spark import (
+from dc43.components.data_quality.engine import (
     attach_failed_expectations,
     compute_metrics,
     expectations_from_contract,

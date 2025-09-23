@@ -1,13 +1,11 @@
-"""Data-quality building blocks used across dc43."""
+"""Data-quality governance protocols and runtime helpers."""
 
-from dc43.components.data_quality import (
-    DQClient,
-    DQStatus,
+from .governance import DQClient, DQStatus
+from .engine import (
     attach_failed_expectations,
     compute_metrics,
     expectations_from_contract,
 )
-from dc43.components.data_quality.governance.stubs import StubDQClient
 
 __all__ = [
     "DQClient",
@@ -15,5 +13,4 @@ __all__ = [
     "attach_failed_expectations",
     "compute_metrics",
     "expectations_from_contract",
-    "StubDQClient",
 ]

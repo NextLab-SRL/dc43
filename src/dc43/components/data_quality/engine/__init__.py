@@ -1,6 +1,6 @@
-"""Compatibility shim for Spark data-quality engine helpers."""
+"""Runtime helpers that compute metrics in execution engines."""
 
-from dc43.components.data_quality.engine.spark import (
+from .spark import (
     attach_failed_expectations,
     compute_metrics,
     expectations_from_contract,

@@ -1,24 +1,8 @@
-from __future__ import annotations
+"""Compatibility shim for DLT helpers."""
 
-"""Delta Live Tables helpers from ODCS contracts.
+from dc43.components.integration.dlt_helpers import (
+    apply_dlt_expectations,
+    expectations_from_contract,
+)
 
-Translate ODCS DataQuality rules to DLT expectations.
-"""
-
-from typing import Dict
-from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
-
-from ..dq.engine.spark import expectations_from_contract as _expectations_from_contract
-
-
-def expectations_from_contract(contract: OpenDataContractStandard) -> Dict[str, str]:
-    """Return expectation_name -> SQL predicate derived from DataQuality rules."""
-    return _expectations_from_contract(contract)
-
-
-def apply_dlt_expectations(dlt_module, expectations: Dict[str, str], *, drop: bool = False) -> None:
-    """Apply expectations using a provided `dlt` module inside a pipeline function."""
-    if drop:
-        dlt_module.expect_all_or_drop(expectations)
-    else:
-        dlt_module.expect_all(expectations)
+__all__ = ["apply_dlt_expectations", "expectations_from_contract"]
