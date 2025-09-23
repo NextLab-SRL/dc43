@@ -15,6 +15,11 @@
 
 See [`docs/collibra-contract-integration.md`](docs/collibra-contract-integration.md) for guidance on orchestrating contract drafts and validations through Collibra while dc43 enforces the resulting specifications.
 
+Additional component guides:
+
+- [`docs/contract-management-options.md`](docs/contract-management-options.md) — compare contract storage backends (filesystem, Delta, Collibra, and custom catalogs).
+- [`docs/data-quality-component.md`](docs/data-quality-component.md) — understand the responsibilities of the data-quality client and possible integrations.
+
 ## Architecture
 
 ```mermaid
