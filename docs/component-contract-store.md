@@ -63,3 +63,16 @@ When adding a new backend, consider:
 * Open Data Contract Standard 3.0.2: <https://opendatacontract.org/>
 * Delta Lake tables and metadata: <https://docs.databricks.com/en/delta/index.html>
 * Collibra Data Products — Data Contracts: <https://productresources.collibra.com/docs/collibra/latest/Content/Assets/DataProducts/co_data-product.htm>
+
+## Implementation catalog
+
+Guides for existing stores live under
+[`docs/implementations/contract-store/`](implementations/contract-store/):
+
+- [Filesystem store](implementations/contract-store/fs.md)
+- [Delta-backed store](implementations/contract-store/delta.md)
+- [Collibra-backed store](implementations/contract-store/collibra.md)
+
+Document additional backends (REST services, Git, object storage, …)
+in the same folder so platform teams can compare capabilities and
+operational requirements.

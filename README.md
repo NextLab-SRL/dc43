@@ -6,7 +6,7 @@
 
 dc43 is a governance-first toolkit that separates the **concepts** of data contract management from their **implementations**. At its core it provides:
 
-- Contract lifecycle management primitives to draft, review, approve, and retire ODCS v3.0.2 contracts.
+- Contract lifecycle management primitives to draft, review, approve, and retire ODCS contracts. _Note: dc43 currently targets ODCS 3.0.2; a compatibility table will follow as the spec evolves._
 - Extensible interfaces for contract storage, drafting, and data quality orchestration that keep governance decisions close to the data contract owner.
 - Runtime helpers to apply approved specifications in compute platforms while feeding observations back to governance workflows.
 
@@ -18,7 +18,7 @@ On top of the conceptual platform, dc43 ships opinionated integrations that you 
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
 
-See [`docs/collibra-contract-integration.md`](docs/collibra-contract-integration.md) for end-to-end orchestration guidance when Collibra owns stewardship workflows. Component deep dives cover the [contract store](docs/component-contract-store.md), [contract drafter](docs/component-contract-drafter.md), [data-quality governance interface](docs/component-data-quality-governance.md), [data-quality engine](docs/component-data-quality-engine.md), and [integration layer](docs/component-integration-layer.md).
+See [`docs/implementations/data-quality-governance/collibra.md`](docs/implementations/data-quality-governance/collibra.md) for end-to-end orchestration guidance when Collibra owns stewardship workflows. Component deep dives cover the [contract store](docs/component-contract-store.md), [contract drafter](docs/component-contract-drafter.md), [data-quality governance interface](docs/component-data-quality-governance.md), [data-quality engine](docs/component-data-quality-engine.md), and [integration layer](docs/component-integration-layer.md). Each component links to implementation catalogs under [`docs/implementations/`](docs/implementations/) so you can pick technology-specific guides (Spark, Delta, Collibra, ...).
 
 ## Component model
 
@@ -29,8 +29,8 @@ dc43 exposes a small set of well-defined components. Swap any of them without re
 | Governance | **Contract manager/store interface** | Retrieve, version, and persist contracts from catalog-backed or file-based sources. |
 | Governance | **Data quality manager interface** | Coordinate with an external DQ governance tool (e.g., Collibra, Unity Catalog) that records dataset↔contract alignment and approval state. |
 | Authoring support | **Contract drafter module** | Generate ODCS drafts from observed data or schema drift events before handing them back to governance. |
-| Runtime services | **Data quality processors & engine** | Compute metrics and perform checks defined by contracts, emitting observations to the governance DQ manager. |
-| Integration | **Business logic adapters** | Apply the runtime services in execution engines such as Spark or Delta Live Tables (current integrations live under `dc43.integration`). |
+| Runtime services | **Data-quality metrics engine** | Collect contract-driven metrics in execution engines and forward them to the governance tool for status evaluation. |
+| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43.integration`). |
 
 Guides for each component live under `docs/`:
 
@@ -38,16 +38,16 @@ Guides for each component live under `docs/`:
 - Contract drafter: [`component-contract-drafter.md`](docs/component-contract-drafter.md)
 - Data-quality governance interface: [`component-data-quality-governance.md`](docs/component-data-quality-governance.md)
 - Data-quality engine: [`component-data-quality-engine.md`](docs/component-data-quality-engine.md)
-- Integration layer: [`component-integration-layer.md`](docs/component-integration-layer.md)
+- Integration layer: [`component-integration-layer.md`](docs/component-integration-layer.md); Spark & DLT adapter: [`implementations/integration/spark-dlt.md`](docs/implementations/integration/spark-dlt.md)
 
 ## Architecture
 
 ```mermaid
 flowchart TD
     subgraph Governance & Stewardship
-        Authoring["Authoring Tools<br/>JSON · Git · Notebooks"]
-        ContractStore["Contract Store Interface<br/>Git · Filesystem · APIs"]
-        DQTool["Data Quality Governance Tool<br/>Catalog · Collibra"]
+        Authoring["Authoring Tools\nJSON · Git · Notebooks"]
+        ContractStore["Contract Store Interface\nGit · Filesystem · APIs"]
+        DQTool["Data Quality Governance Tool\nCatalog · Collibra"]
     end
 
     subgraph Lifecycle Services
@@ -56,29 +56,37 @@ flowchart TD
     end
 
     subgraph Runtime Execution
-        DQEngine["Data Quality Engine<br/>metrics & checks"]
-        IOHelpers["dc43 Integration Layer<br/>Spark · DLT"]
+        DQEngine["Data Quality Engine\nmetrics generation"]
+        IOHelpers["Integration Adapters\nSpark · DLT"]
         Pipelines["Business Pipelines"]
     end
 
-    Authoring --> ContractStore
-    ContractStore --> IOHelpers
-    ContractStore --> DraftModule
-    DraftModule --> Authoring
-    IOHelpers --> DQEngine
-    DQEngine --> DQManager
-    DQManager --> DQTool
-    DQTool --> ContractStore
-    IOHelpers --> Pipelines
-    Pipelines --> IOHelpers
-    Pipelines --> DQEngine
+    Authoring -->|publish / review| ContractStore
+    ContractStore -->|serve versions| IOHelpers
+    ContractStore -->|seed drafts| DraftModule
+    DraftModule -->|return proposals| Authoring
+    IOHelpers -->|apply contracts| Pipelines
+    Pipelines -->|observations| IOHelpers
+    IOHelpers -->|metrics & schema drift| DQEngine
+    DQEngine -->|metrics package| DQManager
+    DQManager -->|submit metrics| DQTool
+    DQTool -->|compatibility verdict| DQManager
+    DQTool -->|validated versions| ContractStore
+    DQManager -->|notify runtime| IOHelpers
 ```
 
 This architecture clarifies how governance assets, lifecycle services, and runtime execution collaborate:
 
-- Governance systems own the authoritative contract store and the data-quality tool that tracks approvals and observability state.
-- Lifecycle services—drafting and data-quality management—mediate between governance and runtime signals without assuming a specific catalog.
-- Runtime execution layers (Spark, DLT) focus on applying contracts and computing metrics, emitting observations upward through the DQ manager to update governance.
+- Governance systems own the authoritative contract store and the data-quality tool. Labeled edges (`publish / review`, `validated versions`) highlight how those systems steer approvals.
+- Lifecycle services—drafting and data-quality management—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the DQ manager relays metrics, waits for a verdict, and shares compatibility context with both stewards and pipelines.
+- Integration adapters inside runtime engines (Spark, DLT, …) apply contracts, emit observations, and react when governance signals change.
+
+### Node & edge glossary
+
+- **Contract store interface** – pluggable storage adapters (filesystem, Delta, Collibra) that resolve authoritative contract versions.
+- **Data quality manager interface** – the dc43 protocol that hands metrics to the governance platform and retrieves compatibility verdicts.
+- **Data quality governance tool** – catalog or observability system (Collibra, Unity Catalog, bespoke services) that persists the compatibility matrix and performs the actual check evaluation once it receives metrics.
+- **Metrics package** – the bundle of row counts, expectation results, and schema drift context emitted by the runtime so the governance tool can recompute the dataset↔contract status.
 
 Variations—such as Collibra-governed contracts or bespoke storage backends—slot into the same model by substituting implementations of the interfaces described above.
 
