@@ -2,7 +2,7 @@
 
 The Spark implementation of the dc43 data-quality (DQ) engine translates
 ODCS expectations into Spark jobs that compute metrics and attach failure
-context. The helpers live in `dc43.dq.engine.spark` and integrate with
+context. The helpers live in `dc43.components.data_quality.engine.spark` and integrate with
 `write_with_contract` / `read_with_contract` to feed governance systems
 with live observations.
 
@@ -19,7 +19,7 @@ The module exposes three primary helpers:
   rows.
 
 ```python
-from dc43.dq.engine.spark import compute_metrics, attach_failed_expectations
+from dc43.components.data_quality.engine.spark import compute_metrics, attach_failed_expectations
 
 metrics = compute_metrics(df, contract)
 status = dq_client.submit_metrics(

@@ -97,7 +97,7 @@ def attach_failed_expectations(
     collect_examples: bool = False,
     examples_limit: int = 5,
 ) -> DQStatus:
-    """Augment a :class:`~dc43.dq.interface.DQStatus` with failed expectations."""
+    """Augment a :class:`~dc43.components.data_quality.governance.interface.DQStatus` with failed expectations."""
 
     metrics_map = status.details.get("metrics", {}) if status.details else {}
     exps = expectations_from_contract(contract)

@@ -11,7 +11,7 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 
 ```mermaid
 flowchart TD
-    ContractStore["Contract Store"] --> IO["dc43.integration.spark_io"]
+    ContractStore["Contract Store"] --> IO["dc43.components.integration.spark_io"]
     IO --> Spark["Spark Jobs / DLT"]
     IO --> Drafter["Contract Drafter"]
     IO --> DQEngine["DQ Engine"]
@@ -20,7 +20,7 @@ flowchart TD
 
 ## Spark & Delta Helpers
 
-The canonical implementation lives in [`src/dc43/integration`](../../src/dc43/integration):
+The canonical implementation lives in [`src/dc43/components/integration`](../../src/dc43/components/integration):
 
 * `spark_io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames.
 * `dataset.py` — Utilities to infer dataset ids and Delta versions.
@@ -30,7 +30,7 @@ The canonical implementation lives in [`src/dc43/integration`](../../src/dc43/in
 Pipelines typically import these helpers directly:
 
 ```python
-from dc43.integration.spark_io import read_with_contract, write_with_contract
+from dc43.components.integration.spark_io import read_with_contract, write_with_contract
 
 validated_df, status = read_with_contract(
     spark,

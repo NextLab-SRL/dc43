@@ -11,10 +11,10 @@ Regardless of the backend, a contract manager must be able to:
 3. **List and search metadata** (identifiers, versions, timestamps) to power governance views.
 4. **Expose lifecycle filters** (e.g., `Validated`, `Deprecated`) when the backend tracks status.
 
-dc43 defines the interface in [`src/dc43/storage/base.py`](../src/dc43/storage/base.py):
+dc43 defines the interface in [`src/dc43/components/contract_store/interface.py`](../src/dc43/components/contract_store/interface.py):
 
 ```python
-from dc43.storage.base import ContractStore
+from dc43.components.contract_store.interface import ContractStore
 from open_data_contract_standard.model import OpenDataContractStandard
 
 class MyStore(ContractStore):
@@ -39,9 +39,9 @@ flowchart LR
 
 | Store | Ideal Use Case | Characteristics |
 | --- | --- | --- |
-| [`FSContractStore`](../src/dc43/storage/fs.py) | Simple deployments, Databricks Repos, dev/test | Persists JSON files under a base path (DBFS, mounted volume). Easy to inspect and version with Git or object storage. |
-| [`DeltaContractStore`](../src/dc43/storage/delta.py) | Teams standardizing on Delta or Unity Catalog | Stores contracts and metadata rows inside a Delta table. Supports ACID writes, SQL discovery, and time travel. Requires `pyspark`. |
-| [`CollibraContractStore`](../src/dc43/storage/collibra.py) | Organizations with Collibra-driven governance | Delegates storage and lifecycle to Collibra via the `CollibraContractGateway`. Allows filtering by Collibra status (Draft, Validated, Deprecated) and can share workflows with Collibra stewards. |
+| [`FSContractStore`](../src/dc43/components/contract_store/impl/filesystem.py) | Simple deployments, Databricks Repos, dev/test | Persists JSON files under a base path (DBFS, mounted volume). Easy to inspect and version with Git or object storage. |
+| [`DeltaContractStore`](../src/dc43/components/contract_store/impl/delta.py) | Teams standardizing on Delta or Unity Catalog | Stores contracts and metadata rows inside a Delta table. Supports ACID writes, SQL discovery, and time travel. Requires `pyspark`. |
+| [`CollibraContractStore`](../src/dc43/components/contract_store/impl/collibra.py) | Organizations with Collibra-driven governance | Delegates storage and lifecycle to Collibra via the `CollibraContractGateway`. Allows filtering by Collibra status (Draft, Validated, Deprecated) and can share workflows with Collibra stewards. |
 
 ## Integrating Other Backends
 
