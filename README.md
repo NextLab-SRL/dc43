@@ -25,12 +25,12 @@ Additional component guides:
 ```mermaid
 flowchart TD
     subgraph Governance & Authoring
-        Authoring["Authoring Tools<br/>(JSON, Git, Notebooks)"]
-        Stewardship["Stewardship & Workflow<br/>(Catalogs, Approval)"]
+        Authoring["Authoring Tools<br/>JSON · Git · Notebooks"]
+        Stewardship["Stewardship & Workflow<br/>Catalogs · Approval"]
     end
 
     subgraph Contract Storage
-        Versioned["Versioned Store<br/>(Git, Filesystem, Delta)"]
+        Versioned["Versioned Store<br/>Git · Filesystem · Delta"]
         Catalog["Catalog / API-backed Store"]
     end
 
@@ -41,7 +41,7 @@ flowchart TD
 
     subgraph Feedback & Evolution
         Drafts["Draft Generation"]
-        DQ["Data Quality Hooks"]
+        DQ["External Data Quality Orchestrator"]
     end
 
     Authoring --> Versioned
@@ -55,7 +55,7 @@ flowchart TD
     DQ --> Stewardship
 ```
 
-This high-level view separates governance, storage, runtime enforcement, and feedback loops so you can plug in different catalog or storage implementations (filesystem, Delta, Collibra, etc.) without changing how dc43 applies contracts. Architecture variations—such as Collibra-governed contracts—are detailed in dedicated docs.
+This high-level view separates governance, storage, runtime enforcement, and feedback loops so you can plug in different catalog or storage implementations (filesystem, Delta, Collibra, etc.) without changing how dc43 applies contracts. The external data-quality orchestrator maintains the dataset ↔ contract compatibility matrix and feeds stewardship workflows with the latest validation results. Architecture variations—such as Collibra-governed contracts—are detailed in dedicated docs.
 
 ## Install
 

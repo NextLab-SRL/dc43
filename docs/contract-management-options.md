@@ -31,9 +31,9 @@ when promoting drafts. The store can additionally override `latest(...)` if it n
 
 ```mermaid
 flowchart LR
-    Authoring["Authoring & Drafts"] -->|put()| Store["Contract Store"]
-    Collibra["Governance / Catalog"] -->|synchronize ids & status| Store
-    Store -->|get()/latest()| Enforcement["dc43 IO Helpers"]
+    Authoring["Authoring & Drafts"] -->|put contract| Store["Contract Store"]
+    Collibra["Governance / Catalog"] -->|sync identifiers and status| Store
+    Store -->|serve versions| Enforcement["dc43 IO Helpers"]
     Enforcement -->|draft proposals| Authoring
 ```
 

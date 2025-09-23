@@ -30,8 +30,8 @@ flowchart TD
     end
 
     subgraph Contract Handling
-        CollibraStore["Collibra Contract Store<br/>(REST API)"]
-        DraftStore["Draft Staging<br/>(Stub via Filesystem)"]
+        CollibraStore["Collibra Contract Store<br/>REST API"]
+        DraftStore["Draft Staging<br/>Filesystem Stub"]
     end
 
     subgraph Runtime Enforcement
@@ -40,7 +40,7 @@ flowchart TD
         DQClient["Data Quality Client"]
     end
 
-    DraftProducer["Draft Creation<br/>(write_with_contract)"]
+    DraftProducer["Draft Creation<br/>write_with_contract"]
 
     Collibra --> CollibraStore
     Collibra --> Workflow
