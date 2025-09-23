@@ -73,6 +73,16 @@ This variation extends the generic architecture with Collibra as the system of r
 3. **Pipeline trigger**: A Collibra webhook or scheduled poll notifies dc43 that the contract has been validated. dc43 resolves the latest validated contract and re-runs the associated pipeline (e.g. via Databricks Jobs or DLT expectations) to enforce the new schema and update datasets.
 4. **Continuous checks**: Downstream reads call `read_with_contract` with a Collibra-backed resolver to ensure consumers always use a validated version. Data quality hooks (DQ client) can persist statuses back into Collibra if desired.
 
+## Data-quality orchestration
+
+Collibra acts as the system of record for approvals but still relies on external
+engines (Soda, Great Expectations, Databricks DLT, dc43's Spark engine, …) to
+evaluate rules. Feed those metrics into the Collibra gateway to transition
+workflow states and update compatibility matrices. In many deployments the heavy
+lifting happens in a specialised observability tool while Collibra stores the
+resulting verdicts, triggers steward tasks, and notifies pipelines when
+remediation is complete.
+
 ## Implementation Strategy
 
 ### API Client
