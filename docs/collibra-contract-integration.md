@@ -31,17 +31,24 @@ Collibra exposes "Data Contracts" as first-class objects attached to Data Produc
 
 ### API Client
 
-* **Preferred**: Implement a Collibra client that wraps their REST APIs for Data Products and Contracts. It should support authentication, search (find the correct Data Product port for a dataset), create/update contract drafts, and fetch the latest validated contract.
-* **Fallback / Testing**: Provide a `StubCollibraClient` with an in-memory or filesystem-backed catalogue that mirrors the API surface. This allows local development without reaching Collibra while keeping the integration layer identical.
+* **Preferred**: Implement a Collibra client that wraps their REST APIs for Data Products and Contracts. It should support authentication, search (find the correct Data Product port for a dataset), create/update contract drafts, and fetch the latest validated contract. dc43 ships with `HttpCollibraContractGateway` to cover this use case—provide a mapping of contract identifiers to `{data_product, port}` pairs and optional access tokens.
+* **Fallback / Testing**: Provide a stub with an in-memory or filesystem-backed catalogue that mirrors the API surface. dc43 includes `StubCollibraContractGateway` for unit tests and local development.
 
 Both clients should expose a small interface consumed by dc43 components:
 
 ```python
-class CollibraContractGateway(Protocol):
-    def get_validated_contract(self, data_product: str, port: str) -> OpenDataContractStandard: ...
-    def submit_draft(self, data_product: str, port: str, contract: OpenDataContractStandard) -> None: ...
-    def update_status(self, data_product: str, port: str, version: str, status: str) -> None: ...
-    def list_versions(self, data_product: str, port: str) -> list[ContractSummary]: ...
+from dc43.integration.collibra import HttpCollibraContractGateway, StubCollibraContractGateway
+from dc43.storage.collibra import CollibraContractStore
+
+gateway = HttpCollibraContractGateway(
+    base_url="https://collibra/api",
+    token="...",  # optional bearer token
+    contract_catalog={"sales.orders": ("orders-product", "gold-port")},
+)
+store = CollibraContractStore(gateway, default_status="Draft", status_filter="Validated")
+
+# Use the store anywhere dc43 expects a ContractStore implementation
+contract = store.latest("sales.orders")
 ```
 
 ### Integration Points in dc43

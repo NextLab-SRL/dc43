@@ -8,7 +8,7 @@
   - SemVer helpers for version checks
   - Validation and auto-casting for Spark DataFrames
   - IO helpers for read/write with contract enforcement
-  - Storage backends: filesystem (DBFS/UC volumes) and Delta table
+- Storage backends: filesystem (DBFS/UC volumes), Delta table, and Collibra via `CollibraContractStore`
 - DLT helpers: build expectations from contracts
 - DQ orchestration: pluggable client interface; stub implementation provided
 - Bitol/ODCS support: relies on the official `open-data-contract-standard` models (v3.0.2). No internal stubs.
