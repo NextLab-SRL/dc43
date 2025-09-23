@@ -19,41 +19,38 @@ See [`docs/collibra-contract-integration.md`](docs/collibra-contract-integration
 
 ```mermaid
 flowchart TD
-    subgraph Authoring & Governance
-        Collibra["Collibra Data Products<br/>Contracts & Status"]
-        LocalRepo["Local Authoring<br/>(JSON, Git, CI)"]
+    subgraph Governance & Authoring
+        Authoring["Authoring Tools<br/>(JSON, Git, Notebooks)"]
+        Stewardship["Stewardship & Workflow<br/>(Catalogs, Approval)"]
     end
 
-    subgraph Contract Storage Options
-        FSStore["Filesystem Contract Store<br/>(DBFS, UC Volumes)"]
-        DeltaStore["Delta Contract Store"]
-        CollibraStore["Collibra Contract Store<br/>(REST API)"]
+    subgraph Contract Storage
+        Versioned["Versioned Store<br/>(Git, Filesystem, Delta)"]
+        Catalog["Catalog / API-backed Store"]
     end
 
-    subgraph Runtime
-        SparkJobs["Spark Jobs / DLT Pipelines"]
-        IOHelpers["read_with_contract / write_with_contract"]
-        Drafts["Draft Generation & Promotion"]
-        DQClient["Data Quality Client<br/>(Stub or Custom)"]
+    subgraph Runtime Enforcement
+        IOHelpers["dc43 IO Helpers<br/>read_with_contract / write_with_contract"]
+        Pipelines["Spark Jobs / DLT Pipelines"]
     end
 
-    Collibra -->|Publish via API| CollibraStore
-    LocalRepo -->|Deploy| FSStore
-    LocalRepo -->|Deploy| DeltaStore
-    Collibra -->|Export / Sync| LocalRepo
+    subgraph Feedback & Evolution
+        Drafts["Draft Generation"]
+        DQ["Data Quality Hooks"]
+    end
 
-    FSStore --> IOHelpers
-    DeltaStore --> IOHelpers
-    CollibraStore --> IOHelpers
-
-    IOHelpers --> SparkJobs
+    Authoring --> Versioned
+    Stewardship --> Catalog
+    Versioned --> IOHelpers
+    Catalog --> IOHelpers
+    IOHelpers --> Pipelines
     IOHelpers --> Drafts
-    SparkJobs -->|Metrics / Status| DQClient
-    DQClient -->|Feedback| Drafts
-    Drafts -->|Review & Approve| Collibra
+    Pipelines --> DQ
+    Drafts --> Stewardship
+    DQ --> Stewardship
 ```
 
-The diagram highlights how contract authors can manage specifications directly in Collibra or through local sources, then expose them to dc43 via interchangeable stores. Pipelines enforce contracts with the IO helpers, while draft handling and data-quality signals loop back into governance for promotion workflows.
+This high-level view separates governance, storage, runtime enforcement, and feedback loops so you can plug in different catalog or storage implementations (filesystem, Delta, Collibra, etc.) without changing how dc43 applies contracts. Architecture variations—such as Collibra-governed contracts—are detailed in dedicated docs.
 
 ## Install
 

@@ -20,6 +20,42 @@ Collibra exposes "Data Contracts" as first-class objects attached to Data Produc
 | Validation status | Collibra contract workflow state (`Validated`, `Rejected`, ...) | Collibra becomes the source of truth. |
 | Dataset version status | Collibra Data Product status or custom attribute | Optionally updated when the contract is promoted. |
 
+## Architecture Variant: Collibra-Governed Contracts
+
+```mermaid
+flowchart TD
+    subgraph Collibra Stewardship
+        Collibra["Collibra Data Products<br/>Ports & Contracts"]
+        Workflow["Validation Workflow"]
+    end
+
+    subgraph Contract Handling
+        CollibraStore["Collibra Contract Store<br/>(REST API)"]
+        DraftStore["Draft Staging<br/>(Stub via Filesystem)"]
+    end
+
+    subgraph Runtime Enforcement
+        IOHelpers["dc43 IO Helpers"]
+        Pipelines["Spark Jobs / DLT Pipelines"]
+        DQClient["Data Quality Client"]
+    end
+
+    DraftProducer["Draft Creation<br/>(write_with_contract)"]
+
+    Collibra --> CollibraStore
+    Collibra --> Workflow
+    Workflow --> Collibra
+    DraftProducer --> DraftStore
+    DraftStore --> Collibra
+    CollibraStore --> IOHelpers
+    IOHelpers --> Pipelines
+    IOHelpers --> DraftProducer
+    Pipelines --> DQClient
+    DQClient --> Collibra
+```
+
+This variation extends the generic architecture with Collibra as the system of record for contract status, while dc43's IO helpers and draft workflows continue to enforce and evolve schemas. Drafts may flow through a filesystem-backed stub during testing, but production usage delegates to Collibra's REST APIs for validation and promotion.
+
 ## Interaction Flow
 
 1. **Draft proposal**: dc43 detects a schema mismatch while writing and produces an ODCS draft. Instead of storing it in the file-based draft store, it invokes a Collibra client that registers or updates the draft contract on the appropriate port.
