@@ -3,7 +3,7 @@
 The Spark implementation of the dc43 contract drafter turns observed
 Spark schemas and runtime feedback into Open Data Contract Standard
 (ODCS) draft documents. It is built around
-`dc43.drafting.spark.draft_from_dataframe` and is typically invoked by
+`dc43.components.contract_drafter.spark.draft_from_dataframe` and is typically invoked by
 `write_with_contract(..., draft_on_mismatch=True)` whenever a job writes
 data that diverges from the approved contract.
 
@@ -28,8 +28,8 @@ incompatibility or a completely new field.
 ## Usage
 
 ```python
-from dc43.drafting.spark import draft_from_dataframe
-from dc43.integration.spark_io import write_with_contract
+from dc43.components.contract_drafter.spark import draft_from_dataframe
+from dc43.components.integration.spark_io import write_with_contract
 
 draft = draft_from_dataframe(
     df=dataframe,

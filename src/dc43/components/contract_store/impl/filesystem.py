@@ -8,8 +8,9 @@ Stores ODCS documents under ``{base}/{contract_id}/{version}.json``.
 import logging
 import os
 from typing import List
-from .base import ContractStore
-from ..odcs import as_odcs_dict, ensure_version, contract_identity, to_model
+
+from ..interface import ContractStore
+from dc43.odcs import as_odcs_dict, ensure_version, contract_identity, to_model
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 logger = logging.getLogger(__name__)
@@ -70,3 +71,6 @@ class FSContractStore(ContractStore):
             if name.endswith(".json"):
                 versions.append(name[:-5])
         return versions
+
+
+__all__ = ["FSContractStore"]

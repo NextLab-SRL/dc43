@@ -18,9 +18,9 @@ from dc43.demo_app.server import (
     load_records,
     save_records,
 )
-from dc43.dq.stubs import StubDQClient
-from dc43.dq.engine.spark import attach_failed_expectations
-from dc43.integration.spark_io import read_with_contract, write_with_contract
+from dc43.components.data_quality.governance.stubs import StubDQClient
+from dc43.components.data_quality.engine.spark import attach_failed_expectations
+from dc43.components.integration.spark_io import read_with_contract, write_with_contract
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import SparkSession
 

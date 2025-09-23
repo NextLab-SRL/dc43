@@ -17,8 +17,8 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
-from ..odcs import contract_identity
-from ..versioning import SemVer
+from dc43.odcs import contract_identity
+from dc43.versioning import SemVer
 
 
 def draft_from_dataframe(
@@ -33,7 +33,7 @@ def draft_from_dataframe(
 ) -> OpenDataContractStandard:
     """Create a draft ODCS document based on a Spark DataFrame."""
 
-    from ..integration.validation import SPARK_TYPES as _SPARK_TYPES  # local import to avoid cycles
+    from dc43.components.data_quality.validation import SPARK_TYPES as _SPARK_TYPES  # local import to avoid cycles
 
     props = []
     for field in df.schema.fields:  # type: ignore[attr-defined]

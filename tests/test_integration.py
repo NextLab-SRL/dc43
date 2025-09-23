@@ -11,9 +11,9 @@ from open_data_contract_standard.model import (
     Server,
 )
 
-from dc43.integration.spark_io import read_with_contract, write_with_contract
-from dc43.dq.stubs import StubDQClient
-from dc43.storage.fs import FSContractStore
+from dc43.components.integration.spark_io import read_with_contract, write_with_contract
+from dc43.components.data_quality.governance.stubs import StubDQClient
+from dc43.components.contract_store.impl.filesystem import FSContractStore
 from datetime import datetime
 import logging
 

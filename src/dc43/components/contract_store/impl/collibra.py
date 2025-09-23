@@ -1,14 +1,15 @@
-"""Contract store backed by Collibra's Data Products."""
-
 from __future__ import annotations
 
 from typing import List, Optional
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from .base import ContractStore
-from ..integration.collibra import CollibraContractGateway, _semver_key
-from ..odcs import ensure_version, to_model
+from ..interface import ContractStore
+from dc43.components.contract_store.collibra_gateway import (
+    CollibraContractGateway,
+    _semver_key,
+)
+from dc43.odcs import ensure_version, to_model
 
 
 class CollibraContractStore(ContractStore):
@@ -58,3 +59,5 @@ class CollibraContractStore(ContractStore):
             return None
         return to_model(payload)
 
+
+__all__ = ["CollibraContractStore"]

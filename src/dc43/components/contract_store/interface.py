@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Dict
+
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
@@ -36,3 +37,6 @@ class ContractStore(ABC):
             return None
         versions.sort(key=lambda v: tuple(int(x) for x in v.split(".")[:3]))
         return self.get(contract_id, versions[-1])
+
+
+__all__ = ["ContractStore"]

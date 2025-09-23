@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard, SchemaProperty  # type: ignore
 
-from ..interface import DQStatus
+from dc43.components.data_quality.governance import DQStatus
 
 
 def _field_expectations(field: SchemaProperty) -> Dict[str, str]:
@@ -43,7 +43,7 @@ def expectations_from_contract(contract: OpenDataContractStandard) -> Dict[str, 
     """Return expectation_name -> SQL predicate for all fields in a contract."""
 
     exps: Dict[str, str] = {}
-    from ...odcs import list_properties  # local import to avoid cycles
+    from dc43.odcs import list_properties  # local import to avoid cycles
 
     for f in list_properties(contract):
         exps.update(_field_expectations(f))
@@ -62,7 +62,7 @@ def compute_metrics(df: DataFrame, contract: OpenDataContractStandard) -> Dict[s
         failed = df.filter(f"NOT ({expr})").count()
         metrics[f"violations.{key}"] = failed
 
-    from ...odcs import list_properties  # reuse helper
+    from dc43.odcs import list_properties  # reuse helper
 
     for f in list_properties(contract):
         if f.unique or any((q.rule == "unique") for q in (f.quality or [])):
@@ -97,7 +97,7 @@ def attach_failed_expectations(
     collect_examples: bool = False,
     examples_limit: int = 5,
 ) -> DQStatus:
-    """Augment a :class:`~dc43.dq.interface.DQStatus` with failed expectations."""
+    """Augment a :class:`~dc43.components.data_quality.governance.interface.DQStatus` with failed expectations."""
 
     metrics_map = status.details.get("metrics", {}) if status.details else {}
     exps = expectations_from_contract(contract)

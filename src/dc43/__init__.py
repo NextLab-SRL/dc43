@@ -5,11 +5,7 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .integration.validation import (
-    ValidationResult,
-    validate_dataframe,
-    apply_contract,
-)
+from .components.data_quality import apply_contract, validate_dataframe, ValidationResult
 from .odcs import (
     BITOL_SCHEMA_URL,
     as_odcs_dict,
@@ -25,7 +21,7 @@ try:
     from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 except Exception:  # pragma: no cover
     OpenDataContractStandard = None  # type: ignore
-from .dq.interface import DQClient, DQStatus
+from .components.data_quality import DQClient, DQStatus
 
 __all__ = [
     "SemVer",

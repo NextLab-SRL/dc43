@@ -19,9 +19,9 @@ from typing import Dict, List, Optional, Protocol, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from ..odcs import as_odcs_dict, contract_identity, ensure_version
-from ..storage.fs import FSContractStore
-from ..versioning import SemVer
+from dc43.components.contract_store.impl.filesystem import FSContractStore
+from dc43.odcs import as_odcs_dict, contract_identity, ensure_version
+from dc43.versioning import SemVer
 
 
 def _semver_key(version: str) -> Tuple[int, int, int, str]:

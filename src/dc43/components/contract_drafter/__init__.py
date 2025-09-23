@@ -1,4 +1,4 @@
-"""Contract drafting helpers derived from runtime observations."""
+"""Helpers that turn runtime feedback into ODCS drafts."""
 
 from .spark import draft_from_dataframe
 

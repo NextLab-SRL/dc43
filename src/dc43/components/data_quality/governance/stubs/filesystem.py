@@ -1,4 +1,3 @@
-"""Filesystem-backed stub for a DQ/DO governance client."""
 """Filesystem-backed stub for governance-facing data-quality clients."""
 
 from __future__ import annotations
@@ -9,7 +8,7 @@ import os
 from typing import Any, Dict, Optional
 
 from ..interface import DQClient, DQStatus
-from ...odcs import contract_identity
+from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 logger = logging.getLogger(__name__)

@@ -1,31 +1,21 @@
+"""Delta-table-backed contract store."""
+
 from __future__ import annotations
-
-"""Delta-table-backed contract store.
-
-Contracts are stored in a Delta table as JSON strings along with identity,
-name/description, fingerprint and timestamps. Supports both UC tables and
-path-backed Delta.
-"""
 
 from typing import List, Optional
 
-try:
+try:  # pragma: no cover - optional dependency
     from pyspark.sql import SparkSession
 except Exception:  # pragma: no cover
     SparkSession = object  # type: ignore
 
-from .base import ContractStore
-from ..odcs import as_odcs_dict, ensure_version, contract_identity, fingerprint, to_model
+from ..interface import ContractStore
+from dc43.odcs import as_odcs_dict, ensure_version, contract_identity, fingerprint, to_model
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
 class DeltaContractStore(ContractStore):
-    """Store contracts inside a Delta table with simple schema.
-
-    Columns: ``contract_id``, ``version``, ``name``, ``description``,
-    ``json`` (ODCS), ``fingerprint``, ``created_at``.
-    Primary key: (``contract_id``, ``version``).
-    """
+    """Store contracts inside a Delta table with simple schema."""
 
     def __init__(self, spark: SparkSession, table: Optional[str] = None, path: Optional[str] = None):
         """Create the store backed by a UC table or a Delta path."""
@@ -80,13 +70,16 @@ class DeltaContractStore(ContractStore):
         """Upsert an ODCS document model into the Delta table."""
         ref = self._table_ref()
         import json
+
         ensure_version(contract)
         cid, ver = contract_identity(contract)
         odcs_dict = as_odcs_dict(contract)
         json_str = json.dumps(odcs_dict, separators=(",", ":"))
         fp = fingerprint(contract)
         name_val = contract.name or cid
-        desc_usage = contract.description.usage if contract.description and contract.description.usage else None
+        desc_usage = (
+            contract.description.usage if contract.description and contract.description.usage else None
+        )
         desc_sql = "NULL" if not desc_usage else "'" + str(desc_usage).replace("'", "''") + "'"
         json_sql = json_str.replace("'", "''")
         self.spark.sql(
@@ -115,6 +108,7 @@ class DeltaContractStore(ContractStore):
         if not row:
             raise KeyError(f"Contract {contract_id}:{version} not found")
         import json
+
         return to_model(json.loads(row[0][0]))
 
     def list_contracts(self) -> List[str]:
@@ -150,4 +144,8 @@ class DeltaContractStore(ContractStore):
         if not rows:
             return None
         import json
+
         return to_model(json.loads(rows[0][0]))
+
+
+__all__ = ["DeltaContractStore"]

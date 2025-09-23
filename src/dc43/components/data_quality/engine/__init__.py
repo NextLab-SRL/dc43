@@ -1,4 +1,4 @@
-"""Data-quality engines backed by execution runtimes."""
+"""Runtime helpers that compute metrics in execution engines."""
 
 from .spark import (
     attach_failed_expectations,
