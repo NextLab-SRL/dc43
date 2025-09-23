@@ -8,10 +8,54 @@
   - SemVer helpers for version checks
   - Validation and auto-casting for Spark DataFrames
   - IO helpers for read/write with contract enforcement
-  - Storage backends: filesystem (DBFS/UC volumes) and Delta table
+- Storage backends: filesystem (DBFS/UC volumes), Delta table, and Collibra via `CollibraContractStore`
 - DLT helpers: build expectations from contracts
-  - DQ orchestration: pluggable client interface; stub implementation provided
+- DQ orchestration: pluggable client interface; stub implementation provided
 - Bitol/ODCS support: relies on the official `open-data-contract-standard` models (v3.0.2). No internal stubs.
+
+See [`docs/collibra-contract-integration.md`](docs/collibra-contract-integration.md) for guidance on orchestrating contract drafts and validations through Collibra while dc43 enforces the resulting specifications.
+
+Additional component guides:
+
+- [`docs/contract-management-options.md`](docs/contract-management-options.md) — compare contract storage backends (filesystem, Delta, Collibra, and custom catalogs).
+- [`docs/data-quality-component.md`](docs/data-quality-component.md) — understand the responsibilities of the data-quality client and possible integrations.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Governance & Authoring
+        Authoring["Authoring Tools<br/>JSON · Git · Notebooks"]
+        Stewardship["Stewardship & Workflow<br/>Catalogs · Approval"]
+    end
+
+    subgraph Contract Storage
+        Versioned["Versioned Store<br/>Git · Filesystem · Delta"]
+        Catalog["Catalog / API-backed Store"]
+    end
+
+    subgraph Runtime Enforcement
+        IOHelpers["dc43 IO Helpers<br/>read_with_contract / write_with_contract"]
+        Pipelines["Spark Jobs / DLT Pipelines"]
+    end
+
+    subgraph Feedback & Evolution
+        Drafts["Draft Generation"]
+        DQ["External Data Quality Orchestrator"]
+    end
+
+    Authoring --> Versioned
+    Stewardship --> Catalog
+    Versioned --> IOHelpers
+    Catalog --> IOHelpers
+    IOHelpers --> Pipelines
+    IOHelpers --> Drafts
+    Pipelines --> DQ
+    Drafts --> Stewardship
+    DQ --> Stewardship
+```
+
+This high-level view separates governance, storage, runtime enforcement, and feedback loops so you can plug in different catalog or storage implementations (filesystem, Delta, Collibra, etc.) without changing how dc43 applies contracts. The external data-quality orchestrator maintains the dataset ↔ contract compatibility matrix and feeds stewardship workflows with the latest validation results. Architecture variations—such as Collibra-governed contracts—are detailed in dedicated docs.
 
 ## Install
 
