@@ -15,6 +15,46 @@
 
 See [`docs/collibra-contract-integration.md`](docs/collibra-contract-integration.md) for guidance on orchestrating contract drafts and validations through Collibra while dc43 enforces the resulting specifications.
 
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Authoring & Governance
+        Collibra["Collibra Data Products<br/>Contracts & Status"]
+        LocalRepo["Local Authoring<br/>(JSON, Git, CI)"]
+    end
+
+    subgraph Contract Storage Options
+        FSStore["Filesystem Contract Store<br/>(DBFS, UC Volumes)"]
+        DeltaStore["Delta Contract Store"]
+        CollibraStore["Collibra Contract Store<br/>(REST API)"]
+    end
+
+    subgraph Runtime
+        SparkJobs["Spark Jobs / DLT Pipelines"]
+        IOHelpers["read_with_contract / write_with_contract"]
+        Drafts["Draft Generation & Promotion"]
+        DQClient["Data Quality Client<br/>(Stub or Custom)"]
+    end
+
+    Collibra -->|Publish via API| CollibraStore
+    LocalRepo -->|Deploy| FSStore
+    LocalRepo -->|Deploy| DeltaStore
+    Collibra -->|Export / Sync| LocalRepo
+
+    FSStore --> IOHelpers
+    DeltaStore --> IOHelpers
+    CollibraStore --> IOHelpers
+
+    IOHelpers --> SparkJobs
+    IOHelpers --> Drafts
+    SparkJobs -->|Metrics / Status| DQClient
+    DQClient -->|Feedback| Drafts
+    Drafts -->|Review & Approve| Collibra
+```
+
+The diagram highlights how contract authors can manage specifications directly in Collibra or through local sources, then expose them to dc43 via interchangeable stores. Pipelines enforce contracts with the IO helpers, while draft handling and data-quality signals loop back into governance for promotion workflows.
+
 ## Install
 
 - As a source lib (Databricks Repos, workspace files) or package. No hard dependencies by default; bring your own `pyspark` on Databricks clusters.
