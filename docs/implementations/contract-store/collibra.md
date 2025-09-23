@@ -2,7 +2,7 @@
 
 `CollibraContractStore` delegates contract persistence and lifecycle to
 Collibra Data Products. It is backed by the
-`HttpCollibraContractGateway`, which wraps Collibra's REST APIs for Data
+`HttpCollibraContractAdapter`, which wraps Collibra's REST APIs for Data
 Product ports and contract versions.
 
 ## Characteristics
@@ -26,15 +26,15 @@ the REST API and inherit Collibra's workflow states:
 | `list_versions(id)` | Enumerates versions returned by `GET /contracts`. |
 
 Persist the identifier mapping (`contract_id` → `{data_product, port}`) in your
-gateway configuration so dc43 can route writes and reads consistently.
+adapter configuration so dc43 can route writes and reads consistently.
 
 ## Configuration example
 
 ```python
-from dc43.components.contract_store import HttpCollibraContractGateway
+from dc43.components.contract_store import HttpCollibraContractAdapter
 from dc43.components.contract_store.impl.collibra import CollibraContractStore
 
-gateway = HttpCollibraContractGateway(
+adapter = HttpCollibraContractAdapter(
     base_url="https://collibra/api",
     token="<personal-access-token>",
     contract_catalog={
@@ -42,7 +42,7 @@ gateway = HttpCollibraContractGateway(
     },
 )
 store = CollibraContractStore(
-    gateway=gateway,
+    adapter=adapter,
     default_status="Draft",
     status_filter="Validated",
 )
@@ -60,5 +60,6 @@ store = CollibraContractStore(
 
 Refer to the [Collibra orchestration guide](../data-quality-governance/collibra.md)
 for architecture diagrams, webhook flows, and compatibility-matrix modelling.
-The same gateway also participates in the data-quality governance stories
-documented there.
+The same adapter also participates in the data-quality governance stories
+documented there. Compatibility aliases (`HttpCollibraContractGateway`,
+`StubCollibraContractGateway`) remain available if you migrate incrementally.

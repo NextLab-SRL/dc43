@@ -6,8 +6,8 @@ from datetime import datetime
 import pytest
 
 from dc43.components.contract_store import (
-    HttpCollibraContractGateway,
-    StubCollibraContractGateway,
+    HttpCollibraContractAdapter,
+    StubCollibraContractAdapter,
 )
 from dc43.components.contract_store.impl.collibra import CollibraContractStore
 from dc43.odcs import build_odcs
@@ -34,7 +34,7 @@ def _sample_contract(version: str = "1.0.0"):
 
 
 def test_stub_gateway_roundtrip():
-    gateway = StubCollibraContractGateway()
+    gateway = StubCollibraContractAdapter()
     store = CollibraContractStore(gateway)
 
     contract = _sample_contract("1.0.0")
@@ -57,7 +57,7 @@ def test_stub_gateway_roundtrip():
 
 
 def test_stub_gateway_validated_lookup():
-    gateway = StubCollibraContractGateway()
+    gateway = StubCollibraContractAdapter()
     contract = _sample_contract("1.0.0")
     gateway.submit_draft(contract)
     gateway.update_status("sales.orders", "1.0.0", "Validated")
@@ -109,7 +109,7 @@ def test_http_gateway_with_mock_transport():
     transport = httpx.MockTransport(handler)  # type: ignore[attr-defined]
     client = httpx.Client(transport=transport, base_url="https://collibra.example.com")
 
-    gateway = HttpCollibraContractGateway(
+    gateway = HttpCollibraContractAdapter(
         base_url="https://collibra.example.com",
         token="token",
         contract_catalog=contract_catalog,

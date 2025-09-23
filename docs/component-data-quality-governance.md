@@ -18,9 +18,9 @@ At minimum it must be able to:
    highlight drifts that require action.
 3. **Return a status** (`ok`, `warn`, `block`, or `unknown`) indicating
    whether the dataset version satisfies the contract.
-4. **Receive metrics** emitted by the DQ engine so it can compute or
-   update the status **and persist the compatibility matrix entry** for
-   the dataset↔contract pair.
+4. **Receive metrics and schema snapshots** emitted by the DQ engine so
+   it can compute or update the status **and persist the compatibility
+   matrix entry** for the dataset↔contract pair.
 
 ```mermaid
 flowchart LR

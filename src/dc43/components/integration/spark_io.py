@@ -255,12 +255,17 @@ def read_with_contract(
     if options:
         reader = reader.options(**options)
     df = reader.table(table) if table else reader.load(path)
+    result: Optional[ValidationResult] = None
+    metrics_from_validation: Dict[str, Any] = {}
+    schema_from_validation: Dict[str, Any] = {}
     if contract:
         ensure_version(contract)
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
         _check_contract_version(expected_contract_version, cver)
         result = validate_dataframe(df, contract)
+        metrics_from_validation = dict(result.metrics)
+        schema_from_validation = dict(result.schema)
         logger.info(
             "Read validation: ok=%s errors=%s warnings=%s",
             result.ok,
@@ -296,10 +301,24 @@ def read_with_contract(
                 dataset_version=ds_ver,
             )
             if status.status in ("unknown", "stale"):
-                m = compute_metrics(df, contract)
-                logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
+                metrics_payload: Dict[str, Any] = dict(metrics_from_validation)
+                if not metrics_payload and result is not None:
+                    metrics_payload = dict(result.metrics)
+                if not metrics_payload:
+                    logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
+                    metrics_payload = compute_metrics(df, contract)
+                else:
+                    logger.info(
+                        "Using cached validation metrics for %s@%s", ds_id, ds_ver
+                    )
+                schema_payload = schema_from_validation or (result.schema if result else {})
+                if schema_payload and "schema" not in metrics_payload:
+                    metrics_payload["schema"] = schema_payload
                 status = dq_client.submit_metrics(
-                    contract=contract, dataset_id=ds_id, dataset_version=ds_ver, metrics=m
+                    contract=contract,
+                    dataset_id=ds_id,
+                    dataset_version=ds_ver,
+                    metrics=metrics_payload,
                 )
         logger.info("DQ status for %s@%s: %s", ds_id, ds_ver, status.status)
         if enforce and status and status.status == "block":
@@ -628,7 +647,18 @@ def write_with_contract(
                     contract_id=cid,
                     contract_version=cver,
                 )
-            metrics = compute_metrics(out_df, contract)
+            metrics = dict(result.metrics)
+            if not metrics:
+                logger.info(
+                    "Computing DQ metrics for %s@%s after write", dq_dataset_id, dq_dataset_version
+                )
+                metrics = compute_metrics(out_df, contract)
+            else:
+                logger.info(
+                    "Using cached validation metrics for %s@%s", dq_dataset_id, dq_dataset_version
+                )
+            if result.schema and "schema" not in metrics:
+                metrics["schema"] = result.schema
             status = dq_client.submit_metrics(
                 contract=contract,
                 dataset_id=dq_dataset_id,

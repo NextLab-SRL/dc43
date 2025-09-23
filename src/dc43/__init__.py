@@ -5,7 +5,14 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .components.data_quality import apply_contract, validate_dataframe, ValidationResult
+from .components.data_quality import (
+    ValidationResult,
+    apply_contract,
+    schema_snapshot,
+    spark_type_name,
+    odcs_type_name_from_spark,
+    validate_dataframe,
+)
 from .odcs import (
     BITOL_SCHEMA_URL,
     as_odcs_dict,
@@ -27,6 +34,9 @@ __all__ = [
     "SemVer",
     "ValidationResult",
     "validate_dataframe",
+    "schema_snapshot",
+    "spark_type_name",
+    "odcs_type_name_from_spark",
     "apply_contract",
     "BITOL_SCHEMA_URL",
     "as_odcs_dict",

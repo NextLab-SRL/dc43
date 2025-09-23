@@ -276,7 +276,7 @@ flowchart LR
 Notes
 
 - The library uses the official ODCS package and enforces `$schema` version `3.0.2` by default (configurable via `DC43_ODCS_REQUIRED`).
-- Validation focuses on practical checks: presence, types, nullability and common constraints (enum, regex, min/max, unique best-effort).
+- Validation runs inside the Spark DQ engine: presence, types, nullability and common constraints (enum, regex, min/max, unique best-effort). The resulting ``ValidationResult`` bundles metrics and a schema snapshot so governance adapters can update compatibility matrices.
 - DLT helpers translate constraints into `expect` expressions when feasible.
 - DQ orchestration: the IO wrapper checks schema vs contract and consults the DQ client. If dataset version is newer than DQ’s known version, it computes the required metrics and submits them, then enforces the resulting status if requested.
 
