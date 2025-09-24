@@ -5,8 +5,8 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .components.data_quality import (
-    ValidationResult,
+from .components.data_quality import DQClient, DQStatus, ValidationResult, evaluate_contract
+from .components.integration.spark_quality import (
     apply_contract,
     schema_snapshot,
     spark_type_name,
@@ -28,11 +28,12 @@ try:
     from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 except Exception:  # pragma: no cover
     OpenDataContractStandard = None  # type: ignore
-from .components.data_quality import DQClient, DQStatus
+
 
 __all__ = [
     "SemVer",
     "ValidationResult",
+    "evaluate_contract",
     "validate_dataframe",
     "schema_snapshot",
     "spark_type_name",

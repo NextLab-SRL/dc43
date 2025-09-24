@@ -14,7 +14,7 @@ dc43 is a governance-first toolkit that separates the **concepts** of data contr
 
 On top of the conceptual platform, dc43 ships opinionated integrations that you can adopt or replace:
 
-- Spark & DLT pipelines via `dc43.components.integration.spark_io` with validation helpers from `dc43.components.data_quality.validation` for auto-casting and contract-aware IO.
+- Spark & DLT pipelines via `dc43.components.integration.spark_io` with schema/metric helpers from `dc43.components.integration.spark_quality` for auto-casting and contract-aware IO.
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
 

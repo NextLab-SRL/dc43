@@ -1,13 +1,8 @@
-"""Helpers to generate ODCS drafts from Spark observations."""
+"""Helpers to generate ODCS drafts from runtime observations."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
-
-try:  # pragma: no cover - optional dependency
-    from pyspark.sql import DataFrame
-except Exception:  # pragma: no cover
-    DataFrame = Any  # type: ignore
+from typing import Any, Dict, Mapping, Optional
 
 from open_data_contract_standard.model import (  # type: ignore
     CustomProperty,
@@ -17,31 +12,39 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
-from dc43.components.data_quality import odcs_type_name_from_spark
 from dc43.odcs import contract_identity
 from dc43.versioning import SemVer
 
 
-def draft_from_dataframe(
-    df: DataFrame,
-    base_contract: OpenDataContractStandard,
+def draft_from_observations(
     *,
+    schema: Mapping[str, Mapping[str, Any]],
+    base_contract: OpenDataContractStandard,
+    metrics: Mapping[str, Any] | None = None,
     bump: str = "minor",
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     data_format: Optional[str] = None,
     dq_feedback: Optional[Dict[str, Any]] = None,
 ) -> OpenDataContractStandard:
-    """Create a draft ODCS document based on a Spark DataFrame."""
+    """Create a draft ODCS document using schema & metric observations."""
 
     props = []
-    for field in df.schema.fields:  # type: ignore[attr-defined]
-        odcs_type = odcs_type_name_from_spark(field.dataType)
+    for name, info in schema.items():
+        if not name:
+            continue
+        odcs_type = str(
+            info.get("odcs_type")
+            or info.get("type")
+            or info.get("backend_type")
+            or "string"
+        )
+        required = not bool(info.get("nullable", True))
         props.append(
             SchemaProperty(
-                name=field.name,
-                physicalType=str(odcs_type),
-                required=not field.nullable,
+                name=name,
+                physicalType=odcs_type,
+                required=required,
             )
         )
 
@@ -61,6 +64,8 @@ def draft_from_dataframe(
     )
     if dq_feedback:
         custom_props.append(CustomProperty(property="dq_feedback", value=dq_feedback))
+    if metrics:
+        custom_props.append(CustomProperty(property="observed_metrics", value=dict(metrics)))
 
     schema_name = contract_id
     if base_contract.schema_:
@@ -73,11 +78,13 @@ def draft_from_dataframe(
         if not fmt and base_contract.servers:
             fmt = base_contract.servers[0].format
         if dataset_id.startswith("path:"):
-            servers = [Server(server="local", type="filesystem", path=dataset_id[5:], format=fmt)]
+            servers = [
+                Server(server="local", type="filesystem", path=dataset_id[5:], format=fmt)
+            ]
         elif dataset_id.startswith("table:"):
             servers = [Server(server="local", dataset=dataset_id[6:], format=fmt)]
 
-    draft = OpenDataContractStandard(
+    return OpenDataContractStandard(
         version=new_version,
         kind=base_contract.kind,
         apiVersion=base_contract.apiVersion,
@@ -89,7 +96,6 @@ def draft_from_dataframe(
         servers=servers,
         customProperties=custom_props,
     )
-    return draft
 
 
-__all__ = ["draft_from_dataframe"]
+__all__ = ["draft_from_observations"]

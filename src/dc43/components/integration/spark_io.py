@@ -12,13 +12,14 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.components.contract_drafter import draft_from_dataframe
+from dc43.components.contract_drafter import draft_from_observations
 from dc43.components.contract_store import ContractStore
 from dc43.components.data_quality import DQClient, DQStatus
-from dc43.components.data_quality.engine import compute_metrics
-from dc43.components.data_quality.validation import (
-    ValidationResult,
+from dc43.components.data_quality.engine import ValidationResult
+from dc43.components.integration.spark_quality import (
     apply_contract,
+    build_metrics_payload,
+    schema_snapshot,
     validate_dataframe,
 )
 from dc43.odcs import contract_identity, ensure_version
@@ -139,6 +140,33 @@ def _paths_compatible(provided: str, contract_path: str) -> bool:
     return base in actual.parents
 
 
+def _draft_from_validation(
+    *,
+    df: DataFrame,
+    base_contract: OpenDataContractStandard,
+    validation: ValidationResult,
+    bump: str,
+    dataset_id: Optional[str],
+    dataset_version: Optional[str],
+    data_format: Optional[str],
+    dq_feedback: Optional[Dict[str, Any]] = None,
+) -> OpenDataContractStandard:
+    """Build a draft contract using cached schema/metrics from validation."""
+
+    schema = validation.schema or schema_snapshot(df)
+    metrics = validation.metrics or {}
+    return draft_from_observations(
+        schema=schema,
+        metrics=metrics or None,
+        base_contract=base_contract,
+        bump=bump,
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        data_format=data_format,
+        dq_feedback=dq_feedback,
+    )
+
+
 # Overloads help type checkers infer the return type based on ``return_status``
 # so callers can destructure the tuple without false positives.
 @overload
@@ -256,16 +284,12 @@ def read_with_contract(
         reader = reader.options(**options)
     df = reader.table(table) if table else reader.load(path)
     result: Optional[ValidationResult] = None
-    metrics_from_validation: Dict[str, Any] = {}
-    schema_from_validation: Dict[str, Any] = {}
     if contract:
         ensure_version(contract)
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
         _check_contract_version(expected_contract_version, cver)
         result = validate_dataframe(df, contract)
-        metrics_from_validation = dict(result.metrics)
-        schema_from_validation = dict(result.schema)
         logger.info(
             "Read validation: ok=%s errors=%s warnings=%s",
             result.ok,
@@ -301,19 +325,18 @@ def read_with_contract(
                 dataset_version=ds_ver,
             )
             if status.status in ("unknown", "stale"):
-                metrics_payload: Dict[str, Any] = dict(metrics_from_validation)
-                if not metrics_payload and result is not None:
-                    metrics_payload = dict(result.metrics)
-                if not metrics_payload:
-                    logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
-                    metrics_payload = compute_metrics(df, contract)
-                else:
+                metrics_payload, _schema_payload, reused = build_metrics_payload(
+                    df,
+                    contract,
+                    validation=result,
+                    include_schema=True,
+                )
+                if reused:
                     logger.info(
                         "Using cached validation metrics for %s@%s", ds_id, ds_ver
                     )
-                schema_payload = schema_from_validation or (result.schema if result else {})
-                if schema_payload and "schema" not in metrics_payload:
-                    metrics_payload["schema"] = schema_payload
+                else:
+                    logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
                 status = dq_client.submit_metrics(
                     contract=contract,
                     dataset_id=ds_id,
@@ -493,9 +516,10 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = draft_from_dataframe(
-                    df,
-                    contract,
+                draft_doc = _draft_from_validation(
+                    df=df,
+                    base_contract=contract,
+                    validation=result,
                     bump=draft_bump,
                     dataset_id=ds_id,
                     dataset_version=ds_ver,
@@ -520,9 +544,10 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = draft_from_dataframe(
-                    df,
-                    contract,
+                draft_doc = _draft_from_validation(
+                    df=df,
+                    base_contract=contract,
+                    validation=result,
                     bump=draft_bump,
                     dataset_id=ds_id,
                     dataset_version=ds_ver,
@@ -543,9 +568,10 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = draft_from_dataframe(
-                    df,
-                    contract,
+                draft_doc = _draft_from_validation(
+                    df=df,
+                    base_contract=contract,
+                    validation=result,
                     bump=draft_bump,
                     dataset_id=ds_id,
                     dataset_version=ds_ver,
@@ -577,9 +603,10 @@ def write_with_contract(
             id=ds_id,
             name=ds_id,
         )
-        draft_doc = draft_from_dataframe(
-            df,
-            base,
+        draft_doc = draft_from_observations(
+            schema=schema_snapshot(df),
+            metrics=None,
+            base_contract=base,
             bump=draft_bump,
             dataset_id=ds_id_raw,
             dataset_version=ds_ver,
@@ -647,18 +674,20 @@ def write_with_contract(
                     contract_id=cid,
                     contract_version=cver,
                 )
-            metrics = dict(result.metrics)
-            if not metrics:
-                logger.info(
-                    "Computing DQ metrics for %s@%s after write", dq_dataset_id, dq_dataset_version
-                )
-                metrics = compute_metrics(out_df, contract)
-            else:
+            metrics, _schema_payload, reused_metrics = build_metrics_payload(
+                out_df,
+                contract,
+                validation=result,
+                include_schema=True,
+            )
+            if reused_metrics:
                 logger.info(
                     "Using cached validation metrics for %s@%s", dq_dataset_id, dq_dataset_version
                 )
-            if result.schema and "schema" not in metrics:
-                metrics["schema"] = result.schema
+            else:
+                logger.info(
+                    "Computing DQ metrics for %s@%s after write", dq_dataset_id, dq_dataset_version
+                )
             status = dq_client.submit_metrics(
                 contract=contract,
                 dataset_id=dq_dataset_id,
@@ -696,9 +725,10 @@ def write_with_contract(
         if should_infer_draft_from_dq:
             ds_id_for_draft = dq_dataset_id or dataset_id_from_ref(table=table, path=path)
             ds_ver_for_draft = dq_dataset_version
-            draft_doc = draft_from_dataframe(
-                df,
-                contract,
+            draft_doc = _draft_from_validation(
+                df=df,
+                base_contract=contract,
+                validation=result,
                 bump=draft_bump,
                 dataset_id=ds_id_for_draft,
                 dataset_version=ds_ver_for_draft,

@@ -5,7 +5,7 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 ## Responsibilities
 
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
-2. **Validate and coerce data** using `dc43.components.data_quality.validation` helpers while respecting enforcement flags.
+2. **Validate and coerce data** using `dc43.components.integration.spark_quality` helpers while respecting enforcement flags.
 3. **Bridge runtime metrics** to the `DQClient` and contract drafter when mismatches occur.
 4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`, `expectations_from_contract`).
 
@@ -24,7 +24,7 @@ The canonical implementation lives in [`src/dc43/components/integration`](../../
 
 * `spark_io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
 * `dlt_helpers.py` — Functions to translate ODCS expectations into Delta Live Tables expectations.
-* [`dc43.components.data_quality.validation`](../../src/dc43/components/data_quality/validation.py) — Core validation and casting helpers shared across adapters.
+* [`dc43.components.integration.spark_quality`](../../src/dc43/components/integration/spark_quality.py) — Core validation and casting helpers shared across adapters.
 
 Pipelines typically import these helpers directly:
 

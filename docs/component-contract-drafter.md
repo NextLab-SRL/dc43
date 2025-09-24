@@ -45,7 +45,7 @@ produce ODCS-compliant drafts.
 Technology-specific guides live under
 [`docs/implementations/contract-drafter/`](implementations/contract-drafter/):
 
-- [Spark helper](implementations/contract-drafter/spark.md)
+- [Observations helper](implementations/contract-drafter/spark.md)
 
 When you introduce another drafter—such as one backed by Schema Registry
 or a UI wizard—document it in the same folder so readers can pick the

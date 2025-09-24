@@ -1,5 +1,5 @@
 """Helpers that turn runtime feedback into ODCS drafts."""
 
-from .spark import draft_from_dataframe
+from .observations import draft_from_observations
 
-__all__ = ["draft_from_dataframe"]
+__all__ = ["draft_from_observations"]

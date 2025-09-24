@@ -8,7 +8,7 @@ from open_data_contract_standard.model import (
     Description,
 )
 
-from dc43.components.data_quality.validation import apply_contract, validate_dataframe
+from dc43.components.integration.spark_quality import apply_contract, validate_dataframe
 from datetime import datetime
 from pyspark.sql.types import (
     StructType,
@@ -60,7 +60,7 @@ def test_validate_ok(spark):
     assert not res.errors
     assert res.metrics["row_count"] == 2
     assert "schema" in res.details
-    assert res.schema["order_id"]["spark_type"] in {"bigint", "long"}
+    assert res.schema["order_id"]["odcs_type"] == "bigint"
 
 
 def test_validate_type_mismatch(spark):

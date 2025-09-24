@@ -1,23 +1,5 @@
-"""Runtime helpers that compute metrics in execution engines."""
+"""Data-quality engine primitives that evaluate observations."""
 
-from .spark import (
-    ValidationResult,
-    attach_failed_expectations,
-    compute_metrics,
-    expectations_from_contract,
-    schema_snapshot,
-    spark_type_name,
-    odcs_type_name_from_spark,
-    validate_dataframe,
-)
+from .core import ValidationResult, evaluate_contract
 
-__all__ = [
-    "ValidationResult",
-    "attach_failed_expectations",
-    "compute_metrics",
-    "expectations_from_contract",
-    "schema_snapshot",
-    "spark_type_name",
-    "odcs_type_name_from_spark",
-    "validate_dataframe",
-]
+__all__ = ["ValidationResult", "evaluate_contract"]
