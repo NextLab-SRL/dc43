@@ -43,11 +43,11 @@ metrics and schema snapshots consumable by the governance interface.
 
 ## Implementation catalog
 
-Technology-specific guides live under
-[`docs/implementations/data-quality-engine/`](implementations/data-quality-engine/):
+Technology-specific collectors live under
+[`docs/implementations/data-quality-integration/`](implementations/data-quality-integration/):
 
-- [Spark data-quality engine](implementations/data-quality-engine/spark.md)
+- [Spark data-quality integration](implementations/data-quality-integration/spark.md)
 
-Document alternative engines (Soda, Great Expectations, warehouses, ...)
+Document alternative integrations (Soda, Great Expectations, warehouses, ...)
 in the same folder when you introduce them so users can evaluate which
 runtime best matches their platform.

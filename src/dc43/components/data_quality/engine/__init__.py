@@ -1,34 +1,37 @@
-"""Data-quality engine primitives and Spark-backed helpers."""
+"""Data-quality engine primitives."""
+
+from typing import Any, Literal, Mapping
+
+from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from .core import ExpectationSpec, ValidationResult, evaluate_contract, expectation_specs
-from .spark import (
-    SPARK_TYPES,
-    attach_failed_expectations,
-    build_metrics_payload,
-    collect_observations,
-    compute_metrics,
-    evaluate_observations,
-    expectations_from_contract,
-    odcs_type_name_from_spark,
-    schema_snapshot,
-    spark_type_name,
-    validate_dataframe,
-)
+
+
+def evaluate_observations(
+    contract: OpenDataContractStandard,
+    *,
+    schema: Mapping[str, Mapping[str, Any]] | None,
+    metrics: Mapping[str, Any] | None,
+    strict_types: bool = True,
+    allow_extra_columns: bool = True,
+    expectation_severity: Literal["error", "warning", "ignore"] = "error",
+):
+    """Evaluate cached observations using the runtime-agnostic engine."""
+
+    return evaluate_contract(
+        contract,
+        schema=schema,
+        metrics=metrics,
+        strict_types=strict_types,
+        allow_extra_columns=allow_extra_columns,
+        expectation_severity=expectation_severity,
+    )
+
 
 __all__ = [
     "ExpectationSpec",
     "ValidationResult",
     "evaluate_contract",
-    "expectation_specs",
-    "SPARK_TYPES",
-    "spark_type_name",
-    "odcs_type_name_from_spark",
-    "schema_snapshot",
-    "expectations_from_contract",
-    "compute_metrics",
-    "collect_observations",
     "evaluate_observations",
-    "validate_dataframe",
-    "build_metrics_payload",
-    "attach_failed_expectations",
+    "expectation_specs",
 ]

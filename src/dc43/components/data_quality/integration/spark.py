@@ -1,21 +1,24 @@
-"""Spark-backed data-quality engine helpers."""
+"""Spark-side data-quality integration helpers."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Mapping, Tuple
+from typing import Any, Dict, Literal, Mapping, Tuple
 
 try:  # pragma: no cover - optional dependency
     from pyspark.sql import DataFrame
     from pyspark.sql import functions as F
-    from pyspark.sql.functions import col
 except Exception:  # pragma: no cover
     DataFrame = Any  # type: ignore
     F = None  # type: ignore
-    col = None  # type: ignore
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from .core import ExpectationSpec, ValidationResult, evaluate_contract, expectation_specs
+from dc43.components.data_quality.engine import (
+    ExpectationSpec,
+    ValidationResult,
+    evaluate_observations as _engine_evaluate_observations,
+    expectation_specs,
+)
 from dc43.components.data_quality.governance import DQStatus
 
 
@@ -222,9 +225,9 @@ def evaluate_observations(
     allow_extra_columns: bool = True,
     expectation_severity: Literal["error", "warning", "ignore"] = "error",
 ) -> ValidationResult:
-    """Validate cached observations using the runtime-agnostic engine."""
+    """Compatibility alias to the engine-level observation evaluator."""
 
-    return evaluate_contract(
+    return _engine_evaluate_observations(
         contract,
         schema=schema,
         metrics=metrics,

@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43.odcs import list_properties
-from .engine import SPARK_TYPES, spark_type_name
+from .integration import SPARK_TYPES, spark_type_name
 
 
 def apply_contract(

@@ -9,7 +9,7 @@ pipelines where a full governance platform is not available.
 
 * Persists compatibility entries as JSON files under the configured base
   path.
-* Delegates schema + metric evaluation to the Spark DQ engine and
+* Delegates schema + metric evaluation to the data-quality engine and
   aggregates simple violation counts for convenience.
 * Supports `ok`, `warn`, `block`, and `unknown` statuses based on the
   submitted metrics.
