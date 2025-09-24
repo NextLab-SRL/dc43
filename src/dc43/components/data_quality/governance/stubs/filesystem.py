@@ -8,11 +8,8 @@ import os
 from typing import Any, Dict, Optional, Mapping
 
 from ..interface import DQClient, DQStatus
-from dc43.components.data_quality.engine import (
-    ValidationResult,
-    draft_from_validation_result,
-    evaluate_observations,
-)
+from dc43.components.contract_drafter import draft_from_validation_result
+from dc43.components.data_quality.engine import ValidationResult, evaluate_observations
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 

@@ -6,8 +6,8 @@ Spark-specific APIs.  The core helper lives in
 expects a schema snapshot plus optional metric payload produced by the
 Spark-backed data-quality engine.  This guide still sits under the Spark
 implementation catalog because Spark pipelines are the ones capturing the
-observations.  Use `dc43.components.data_quality.schema_snapshot` to gather the
-fields before delegating to the drafter.
+observations.  Use `dc43.components.data_quality.integration.schema_snapshot`
+to gather the fields before delegating to the drafter.
 
 ## Inputs and context
 
@@ -28,7 +28,7 @@ The helper consumes three categories of inputs:
 
 ```python
 from dc43.components.contract_drafter.observations import draft_from_observations
-from dc43.components.data_quality import schema_snapshot
+from dc43.components.data_quality.integration import schema_snapshot
 
 schema = schema_snapshot(dataframe)
 metrics = validation_result.metrics

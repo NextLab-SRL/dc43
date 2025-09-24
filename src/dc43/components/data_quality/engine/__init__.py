@@ -4,13 +4,7 @@ from typing import Any, Literal, Mapping
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from .core import (
-    ExpectationSpec,
-    ValidationResult,
-    draft_from_validation_result,
-    evaluate_contract,
-    expectation_specs,
-)
+from .core import ExpectationSpec, ValidationResult, evaluate_contract, expectation_specs
 
 
 def evaluate_observations(
@@ -37,6 +31,5 @@ __all__ = [
     "ValidationResult",
     "evaluate_contract",
     "evaluate_observations",
-    "draft_from_validation_result",
     "expectation_specs",
 ]
