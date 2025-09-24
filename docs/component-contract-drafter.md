@@ -36,17 +36,14 @@ incompatibility). Implementations can use this context to flag when a
 change addresses a known failure versus introducing a new field.
 
 To keep governance portable, the interface avoids tying draft creation
-to any single runtime. Implementations can be built for Spark, SQL
-warehouses, streaming engines, or manual authoring tools as long as they
-produce ODCS-compliant drafts.
+to any single runtime. Implementations can be built for batch engines,
+streaming services, or manual authoring tools as long as they produce
+ODCS-compliant drafts.
 
 ## Implementation catalog
 
 Technology-specific guides live under
-[`docs/implementations/contract-drafter/`](implementations/contract-drafter/):
-
-- [Observations helper](implementations/contract-drafter/spark.md)
-
-When you introduce another drafter—such as one backed by Schema Registry
-or a UI wizard—document it in the same folder so readers can pick the
-implementation that matches their runtime.
+[`docs/implementations/contract-drafter/`](implementations/contract-drafter/).
+Document each runtime adapter—such as schema registry integrations or UI
+workflows—in that folder so readers can pick the implementation that
+matches their environment.

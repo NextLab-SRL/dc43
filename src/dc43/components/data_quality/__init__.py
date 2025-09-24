@@ -4,6 +4,7 @@ from .governance import DQClient, DQStatus
 from .engine import (
     ExpectationSpec,
     ValidationResult,
+    draft_from_validation_result,
     evaluate_contract,
     evaluate_observations,
     expectation_specs,
@@ -27,6 +28,7 @@ __all__ = [
     "SPARK_TYPES",
     "ExpectationSpec",
     "ValidationResult",
+    "draft_from_validation_result",
     "attach_failed_expectations",
     "build_metrics_payload",
     "collect_observations",

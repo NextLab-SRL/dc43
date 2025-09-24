@@ -12,12 +12,12 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.components.contract_drafter import draft_from_observations
 from dc43.components.contract_store import ContractStore
 from dc43.components.data_quality import (
     DQClient,
     DQStatus,
     ValidationResult,
+    draft_from_validation_result,
     build_metrics_payload,
     schema_snapshot,
     validate_dataframe,
@@ -139,33 +139,6 @@ def _paths_compatible(provided: str, contract_path: str) -> bool:
         return True
 
     return base in actual.parents
-
-
-def _draft_from_validation(
-    *,
-    df: DataFrame,
-    base_contract: OpenDataContractStandard,
-    validation: ValidationResult,
-    bump: str,
-    dataset_id: Optional[str],
-    dataset_version: Optional[str],
-    data_format: Optional[str],
-    dq_feedback: Optional[Dict[str, Any]] = None,
-) -> OpenDataContractStandard:
-    """Build a draft contract using cached schema/metrics from validation."""
-
-    schema = validation.schema or schema_snapshot(df)
-    metrics = validation.metrics or {}
-    return draft_from_observations(
-        schema=schema,
-        metrics=metrics or None,
-        base_contract=base_contract,
-        bump=bump,
-        dataset_id=dataset_id,
-        dataset_version=dataset_version,
-        data_format=data_format,
-        dq_feedback=dq_feedback,
-    )
 
 
 # Overloads help type checkers infer the return type based on ``return_status``
@@ -517,10 +490,9 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = _draft_from_validation(
-                    df=df,
-                    base_contract=contract,
+                draft_doc = draft_from_validation_result(
                     validation=result,
+                    base_contract=contract,
                     bump=draft_bump,
                     dataset_id=ds_id,
                     dataset_version=ds_ver,
@@ -545,10 +517,9 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = _draft_from_validation(
-                    df=df,
-                    base_contract=contract,
+                draft_doc = draft_from_validation_result(
                     validation=result,
+                    base_contract=contract,
                     bump=draft_bump,
                     dataset_id=ds_id,
                     dataset_version=ds_ver,
@@ -569,10 +540,9 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = _draft_from_validation(
-                    df=df,
-                    base_contract=contract,
+                draft_doc = draft_from_validation_result(
                     validation=result,
+                    base_contract=contract,
                     bump=draft_bump,
                     dataset_id=ds_id,
                     dataset_version=ds_ver,
@@ -604,9 +574,16 @@ def write_with_contract(
             id=ds_id,
             name=ds_id,
         )
-        draft_doc = draft_from_observations(
-            schema=schema_snapshot(df),
-            metrics=None,
+        inferred_schema = schema_snapshot(df)
+        validation = ValidationResult(
+            ok=True,
+            errors=[],
+            warnings=[],
+            metrics={},
+            schema=inferred_schema,
+        )
+        draft_doc = draft_from_validation_result(
+            validation=validation,
             base_contract=base,
             bump=draft_bump,
             dataset_id=ds_id_raw,
@@ -726,10 +703,9 @@ def write_with_contract(
         if should_infer_draft_from_dq:
             ds_id_for_draft = dq_dataset_id or dataset_id_from_ref(table=table, path=path)
             ds_ver_for_draft = dq_dataset_version
-            draft_doc = _draft_from_validation(
-                df=df,
-                base_contract=contract,
+            draft_doc = draft_from_validation_result(
                 validation=result,
+                base_contract=contract,
                 bump=draft_bump,
                 dataset_id=ds_id_for_draft,
                 dataset_version=ds_ver_for_draft,
