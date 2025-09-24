@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43.odcs import list_properties
+from dc43.components.contract_drafter import draft_from_observations
 
 _TYPE_SYNONYMS: Dict[str, str] = {
     "string": "string",
@@ -334,4 +335,36 @@ def evaluate_contract(
     )
 
 
-__all__ = ["ExpectationSpec", "ValidationResult", "evaluate_contract", "expectation_specs"]
+def draft_from_validation_result(
+    *,
+    validation: ValidationResult,
+    base_contract: OpenDataContractStandard,
+    bump: str = "minor",
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    data_format: Optional[str] = None,
+    dq_feedback: Optional[Mapping[str, Any]] = None,
+) -> OpenDataContractStandard:
+    """Create a draft contract document from an engine validation result."""
+
+    schema_payload: Mapping[str, Mapping[str, Any]] | None = validation.schema or None
+    metrics_payload: Mapping[str, Any] | None = validation.metrics or None
+    return draft_from_observations(
+        schema=schema_payload or {},
+        metrics=metrics_payload or None,
+        base_contract=base_contract,
+        bump=bump,
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        data_format=data_format,
+        dq_feedback=dict(dq_feedback) if dq_feedback else None,
+    )
+
+
+__all__ = [
+    "ExpectationSpec",
+    "ValidationResult",
+    "evaluate_contract",
+    "expectation_specs",
+    "draft_from_validation_result",
+]

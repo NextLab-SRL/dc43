@@ -6,7 +6,7 @@ High-level wrappers to read/write DataFrames while enforcing ODCS contracts
 and coordinating with an external Data Quality client when provided.
 """
 
-from typing import Any, Dict, Optional, Tuple, Literal, overload
+from typing import Any, Dict, Optional, Tuple, Literal, Mapping, overload
 import logging
 from pathlib import Path
 
@@ -71,6 +71,47 @@ def _simple_contract_id(dataset_id: str) -> str:
     if dataset_id.startswith("table:"):
         return dataset_id.split(":", 1)[1]
     return dataset_id
+
+
+def _propose_draft(
+    *,
+    dq_client: Optional[DQClient],
+    validation: ValidationResult,
+    base_contract: OpenDataContractStandard,
+    bump: str,
+    dataset_id: Optional[str],
+    dataset_version: Optional[str],
+    data_format: Optional[str],
+    dq_feedback: Optional[Mapping[str, Any]] = None,
+) -> Optional[OpenDataContractStandard]:
+    """Delegate draft creation to governance when possible."""
+
+    if dq_client is not None:
+        try:
+            draft = dq_client.propose_draft(
+                validation=validation,
+                base_contract=base_contract,
+                bump=bump,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+                data_format=data_format,
+                dq_feedback=dq_feedback,
+            )
+        except AttributeError:
+            draft = None
+        else:
+            if draft is not None:
+                return draft
+
+    return draft_from_validation_result(
+        validation=validation,
+        base_contract=base_contract,
+        bump=bump,
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        data_format=data_format,
+        dq_feedback=dq_feedback,
+    )
 
 def _check_contract_version(expected: str | None, actual: str) -> None:
     """Check expected contract version constraint against an actual version.
@@ -490,7 +531,8 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = draft_from_validation_result(
+                draft_doc = _propose_draft(
+                    dq_client=dq_client,
                     validation=result,
                     base_contract=contract,
                     bump=draft_bump,
@@ -517,7 +559,8 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = draft_from_validation_result(
+                draft_doc = _propose_draft(
+                    dq_client=dq_client,
                     validation=result,
                     base_contract=contract,
                     bump=draft_bump,
@@ -540,7 +583,8 @@ def write_with_contract(
                     if hasattr(df, "sparkSession")
                     else None
                 )
-                draft_doc = draft_from_validation_result(
+                draft_doc = _propose_draft(
+                    dq_client=dq_client,
                     validation=result,
                     base_contract=contract,
                     bump=draft_bump,
@@ -582,7 +626,8 @@ def write_with_contract(
             metrics={},
             schema=inferred_schema,
         )
-        draft_doc = draft_from_validation_result(
+        draft_doc = _propose_draft(
+            dq_client=dq_client,
             validation=validation,
             base_contract=base,
             bump=draft_bump,
@@ -703,7 +748,8 @@ def write_with_contract(
         if should_infer_draft_from_dq:
             ds_id_for_draft = dq_dataset_id or dataset_id_from_ref(table=table, path=path)
             ds_ver_for_draft = dq_dataset_version
-            draft_doc = draft_from_validation_result(
+            draft_doc = _propose_draft(
+                dq_client=dq_client,
                 validation=result,
                 base_contract=contract,
                 bump=draft_bump,
