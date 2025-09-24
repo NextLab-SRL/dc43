@@ -18,8 +18,10 @@ The module exposes the following building blocks:
   `evaluate_contract`, yielding a `ValidationResult` with cached schema/metrics.
 * `build_metrics_payload(df, contract, validation=...)` — reuse cached metrics or
   compute fresh ones before submitting them to a governance adapter.
-* `attach_failed_expectations(df, contract, status, collect_examples)` — enrich a
-  governance `DQStatus` with failing expressions and optional sample rows.
+* `expectations_from_contract(contract)` — expose Spark SQL predicates matching
+  the contract expectations.
+* `attach_failed_expectations(df, contract, status)` — enrich a governance
+  `DQStatus` with failing expressions and violation counts.
 * `apply_contract(df, contract)` — align column order and types before reads and
   writes.
 
@@ -47,6 +49,12 @@ status = dq_client.submit_metrics(
     metrics=metrics_payload,
 )
 ```
+
+`validate_dataframe` treats schema violations (missing columns, type drift,
+required nulls) as blocking while downgrading data-quality rule failures to
+warnings by default so pipelines can keep running and rely on governance to
+decide the final verdict. Pass `expectation_severity="error"` when you want the
+Spark job to fail locally on expectation metrics as well.
 
 `submit_metrics` delegates the final compatibility verdict to whichever data
 quality governance adapter you configure (filesystem stub, Collibra, bespoke

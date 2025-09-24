@@ -4,9 +4,9 @@ The dc43 contract drafter now operates on runtime observations rather than Spark
 specific APIs.  The core helper lives in
 `dc43.components.contract_drafter.observations.draft_from_observations` and
 expects a schema snapshot plus optional metric payload produced by the data
-quality engine.  Spark pipelines can still rely on
-`dc43.components.integration.spark_quality.draft_from_dataframe` to capture the
-schema before delegating to the drafter.
+quality component.  Spark pipelines can capture the schema with
+`dc43.components.integration.spark_quality.schema_snapshot` before delegating to
+the drafter.
 
 ## Inputs and context
 

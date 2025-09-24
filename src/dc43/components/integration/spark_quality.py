@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, List, Literal, Mapping, Tuple
 
 try:  # pragma: no cover - optional dependency
     from pyspark.sql import DataFrame
@@ -13,12 +13,14 @@ except Exception:  # pragma: no cover
     F = None  # type: ignore
     col = None  # type: ignore
 
-from open_data_contract_standard.model import (  # type: ignore
-    OpenDataContractStandard,
-    SchemaProperty,
-)
+from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.data_quality.engine import ValidationResult, evaluate_contract
+from dc43.components.data_quality.engine import (
+    ExpectationSpec,
+    ValidationResult,
+    evaluate_contract,
+    expectation_specs,
+)
 from dc43.components.data_quality.governance import DQStatus
 from dc43.odcs import list_properties
 
@@ -97,46 +99,53 @@ def schema_snapshot(df: DataFrame) -> Dict[str, Dict[str, Any]]:
     return snapshot
 
 
-def _field_expectations(field: SchemaProperty) -> Dict[str, Tuple[str, str]]:
-    """Return expectation_name -> (SQL predicate, column name) for a single field."""
-
-    expectations: Dict[str, Tuple[str, str]] = {}
-    name = field.name or ""
-    if not name:
-        return expectations
-    if field.required:
-        expectations[f"not_null_{name}"] = (f"{name} IS NOT NULL", name)
-    if field.quality:
-        for q in field.quality:
-            if q.mustBeGreaterThan is not None:
-                expectations[f"gt_{name}"] = (f"{name} > {q.mustBeGreaterThan}", name)
-            if q.mustBeGreaterOrEqualTo is not None:
-                expectations[f"ge_{name}"] = (f"{name} >= {q.mustBeGreaterOrEqualTo}", name)
-            if q.mustBeLessThan is not None:
-                expectations[f"lt_{name}"] = (f"{name} < {q.mustBeLessThan}", name)
-            if q.mustBeLessOrEqualTo is not None:
-                expectations[f"le_{name}"] = (f"{name} <= {q.mustBeLessOrEqualTo}", name)
-            if q.rule == "enum" and isinstance(q.mustBe, list):
-                vals = ", ".join([f"'{v}'" for v in q.mustBe])
-                expectations[f"enum_{name}"] = (f"{name} IN ({vals})", name)
-            if q.rule == "regex" and isinstance(q.mustBe, str):
-                expectations[f"regex_{name}"] = (f"{name} RLIKE '{q.mustBe}'", name)
-    return expectations
+def _sql_literal(value: Any) -> str:
+    if isinstance(value, str):
+        escaped = value.replace("'", "\\'")
+        return f"'{escaped}'"
+    if value is None:
+        return "NULL"
+    return str(value)
 
 
-def field_expectations(contract: OpenDataContractStandard) -> Dict[str, Tuple[str, str]]:
-    """Return expectation_name -> (SQL predicate, column name) for the contract."""
-
-    expectations: Dict[str, Tuple[str, str]] = {}
-    for prop in list_properties(contract):
-        expectations.update(_field_expectations(prop))
-    return expectations
+def _sql_predicate(spec: ExpectationSpec) -> str | None:
+    column = spec.column
+    if not column:
+        return None
+    if spec.rule in {"not_null", "required"}:
+        return f"{column} IS NOT NULL"
+    if spec.rule == "gt":
+        return f"{column} > {_sql_literal(spec.params.get('threshold'))}"
+    if spec.rule == "ge":
+        return f"{column} >= {_sql_literal(spec.params.get('threshold'))}"
+    if spec.rule == "lt":
+        return f"{column} < {_sql_literal(spec.params.get('threshold'))}"
+    if spec.rule == "le":
+        return f"{column} <= {_sql_literal(spec.params.get('threshold'))}"
+    if spec.rule == "enum":
+        values = spec.params.get("values") or []
+        if not isinstance(values, (list, tuple, set)):
+            return None
+        literals = ", ".join(_sql_literal(v) for v in values)
+        return f"{column} IN ({literals})" if literals else None
+    if spec.rule == "regex":
+        pattern = spec.params.get("pattern")
+        if pattern is None:
+            return None
+        pattern_str = str(pattern).replace("'", "\\'")
+        return f"{column} RLIKE '{pattern_str}'"
+    return None
 
 
 def expectations_from_contract(contract: OpenDataContractStandard) -> Dict[str, str]:
-    """Return expectation_name -> SQL predicate for all fields in a contract."""
+    """Return expectation_name -> SQL predicate for all evaluable rules."""
 
-    return {key: expr for key, (expr, _) in field_expectations(contract).items()}
+    mapping: Dict[str, str] = {}
+    for spec in expectation_specs(contract):
+        predicate = _sql_predicate(spec)
+        if predicate:
+            mapping[spec.key] = predicate
+    return mapping
 
 
 def compute_metrics(df: DataFrame, contract: OpenDataContractStandard) -> Dict[str, Any]:
@@ -149,40 +158,47 @@ def compute_metrics(df: DataFrame, contract: OpenDataContractStandard) -> Dict[s
     total = df.count()
     metrics["row_count"] = total
 
-    expectations = field_expectations(contract)
     available_columns = set(df.columns)
-    for key, (expr, column) in expectations.items():
-        if column and column not in available_columns:
-            metrics[f"violations.{key}"] = total
+    specs = expectation_specs(contract)
+    for spec in specs:
+        if spec.rule == "query":
             continue
-        failed = df.filter(f"NOT ({expr})").count()
-        metrics[f"violations.{key}"] = failed
-
-    for field in list_properties(contract):
-        if field.unique or any((q.rule == "unique") for q in (field.quality or [])):
-            if not field.name:
+        if spec.rule == "unique":
+            column = spec.column
+            if not column:
                 continue
-            if field.name not in available_columns:
-                metrics[f"violations.unique_{field.name}"] = total
+            if column not in available_columns:
+                metrics[f"violations.{spec.key}"] = total
                 continue
-            distinct = df.select(field.name).distinct().count()
-            metrics[f"violations.unique_{field.name}"] = total - distinct
+            distinct = df.select(column).distinct().count()
+            metrics[f"violations.{spec.key}"] = total - distinct
+            continue
+        predicate = _sql_predicate(spec)
+        if not predicate:
+            continue
+        column = spec.column
+        if column and column not in available_columns:
+            metrics[f"violations.{spec.key}"] = total
+            continue
+        failed = df.filter(f"NOT ({predicate})").count()
+        metrics[f"violations.{spec.key}"] = failed
 
-    if contract.schema_:
-        for obj in contract.schema_:
-            if obj.quality:
-                for q in obj.quality:
-                    if q.query:
-                        name = q.name or q.rule or (obj.name or "query")
-                        if q.engine and q.engine != "spark_sql":
-                            continue
-                        try:
-                            df.createOrReplaceTempView("_dc43_dq_tmp")
-                            row = df.sparkSession.sql(q.query).collect()
-                            val = row[0][0] if row else None
-                        except Exception:  # pragma: no cover - runtime only
-                            val = None
-                        metrics[f"query.{name}"] = val
+    for spec in specs:
+        if spec.rule != "query":
+            continue
+        query = spec.params.get("query")
+        if not query:
+            continue
+        engine = (spec.params.get("engine") or "spark_sql").lower()
+        if engine and engine not in {"spark", "spark_sql"}:
+            continue
+        try:
+            df.createOrReplaceTempView("_dc43_dq_tmp")
+            row = df.sparkSession.sql(query).collect()
+            val = row[0][0] if row else None
+        except Exception:  # pragma: no cover - runtime only
+            val = None
+        metrics[f"query.{spec.key}"] = val
 
     return metrics
 
@@ -209,6 +225,7 @@ def validate_dataframe(
     strict_types: bool = True,
     allow_extra_columns: bool = True,
     collect_metrics: bool = True,
+    expectation_severity: Literal["error", "warning", "ignore"] = "warning",
 ) -> ValidationResult:
     """Validate ``df`` against ``contract`` using Spark-collected observations."""
 
@@ -219,6 +236,7 @@ def validate_dataframe(
         metrics=metrics,
         strict_types=strict_types,
         allow_extra_columns=allow_extra_columns,
+        expectation_severity=expectation_severity,
     )
 
 
@@ -250,25 +268,26 @@ def attach_failed_expectations(
     df: DataFrame,
     contract: OpenDataContractStandard,
     status: DQStatus,
-    *,
-    collect_examples: bool = False,
-    examples_limit: int = 5,
 ) -> DQStatus:
     """Augment ``status`` with failed expectations derived from Spark metrics."""
 
     metrics_map = status.details.get("metrics", {}) if status.details else {}
-    expectations = field_expectations(contract)
+    specs = expectation_specs(contract)
     failures: Dict[str, Dict[str, Any]] = {}
-    for key, (expr_text, column) in expectations.items():
-        cnt = metrics_map.get(f"violations.{key}", 0)
-        if cnt and cnt > 0:
-            info: Dict[str, Any] = {"count": cnt, "expression": expr_text}
-            if collect_examples and column in df.columns:
-                info["examples"] = [
-                    row.asDict()
-                    for row in df.filter(f"NOT ({expr_text})").limit(examples_limit).collect()
-                ]
-            failures[key] = info
+    for spec in specs:
+        if spec.rule == "query":
+            continue
+        metric_key = f"violations.{spec.key}"
+        cnt = metrics_map.get(metric_key, 0)
+        if not isinstance(cnt, (int, float)) or cnt <= 0:
+            continue
+        expr = _sql_predicate(spec)
+        info: Dict[str, Any] = {"count": int(cnt)}
+        if expr:
+            info["expression"] = expr
+        if spec.column:
+            info["column"] = spec.column
+        failures[spec.key] = info
     if failures:
         if not status.details:
             status.details = {}
@@ -319,45 +338,11 @@ def apply_contract(
     return df.select(*contract_exprs, *remaining)
 
 
-def draft_from_dataframe(
-    df: DataFrame,
-    base_contract: OpenDataContractStandard,
-    *,
-    metrics: Mapping[str, Any] | None = None,
-    collect_metrics: bool = False,
-    bump: str = "minor",
-    dataset_id: str | None = None,
-    dataset_version: str | None = None,
-    data_format: str | None = None,
-    dq_feedback: Dict[str, Any] | None = None,
-) -> OpenDataContractStandard:
-    """Convenience wrapper that drafts a contract from a Spark DataFrame."""
-
-    schema = schema_snapshot(df)
-    metrics_payload = dict(metrics) if metrics else {}
-    if collect_metrics and not metrics_payload:
-        metrics_payload = compute_metrics(df, base_contract)
-
-    from dc43.components.contract_drafter.observations import draft_from_observations
-
-    return draft_from_observations(
-        schema=schema,
-        metrics=metrics_payload or None,
-        base_contract=base_contract,
-        bump=bump,
-        dataset_id=dataset_id,
-        dataset_version=dataset_version,
-        data_format=data_format,
-        dq_feedback=dq_feedback,
-    )
-
-
 __all__ = [
     "SPARK_TYPES",
     "spark_type_name",
     "odcs_type_name_from_spark",
     "schema_snapshot",
-    "field_expectations",
     "expectations_from_contract",
     "compute_metrics",
     "collect_observations",
@@ -365,5 +350,4 @@ __all__ = [
     "build_metrics_payload",
     "attach_failed_expectations",
     "apply_contract",
-    "draft_from_dataframe",
 ]

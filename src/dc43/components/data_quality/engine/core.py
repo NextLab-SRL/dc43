@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -31,6 +31,17 @@ _TYPE_SYNONYMS: Dict[str, str] = {
 
 def _canonical_type(name: str) -> str:
     return _TYPE_SYNONYMS.get(name.lower(), name.lower()) if name else ""
+
+
+@dataclass(frozen=True)
+class ExpectationSpec:
+    """Description of a contract rule materialised into a metric key."""
+
+    key: str
+    rule: str
+    column: Optional[str] = None
+    params: Mapping[str, Any] = field(default_factory=dict)
+    optional: bool = False
 
 
 @dataclass
@@ -61,6 +72,150 @@ class ValidationResult:
         }
 
 
+def expectation_specs(contract: OpenDataContractStandard) -> List[ExpectationSpec]:
+    """Return metric specifications derived from the contract expectations."""
+
+    specs: List[ExpectationSpec] = []
+    for obj in contract.schema_ or []:
+        for field in obj.properties or []:
+            if not field.name:
+                continue
+            optional = not bool(field.required)
+            if field.required:
+                specs.append(
+                    ExpectationSpec(
+                        key=f"not_null_{field.name}",
+                        rule="not_null",
+                        column=field.name,
+                        optional=optional,
+                    )
+                )
+            if field.unique:
+                specs.append(
+                    ExpectationSpec(
+                        key=f"unique_{field.name}",
+                        rule="unique",
+                        column=field.name,
+                        optional=optional,
+                    )
+                )
+            for dq in field.quality or []:
+                if dq.mustBeGreaterThan is not None:
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"gt_{field.name}",
+                            rule="gt",
+                            column=field.name,
+                            params={"threshold": dq.mustBeGreaterThan},
+                            optional=optional,
+                        )
+                    )
+                if dq.mustBeGreaterOrEqualTo is not None:
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"ge_{field.name}",
+                            rule="ge",
+                            column=field.name,
+                            params={"threshold": dq.mustBeGreaterOrEqualTo},
+                            optional=optional,
+                        )
+                    )
+                if dq.mustBeLessThan is not None:
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"lt_{field.name}",
+                            rule="lt",
+                            column=field.name,
+                            params={"threshold": dq.mustBeLessThan},
+                            optional=optional,
+                        )
+                    )
+                if dq.mustBeLessOrEqualTo is not None:
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"le_{field.name}",
+                            rule="le",
+                            column=field.name,
+                            params={"threshold": dq.mustBeLessOrEqualTo},
+                            optional=optional,
+                        )
+                    )
+                if (dq.rule or "").lower() == "unique":
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"unique_{field.name}",
+                            rule="unique",
+                            column=field.name,
+                            optional=optional,
+                        )
+                    )
+                if (dq.rule or "").lower() == "enum" and isinstance(dq.mustBe, list):
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"enum_{field.name}",
+                            rule="enum",
+                            column=field.name,
+                            params={"values": dq.mustBe},
+                            optional=optional,
+                        )
+                    )
+                if (dq.rule or "").lower() == "regex" and dq.mustBe:
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"regex_{field.name}",
+                            rule="regex",
+                            column=field.name,
+                            params={"pattern": dq.mustBe},
+                            optional=optional,
+                        )
+                    )
+
+    for obj in contract.schema_ or []:
+        for dq in obj.quality or []:
+            if dq.query:
+                specs.append(
+                    ExpectationSpec(
+                        key=dq.name or dq.rule or (obj.name or "query"),
+                        rule="query",
+                        column=None,
+                        params={"query": dq.query, "engine": dq.engine},
+                    )
+                )
+
+    # Deduplicate specs keeping the first occurrence which matches column-level
+    # required expectations before optional overrides.
+    unique_specs: Dict[str, ExpectationSpec] = {}
+    for spec in specs:
+        unique_specs.setdefault(spec.key, spec)
+    return list(unique_specs.values())
+
+
+def _format_expectation_violation(spec: ExpectationSpec, count: int) -> str:
+    column = spec.column or "field"
+    if spec.rule in {"not_null", "required"}:
+        return f"column {column} contains {count} null value(s) but is required in the contract"
+    if spec.rule == "unique":
+        return f"column {column} has {count} duplicate value(s)"
+    if spec.rule == "enum":
+        allowed = spec.params.get("values")
+        if isinstance(allowed, Iterable):
+            allowed_str = ", ".join(map(str, allowed))
+        else:
+            allowed_str = str(allowed)
+        return f"column {column} contains {count} value(s) outside enum [{allowed_str}]"
+    if spec.rule == "regex":
+        return f"column {column} contains {count} value(s) not matching regex {spec.params.get('pattern')}"
+    if spec.rule == "gt":
+        return f"column {column} contains {count} value(s) not greater than {spec.params.get('threshold')}"
+    if spec.rule == "ge":
+        return f"column {column} contains {count} value(s) below {spec.params.get('threshold')}"
+    if spec.rule == "lt":
+        return f"column {column} contains {count} value(s) not less than {spec.params.get('threshold')}"
+    if spec.rule == "le":
+        return f"column {column} contains {count} value(s) above {spec.params.get('threshold')}"
+    return f"expectation {spec.key} failed {count} time(s)"
+
+
 def evaluate_contract(
     contract: OpenDataContractStandard,
     *,
@@ -68,6 +223,7 @@ def evaluate_contract(
     metrics: Mapping[str, Any] | None = None,
     strict_types: bool = True,
     allow_extra_columns: bool = True,
+    expectation_severity: Literal["error", "warning", "ignore"] = "error",
 ) -> ValidationResult:
     """Return a :class:`ValidationResult` derived from schema & metric payloads.
 
@@ -75,7 +231,9 @@ def evaluate_contract(
     runtime.  ``schema`` is expected to describe each field using the keys
     ``odcs_type`` (canonical primitive name), ``backend_type`` (optional raw
     engine type) and ``nullable`` (boolean).  ``metrics`` should contain the
-    contract-driven expectation counts emitted by the runtime.
+    contract-driven expectation counts emitted by the runtime.  Use
+    ``expectation_severity`` to control whether expectation violations are
+    treated as errors (default), downgraded to warnings, or ignored entirely.
     """
 
     schema_map: Dict[str, Dict[str, Any]] = {
@@ -127,24 +285,45 @@ def evaluate_contract(
                 f"violations.not_null_{name}",
                 f"violations.required_{name}",
             )
-            null_violations = None
-            for key in violation_keys:
-                if key in metrics_map:
-                    null_violations = metrics_map.get(key)
-                    break
-            if null_violations is None:
+            if not any(key in metrics_map for key in violation_keys):
                 warnings.append(
                     f"column {name} reported nullable by runtime but violation counts were not provided"
-                )
-            elif isinstance(null_violations, (int, float)) and null_violations > 0:
-                errors.append(
-                    f"column {name} contains {int(null_violations)} null value(s) but is required in the contract"
                 )
 
     if not allow_extra_columns and schema_map:
         extras = [name for name in schema_map.keys() if name not in field_map]
         if extras:
             warnings.append(f"extra columns present: {extras}")
+
+    if expectation_severity not in {"error", "warning", "ignore"}:
+        raise ValueError(f"Unsupported expectation severity: {expectation_severity}")
+
+    for spec in expectation_specs(contract):
+        if spec.rule == "query":
+            # Query expectations produce raw measurements that governance
+            # components interpret; they do not represent pass/fail metrics by
+            # themselves in the engine.
+            continue
+        metric_key = f"violations.{spec.key}"
+        metric_value = metrics_map.get(metric_key)
+        if metric_value is None:
+            if not spec.optional:
+                warnings.append(f"missing metric for expectation {spec.key}")
+            continue
+        if not isinstance(metric_value, (int, float)):
+            warnings.append(f"unexpected metric type for {spec.key}: {type(metric_value).__name__}")
+            continue
+        if metric_value > 0:
+            message = _format_expectation_violation(spec, int(metric_value))
+            severity = expectation_severity
+            if spec.rule in {"not_null", "required", "unique"}:
+                severity = "error"
+            if severity == "ignore":
+                continue
+            if severity == "error":
+                errors.append(message)
+            else:
+                warnings.append(message)
 
     return ValidationResult(
         ok=not errors,
@@ -155,4 +334,4 @@ def evaluate_contract(
     )
 
 
-__all__ = ["ValidationResult", "evaluate_contract"]
+__all__ = ["ExpectationSpec", "ValidationResult", "evaluate_contract", "expectation_specs"]

@@ -1,5 +1,5 @@
 """Data-quality engine primitives that evaluate observations."""
 
-from .core import ValidationResult, evaluate_contract
+from .core import ExpectationSpec, ValidationResult, evaluate_contract, expectation_specs
 
-__all__ = ["ValidationResult", "evaluate_contract"]
+__all__ = ["ExpectationSpec", "ValidationResult", "evaluate_contract", "expectation_specs"]

@@ -136,13 +136,7 @@ def run_pipeline(
     )
 
     if output_status and output_contract:
-        output_status = attach_failed_expectations(
-            df,
-            output_contract,
-            output_status,
-            collect_examples=collect_examples,
-            examples_limit=examples_limit,
-        )
+        output_status = attach_failed_expectations(df, output_contract, output_status)
 
     error: ValueError | None = None
     if run_type == "enforce":
