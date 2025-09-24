@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Mapping
 
 from ..interface import DQClient, DQStatus
+from dc43.components.data_quality.engine import evaluate_observations
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -64,14 +65,38 @@ class StubDQClient(DQClient):
         dataset_version: str,
         metrics: Dict[str, Any],
     ) -> DQStatus:
+        schema_payload = metrics.get("schema") if isinstance(metrics, dict) else None
+        metric_values = metrics.copy() if isinstance(metrics, dict) else {}
+        if "schema" in metric_values:
+            metric_values = dict(metric_values)
+            metric_values.pop("schema", None)
+
+        evaluation = evaluate_observations(
+            contract,
+            schema=schema_payload if isinstance(schema_payload, Mapping) else None,
+            metrics=metric_values,
+            strict_types=True,
+            allow_extra_columns=True,
+            expectation_severity="error",
+        )
+
         blocking = self.block_on_violation
         violations = 0
-        for k, v in metrics.items():
+        for k, v in metric_values.items():
             if k.startswith("violations.") or k.startswith("query."):
                 if isinstance(v, (int, float)):
                     violations += int(v)
-        status = "ok" if violations == 0 else ("block" if blocking else "warn")
-        details = {"violations": violations, "metrics": metrics}
+
+        if evaluation.errors:
+            status = "block" if blocking else "warn"
+        elif evaluation.warnings and blocking:
+            status = "warn"
+        else:
+            status = "ok"
+
+        details = evaluation.details
+        details = dict(details)
+        details["violations"] = violations
 
         path = self._status_path(dataset_id, dataset_version)
         logger.info("Persisting DQ status %s for %s@%s to %s", status, dataset_id, dataset_version, path)

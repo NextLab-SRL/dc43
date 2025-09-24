@@ -46,7 +46,7 @@ metrics and schema snapshots consumable by the governance interface.
 Technology-specific guides live under
 [`docs/implementations/data-quality-engine/`](implementations/data-quality-engine/):
 
-- [Spark observations helper](implementations/data-quality-engine/spark.md)
+- [Spark data-quality engine](implementations/data-quality-engine/spark.md)
 
 Document alternative engines (Soda, Great Expectations, warehouses, ...)
 in the same folder when you introduce them so users can evaluate which

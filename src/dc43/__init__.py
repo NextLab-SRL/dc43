@@ -5,12 +5,15 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .components.data_quality import DQClient, DQStatus, ValidationResult, evaluate_contract
-from .components.integration.spark_quality import (
+from .components.data_quality import (
+    DQClient,
+    DQStatus,
+    ValidationResult,
     apply_contract,
+    evaluate_contract,
+    odcs_type_name_from_spark,
     schema_snapshot,
     spark_type_name,
-    odcs_type_name_from_spark,
     validate_dataframe,
 )
 from .odcs import (

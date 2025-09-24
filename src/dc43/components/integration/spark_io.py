@@ -14,14 +14,15 @@ from pyspark.sql import DataFrame, SparkSession
 
 from dc43.components.contract_drafter import draft_from_observations
 from dc43.components.contract_store import ContractStore
-from dc43.components.data_quality import DQClient, DQStatus
-from dc43.components.data_quality.engine import ValidationResult
-from dc43.components.integration.spark_quality import (
-    apply_contract,
+from dc43.components.data_quality import (
+    DQClient,
+    DQStatus,
+    ValidationResult,
     build_metrics_payload,
     schema_snapshot,
     validate_dataframe,
 )
+from dc43.components.data_quality.validation import apply_contract
 from dc43.odcs import contract_identity, ensure_version
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore

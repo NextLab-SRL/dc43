@@ -1,4 +1,4 @@
-"""Spark-specific helpers that collect observations for the DQ engine."""
+"""Spark-backed data-quality engine helpers."""
 
 from __future__ import annotations
 
@@ -15,16 +15,11 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.data_quality.engine import (
-    ExpectationSpec,
-    ValidationResult,
-    evaluate_contract,
-    expectation_specs,
-)
+from .core import ExpectationSpec, ValidationResult, evaluate_contract, expectation_specs
 from dc43.components.data_quality.governance import DQStatus
-from dc43.odcs import list_properties
 
 
+# Minimal mapping from ODCS primitive type strings to Spark SQL types.
 _CANONICAL_TYPES: Dict[str, str] = {
     "string": "string",
     "bigint": "bigint",
@@ -51,6 +46,12 @@ _ALIASED_TYPES: Dict[str, str] = {
 SPARK_TYPES: Dict[str, str] = {**_CANONICAL_TYPES, **_ALIASED_TYPES}
 
 
+def spark_type_name(type_hint: str) -> str:
+    """Return a Spark SQL type name for a given ODCS primitive type string."""
+
+    return SPARK_TYPES.get(type_hint.lower(), type_hint.lower())
+
+
 def _normalize_spark_type(raw: Any) -> str:
     t = str(raw).lower()
     return (
@@ -62,12 +63,6 @@ def _normalize_spark_type(raw: Any) -> str:
         .replace("doubletype()", "double")
         .replace("floattype()", "float")
     )
-
-
-def spark_type_name(type_hint: str) -> str:
-    """Return a Spark SQL type name for a given ODCS primitive type string."""
-
-    return SPARK_TYPES.get(type_hint.lower(), type_hint.lower())
 
 
 def odcs_type_name_from_spark(raw: Any) -> str:
@@ -218,6 +213,27 @@ def collect_observations(
     return schema, metrics
 
 
+def evaluate_observations(
+    contract: OpenDataContractStandard,
+    *,
+    schema: Mapping[str, Mapping[str, Any]] | None,
+    metrics: Mapping[str, Any] | None,
+    strict_types: bool = True,
+    allow_extra_columns: bool = True,
+    expectation_severity: Literal["error", "warning", "ignore"] = "error",
+) -> ValidationResult:
+    """Validate cached observations using the runtime-agnostic engine."""
+
+    return evaluate_contract(
+        contract,
+        schema=schema,
+        metrics=metrics,
+        strict_types=strict_types,
+        allow_extra_columns=allow_extra_columns,
+        expectation_severity=expectation_severity,
+    )
+
+
 def validate_dataframe(
     df: DataFrame,
     contract: OpenDataContractStandard,
@@ -230,7 +246,7 @@ def validate_dataframe(
     """Validate ``df`` against ``contract`` using Spark-collected observations."""
 
     schema, metrics = collect_observations(df, contract, collect_metrics=collect_metrics)
-    return evaluate_contract(
+    return evaluate_observations(
         contract,
         schema=schema,
         metrics=metrics,
@@ -265,11 +281,10 @@ def build_metrics_payload(
 
 
 def attach_failed_expectations(
-    df: DataFrame,
     contract: OpenDataContractStandard,
     status: DQStatus,
 ) -> DQStatus:
-    """Augment ``status`` with failed expectations derived from Spark metrics."""
+    """Augment ``status`` with failed expectations derived from engine metrics."""
 
     metrics_map = status.details.get("metrics", {}) if status.details else {}
     specs = expectation_specs(contract)
@@ -295,49 +310,6 @@ def attach_failed_expectations(
     return status
 
 
-def apply_contract(
-    df: DataFrame,
-    contract: OpenDataContractStandard,
-    *,
-    auto_cast: bool = True,
-    select_only_contract_columns: bool = True,
-) -> DataFrame:
-    """Return a ``DataFrame`` aligned to the contract schema."""
-
-    if col is None:  # pragma: no cover - runtime guard
-        raise RuntimeError("pyspark is required to apply a contract to a DataFrame")
-
-    contract_column_names: List[str] = []
-    contract_exprs: List[Any] = []
-    for field in list_properties(contract):
-        name = field.name
-        if not name:
-            continue
-        contract_column_names.append(name)
-        target_type = spark_type_name(field.physicalType or field.logicalType or "string")
-        if name in df.columns:
-            if auto_cast:
-                contract_exprs.append(col(name).cast(target_type).alias(name))
-            else:
-                contract_exprs.append(col(name))
-        else:
-            from pyspark.sql.functions import lit
-
-            contract_exprs.append(lit(None).cast(target_type).alias(name))
-
-    if not contract_exprs:
-        return df
-
-    contract_df = df.select(*contract_exprs)
-    if select_only_contract_columns:
-        return contract_df
-
-    remaining = [col(c) for c in df.columns if c not in contract_column_names]
-    if not remaining:
-        return contract_df
-    return df.select(*contract_exprs, *remaining)
-
-
 __all__ = [
     "SPARK_TYPES",
     "spark_type_name",
@@ -346,8 +318,8 @@ __all__ = [
     "expectations_from_contract",
     "compute_metrics",
     "collect_observations",
+    "evaluate_observations",
     "validate_dataframe",
     "build_metrics_payload",
     "attach_failed_expectations",
-    "apply_contract",
 ]

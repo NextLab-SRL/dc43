@@ -18,8 +18,8 @@ from dc43.demo_app.server import (
     load_records,
     save_records,
 )
+from dc43.components.data_quality import attach_failed_expectations
 from dc43.components.data_quality.governance.stubs import StubDQClient
-from dc43.components.integration.spark_quality import attach_failed_expectations
 from dc43.components.integration.spark_io import read_with_contract, write_with_contract
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import SparkSession
@@ -136,7 +136,7 @@ def run_pipeline(
     )
 
     if output_status and output_contract:
-        output_status = attach_failed_expectations(df, output_contract, output_status)
+        output_status = attach_failed_expectations(output_contract, output_status)
 
     error: ValueError | None = None
     if run_type == "enforce":
