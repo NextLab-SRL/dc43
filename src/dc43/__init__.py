@@ -5,7 +5,13 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .components.data_quality import DataQualityManager, DQClient, DQStatus, QualityDraftContext
+from .components.data_quality import (
+    DataQualityManager,
+    DQClient,
+    DQStatus,
+    QualityAssessment,
+    QualityDraftContext,
+)
 from .components.data_quality.engine import (
     ExpectationSpec,
     ValidationResult,
@@ -45,6 +51,7 @@ except Exception:  # pragma: no cover
 __all__ = [
     "SemVer",
     "DataQualityManager",
+    "QualityAssessment",
     "QualityDraftContext",
     "ValidationResult",
     "ExpectationSpec",

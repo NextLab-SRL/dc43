@@ -18,7 +18,7 @@ when the retrieved verdict is blocking.
    evaluate the run through the data-quality engine.
 4. **Surface governance decisions** (status, drafts) back to the runtime
    so pipelines can block, warn, or persist draft proposals alongside the
-   dataset version.
+   dataset version—the manager decides when drafts exist.
 5. **Expose ergonomic APIs** for orchestrators—wrapping multiple
    component calls behind a simple read/write interface.
 

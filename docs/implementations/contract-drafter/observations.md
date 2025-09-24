@@ -1,13 +1,13 @@
 # Observations-Driven Contract Drafter
 
-The dc43 contract drafter now operates on runtime observations rather than
-Spark-specific APIs.  The core helper lives in
-`dc43.components.contract_drafter.observations.draft_from_observations` and
-expects a schema snapshot plus optional metric payload produced by the
-Spark-backed data-quality engine.  This guide still sits under the Spark
-implementation catalog because Spark pipelines are the ones capturing the
-observations.  Use `dc43.components.data_quality.integration.schema_snapshot`
-to gather the fields before delegating to the drafter.
+The dc43 contract drafter operates on runtime-agnostic observations. The
+core helper lives in
+`dc43.components.contract_drafter.observations.draft_from_observations`
+and expects a schema snapshot plus optional metric payload produced by
+the data-quality engine. Use
+`dc43.components.data_quality.integration.schema_snapshot` (or an
+equivalent helper in your runtime) to gather the fields before delegating
+to the drafter.
 
 ## Inputs and context
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Callable, Mapping, Optional, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -21,6 +21,15 @@ class QualityDraftContext:
     dataset_version: Optional[str]
     data_format: Optional[str]
     dq_feedback: Optional[Mapping[str, object]]
+
+
+@dataclass
+class QualityAssessment:
+    """Outcome returned after consulting the data-quality manager."""
+
+    status: Optional[DQStatus]
+    draft: Optional[OpenDataContractStandard] = None
+    observations_reused: bool = False
 
 
 class DataQualityManager:
@@ -99,6 +108,97 @@ class DataQualityManager:
             contract_version=contract_version,
         )
 
+    def review_validation_outcome(
+        self,
+        *,
+        validation: ValidationResult,
+        base_contract: OpenDataContractStandard,
+        bump: str = "minor",
+        context: QualityDraftContext | None = None,
+        draft_requested: bool = False,
+    ) -> Optional[OpenDataContractStandard]:
+        """Return a draft proposal when a validation mismatch requires it."""
+
+        if not draft_requested:
+            return None
+
+        dataset_id = context.dataset_id if context else None
+        dataset_version = context.dataset_version if context else None
+        data_format = context.data_format if context else None
+        dq_feedback = context.dq_feedback if context else None
+
+        return draft_from_validation_result(
+            validation=validation,
+            base_contract=base_contract,
+            bump=bump,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            data_format=data_format,
+            dq_feedback=dq_feedback,
+        )
+
+    def evaluate_dataset(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        dataset_id: str,
+        dataset_version: str,
+        validation: ValidationResult,
+        observations: Optional[Callable[[], Tuple[Mapping[str, object], bool]]] = None,
+        bump: str = "minor",
+        context: QualityDraftContext | None = None,
+        draft_on_violation: bool = False,
+    ) -> QualityAssessment:
+        """Evaluate the dataset status and optionally return a draft proposal."""
+
+        if not self._client:
+            return QualityAssessment(status=None, draft=None, observations_reused=False)
+
+        status = self._client.get_status(
+            contract_id=contract.id,
+            contract_version=contract.version,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
+
+        reused = False
+        if status and status.status in ("unknown", "stale") and observations is not None:
+            metrics, reused = observations()
+            refreshed = self._client.submit_metrics(
+                contract=contract,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+                metrics=dict(metrics),
+            )
+            if refreshed is not None:
+                status = refreshed
+
+        draft = None
+        if draft_on_violation and status and status.status in ("warn", "block"):
+            feedback: Mapping[str, object] | None = None
+            if context and context.dq_feedback:
+                feedback = dict(context.dq_feedback)
+            else:
+                feedback = {}
+            feedback = dict(feedback or {})
+            feedback.setdefault("status", status.status)
+            if status.reason:
+                feedback.setdefault("reason", status.reason)
+            local_context = QualityDraftContext(
+                dataset_id=context.dataset_id if context else None,
+                dataset_version=context.dataset_version if context else None,
+                data_format=context.data_format if context else None,
+                dq_feedback=feedback or None,
+            )
+            draft = self.propose_draft(
+                validation=validation,
+                base_contract=contract,
+                bump=bump,
+                context=local_context,
+            )
+
+        return QualityAssessment(status=status, draft=draft, observations_reused=reused)
+
     def propose_draft(
         self,
         *,
@@ -138,4 +238,4 @@ class DataQualityManager:
         )
 
 
-__all__ = ["DataQualityManager", "QualityDraftContext"]
+__all__ = ["DataQualityManager", "QualityAssessment", "QualityDraftContext"]
