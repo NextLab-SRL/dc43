@@ -41,7 +41,7 @@ flowchart LR
 | --- | --- | --- |
 | [`FSContractStore`](../src/dc43/components/contract_store/impl/filesystem.py) | Simple deployments, Databricks Repos, dev/test | Persists JSON files under a base path (DBFS, mounted volume). Easy to inspect and version with Git or object storage. |
 | [`DeltaContractStore`](../src/dc43/components/contract_store/impl/delta.py) | Teams standardizing on Delta or Unity Catalog | Stores contracts and metadata rows inside a Delta table. Supports ACID writes, SQL discovery, and time travel. Requires `pyspark`. |
-| [`CollibraContractStore`](../src/dc43/components/contract_store/impl/collibra.py) | Organizations with Collibra-driven governance | Delegates storage and lifecycle to Collibra via the `CollibraContractGateway`. Allows filtering by Collibra status (Draft, Validated, Deprecated) and can share workflows with Collibra stewards. |
+| [`CollibraContractStore`](../src/dc43/components/contract_store/impl/collibra.py) | Organizations with Collibra-driven governance | Delegates storage and lifecycle to Collibra via the `CollibraContractAdapter`. Allows filtering by Collibra status (Draft, Validated, Deprecated) and can share workflows with Collibra stewards. Compatibility aliases for the old gateway naming remain available. |
 
 ## Integrating Other Backends
 

@@ -66,16 +66,16 @@ adapter configuration so new datasets automatically follow the same conventions.
 
 ## Adapter implementation
 
-A Collibra-backed `DQClient` typically combines the existing Collibra gateway
+A Collibra-backed `DQClient` typically combines the existing Collibra adapter
 used for contract resolution with calls that manage compatibility assets:
 
 ```python
-from dc43.components.contract_store import HttpCollibraContractGateway
+from dc43.components.contract_store import HttpCollibraContractAdapter
 from dc43.components.data_quality.governance import DQStatus
 
 class CollibraDQClient:
-    def __init__(self, gateway: HttpCollibraContractGateway, asset_type: str):
-        self._gateway = gateway
+    def __init__(self, adapter: HttpCollibraContractAdapter, asset_type: str):
+        self._adapter = adapter
         self._asset_type = asset_type
 
     def submit_metrics(self, payload):
@@ -124,7 +124,8 @@ Key capabilities the adapter must offer:
   assets or workflow runs.
 * **Error handling** – failures when calling Collibra should not crash Spark or
   DLT jobs. Surface warnings, log telemetry, and retry gracefully.
-* **Testing** – pair the adapter with `StubCollibraContractGateway` or a mocked
+* **Testing** – pair the adapter with `StubCollibraContractAdapter` (aliases for
+  the gateway naming remain available) or a mocked
   HTTP client to validate mapping logic without calling the real API.
 
 ## References

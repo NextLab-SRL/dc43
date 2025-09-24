@@ -9,8 +9,8 @@ pipelines where a full governance platform is not available.
 
 * Persists compatibility entries as JSON files under the configured base
   path.
-* Aggregates simple counts of expectation violations returned by the DQ
-  engine.
+* Delegates schema + metric evaluation to the data-quality engine and
+  aggregates simple violation counts for convenience.
 * Supports `ok`, `warn`, `block`, and `unknown` statuses based on the
   submitted metrics.
 * Can be queried by `read_with_contract` / `write_with_contract` to gate
@@ -38,11 +38,14 @@ Each status file contains a payload similar to:
 {
   "status": "block",
   "details": {
-    "violations": 3,
+    "errors": ["missing required column: order_id"],
+    "warnings": [],
     "metrics": {
       "row_count": 100,
       "violations.not_null_order_id": 3
-    }
+    },
+    "schema": {"order_id": {"backend_type": "bigint", "nullable": false}},
+    "violations": 3
   }
 }
 ```

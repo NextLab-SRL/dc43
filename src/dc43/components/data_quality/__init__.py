@@ -1,20 +1,42 @@
-"""Data-quality governance protocols and runtime helpers."""
+"""Public entry points for dc43 data-quality components."""
 
 from .governance import DQClient, DQStatus
 from .engine import (
-    attach_failed_expectations,
-    compute_metrics,
-    expectations_from_contract,
+    ExpectationSpec,
+    ValidationResult,
+    evaluate_contract,
+    evaluate_observations,
+    expectation_specs,
 )
-from .validation import ValidationResult, apply_contract, validate_dataframe
+from .integration import (
+    SPARK_TYPES,
+    attach_failed_expectations,
+    build_metrics_payload,
+    collect_observations,
+    compute_metrics,
+    odcs_type_name_from_spark,
+    schema_snapshot,
+    spark_type_name,
+    validate_dataframe,
+)
+from .validation import apply_contract
 
 __all__ = [
     "DQClient",
     "DQStatus",
-    "attach_failed_expectations",
-    "compute_metrics",
-    "expectations_from_contract",
+    "SPARK_TYPES",
+    "ExpectationSpec",
     "ValidationResult",
+    "attach_failed_expectations",
+    "build_metrics_payload",
+    "collect_observations",
+    "compute_metrics",
+    "evaluate_contract",
+    "evaluate_observations",
+    "expectation_specs",
+    "odcs_type_name_from_spark",
+    "schema_snapshot",
+    "spark_type_name",
     "validate_dataframe",
     "apply_contract",
 ]

@@ -8,7 +8,7 @@ from open_data_contract_standard.model import (
     Description,
 )
 
-from dc43.components.data_quality.validation import apply_contract, validate_dataframe
+from dc43.components.data_quality import apply_contract, validate_dataframe
 from datetime import datetime
 from pyspark.sql.types import (
     StructType,
@@ -58,6 +58,9 @@ def test_validate_ok(spark):
     res = validate_dataframe(df, contract)
     assert res.ok
     assert not res.errors
+    assert res.metrics["row_count"] == 2
+    assert "schema" in res.details
+    assert res.schema["order_id"]["odcs_type"] == "bigint"
 
 
 def test_validate_type_mismatch(spark):
@@ -70,6 +73,7 @@ def test_validate_type_mismatch(spark):
     # amount is string but expected double, should report mismatch
     assert not res.ok
     assert any("type mismatch" in e for e in res.errors)
+    assert res.metrics["row_count"] == 1
 
 
 def test_validate_required_nulls(spark):
@@ -90,6 +94,7 @@ def test_validate_required_nulls(spark):
     res = validate_dataframe(df, contract)
     assert not res.ok
     assert any("contains" in e and "null" in e for e in res.errors)
+    assert res.schema["customer_id"]["nullable"]
 
 
 def test_apply_contract_aligns_and_casts(spark):
@@ -103,3 +108,17 @@ def test_apply_contract_aligns_and_casts(spark):
     dtypes = dict(out.dtypes)
     assert dtypes["order_id"] in ("bigint", "long")
     assert dtypes["amount"] in ("double",)
+
+
+def test_apply_contract_can_keep_extra_columns(spark):
+    contract = make_contract()
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR", "note"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency", "extra"],
+    )
+    out = apply_contract(df, contract, select_only_contract_columns=False)
+    assert out.columns[:5] == ["order_id", "customer_id", "order_ts", "amount", "currency"]
+    assert out.columns[-1] == "extra"

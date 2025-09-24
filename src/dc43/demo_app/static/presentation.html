@@ -206,10 +206,8 @@ negatives = enriched.filter("total < 0").count()</code></pre>
     <section>
       <h2>5. Inspect Violations</h2>
       <pre><code class="language-python">status = attach_failed_expectations(
-    enriched,
     contract,
     status,
-    collect_examples=True
 )</code></pre>
     </section>
 
