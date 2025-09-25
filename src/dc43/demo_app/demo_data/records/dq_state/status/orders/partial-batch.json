@@ -1,0 +1,27 @@
+{
+  "status": "block",
+  "reason": "violations-found",
+  "details": {
+    "status": "block",
+    "violations": 1,
+    "metrics": {
+      "row_count": 3,
+      "violations.gt_amount": 1
+    },
+    "warnings": [
+      "Full dataset contains negative amounts; governance marked it invalid."
+    ],
+    "auxiliary_statuses": [
+      {
+        "dataset_id": "orders::valid",
+        "dataset_version": "partial-batch",
+        "status": "ok",
+        "details": {
+          "violations": 0,
+          "note": "Valid subset without negative amounts",
+          "row_count": 2
+        }
+      }
+    ]
+  }
+}

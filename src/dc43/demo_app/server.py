@@ -473,6 +473,125 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "run_type": "enforce",
         },
     },
+    "read-partial-block": {
+        "label": "Blocked partial input",
+        "description": (
+            "<p>Attempts to process a batch flagged as invalid.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Orders batch <code>partial-batch</code>"
+            " mixes valid and invalid rows; governance marks the dataset as"
+            " <code>block</code>.</li>"
+            "<li><strong>Contract:</strong> Aims for <code>orders_enriched:1.1.0</code>"
+            " but aborts during the read step.</li>"
+            "<li><strong>Status:</strong> Default enforcement stops the run before"
+            " any writes occur.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Partial[orders:partial-batch] -->|DQ block| Halt[Read fails]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "enforce",
+            "inputs": {
+                "orders": {
+                    "dataset_version": "partial-batch",
+                    "path": str(DATA_DIR / "orders_partial.json"),
+                }
+            },
+        },
+    },
+    "read-partial-valid": {
+        "label": "Prefer valid subset",
+        "description": (
+            "<p>Steers reads toward the curated valid slice.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Uses <code>orders::valid</code>"
+            " derived from <code>partial-batch</code> to satisfy governance</li>"
+            "<li><strong>Contract:</strong> Continues to target"
+            " <code>orders_enriched:1.1.0</code>.</li>"
+            "<li><strong>Status:</strong> Read succeeds and downstream checks"
+            " only flag issues introduced later in the flow.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Partial[orders:partial-batch] --> Option[Governance]
+                    Option -->|valid slice| Valid[orders::valid]
+                    Valid --> Join[Join datasets]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "observe",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "inputs": {
+                "orders": {
+                    "dataset_id": "orders::valid",
+                    "dataset_version": "partial-batch",
+                    "path": str(DATA_DIR / "orders_partial_valid.json"),
+                }
+            },
+        },
+    },
+    "read-partial-full": {
+        "label": "Override with full batch",
+        "description": (
+            "<p>Documents what happens when the blocked data is forced through.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reuses the blocked"
+            " <code>partial-batch</code> but downgrades the read status.</li>"
+            "<li><strong>Contract:</strong> Still targets"
+            " <code>orders_enriched:1.1.0</code>.</li>"
+            "<li><strong>Status:</strong> The UI highlights the manual override"
+            " plus any downstream violations.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Partial[orders:partial-batch] --> Override[Override block]
+                    Override --> Join[Join datasets]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "observe",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "inputs": {
+                "orders": {
+                    "dataset_version": "partial-batch",
+                    "path": str(DATA_DIR / "orders_partial.json"),
+                    "status_strategy": {
+                        "name": "allow-block",
+                        "note": "Manual override: accepted partial batch",
+                        "target_status": "warn",
+                    },
+                }
+            },
+        },
+    },
     "split-lenient": {
         "label": "Split invalid rows",
         "description": (
@@ -941,6 +1060,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("collect_examples", False),
             p.get("examples_limit", 5),
             p.get("violation_strategy"),
+            p.get("inputs"),
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")

@@ -273,3 +273,169 @@ def test_demo_pipeline_strict_split_marks_error(tmp_path: Path) -> None:
             .config("spark.ui.enabled", "false") \
             .config("spark.sql.shuffle.partitions", "2") \
             .getOrCreate()
+
+
+def test_demo_pipeline_partial_read_block(tmp_path: Path) -> None:
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_partial_block"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+
+    try:
+        with pytest.raises(ValueError) as excinfo:
+            pipeline.run_pipeline(
+                contract_id="orders_enriched",
+                contract_version="1.1.0",
+                dataset_name=None,
+                dataset_version=None,
+                run_type="enforce",
+                inputs={
+                    "orders": {
+                        "dataset_version": "partial-batch",
+                        "path": str(Path(pipeline.DATA_DIR) / "orders_partial.json"),
+                    }
+                },
+            )
+
+        assert "DQ status is blocking" in str(excinfo.value)
+        assert pipeline.load_records() == original_records
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        SparkSession.builder.master("local[2]") \
+            .appName("dc43-tests") \
+            .config("spark.ui.enabled", "false") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .getOrCreate()
+
+
+def test_demo_pipeline_partial_read_valid_subset(tmp_path: Path) -> None:
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_partial_valid"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
+    dataset_name = "orders_enriched"
+    dataset_version = "partial-valid"
+
+    try:
+        dataset_name, dataset_version = pipeline.run_pipeline(
+            contract_id="orders_enriched",
+            contract_version="1.1.0",
+            dataset_name=None,
+            dataset_version=None,
+            run_type="observe",
+            collect_examples=True,
+            examples_limit=2,
+            inputs={
+                "orders": {
+                    "dataset_id": "orders::valid",
+                    "dataset_version": "partial-batch",
+                    "path": str(Path(pipeline.DATA_DIR) / "orders_partial_valid.json"),
+                }
+            },
+        )
+
+        assert dataset_name == "orders_enriched"
+        updated = pipeline.load_records()
+        last = updated[-1]
+        assert last.dataset_version == dataset_version
+        assert last.status == "ok"
+        orders_details = last.dq_details.get("orders", {})
+        assert orders_details.get("status", "ok") == "ok" or orders_details.get("status") is None
+        metrics = orders_details.get("metrics", {})
+        assert metrics.get("row_count") == 2
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
+        try:
+            contract = pipeline.store.get("orders_enriched", "1.1.0")
+        except FileNotFoundError:
+            contract = None
+        if contract is not None:
+            out_path = pipeline._resolve_output_path(contract, dataset_name, dataset_version)
+            if out_path.exists():
+                shutil.rmtree(out_path)
+        SparkSession.builder.master("local[2]") \
+            .appName("dc43-tests") \
+            .config("spark.ui.enabled", "false") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .getOrCreate()
+
+
+def test_demo_pipeline_partial_read_full_override(tmp_path: Path) -> None:
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_partial_full"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
+    dataset_name = "orders_enriched"
+    dataset_version = "partial-full"
+
+    try:
+        dataset_name, dataset_version = pipeline.run_pipeline(
+            contract_id="orders_enriched",
+            contract_version="1.1.0",
+            dataset_name=None,
+            dataset_version=None,
+            run_type="observe",
+            collect_examples=True,
+            examples_limit=2,
+            inputs={
+                "orders": {
+                    "dataset_version": "partial-batch",
+                    "path": str(Path(pipeline.DATA_DIR) / "orders_partial.json"),
+                    "status_strategy": {
+                        "name": "allow-block",
+                        "note": "Manual override: accepted partial batch",
+                        "target_status": "warn",
+                    },
+                }
+            },
+        )
+
+        updated = pipeline.load_records()
+        last = updated[-1]
+        assert last.dataset_name == dataset_name
+        orders_details = last.dq_details.get("orders", {})
+        overrides = orders_details.get("overrides", [])
+        assert any("accepted partial batch" in note for note in overrides)
+        assert last.status in {"warning", "error"}
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
+        try:
+            contract = pipeline.store.get("orders_enriched", "1.1.0")
+        except FileNotFoundError:
+            contract = None
+        if contract is not None:
+            out_path = pipeline._resolve_output_path(contract, dataset_name, dataset_version)
+            if out_path.exists():
+                shutil.rmtree(out_path)
+        SparkSession.builder.master("local[2]") \
+            .appName("dc43-tests") \
+            .config("spark.ui.enabled", "false") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .getOrCreate()

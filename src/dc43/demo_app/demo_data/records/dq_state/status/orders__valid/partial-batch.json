@@ -1,0 +1,12 @@
+{
+  "status": "ok",
+  "details": {
+    "status": "ok",
+    "violations": 0,
+    "metrics": {
+      "row_count": 2
+    },
+    "note": "Valid subset derived from partial-batch",
+    "source_dataset": "orders partial-batch"
+  }
+}

@@ -19,12 +19,15 @@ from dc43.demo_app.server import (
     save_records,
 )
 from dc43.components.data_quality import DataQualityManager
+from dc43.components.data_quality.governance import DQStatus
 from dc43.components.data_quality.integration import attach_failed_expectations
 from dc43.components.data_quality.governance.stubs import StubDQClient
 from dc43.components.integration.spark_io import (
+    ReadStatusContext,
+    ReadStatusStrategy,
+    StaticDatasetLocator,
     read_with_contract,
     write_with_contract,
-    StaticDatasetLocator,
 )
 from dc43.components.integration.violation_strategy import (
     NoOpWriteViolationStrategy,
@@ -33,7 +36,7 @@ from dc43.components.integration.violation_strategy import (
     WriteViolationStrategy,
 )
 from open_data_contract_standard.model import OpenDataContractStandard
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, when
 
 
@@ -65,6 +68,38 @@ def _resolve_output_path(
 
 
 StrategySpec = WriteViolationStrategy | str | Mapping[str, Any] | None
+
+
+class _DowngradeBlockingReadStrategy:
+    """Interpret blocking read statuses as warnings while annotating details."""
+
+    def __init__(self, *, note: str, target_status: str = "warn") -> None:
+        self.note = note
+        self.target_status = target_status
+
+    def apply(
+        self,
+        *,
+        dataframe: DataFrame,
+        status: DQStatus | None,
+        enforce: bool,
+        context: ReadStatusContext,
+    ) -> tuple[DataFrame, DQStatus | None]:
+        if status and status.status == "block":
+            details = dict(status.details or {})
+            notes = list(details.get("overrides", []))
+            notes.append(self.note)
+            details["overrides"] = notes
+            details.setdefault("status_before_override", status.status)
+            return dataframe, DQStatus(
+                status=self.target_status,
+                reason=status.reason,
+                details=details,
+            )
+        return dataframe, status
+
+
+ReadStrategySpec = ReadStatusStrategy | str | Mapping[str, Any] | None
 
 
 def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | None:
@@ -146,6 +181,90 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
     raise ValueError(f"Unknown violation strategy: {name}")
 
 
+def _resolve_read_status_strategy(spec: ReadStrategySpec) -> ReadStatusStrategy | None:
+    """Return a read status strategy instance for the supplied spec."""
+
+    if spec is None:
+        return None
+
+    if hasattr(spec, "apply"):
+        return spec  # type: ignore[return-value]
+
+    name: str
+    options: MutableMapping[str, Any]
+    if isinstance(spec, str):
+        name = spec
+        options = {}
+    elif isinstance(spec, Mapping):
+        opt_map: MutableMapping[str, Any] = dict(spec)
+        name = str(
+            opt_map.pop("name", None)
+            or opt_map.pop("strategy", None)
+            or opt_map.pop("type", None)
+            or ""
+        )
+        options = opt_map
+    else:  # pragma: no cover - defensive guard
+        raise TypeError(f"Unsupported read status strategy spec: {spec!r}")
+
+    key = name.lower()
+    if key in {"default", "none", "pass", "passthrough"}:
+        return None
+    if key in {"allow", "allow-block", "downgrade"}:
+        note = str(
+            options.pop(
+                "note",
+                "Blocked dataset accepted for downstream processing",
+            )
+        )
+        target = str(options.pop("target_status", "warn"))
+        return _DowngradeBlockingReadStrategy(note=note, target_status=target)
+
+    raise ValueError(f"Unknown read status strategy: {name}")
+
+
+def _apply_locator_overrides(
+    default: StaticDatasetLocator,
+    overrides: Mapping[str, Any] | None,
+) -> StaticDatasetLocator:
+    """Return a locator with overrides merged onto ``default``."""
+
+    if overrides is None:
+        return default
+
+    locator_candidate = overrides.get("dataset_locator") if isinstance(overrides, Mapping) else None
+    if locator_candidate is not None and hasattr(locator_candidate, "for_read"):
+        return locator_candidate  # type: ignore[return-value]
+
+    params = {
+        "dataset_id": overrides.get("dataset_id", default.dataset_id)
+        if isinstance(overrides, Mapping)
+        else default.dataset_id,
+        "dataset_version": overrides.get("dataset_version", default.dataset_version)
+        if isinstance(overrides, Mapping)
+        else default.dataset_version,
+        "path": overrides.get("path", default.path)
+        if isinstance(overrides, Mapping)
+        else default.path,
+        "table": overrides.get("table", default.table)
+        if isinstance(overrides, Mapping)
+        else default.table,
+        "format": overrides.get("format", default.format)
+        if isinstance(overrides, Mapping)
+        else default.format,
+    }
+
+    base_strategy = default.base
+    if isinstance(overrides, Mapping) and overrides.get("base") is not None:
+        candidate = overrides["base"]
+        if hasattr(candidate, "for_read"):
+            base_strategy = candidate  # type: ignore[assignment]
+        else:  # pragma: no cover - defensive guard for unexpected inputs
+            raise TypeError(f"Unsupported base locator: {candidate!r}")
+
+    return StaticDatasetLocator(base=base_strategy, **params)
+
+
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
@@ -155,19 +274,40 @@ def run_pipeline(
     collect_examples: bool = False,
     examples_limit: int = 5,
     violation_strategy: StrategySpec = None,
-    ) -> tuple[str, str]:
+    inputs: Mapping[str, Mapping[str, Any]] | None = None,
+) -> tuple[str, str]:
     """Run an example pipeline using the stored contract.
 
     When an output contract is supplied the dataset name is derived from the
     contract identifier so the recorded runs and filesystem layout match the
     declared server path.  Callers may supply a custom name when no contract is
-    available.  Returns the dataset name used along with the materialized
+    available.  The ``inputs`` mapping can override dataset locators, enforce
+    flags, and read-status strategies for each source (``"orders"`` and
+    ``"customers"``) so demo scenarios can highlight how partial datasets are
+    handled.  Returns the dataset name used along with the materialized
     version.
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     dq_client = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
     dq = DataQualityManager(dq_client, draft_store=store)
+
+    input_overrides: Mapping[str, Mapping[str, Any]] = inputs or {}
+
+    orders_overrides = input_overrides.get("orders")
+    orders_locator = _apply_locator_overrides(
+        StaticDatasetLocator(
+            dataset_id="orders",
+            dataset_version="1.1.0",
+        ),
+        orders_overrides,
+    )
+    orders_strategy = _resolve_read_status_strategy(
+        orders_overrides.get("status_strategy") if orders_overrides else None
+    )
+    orders_enforce = bool(
+        orders_overrides.get("enforce", True) if orders_overrides else True
+    )
 
     # Read primary orders dataset with its contract
     orders_df, orders_status = read_with_contract(
@@ -176,10 +316,24 @@ def run_pipeline(
         contract_store=store,
         expected_contract_version="==1.1.0",
         dq_client=dq,
-        dataset_locator=StaticDatasetLocator(
-            dataset_id="orders",
-            dataset_version="1.1.0",
+        dataset_locator=orders_locator,
+        status_strategy=orders_strategy,
+        enforce=orders_enforce,
+    )
+
+    customers_overrides = input_overrides.get("customers")
+    customers_locator = _apply_locator_overrides(
+        StaticDatasetLocator(
+            dataset_id="customers",
+            dataset_version="1.0.0",
         ),
+        customers_overrides,
+    )
+    customers_strategy = _resolve_read_status_strategy(
+        customers_overrides.get("status_strategy") if customers_overrides else None
+    )
+    customers_enforce = bool(
+        customers_overrides.get("enforce", True) if customers_overrides else True
     )
 
     # Join with customers lookup dataset
@@ -189,10 +343,9 @@ def run_pipeline(
         contract_store=store,
         expected_contract_version="==1.0.0",
         dq_client=dq,
-        dataset_locator=StaticDatasetLocator(
-            dataset_id="customers",
-            dataset_version="1.0.0",
-        ),
+        dataset_locator=customers_locator,
+        status_strategy=customers_strategy,
+        enforce=customers_enforce,
     )
 
     df = orders_df.join(customers_df, "customer_id")

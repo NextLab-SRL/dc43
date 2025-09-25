@@ -1,0 +1,2 @@
+{"order_id":1,"customer_id":1,"order_ts":"2023-11-01T09:15:00Z","amount":120.0,"currency":"EUR"}
+{"order_id":3,"customer_id":1,"order_ts":"2023-11-01T10:15:00Z","amount":120.0,"currency":"EUR"}
