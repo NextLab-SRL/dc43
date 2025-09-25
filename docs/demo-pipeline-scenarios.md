@@ -13,13 +13,13 @@ the UI mirrors what a catalog-integrated deployment would display.
 
 ```mermaid
 graph TD
-    Orders[orders:2024-01-01 dataset] --> Join
-    Customers[customers:2024-01-01 dataset] --> Join
+    Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join
+    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
     Join --> Align[Align to contract orders_enriched:«target»]
     Align --> Strategy{Violation strategy}
-    Strategy -->|full batch| Output[orders_enriched «run timestamp»\ncontract 1.1.0]
-    Strategy -->|valid| Valid[orders_enriched::valid «run timestamp»\ncontract 1.1.0]
-    Strategy -->|reject| Reject[orders_enriched::reject «run timestamp»\ncontract 1.1.0]
+    Strategy -->|full batch| Output["orders_enriched «run timestamp»\ncontract orders_enriched:1.1.0"]
+    Strategy -->|valid| Valid["orders_enriched::valid «run timestamp»\ncontract orders_enriched:1.1.0"]
+    Strategy -->|reject| Reject["orders_enriched::reject «run timestamp»\ncontract orders_enriched:1.1.0"]
     Strategy --> Governance[Stub DQ verdict store]
     Governance --> Drafts[Draft orders_enriched:«draft»]
     Drafts --> Registry[Demo dataset registry]

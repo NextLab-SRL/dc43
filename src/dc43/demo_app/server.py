@@ -18,14 +18,15 @@ Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Mapping
+from typing import List, Dict, Any, Tuple, Mapping, Optional
 from uuid import uuid4
 from threading import Lock
 from textwrap import dedent
 import json
+import os
+import re
 import shutil
 import tempfile
-import os
 
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -63,6 +64,48 @@ DATASETS_FILE = RECORDS_DIR / "datasets.json"
 # application operates on absolute paths that are isolated per run.
 shutil.copytree(SAMPLE_DIR / "data", DATA_DIR)
 shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
+
+
+_VERSION_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}(?:T[^_]+Z)?")
+_DERIVED_SUFFIXES = {"valid", "reject"}
+
+
+def _normalise_dataset_layout(root: Path) -> None:
+    """Ensure datasets under ``root`` follow ``dataset/version/file`` layout."""
+
+    for candidate in list(root.glob("*.json")):
+        stem = candidate.stem
+        if "_" not in stem:
+            dataset_dir = root / stem
+            if dataset_dir.exists():
+                candidate.unlink()
+            continue
+
+        parts = stem.split("_")
+        suffix: Optional[str] = None
+        if parts[-1] in _DERIVED_SUFFIXES:
+            suffix = parts.pop()
+
+        version = parts[-1]
+        if not _VERSION_PATTERN.fullmatch(version):
+            continue
+
+        dataset = "_".join(parts[:-1]) or parts[-1]
+        if not dataset:
+            continue
+
+        dataset_dir_name = dataset if suffix is None else f"{dataset}__{suffix}"
+        target_dir = root / dataset_dir_name / version
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        destination = target_dir / f"{dataset}.json"
+        if destination.exists():
+            candidate.unlink()
+        else:
+            candidate.rename(destination)
+
+
+_normalise_dataset_layout(DATA_DIR)
 
 # Prepare contracts with absolute server paths pointing inside the working dir.
 for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
@@ -356,9 +399,9 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Write[Plan result-no-existing-contract 1.0.0]
+                    Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Write["Plan result-no-existing-contract\nno output contract"]
                     Write -->|no contract| Block[Run blocked, nothing written]
                 """
             ).strip()
@@ -390,10 +433,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Validate[Align to contract 1.0.0]
-                    Validate --> Write[Write orders_enriched «timestamp»]
+                    Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Validate[Align to contract orders_enriched:1.0.0]
+                    Validate --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.0.0"]
                     Write --> Status[Run status: OK]
                 """
             ).strip()
@@ -427,9 +470,9 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Validate[Validate contract 1.1.0]
+                    Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Validate[Validate contract orders_enriched:1.1.0]
                     Validate --> Draft[Draft orders_enriched 1.2.0]
                     Validate -->|violations| Block[Run blocked, no dataset version]
                 """
@@ -464,9 +507,9 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Align[Schema align to contract 2.0.0]
+                    Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Align[Schema align to contract orders_enriched:2.0.0]
                     Align --> Draft[Draft orders_enriched 2.1.0]
                     Align -->|errors| Block[Run blocked, no dataset version]
                 """
@@ -499,9 +542,9 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Invalid[\"orders:2025-09-28\\nDQ status: block\"] -->|default enforcement| Halt[Read aborted]
-                    Invalid -.-> Valid[\"orders::valid 2025-09-28\"]
-                    Invalid -.-> Reject[\"orders::reject 2025-09-28\"]
+                    Invalid["orders 2025-09-28\ncontract orders:1.1.0\nDQ status: block"] -->|default enforcement| Halt[Read aborted]
+                    Invalid -.-> Valid["orders::valid 2025-09-28\ncontract orders:1.1.0"]
+                    Invalid -.-> Reject["orders::reject 2025-09-28\ncontract orders:1.1.0"]
                 """
             ).strip()
             + "</div>"
@@ -539,10 +582,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Valid[\"orders::valid 2025-09-28\"] --> Join[Join datasets]
-                    Join --> Write[\"orders_enriched «timestamp»\\ncontract 1.1.0\"]
+                    Valid["orders::valid 2025-09-28\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Join --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
                     Write --> Governance[Governance verdict ok]
-                    Governance --> Status[\"DQ status: ok\"]
+                    Governance --> Status["DQ status: ok"]
                 """
             ).strip()
             + "</div>"
@@ -584,12 +627,12 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Valid[\"orders::valid 2025-09-28\"] --> Join[Join datasets]
+                    Valid["orders::valid 2025-09-28\ncontract orders:1.1.0"] --> Join[Join datasets]
                     Join --> Adjust[Lower amount to 60]
-                    Adjust --> Write[\"orders_enriched «timestamp»\\ncontract 1.1.0\"]
+                    Adjust --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
                     Write --> Governance[Governance verdict block]
-                    Governance --> Draft[\"Draft orders_enriched 1.2.0\"]
-                    Governance --> Status[\"DQ status: block\"]
+                    Governance --> Draft["Draft orders_enriched 1.2.0"]
+                    Governance --> Status["DQ status: block"]
                 """
             ).strip()
             + "</div>"
@@ -637,11 +680,11 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Invalid[\"orders:2025-09-28\\nDQ status: block\"] --> Override[Downgrade to warn]
-                    Override --> Write[\"orders_enriched «timestamp»\\ncontract 1.1.0\"]
+                    Invalid["orders 2025-09-28\ncontract orders:1.1.0\nDQ status: block"] --> Override[Downgrade to warn]
+                    Override --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
                     Write --> Governance[Governance verdict warn]
-                    Governance --> Draft[\"Draft orders_enriched 1.2.0\"]
-                    Governance --> Status[\"DQ status: warn\"]
+                    Governance --> Draft["Draft orders_enriched 1.2.0"]
+                    Governance --> Status["DQ status: warn"]
                 """
             ).strip()
             + "</div>"
@@ -692,13 +735,13 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Validate[Validate contract 1.1.0]
+                    Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Validate[Validate contract orders_enriched:1.1.0]
                     Validate --> Strategy[Split strategy]
-                    Strategy --> Full[orders_enriched «timestamp»]
-                    Strategy --> Valid[orders_enriched::valid «timestamp»]
-                    Strategy --> Reject[orders_enriched::reject «timestamp»]
+                    Strategy --> Full["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Strategy --> Valid["orders_enriched::valid «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Strategy --> Reject["orders_enriched::reject «timestamp»\ncontract orders_enriched:1.1.0"]
                 """
             ).strip()
             + "</div>"
