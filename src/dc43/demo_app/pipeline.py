@@ -73,7 +73,7 @@ def run_pipeline(
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     dq_client = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
-    dq = DataQualityManager(dq_client)
+    dq = DataQualityManager(dq_client, draft_store=store)
 
     # Read primary orders dataset with its contract
     orders_contract = store.get("orders", "1.1.0")
@@ -190,6 +190,12 @@ def run_pipeline(
             summary.update(extras)
         if summary:
             output_details["dq_status"] = summary
+
+    draft_version = output_details.get("draft_contract_version")
+    if not draft_version and dq_payload:
+        draft_version = dq_payload.get("draft_contract_version")
+    if draft_version:
+        output_details.setdefault("draft_contract_version", draft_version)
 
     combined_details = {
         "orders": orders_status.details if orders_status else None,

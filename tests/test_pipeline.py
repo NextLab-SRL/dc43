@@ -15,6 +15,7 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
     backup = tmp_path / "dq_state_backup"
     if dq_dir.exists():
         shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
 
     try:
         with pytest.raises(ValueError):
@@ -36,13 +37,24 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
         assert "gt_amount" in fails
         assert fails["gt_amount"]["count"] > 0
         assert out.get("dq_status", {}).get("status") in {"block", "warn", "error"}
-        assert last.draft_contract_version is None
+        assert last.draft_contract_version == "1.2.0"
+        draft_path = (
+            Path(pipeline.store.base_path)
+            / "orders_enriched"
+            / f"{last.draft_contract_version}.json"
+        )
+        assert draft_path.exists()
     finally:
         pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
             shutil.copytree(backup, dq_dir)
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
         # Recreate the shared Spark session stopped by the demo pipeline so
         # subsequent tests relying on the ``spark`` fixture continue to work.
         SparkSession.builder.master("local[2]") \
@@ -58,6 +70,7 @@ def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
     backup = tmp_path / "dq_state_backup_schema"
     if dq_dir.exists():
         shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
 
     try:
         with pytest.raises(ValueError) as excinfo:
@@ -80,12 +93,24 @@ def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
         fails = output.get("failed_expectations", {})
         assert fails
         assert last.violations >= len(output.get("errors", []))
+        assert last.draft_contract_version == "2.1.0"
+        draft_path = (
+            Path(pipeline.store.base_path)
+            / "orders_enriched"
+            / f"{last.draft_contract_version}.json"
+        )
+        assert draft_path.exists()
     finally:
         pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
             shutil.copytree(backup, dq_dir)
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
         SparkSession.builder.master("local[2]") \
             .appName("dc43-tests") \
             .config("spark.ui.enabled", "false") \

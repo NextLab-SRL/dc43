@@ -12,7 +12,12 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.components.data_quality import DataQualityManager, DQClient, DQStatus
+from dc43.components.data_quality import (
+    DataQualityManager,
+    DQClient,
+    DQStatus,
+    QualityDraftContext,
+)
 from dc43.components.data_quality.engine import ValidationResult
 from dc43.components.data_quality.integration import build_metrics_payload, validate_dataframe
 from dc43.components.data_quality.validation import apply_contract
@@ -472,6 +477,36 @@ def write_with_contract(
                 if status.reason:
                     details_snapshot.setdefault("reason", status.reason)
                 raise ValueError(f"DQ violation: {details_snapshot or status.status}")
+        request_draft = False
+        if contract:
+            if not result.ok:
+                request_draft = True
+            elif status and status.status not in (None, "ok"):
+                request_draft = True
+        if request_draft:
+            dq_feedback: Mapping[str, Any] | None = None
+            if status and status.details:
+                dq_feedback = dict(status.details)
+                if status.reason:
+                    dq_feedback.setdefault("reason", status.reason)
+                dq_feedback.setdefault("status", status.status)
+            context = QualityDraftContext(
+                dataset_id=dq_dataset_id,
+                dataset_version=dq_dataset_version,
+                data_format=format,
+                dq_feedback=dq_feedback,
+            )
+            draft_contract = quality_manager.review_validation_outcome(
+                validation=result,
+                base_contract=contract,
+                context=context,
+                draft_requested=True,
+            )
+            if draft_contract is not None:
+                if status:
+                    details = dict(status.details or {})
+                    details.setdefault("draft_contract_version", draft_contract.version)
+                    status.details = details
         if assessment.draft and enforce:
             raise ValueError(
                 "DQ governance returned a draft contract for the submitted dataset, "
