@@ -56,7 +56,7 @@ def test_dataset_pages_without_contract():
         contract_id="",
         contract_version="",
         dataset_name="missing-contract-dataset",
-        dataset_version="1.0.0",
+        dataset_version="2024-12-01",
         status="error",
         dq_details={},
         run_type="enforce",
@@ -73,7 +73,7 @@ def test_dataset_pages_without_contract():
         assert resp_versions.status_code == 200
         assert "No contract" in resp_versions.text
 
-        resp_detail = client.get("/datasets/missing-contract-dataset/1.0.0")
+        resp_detail = client.get("/datasets/missing-contract-dataset/2024-12-01")
         assert resp_detail.status_code == 200
         assert "No contract recorded for this run" in resp_detail.text
     finally:

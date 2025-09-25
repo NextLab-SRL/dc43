@@ -293,7 +293,7 @@ def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
                 inputs={
                     "orders": {
                         "dataset_version": "2025-09-28",
-                        "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28.json"),
+                        "path": str(Path(pipeline.DATA_DIR) / "orders" / "2025-09-28"),
                     }
                 },
             )
@@ -336,7 +336,7 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
                 "orders": {
                     "dataset_id": "orders::valid",
                     "dataset_version": "2025-09-28",
-                    "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28_valid.json"),
+                    "path": str(Path(pipeline.DATA_DIR) / "orders__valid" / "2025-09-28"),
                 }
             },
         )
@@ -400,7 +400,7 @@ def test_demo_pipeline_valid_subset_invalid_output(tmp_path: Path) -> None:
                     "orders": {
                         "dataset_id": "orders::valid",
                         "dataset_version": "2025-09-28",
-                        "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28_valid.json"),
+                        "path": str(Path(pipeline.DATA_DIR) / "orders__valid" / "2025-09-28"),
                     }
                 },
                 output_adjustment="valid-subset-violation",
@@ -469,7 +469,7 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
             inputs={
                 "orders": {
                     "dataset_version": "2025-09-28",
-                    "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28.json"),
+                    "path": str(Path(pipeline.DATA_DIR) / "orders" / "2025-09-28"),
                     "status_strategy": {
                         "name": "allow-block",
                         "note": "Manual override: accepted 2025-09-28 batch",

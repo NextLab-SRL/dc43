@@ -112,7 +112,7 @@ contract = OpenDataContractStandard(
   "name": "Orders",
   "description": {"usage": "Sample orders contract"},
   "status": "active",
-  "servers": [ { "server": "local", "type": "filesystem", "path": "data/orders.json", "format": "json" } ],
+  "servers": [ { "server": "local", "type": "filesystem", "path": "data/orders", "format": "json" } ],
   "schema": [
     {
       "name": "orders",
@@ -138,7 +138,7 @@ contract = OpenDataContractStandard(
     contract_id="orders",
     contract_store=store,
     dq_client=dq,
-    dataset_locator=StaticDatasetLocator(path="orders.json")
+    dataset_locator=StaticDatasetLocator(dataset_version="2025-09-28")
 )</code></pre>
     </section>
 
@@ -154,7 +154,7 @@ contract = OpenDataContractStandard(
 
     <section>
       <h2>Manual Alternative</h2>
-      <pre><code class="language-python">df = spark.read.json("orders.json")
+      <pre><code class="language-python">df = spark.read.json("orders/2025-09-28")
 errors = validate_schema(df)
 if errors:
     raise ValueError(errors)</code></pre>

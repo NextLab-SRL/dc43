@@ -94,13 +94,21 @@ for _r in _sample_records:
     if not _srv or not _srv.path:
         continue
     _dest = Path(_srv.path)
-    _src = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
-    if not _src.exists():
-        continue
     base = _dest.parent if _dest.suffix else _dest
-    _ds_dir = base / _r["dataset_name"] / _r["dataset_version"]
-    _ds_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_src, _ds_dir / _src.name)
+    if base.name == _r["dataset_name"]:
+        target_root = base / _r["dataset_version"]
+    else:
+        target_root = base / _r["dataset_name"] / _r["dataset_version"]
+    _base_dir = SAMPLE_DIR / "data" / _r["dataset_name"]
+    _src_dir = _base_dir / _r["dataset_version"]
+    if _src_dir.is_dir():
+        shutil.copytree(_src_dir, target_root, dirs_exist_ok=True)
+        continue
+    _src_file = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
+    if not _src_file.exists():
+        continue
+    target_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_src_file, target_root / _src_file.name)
 
 app = FastAPI(title="DC43 Demo")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -337,8 +345,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> None provided, so no draft can be"
             " created.</li>"
             "<li><strong>Writes:</strong> Planned dataset <code>result-no-existing-contract</code>"
-            " version <code>1.0.0</code> is blocked before any files are"
-            " materialised.</li>"
+            " is blocked before any files are materialised, so no version is"
+            " assigned.</li>"
             "<li><strong>Status:</strong> The run exits with an error because the contract is"
             " missing.</li>"
             "</ul>"
@@ -373,9 +381,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.0.0</code>"
             " with no draft changes.</li>"
             "<li><strong>Writes:</strong> Persists dataset <code>orders_enriched</code>"
-            " version <code>1.0.0</code> on the first run; later runs"
-            " auto-increment the patch segment (<code>1.0.1</code>,"
-            " <code>1.0.2</code>, …).</li>"
+            " tagged with the run timestamp so repeated runs never collide.</li>"
             "<li><strong>Status:</strong> Post-write validation reports OK.</li>"
             "</ul>"
         ),
@@ -387,7 +393,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                     Orders[orders:1.1.0] --> Join[Join datasets]
                     Customers[customers:1.0.0] --> Join
                     Join --> Validate[Align to contract 1.0.0]
-                    Validate --> Write[Write orders_enriched 1.0.x]
+                    Validate --> Write[Write orders_enriched «timestamp»]
                     Write --> Status[Run status: OK]
                 """
             ).strip()
@@ -410,8 +416,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>orders_enriched:1.1.0</code> and prepares draft"
             " <code>orders_enriched:1.2.0</code>.</li>"
             "<li><strong>Writes:</strong> Planned dataset"
-            " <code>orders_enriched</code> version <code>1.0.x</code> is never"
-            " persisted because post-write validation fails.</li>"
+            " <code>orders_enriched</code> would have been tagged with the run"
+            " timestamp, but persistence halts because post-write validation fails.</li>"
             "<li><strong>Status:</strong> The enforcement run errors when rule"
             " <code>amount &gt; 100</code> is violated.</li>"
             "</ul>"
@@ -507,7 +513,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "inputs": {
                 "orders": {
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders_2025-09-28.json"),
+                    "path": str(DATA_DIR / "orders" / "2025-09-28"),
                 }
             },
         },
@@ -522,7 +528,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> Applies <code>orders_enriched:1.1.0</code>"
             " and keeps draft creation disabled.</li>"
             "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
-            " version <code>1.0.x</code> under contract"
+            " stamped with the run timestamp under contract"
             " <code>orders_enriched:1.1.0</code> with a clean DQ verdict.</li>"
             "<li><strong>Governance:</strong> Stub evaluates post-write metrics"
             " and records an OK status.</li>"
@@ -534,7 +540,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 """
                 flowchart TD
                     Valid[\"orders::valid 2025-09-28\"] --> Join[Join datasets]
-                    Join --> Write[\"orders_enriched 1.0.x\\ncontract 1.1.0\"]
+                    Join --> Write[\"orders_enriched «timestamp»\\ncontract 1.1.0\"]
                     Write --> Governance[Governance verdict ok]
                     Governance --> Status[\"DQ status: ok\"]
                 """
@@ -551,7 +557,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 "orders": {
                     "dataset_id": "orders::valid",
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders_2025-09-28_valid.json"),
+                    "path": str(DATA_DIR / "orders__valid" / "2025-09-28"),
                 }
             },
         },
@@ -565,8 +571,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>orders::valid 2025-09-28</code> slice.</li>"
             "<li><strong>Contract:</strong> Writes to"
             " <code>orders_enriched</code> under <code>orders_enriched:1.1.0</code>.</li>"
-            "<li><strong>Outputs:</strong> Produces <code>orders_enriched 1.0.x</code>"
-            " (contract <code>1.1.0</code>) but post-write checks fail because"
+            "<li><strong>Outputs:</strong> Produces <code>orders_enriched</code>"
+            " (timestamped under contract <code>1.1.0</code>) but post-write checks fail because"
             " the demo purposely lowers one amount below the"
             " <code>&gt; 100</code> expectation.</li>"
             "<li><strong>Governance:</strong> Stub DQ client records a blocking"
@@ -580,7 +586,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 flowchart TD
                     Valid[\"orders::valid 2025-09-28\"] --> Join[Join datasets]
                     Join --> Adjust[Lower amount to 60]
-                    Adjust --> Write[\"orders_enriched 1.0.x\\ncontract 1.1.0\"]
+                    Adjust --> Write[\"orders_enriched «timestamp»\\ncontract 1.1.0\"]
                     Write --> Governance[Governance verdict block]
                     Governance --> Draft[\"Draft orders_enriched 1.2.0\"]
                     Governance --> Status[\"DQ status: block\"]
@@ -598,7 +604,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 "orders": {
                     "dataset_id": "orders::valid",
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders_2025-09-28_valid.json"),
+                    "path": str(DATA_DIR / "orders__valid" / "2025-09-28"),
                 }
             },
             "output_adjustment": "valid-subset-violation",
@@ -618,8 +624,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> Applies"
             " <code>orders_enriched:1.1.0</code> and captures draft"
             " <code>orders_enriched:1.2.0</code>.</li>"
-            "<li><strong>Outputs:</strong> Writes <code>orders_enriched 1.0.x</code>"
-            " (contract <code>1.1.0</code>) while surfacing the manual override"
+            "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
+            " (timestamped under contract <code>1.1.0</code>) while surfacing the manual override"
             " and the reject-row metrics.</li>"
             "<li><strong>Governance:</strong> Stub records the downgrade in the"
             " run summary alongside violation counts and the explicit override"
@@ -632,7 +638,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 """
                 flowchart TD
                     Invalid[\"orders:2025-09-28\\nDQ status: block\"] --> Override[Downgrade to warn]
-                    Override --> Write[\"orders_enriched 1.0.x\\ncontract 1.1.0\"]
+                    Override --> Write[\"orders_enriched «timestamp»\\ncontract 1.1.0\"]
                     Write --> Governance[Governance verdict warn]
                     Governance --> Draft[\"Draft orders_enriched 1.2.0\"]
                     Governance --> Status[\"DQ status: warn\"]
@@ -649,7 +655,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "inputs": {
                 "orders": {
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders_2025-09-28.json"),
+                    "path": str(DATA_DIR / "orders" / "2025-09-28"),
                     "status_strategy": {
                         "name": "allow-block",
                         "note": "Manual override: accepted 2025-09-28 batch",
@@ -672,7 +678,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>orders_enriched:1.1.0</code> and stores draft"
             " <code>orders_enriched:1.2.0</code> when rejects exist.</li>"
             "<li><strong>Writes:</strong> Persists three datasets sharing the same"
-            " auto-incremented version: the contracted"
+            " timestamp: the contracted"
             " <code>orders_enriched</code> (full batch),"
             " <code>orders_enriched::valid</code>, and"
             " <code>orders_enriched::reject</code>.</li>"
@@ -690,9 +696,9 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                     Customers[customers:1.0.0] --> Join
                     Join --> Validate[Validate contract 1.1.0]
                     Validate --> Strategy[Split strategy]
-                    Strategy --> Full[orders_enriched 1.0.x]
-                    Strategy --> Valid[orders_enriched::valid 1.0.x]
-                    Strategy --> Reject[orders_enriched::reject 1.0.x]
+                    Strategy --> Full[orders_enriched «timestamp»]
+                    Strategy --> Valid[orders_enriched::valid «timestamp»]
+                    Strategy --> Reject[orders_enriched::reject «timestamp»]
                 """
             ).strip()
             + "</div>"
@@ -1060,6 +1066,8 @@ def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, 
         base = base.parent
     if not base.is_absolute():
         base = data_root / base
+    if base.name == dataset_name:
+        return base / dataset_version
     return base / dataset_name / dataset_version
 
 

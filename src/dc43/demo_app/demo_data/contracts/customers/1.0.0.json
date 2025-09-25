@@ -10,7 +10,7 @@
     {
       "server": "local",
       "type": "filesystem",
-      "path": "data/customers.json",
+      "path": "data/customers",
       "format": "json"
     }
   ],

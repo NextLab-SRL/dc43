@@ -7,6 +7,7 @@ validation, perform transformations (omitted) and write the result while
 recording the dataset version in the demo app's registry.
 """
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Sequence
 
@@ -41,12 +42,16 @@ from pyspark.sql.functions import col, when
 
 
 def _next_version(existing: list[str]) -> str:
-    """Return the next patch version given existing semver strings."""
-    if not existing:
-        return "1.0.0"
-    parts = [list(map(int, v.split("."))) for v in existing]
-    major, minor, patch = max(parts)
-    return f"{major}.{minor}.{patch + 1}"
+    """Return a new ISO-8601 timestamp not present in ``existing``."""
+
+    used = set(existing)
+    offset = 0
+    while True:
+        candidate = (datetime.now(timezone.utc) + timedelta(seconds=offset)).isoformat()
+        candidate = candidate.replace("+00:00", "Z")
+        if candidate not in used:
+            return candidate
+        offset += 1
 
 
 def _resolve_output_path(
@@ -328,7 +333,8 @@ def run_pipeline(
     orders_locator = _apply_locator_overrides(
         StaticDatasetLocator(
             dataset_id="orders",
-            dataset_version="1.1.0",
+            dataset_version="2024-01-01",
+            path=str(DATA_DIR / "orders" / "2024-01-01"),
         ),
         orders_overrides,
     )
@@ -355,7 +361,8 @@ def run_pipeline(
     customers_locator = _apply_locator_overrides(
         StaticDatasetLocator(
             dataset_id="customers",
-            dataset_version="1.0.0",
+            dataset_version="2024-01-01",
+            path=str(DATA_DIR / "customers" / "2024-01-01"),
         ),
         customers_overrides,
     )
