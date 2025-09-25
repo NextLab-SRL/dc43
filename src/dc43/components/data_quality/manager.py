@@ -127,6 +127,11 @@ class DataQualityManager:
         validation: ValidationResult,
         base_contract: OpenDataContractStandard,
         bump: str = "minor",
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
+        data_format: str | None = None,
+        dq_status: DQStatus | None = None,
+        dq_feedback: Mapping[str, object] | None = None,
         context: QualityDraftContext | None = None,
         draft_requested: bool = False,
     ) -> Optional[OpenDataContractStandard]:
@@ -135,11 +140,26 @@ class DataQualityManager:
         if not draft_requested:
             return None
 
+        feedback: Mapping[str, object] | None = dq_feedback
+        if feedback is None and dq_status is not None:
+            payload: dict[str, object] = dict(dq_status.details or {})
+            if dq_status.reason:
+                payload.setdefault("reason", dq_status.reason)
+            payload.setdefault("status", dq_status.status)
+            feedback = payload or None
+
+        effective_context = context or QualityDraftContext(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            data_format=data_format,
+            dq_feedback=feedback,
+        )
+
         draft = self.propose_draft(
             validation=validation,
             base_contract=base_contract,
             bump=bump,
-            context=context,
+            context=effective_context,
         )
 
         return draft
@@ -182,26 +202,16 @@ class DataQualityManager:
 
         draft = None
         if draft_on_violation and status and status.status in ("warn", "block"):
-            feedback: Mapping[str, object] | None = None
-            if context and context.dq_feedback:
-                feedback = dict(context.dq_feedback)
-            else:
-                feedback = {}
-            feedback = dict(feedback or {})
-            feedback.setdefault("status", status.status)
-            if status.reason:
-                feedback.setdefault("reason", status.reason)
-            local_context = QualityDraftContext(
-                dataset_id=context.dataset_id if context else None,
-                dataset_version=context.dataset_version if context else None,
-                data_format=context.data_format if context else None,
-                dq_feedback=feedback or None,
-            )
-            draft = self.propose_draft(
+            draft = self.review_validation_outcome(
                 validation=validation,
                 base_contract=contract,
                 bump=bump,
-                context=local_context,
+                dataset_id=context.dataset_id if context else dataset_id,
+                dataset_version=context.dataset_version if context else dataset_version,
+                data_format=context.data_format if context else None,
+                dq_status=status,
+                dq_feedback=context.dq_feedback if context else None,
+                draft_requested=True,
             )
 
         return QualityAssessment(status=status, draft=draft, observations_reused=reused)
