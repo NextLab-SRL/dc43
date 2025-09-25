@@ -240,8 +240,58 @@ class SplitWriteViolationStrategy:
         return bool(result.errors)
 
 
+@dataclass
+class StrictWriteViolationStrategy:
+    """Decorate another strategy and fail the run when violations persist."""
+
+    base: WriteViolationStrategy = field(default_factory=NoOpWriteViolationStrategy)
+    failure_message: str = "Validation recorded contract violations"
+    fail_on_warnings: bool = False
+
+    def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401 - short docstring
+        base_plan = self.base.plan(context)
+
+        has_violations = SplitWriteViolationStrategy._has_violations(context.validation)
+        has_warnings = bool(context.validation.warnings)
+        if not has_violations and not (self.fail_on_warnings and has_warnings):
+            return base_plan
+
+        original_factory = base_plan.result_factory
+
+        def _strict_result() -> ValidationResult:
+            base_result = (
+                original_factory()
+                if original_factory is not None
+                else context.revalidate(context.aligned_df)
+            )
+            strict_result = ValidationResult(
+                ok=False,
+                errors=list(base_result.errors),
+                warnings=list(base_result.warnings),
+                metrics=dict(base_result.metrics),
+                schema=dict(base_result.schema),
+            )
+
+            for warning in context.validation.warnings:
+                if warning not in strict_result.warnings:
+                    strict_result.warnings.append(warning)
+
+            message = self.failure_message.strip()
+            if message and message not in strict_result.errors:
+                strict_result.errors.append(message)
+
+            return strict_result
+
+        return WritePlan(
+            primary=base_plan.primary,
+            additional=base_plan.additional,
+            result_factory=_strict_result,
+        )
+
+
 __all__ = [
     "NoOpWriteViolationStrategy",
+    "StrictWriteViolationStrategy",
     "SplitWriteViolationStrategy",
     "WritePlan",
     "WriteRequest",

@@ -25,6 +25,7 @@ from dc43.components.integration.spark_io import read_with_contract, write_with_
 from dc43.components.integration.violation_strategy import (
     NoOpWriteViolationStrategy,
     SplitWriteViolationStrategy,
+    StrictWriteViolationStrategy,
     WriteViolationStrategy,
 )
 from open_data_contract_standard.model import OpenDataContractStandard
@@ -102,6 +103,41 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
         )
         filtered = {k: options[k] for k in allowed if k in options}
         return SplitWriteViolationStrategy(**filtered)
+    if key in {"split-strict", "strict-split", "split_strict"}:
+        allowed: Sequence[str] = (
+            "valid_suffix",
+            "reject_suffix",
+            "include_valid",
+            "include_reject",
+            "write_primary_on_violation",
+            "dataset_suffix_separator",
+        )
+        failure_message = str(
+            options.pop(
+                "failure_message",
+                StrictWriteViolationStrategy.failure_message,
+            )
+        )
+        fail_on_warnings = bool(options.pop("fail_on_warnings", False))
+        base_options = {k: options.pop(k) for k in allowed if k in options}
+        base = SplitWriteViolationStrategy(**base_options)
+        return StrictWriteViolationStrategy(
+            base=base,
+            failure_message=failure_message,
+            fail_on_warnings=fail_on_warnings,
+        )
+    if key in {"strict", "fail", "error"}:
+        failure_message = str(
+            options.pop(
+                "failure_message",
+                StrictWriteViolationStrategy.failure_message,
+            )
+        )
+        fail_on_warnings = bool(options.pop("fail_on_warnings", False))
+        return StrictWriteViolationStrategy(
+            failure_message=failure_message,
+            fail_on_warnings=fail_on_warnings,
+        )
 
     raise ValueError(f"Unknown violation strategy: {name}")
 
@@ -314,33 +350,80 @@ def run_pipeline(
         "output": output_details,
     }
     total_violations = 0
+    warnings_present = False
     for det in combined_details.values():
         if not det or not isinstance(det, dict):
             continue
         violations_value = det.get("violations")
         if isinstance(violations_value, (int, float)):
             total_violations += int(violations_value)
+            if violations_value:
+                warnings_present = True
         else:
             metrics_map = det.get("metrics", {})
             if isinstance(metrics_map, Mapping):
                 for key, value in metrics_map.items():
                     if key.startswith("violations.") and isinstance(value, (int, float)):
                         total_violations += int(value)
+                        if value:
+                            warnings_present = True
         errs = det.get("errors")
         if isinstance(errs, list):
             total_violations += len(errs)
+            if errs:
+                warnings_present = True
         fails = det.get("failed_expectations")
         if isinstance(fails, dict):
             total_violations += sum(int(info.get("count", 0) or 0) for info in fails.values())
+            if any((info.get("count") or 0) for info in fails.values()):
+                warnings_present = True
+        if det.get("warnings"):
+            warnings_present = True
+
+    def _status_level(value: str | None, *, treat_block_as_warning: bool = False) -> int:
+        if not value:
+            return 0
+        normalised = value.lower()
+        if normalised in {"warn", "warning"}:
+            return 1
+        if normalised in {"block", "error", "fail", "invalid"}:
+            return 1 if treat_block_as_warning else 2
+        return 0
+
+    severity = 0
+    severity = max(severity, _status_level(getattr(orders_status, "status", None)))
+    severity = max(severity, _status_level(getattr(customers_status, "status", None)))
+    severity = max(severity, _status_level(getattr(output_status, "status", None)))
+
+    dq_status_summary = output_details.get("dq_status")
+    if isinstance(dq_status_summary, Mapping):
+        severity = max(severity, _status_level(dq_status_summary.get("status")))
+        if dq_status_summary.get("errors"):
+            warnings_present = True
+
+    for aux_entry in output_details.get("dq_auxiliary_statuses", []) or []:
+        if isinstance(aux_entry, Mapping):
+            severity = max(
+                severity,
+                _status_level(aux_entry.get("status"), treat_block_as_warning=True),
+            )
+            details = aux_entry.get("details")
+            if isinstance(details, Mapping):
+                if details.get("warnings") or details.get("errors"):
+                    warnings_present = True
+                violations = details.get("violations")
+                if isinstance(violations, (int, float)) and violations:
+                    warnings_present = True
+
+    if result.errors or error is not None:
+        severity = 2
+    elif warnings_present:
+        severity = max(severity, 1)
 
     status_value = "ok"
-    if (
-        (orders_status and orders_status.status != "ok")
-        or (customers_status and customers_status.status != "ok")
-        or (output_status and output_status.status != "ok")
-        or result.errors
-        or error is not None
-    ):
+    if severity == 1:
+        status_value = "warning"
+    elif severity >= 2:
         status_value = "error"
     records.append(
         DatasetRecord(

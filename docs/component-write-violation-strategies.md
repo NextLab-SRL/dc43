@@ -74,12 +74,15 @@ override the final validation result after the adapter has revalidated the persi
 
 ## Built-in strategies
 
-`dc43` ships two reference implementations:
+`dc43` ships three reference implementations:
 
 - `NoOpWriteViolationStrategy` – preserves legacy behaviour. All rows are written once and the original validation result is returned.
 - `SplitWriteViolationStrategy` – filters aligned rows using the combined expectation predicates and writes the `valid` and
   `reject` subsets. Behaviour flags allow omitting either subset, keeping the primary write even when violations exist, or customising
   naming (`valid_suffix`, `reject_suffix`, separator).
+- `StrictWriteViolationStrategy` – wraps another strategy (e.g. split) and flips the final validation result to `ok=False` when
+  violations or warnings persist. Pipelines see the failure via the returned `ValidationResult` while the underlying strategy can
+  still materialise auxiliary datasets for remediation.
 
 The demo application bundles a "Split invalid rows" scenario that exercises the strategy end-to-end—see
 [`docs/demo-pipeline-scenarios.md`](demo-pipeline-scenarios.md) for a walkthrough and mermaid diagram covering the join, validation,
@@ -87,6 +90,18 @@ and auxiliary dataset writes.
 
 The split strategy also enriches the validation warnings so pipelines reading the original dataset learn about the available
 subsets. This enables downstream consumers to opt into the "valid" derivative when they can tolerate partial availability.
+When combined with the strict decorator you can keep the same remediation datasets while signalling an overall failure to job
+orchestration by propagating a non-OK `ValidationResult`.
+
+### Reacting to the final status
+
+Integrations such as the demo pipeline inspect the validation status returned by `write_with_contract` in combination with the
+governance status. When warnings or auxiliary rejects are present the demo records the run with a `warning` status; if the
+strict decorator is used the run escalates to `error` even though the data was written. This keeps calling code in control:
+
+- Use `StrictWriteViolationStrategy` (or a custom decorator) when you want the write helper itself to mark the run as failed.
+- Otherwise, inspect the returned `ValidationResult`/`DQStatus` and decide in the calling code whether a warning should stop the
+  job, continue with valid-only data, or trigger alerts.
 
 ## Registering derivative datasets
 
