@@ -81,6 +81,10 @@ override the final validation result after the adapter has revalidated the persi
   `reject` subsets. Behaviour flags allow omitting either subset, keeping the primary write even when violations exist, or customising
   naming (`valid_suffix`, `reject_suffix`, separator).
 
+The demo application bundles a "Split invalid rows" scenario that exercises the strategy end-to-end—see
+[`docs/demo-pipeline-scenarios.md`](demo-pipeline-scenarios.md) for a walkthrough and mermaid diagram covering the join, validation,
+and auxiliary dataset writes.
+
 The split strategy also enriches the validation warnings so pipelines reading the original dataset learn about the available
 subsets. This enables downstream consumers to opt into the "valid" derivative when they can tolerate partial availability.
 

@@ -231,7 +231,11 @@ An additional Reveal.js presentation is available at
 contract lifecycle and automation steps.
 
 The application also exposes an example Spark pipeline in
-``dc43.demo_app.pipeline`` used when registering new dataset versions.
+``dc43.demo_app.pipeline`` used when registering new dataset versions. The
+preconfigured scenarios are documented in
+[`docs/demo-pipeline-scenarios.md`](docs/demo-pipeline-scenarios.md) including
+the new split strategy example that writes ``orders_enriched::valid`` and
+``orders_enriched::reject`` alongside the main dataset.
 
 ## Spark Flow (Mermaid)
 

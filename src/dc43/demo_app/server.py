@@ -332,9 +332,17 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<p>Run the pipeline without supplying an output contract.</p>"
             "<ul>"
             "<li>Reads orders:1.1.0 and customers:1.0.0.</li>"
+            "<li>Demonstrates schema validation without a contract-driven target.</li>"
             "<li>Write is attempted in <em>enforce</em> mode so the missing contract"
             " triggers an error.</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<pre class=\"small bg-light border p-2\">"
+            "Orders --+           "
+            "\n        Join -> Write (no contract)"
+            "\nCustomers-+           "
+            "</pre>"
         ),
         "params": {
             "contract_id": None,
@@ -352,6 +360,13 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li>The pipeline writes a new dataset version and records an OK status.</li>"
             "</ul>"
         ),
+        "diagram": (
+            "<pre class=\"small bg-light border p-2\">"
+            "Orders --+            "
+            "\n        Join -> Validate -> Contracted Write"
+            "\nCustomers-+            "
+            "</pre>"
+        ),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.0.0",
@@ -367,6 +382,13 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li>Sample data contains smaller amounts, producing DQ violations.</li>"
             "<li>The pipeline blocks the write and surfaces an error.</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<pre class=\"small bg-light border p-2\">"
+            "Orders --+            "
+            "\n        Join -> Validate -> DQ Block"
+            "\nCustomers-+            "
+            "</pre>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -386,10 +408,51 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li>A draft contract is generated for review and the run fails.</li>"
             "</ul>"
         ),
+        "diagram": (
+            "<pre class=\"small bg-light border p-2\">"
+            "Orders --+            "
+            "\n        Join -> Schema Align ✖"
+            "\nCustomers-+            "
+            "</pre>"
+        ),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "2.0.0",
             "run_type": "enforce",
+        },
+    },
+    "split-lenient": {
+        "label": "Split invalid rows",
+        "description": (
+            "<p>Routes violations to dedicated datasets using the split strategy.</p>"
+            "<ul>"
+            "<li>Contract <code>orders_enriched:1.1.0</code> enforces amount &gt; 100.</li>"
+            "<li>Rows violating the rule land in <code>orders_enriched::reject</code>.</li>"
+            "<li>Valid rows land in <code>orders_enriched::valid</code> for lenient consumers.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<pre class=\"small bg-light border p-2\">"
+            "Orders --+            "
+            "\n        Join -> Validate -> Split Strategy"
+            "\nCustomers-+            "
+            "\n              |-> orders_enriched::valid"
+            "\n              \-> orders_enriched::reject"
+            "</pre>"
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "observe",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "dataset_version": "split-demo",
+            "violation_strategy": {
+                "name": "split",
+                "include_valid": True,
+                "include_reject": True,
+                "write_primary_on_violation": False,
+            },
         },
     },
 }
@@ -808,6 +871,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("run_type", "infer"),
             p.get("collect_examples", False),
             p.get("examples_limit", 5),
+            p.get("violation_strategy"),
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")
