@@ -1,5 +1,6 @@
 {
   "status": "warn",
+  "reason": "quality-issues",
   "details": {
     "status": "warn",
     "violations": 1,
@@ -7,7 +8,8 @@
       "row_count": 1,
       "violations.gt_amount": 1
     },
-    "note": "Rejected rows from orders 2024-04-10",
-    "source_dataset": "orders 2024-04-10"
+    "notes": [
+      "Contains the negative amount flagged by governance."
+    ]
   }
 }

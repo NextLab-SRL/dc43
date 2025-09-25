@@ -292,8 +292,8 @@ def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
                 run_type="enforce",
                 inputs={
                     "orders": {
-                        "dataset_version": "2024-04-10",
-                        "path": str(Path(pipeline.DATA_DIR) / "orders_2024-04-10.json"),
+                        "dataset_version": "2025-09-28",
+                        "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28.json"),
                     }
                 },
             )
@@ -321,22 +321,22 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
         shutil.copytree(dq_dir, backup)
     existing_versions = set(pipeline.store.list_versions("orders_enriched"))
     dataset_name = "orders_enriched"
-    dataset_version = "partial-valid"
+    dataset_version = "valid-ok"
 
     try:
         dataset_name, dataset_version = pipeline.run_pipeline(
             contract_id="orders_enriched",
             contract_version="1.1.0",
             dataset_name=None,
-            dataset_version=None,
+            dataset_version="valid-ok",
             run_type="observe",
             collect_examples=True,
             examples_limit=2,
             inputs={
                 "orders": {
                     "dataset_id": "orders::valid",
-                    "dataset_version": "2024-04-10",
-                    "path": str(Path(pipeline.DATA_DIR) / "orders_2024-04-10_valid.json"),
+                    "dataset_version": "2025-09-28",
+                    "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28_valid.json"),
                 }
             },
         )
@@ -376,6 +376,77 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
             .getOrCreate()
 
 
+def test_demo_pipeline_valid_subset_invalid_output(tmp_path: Path) -> None:
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_valid_subset_violation"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
+    forced_version = "valid-invalid"
+    created_dataset_version: str | None = None
+
+    try:
+        with pytest.raises(ValueError):
+            pipeline.run_pipeline(
+                contract_id="orders_enriched",
+                contract_version="1.1.0",
+                dataset_name=None,
+                dataset_version=forced_version,
+                run_type="enforce",
+                collect_examples=True,
+                examples_limit=2,
+                inputs={
+                    "orders": {
+                        "dataset_id": "orders::valid",
+                        "dataset_version": "2025-09-28",
+                        "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28_valid.json"),
+                    }
+                },
+                output_adjustment="valid-subset-violation",
+            )
+
+        updated = pipeline.load_records()
+        last = updated[-1]
+        created_dataset_version = last.dataset_version
+        assert created_dataset_version == forced_version
+        assert last.status == "error"
+        output_details = last.dq_details.get("output", {})
+        dq_summary = output_details.get("dq_status", {}) or {}
+        assert dq_summary.get("status") in {"block", "error", "warn"}
+        transformations = output_details.get("transformations", [])
+        assert any("downgraded" in str(note) for note in transformations)
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
+        if created_dataset_version:
+            try:
+                contract = pipeline.store.get("orders_enriched", "1.1.0")
+            except FileNotFoundError:
+                contract = None
+            if contract is not None:
+                out_path = pipeline._resolve_output_path(
+                    contract,
+                    "orders_enriched",
+                    created_dataset_version,
+                )
+                if out_path.exists():
+                    shutil.rmtree(out_path)
+        SparkSession.builder.master("local[2]") \
+            .appName("dc43-tests") \
+            .config("spark.ui.enabled", "false") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .getOrCreate()
+
+
 def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
     original_records = pipeline.load_records()
     dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
@@ -384,37 +455,42 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
         shutil.copytree(dq_dir, backup)
     existing_versions = set(pipeline.store.list_versions("orders_enriched"))
     dataset_name = "orders_enriched"
-    dataset_version = "partial-full"
+    dataset_version = "override-full"
 
     try:
         dataset_name, dataset_version = pipeline.run_pipeline(
             contract_id="orders_enriched",
             contract_version="1.1.0",
             dataset_name=None,
-            dataset_version=None,
+            dataset_version=dataset_version,
             run_type="observe",
             collect_examples=True,
             examples_limit=2,
             inputs={
                 "orders": {
-                    "dataset_version": "2024-04-10",
-                    "path": str(Path(pipeline.DATA_DIR) / "orders_2024-04-10.json"),
+                    "dataset_version": "2025-09-28",
+                    "path": str(Path(pipeline.DATA_DIR) / "orders_2025-09-28.json"),
                     "status_strategy": {
                         "name": "allow-block",
-                        "note": "Manual override: accepted 2024-04-10 batch",
+                        "note": "Manual override: accepted 2025-09-28 batch",
                         "target_status": "warn",
                     },
                 }
             },
+            output_adjustment="amplify-negative",
         )
 
         updated = pipeline.load_records()
         last = updated[-1]
         assert last.dataset_name == dataset_name
+        assert last.dataset_version == dataset_version
         orders_details = last.dq_details.get("orders", {})
         overrides = orders_details.get("overrides", [])
-        assert any("accepted 2024-04-10 batch" in note for note in overrides)
+        assert any("accepted 2025-09-28 batch" in note for note in overrides)
         assert last.status in {"warning", "error"}
+        output_details = last.dq_details.get("output", {})
+        transformations = output_details.get("transformations", [])
+        assert any("preserved negative input" in str(note) for note in transformations)
     finally:
         pipeline.save_records(original_records)
         if dq_dir.exists():

@@ -1,0 +1,15 @@
+{
+  "status": "ok",
+  "reason": "quality-pass",
+  "details": {
+    "status": "ok",
+    "violations": 0,
+    "metrics": {
+      "row_count": 2,
+      "violations.gt_amount": 0
+    },
+    "notes": [
+      "Subset curated by governance to unblock downstream consumers."
+    ]
+  }
+}

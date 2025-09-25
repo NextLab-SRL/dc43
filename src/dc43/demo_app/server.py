@@ -476,15 +476,16 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
     "read-invalid-block": {
         "label": "Blocked invalid batch",
         "description": (
-            "<p>Attempts to process the 2024-04-10 batch flagged as invalid.</p>"
+            "<p>Attempts to process the 2025-09-28 batch flagged as invalid.</p>"
             "<ul>"
-            "<li><strong>Inputs:</strong> Orders <code>2024-04-10</code> mixes"
-            " valid and reject-worthy rows; governance marks the dataset as"
-            " <code>block</code>.</li>"
+            "<li><strong>Inputs:</strong> Governance records mark"
+            " <code>orders:2025-09-28</code> as <code>block</code> while pointing"
+            " at curated <code>valid</code> and <code>reject</code> slices.</li>"
             "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.1.0</code>"
-            " but aborts during the read step.</li>"
-            "<li><strong>Status:</strong> Default enforcement stops the run before"
-            " any writes occur.</li>"
+            " but enforcement aborts before writes.</li>"
+            "<li><strong>Outputs:</strong> None; the job fails fast.</li>"
+            "<li><strong>Governance:</strong> Stub DQ client returns the stored"
+            " `block` verdict and its auxiliary dataset hints.</li>"
             "</ul>"
         ),
         "diagram": (
@@ -492,7 +493,9 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Invalid[orders:2024-04-10] -->|DQ block| Halt[Read fails]
+                    Invalid[\"orders:2025-09-28\\nDQ status: block\"] -->|default enforcement| Halt[Read aborted]
+                    Invalid -.-> Valid[\"orders::valid 2025-09-28\"]
+                    Invalid -.-> Reject[\"orders::reject 2025-09-28\"]
                 """
             ).strip()
             + "</div>"
@@ -503,8 +506,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "run_type": "enforce",
             "inputs": {
                 "orders": {
-                    "dataset_version": "2024-04-10",
-                    "path": str(DATA_DIR / "orders_2024-04-10.json"),
+                    "dataset_version": "2025-09-28",
+                    "path": str(DATA_DIR / "orders_2025-09-28.json"),
                 }
             },
         },
@@ -515,11 +518,14 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<p>Steers reads toward the curated valid slice.</p>"
             "<ul>"
             "<li><strong>Inputs:</strong> Uses <code>orders::valid</code>"
-            " derived from <code>orders:2024-04-10</code> to satisfy governance.</li>"
-            "<li><strong>Contract:</strong> Continues to target"
-            " <code>orders_enriched:1.1.0</code>.</li>"
-            "<li><strong>Status:</strong> Read succeeds and downstream checks"
-            " only flag issues introduced later in the flow.</li>"
+            " version <code>2025-09-28</code> to satisfy governance.</li>"
+            "<li><strong>Contract:</strong> Applies <code>orders_enriched:1.1.0</code>"
+            " and keeps draft creation disabled.</li>"
+            "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
+            " version <code>1.0.x</code> under contract"
+            " <code>orders_enriched:1.1.0</code> with a clean DQ verdict.</li>"
+            "<li><strong>Governance:</strong> Stub evaluates post-write metrics"
+            " and records an OK status.</li>"
             "</ul>"
         ),
         "diagram": (
@@ -527,9 +533,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Invalid[orders:2024-04-10] --> Option[Governance]
-                    Option -->|valid slice| Valid[orders::valid 2024-04-10]
-                    Valid --> Join[Join datasets]
+                    Valid[\"orders::valid 2025-09-28\"] --> Join[Join datasets]
+                    Join --> Write[\"orders_enriched 1.0.x\\ncontract 1.1.0\"]
+                    Write --> Governance[Governance verdict ok]
+                    Governance --> Status[\"DQ status: ok\"]
                 """
             ).strip()
             + "</div>"
@@ -543,23 +550,27 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "inputs": {
                 "orders": {
                     "dataset_id": "orders::valid",
-                    "dataset_version": "2024-04-10",
-                    "path": str(DATA_DIR / "orders_2024-04-10_valid.json"),
+                    "dataset_version": "2025-09-28",
+                    "path": str(DATA_DIR / "orders_2025-09-28_valid.json"),
                 }
             },
         },
     },
-    "read-override-full": {
-        "label": "Override with full batch",
+    "read-valid-subset-violation": {
+        "label": "Valid subset, invalid output",
         "description": (
-            "<p>Documents what happens when the blocked data is forced through.</p>"
+            "<p>Highlights when clean inputs still breach the output contract.</p>"
             "<ul>"
-            "<li><strong>Inputs:</strong> Reuses the blocked"
-            " <code>orders:2024-04-10</code> but downgrades the read status.</li>"
-            "<li><strong>Contract:</strong> Still targets"
-            " <code>orders_enriched:1.1.0</code>.</li>"
-            "<li><strong>Status:</strong> The UI highlights the manual override"
-            " plus any downstream violations.</li>"
+            "<li><strong>Inputs:</strong> Same curated"
+            " <code>orders::valid 2025-09-28</code> slice.</li>"
+            "<li><strong>Contract:</strong> Writes to"
+            " <code>orders_enriched</code> under <code>orders_enriched:1.1.0</code>.</li>"
+            "<li><strong>Outputs:</strong> Produces <code>orders_enriched 1.0.x</code>"
+            " (contract <code>1.1.0</code>) but post-write checks fail because"
+            " the demo purposely lowers one amount below the"
+            " <code>&gt; 100</code> expectation.</li>"
+            "<li><strong>Governance:</strong> Stub DQ client records a blocking"
+            " verdict and drafts <code>orders_enriched:1.2.0</code>.</li>"
             "</ul>"
         ),
         "diagram": (
@@ -567,8 +578,64 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Invalid[orders:2024-04-10] --> Override[Override block]
-                    Override --> Join[Join datasets]
+                    Valid[\"orders::valid 2025-09-28\"] --> Join[Join datasets]
+                    Join --> Adjust[Lower amount to 60]
+                    Adjust --> Write[\"orders_enriched 1.0.x\\ncontract 1.1.0\"]
+                    Write --> Governance[Governance verdict block]
+                    Governance --> Draft[\"Draft orders_enriched 1.2.0\"]
+                    Governance --> Status[\"DQ status: block\"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "enforce",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "inputs": {
+                "orders": {
+                    "dataset_id": "orders::valid",
+                    "dataset_version": "2025-09-28",
+                    "path": str(DATA_DIR / "orders_2025-09-28_valid.json"),
+                }
+            },
+            "output_adjustment": "valid-subset-violation",
+        },
+    },
+    "read-override-full": {
+        "label": "Override block with full batch",
+        "description": (
+            "<p>Documents what happens when the blocked data is forced through.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reuses the blocked"
+            " <code>orders:2025-09-28</code> and downgrades the read status to"
+            " <code>warn</code>.</li>"
+            "<li><strong>Override strategy:</strong> Uses"
+            " <code>allow-block</code> to document that the batch was accepted"
+            " manually even though governance marked it invalid.</li>"
+            "<li><strong>Contract:</strong> Applies"
+            " <code>orders_enriched:1.1.0</code> and captures draft"
+            " <code>orders_enriched:1.2.0</code>.</li>"
+            "<li><strong>Outputs:</strong> Writes <code>orders_enriched 1.0.x</code>"
+            " (contract <code>1.1.0</code>) while surfacing the manual override"
+            " and the reject-row metrics.</li>"
+            "<li><strong>Governance:</strong> Stub records the downgrade in the"
+            " run summary alongside violation counts and the explicit override"
+            " note.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Invalid[\"orders:2025-09-28\\nDQ status: block\"] --> Override[Downgrade to warn]
+                    Override --> Write[\"orders_enriched 1.0.x\\ncontract 1.1.0\"]
+                    Write --> Governance[Governance verdict warn]
+                    Governance --> Draft[\"Draft orders_enriched 1.2.0\"]
+                    Governance --> Status[\"DQ status: warn\"]
                 """
             ).strip()
             + "</div>"
@@ -581,15 +648,16 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "examples_limit": 3,
             "inputs": {
                 "orders": {
-                    "dataset_version": "2024-04-10",
-                    "path": str(DATA_DIR / "orders_2024-04-10.json"),
+                    "dataset_version": "2025-09-28",
+                    "path": str(DATA_DIR / "orders_2025-09-28.json"),
                     "status_strategy": {
                         "name": "allow-block",
-                        "note": "Manual override: accepted 2024-04-10 batch",
+                        "note": "Manual override: accepted 2025-09-28 batch",
                         "target_status": "warn",
                     },
                 }
             },
+            "output_adjustment": "amplify-negative",
         },
     },
     "split-lenient": {
@@ -1061,6 +1129,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("examples_limit", 5),
             p.get("violation_strategy"),
             p.get("inputs"),
+            p.get("output_adjustment"),
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")

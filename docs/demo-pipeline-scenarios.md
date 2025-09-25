@@ -4,7 +4,12 @@ The demo application exposes a handful of pre-baked Spark pipeline runs to highl
 
 ## Runtime building blocks
 
-Each scenario executes the same high-level flow:
+Each scenario executes the same high-level flow with the filesystem-backed
+stub governance client standing in for a catalog. The "Governance" step shown
+in the diagrams refers to the `StubDQClient` that accompanies the demo: it
+stores the verdicts returned by read and write validation, captures the
+metrics produced by the quality rules, and records draft contract versions so
+the UI mirrors what a catalog-integrated deployment would display.
 
 ```mermaid
 graph TD
@@ -12,24 +17,27 @@ graph TD
     Customers[customers:1.0.0 dataset] --> Join
     Join --> Align[Align to contract orders_enriched:«target»]
     Align --> Strategy{Violation strategy}
-    Strategy -->|full batch| Output[orders_enriched dataset «1.0.x»]
-    Strategy -->|valid| Valid[orders_enriched::valid dataset «1.0.x»]
-    Strategy -->|reject| Reject[orders_enriched::reject dataset «1.0.x»]
-    Strategy --> Governance[Stub DQ governance]
-    Governance --> Drafts[Draft contract orders_enriched:«draft»]
+    Strategy -->|full batch| Output[orders_enriched «1.0.x»\ncontract 1.1.0]
+    Strategy -->|valid| Valid[orders_enriched::valid «1.0.x»\ncontract 1.1.0]
+    Strategy -->|reject| Reject[orders_enriched::reject «1.0.x»\ncontract 1.1.0]
+    Strategy --> Governance[Stub DQ verdict store]
+    Governance --> Drafts[Draft orders_enriched:«draft»]
     Drafts --> Registry[Demo dataset registry]
 ```
 
 *The placeholder «target» represents the enforced contract version for the scenario,
 and «draft» illustrates the optional draft recorded when violations exist. All
 written datasets use the same auto-incrementing semantic version (for example
-`1.0.0` on the first run, `1.0.1` on the second, and so on).* 
+`1.0.0` on the first run, `1.0.1` on the second, and so on). The upstream
+`orders` batch keeps its ingestion date (`2025-09-28`) as the dataset version
+to emphasise that the valid and reject slices reference the exact same
+submission.*
 
 * **Orders** and **Customers** are validated against their contracts on read.
 * The joined dataframe is aligned to the target contract before writing.
 * The **violation strategy** decides how to persist results when validation raises warnings or failed expectations.
 * Strategies may keep the contracted dataset even when violations exist so that consumers can audit the full batch alongside any derived splits.
-* Governance replays the validation outcome, submits metrics, and records draft contracts when necessary.
+* The stub governance client (`StubDQClient`) replays the validation outcome, persists metrics, and emits verdicts/draft versions exactly as a catalog-backed data-quality service would.
 
 ## Scenario catalogue
 
@@ -39,9 +47,10 @@ written datasets use the same auto-incrementing semantic version (for example
 | **Existing contract OK** | No-op (default) | `orders_enriched:1.0.0` | *(none)* | `orders_enriched:1.0.x` (full batch). |
 | **Existing contract fails DQ** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Write blocked; no dataset versions materialised. |
 | **Contract fails schema and DQ** | No-op (default) | `orders_enriched:2.0.0` | `orders_enriched:2.1.0` | Write blocked; no dataset versions materialised. |
-| **Blocked invalid batch** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:2024-04-10` as `block`. |
-| **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Uses `orders::valid:2024-04-10`; writes `orders_enriched:1.0.x`. |
-| **Override with full batch** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Forced read of `orders:2024-04-10` continues; downstream validation records violations. |
+| **Blocked invalid batch** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:2025-09-28` as `block` while pointing to the curated valid/reject slices. |
+| **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Reads `orders::valid:2025-09-28` and writes `orders_enriched:1.0.x` against contract `1.1.0` with an OK verdict. |
+| **Valid subset, invalid output** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Starts from `orders::valid:2025-09-28`, but the join lowers a value so `orders_enriched:1.0.x` is stored with `block` status and a draft. |
+| **Override block with full batch** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Downgrades the `orders:2025-09-28` verdict to `warn`, writes `orders_enriched:1.0.x`, and logs the manual override plus reject metrics. |
 | **Split invalid rows** | `SplitWriteViolationStrategy` | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched:1.0.x`, `orders_enriched::valid:1.0.x`, `orders_enriched::reject:1.0.x`. |
 
 ### Scenario breakdown
@@ -69,19 +78,25 @@ All dataset versions default to `1.0.0` the first time a scenario writes a given
 - **Outcome:** Enforcement errors and flags the draft for review.
 
 #### Blocked invalid batch
-- **Target contract:** `orders_enriched:1.1.0` but the run never reaches the write step.
-- **Dataset versions:** None; `read_with_contract` raises when the stored DQ status for `orders:2024-04-10` is `block`.
-- **Outcome:** Demonstrates how strict enforcement prevents downstream consumers from ingesting the mixed-validity submission. Governance points to `orders::valid:2024-04-10` and `orders::reject:2024-04-10` for consumers that can tolerate subsets.
+- **Target contract:** `orders_enriched:1.1.0`, but strict enforcement stops at the read stage.
+- **Dataset versions:** None; `read_with_contract` raises because governance records `orders:2025-09-28` as `block`.
+- **Outcome:** Highlights the default behaviour when mixed-validity inputs arrive. The stub governance entry also references `orders::valid:2025-09-28` and `orders::reject:2025-09-28` so downstream jobs know where to look for remediated slices.
 
 #### Prefer valid subset
-- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid:2024-04-10` slice.
-- **Dataset versions:** `orders_enriched:1.0.x` is written because every surviving record still satisfies the `amount > 100` expectation after transformation.
+- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid:2025-09-28` slice.
+- **Dataset versions:** `orders_enriched 1.0.x (contract 1.1.0)` is written because every surviving record still satisfies the `amount > 100` expectation after transformation.
 - **Outcome:** Read validation succeeds; the registry records an OK run and surfaces the smaller input metrics (two rows instead of three).
 
-#### Override with full batch
+#### Valid subset, invalid output
+- **Target contract:** `orders_enriched:1.1.0`, still reading `orders::valid:2025-09-28`.
+- **Dataset versions:** `orders_enriched 1.0.x (contract 1.1.0)` is persisted but tagged with draft `orders_enriched:1.2.0` because the demo deliberately lowers a value below the threshold.
+- **Outcome:** Shows that clean inputs do not guarantee compliant outputs—the enforcement mode raises after the stub governance service returns a `block` verdict.
+
+#### Override block with full batch
 - **Target contract:** `orders_enriched:1.1.0` while governance continues to flag the original dataset as invalid.
-- **Dataset versions:** `orders_enriched:1.0.x` is persisted alongside a draft `orders_enriched:1.2.0` describing violations.
-- **Outcome:** A custom read-status override downgrades the `block` verdict to `warn`, allowing the run to proceed so observers can inspect the downstream blast radius.
+- **Dataset versions:** `orders_enriched 1.0.x (contract 1.1.0)` is persisted alongside a draft `orders_enriched:1.2.0` describing violations and carrying the manual override note.
+- **Override:** The `allow-block` read strategy downgrades the verdict to `warn` and appends the "accepted 2025-09-28 batch" note so the run history reflects manual intervention.
+- **Outcome:** A custom read-status strategy downgrades the `block` verdict to `warn`, allowing the run to proceed so observers can inspect the downstream blast radius while the registry highlights the override note, the downgrade, and the reject-row metrics.
 
 #### Split invalid rows
 - **Target contract:** `orders_enriched:1.1.0` with draft `orders_enriched:1.2.0` containing reject samples.

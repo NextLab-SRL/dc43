@@ -14,7 +14,7 @@
     "auxiliary_statuses": [
       {
         "dataset_id": "orders::valid",
-        "dataset_version": "2024-04-10",
+        "dataset_version": "2025-09-28",
         "status": "ok",
         "details": {
           "violations": 0,
@@ -24,7 +24,7 @@
       },
       {
         "dataset_id": "orders::reject",
-        "dataset_version": "2024-04-10",
+        "dataset_version": "2025-09-28",
         "status": "warn",
         "details": {
           "violations": 1,

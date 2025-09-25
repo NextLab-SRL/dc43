@@ -265,6 +265,34 @@ def _apply_locator_overrides(
     return StaticDatasetLocator(base=base_strategy, **params)
 
 
+def _apply_output_adjustment(
+    df: DataFrame,
+    adjustment: str | None,
+) -> tuple[DataFrame, list[str]]:
+    """Apply scenario-specific output adjustments and describe them."""
+
+    if not adjustment:
+        return df, []
+
+    key = adjustment.lower()
+    notes: list[str] = []
+
+    if key in {"valid-subset-violation", "degrade-valid", "valid_subset_violation"}:
+        notes.append("downgraded order 3 amount to illustrate post-join violations")
+        df = df.withColumn(
+            "amount",
+            when(col("order_id") == 3, col("amount") / 2).otherwise(col("amount")),
+        )
+        return df, notes
+
+    if key in {"amplify-negative", "full-batch-violation", "amplify_negative"}:
+        notes.append("preserved negative input amounts to surface contract breach")
+        # Ensure the negative row propagates; keep identity transformation.
+        return df, notes
+
+    return df, []
+
+
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
@@ -275,6 +303,7 @@ def run_pipeline(
     examples_limit: int = 5,
     violation_strategy: StrategySpec = None,
     inputs: Mapping[str, Mapping[str, Any]] | None = None,
+    output_adjustment: str | None = None,
 ) -> tuple[str, str]:
     """Run an example pipeline using the stored contract.
 
@@ -284,8 +313,9 @@ def run_pipeline(
     available.  The ``inputs`` mapping can override dataset locators, enforce
     flags, and read-status strategies for each source (``"orders"`` and
     ``"customers"``) so demo scenarios can highlight how mixed-validity inputs
-    are handled.  Returns the dataset name used along with the materialized
-    version.
+    are handled.  ``output_adjustment`` optionally tweaks the joined dataframe
+    (for example to deliberately surface violations). Returns the dataset name
+    used along with the materialized version.
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
@@ -356,6 +386,8 @@ def run_pipeline(
         when(col("order_id") == 1, col("amount") * 20).otherwise(col("amount")),
     )
 
+    df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
+
     records = load_records()
     output_contract = (
         store.get(contract_id, contract_version) if contract_id and contract_version else None
@@ -425,6 +457,12 @@ def run_pipeline(
 
     draft_version: str | None = None
     output_details = result.details.copy()
+    if adjustment_notes:
+        extra = output_details.setdefault("transformations", [])
+        if isinstance(extra, list):
+            extra.extend(adjustment_notes)
+        else:
+            output_details["transformations"] = adjustment_notes
     if strategy is not None:
         output_details.setdefault("violation_strategy", type(strategy).__name__)
         if isinstance(strategy, SplitWriteViolationStrategy):
