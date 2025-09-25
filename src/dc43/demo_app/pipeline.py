@@ -122,15 +122,13 @@ def run_pipeline(
     output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
     server = (output_contract.servers or [None])[0] if output_contract else None
 
-    result, output_status, draft = write_with_contract(
+    result, output_status = write_with_contract(
         df=df,
         contract=output_contract,
         path=str(output_path),
         format=getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
-        draft_on_mismatch=True,
-        draft_store=store,
         dq_client=dq,
         dataset_id=dataset_name,
         dataset_version=dataset_version,
@@ -160,7 +158,7 @@ def run_pipeline(
             if issues:
                 error = ValueError("; ".join(issues))
 
-    draft_version: str | None = draft.version if draft else None
+    draft_version: str | None = None
     output_details = result.details.copy()
     dq_payload: dict[str, Any] = {}
     if output_status:

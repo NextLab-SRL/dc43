@@ -176,12 +176,11 @@ if errors:
 
     <section>
       <h2>4. Write with Contract</h2>
-      <pre><code class="language-python">result, status, draft = write_with_contract(
+      <pre><code class="language-python">result, status = write_with_contract(
     enriched,
     contract=contract,
     path="out/orders",
     dq_client=dq,
-    draft_on_mismatch=True
 )</code></pre>
     </section>
 
@@ -189,10 +188,7 @@ if errors:
       <h2>Write Result</h2>
       <pre><code class="language-json">{
   "metrics": {"row_count": 2, "negative_total": 1},
-  "draft": {
-    "version": "1.1.0",
-    "changes": ["allow negative total"]
-  }
+  "status": "block"
 }</code></pre>
     </section>
 
