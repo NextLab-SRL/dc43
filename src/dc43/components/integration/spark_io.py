@@ -453,30 +453,36 @@ def write_with_contract(
 
     requests: list[WriteRequest] = []
     primary_status: Optional[DQStatus] = None
-    final_result: ValidationResult = plan.result or result
+    validations: list[ValidationResult] = []
 
     if plan.primary is not None:
         requests.append(plan.primary)
-        if plan.primary.validation is not None:
-            final_result = plan.primary.validation
-    elif plan.result is not None:
-        final_result = plan.result
 
     requests.extend(list(plan.additional))
 
     if not requests:
+        final_result = plan.result_factory() if plan.result_factory else result
         if return_status:
             return final_result, None
         return final_result
 
     for index, request in enumerate(requests):
-        status = _execute_write_request(
+        status, request_validation = _execute_write_request(
             request,
             quality_manager=quality_manager,
             enforce=enforce,
         )
+        if request_validation is not None:
+            validations.append(request_validation)
         if index == 0:
             primary_status = status
+
+    if plan.result_factory is not None:
+        final_result = plan.result_factory()
+    elif validations:
+        final_result = validations[0]
+    else:
+        final_result = result
 
     if return_status:
         return final_result, primary_status
@@ -488,7 +494,7 @@ def _execute_write_request(
     *,
     quality_manager: Optional[DataQualityManager],
     enforce: bool,
-) -> Optional[DQStatus]:
+) -> tuple[Optional[DQStatus], Optional[ValidationResult]]:
     writer = request.df.write
     if request.format:
         writer = writer.format(request.format)
@@ -505,7 +511,11 @@ def _execute_write_request(
         logger.info("Writing dataframe to path %s", request.path)
         writer.save(request.path)
 
-    validation = request.validation
+    validation = request.validation_factory() if request.validation_factory else None
+    if validation is not None and request.warnings:
+        for message in request.warnings:
+            if message not in validation.warnings:
+                validation.warnings.append(message)
     contract = request.contract
     status: Optional[DQStatus] = None
     if quality_manager and contract and validation is not None:
@@ -592,4 +602,4 @@ def _execute_write_request(
                 "indicating the provided contract version is out of date",
             )
 
-    return status
+    return status, validation

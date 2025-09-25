@@ -28,7 +28,8 @@ class WriteRequest:
     contract: Optional[OpenDataContractStandard]
     dataset_id: Optional[str]
     dataset_version: Optional[str]
-    validation: Optional[ValidationResult] = None
+    validation_factory: Optional[Callable[[], ValidationResult]] = None
+    warnings: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -37,7 +38,7 @@ class WritePlan:
 
     primary: Optional[WriteRequest]
     additional: Sequence[WriteRequest] = field(default_factory=tuple)
-    result: Optional[ValidationResult] = None
+    result_factory: Optional[Callable[[], ValidationResult]] = None
 
 
 @dataclass
@@ -58,8 +59,17 @@ class WriteStrategyContext:
     revalidate: Callable[[DataFrame], ValidationResult]
     expectation_predicates: Mapping[str, str]
 
-    def base_request(self, *, validation: Optional[ValidationResult] = None) -> WriteRequest:
+    def base_request(
+        self,
+        *,
+        validation_factory: Optional[Callable[[], ValidationResult]] = None,
+        warnings: Optional[Sequence[str]] = None,
+    ) -> WriteRequest:
         """Return the default write request for the aligned dataframe."""
+
+        factory = validation_factory
+        if factory is None:
+            factory = lambda: self.revalidate(self.aligned_df)
 
         return WriteRequest(
             df=self.aligned_df,
@@ -71,7 +81,8 @@ class WriteStrategyContext:
             contract=self.contract,
             dataset_id=self.dataset_id,
             dataset_version=self.dataset_version,
-            validation=validation or self.validation,
+            validation_factory=factory,
+            warnings=tuple(warnings) if warnings is not None else tuple(self.validation.warnings),
         )
 
 
@@ -140,7 +151,7 @@ class SplitWriteViolationStrategy:
                     contract=context.contract,
                     dataset_id=_extend_dataset_id(context.dataset_id, self.valid_suffix),
                     dataset_version=context.dataset_version,
-                    validation=context.revalidate(valid_df),
+                    validation_factory=lambda df=valid_df: context.revalidate(df),
                 )
 
         if self.include_reject:
@@ -160,7 +171,7 @@ class SplitWriteViolationStrategy:
                     contract=context.contract,
                     dataset_id=_extend_dataset_id(context.dataset_id, self.reject_suffix),
                     dataset_version=context.dataset_version,
-                    validation=context.revalidate(reject_df),
+                    validation_factory=lambda df=reject_df: context.revalidate(df),
                 )
 
         for message in warnings:
@@ -184,9 +195,25 @@ class SplitWriteViolationStrategy:
         if primary is None and requests:
             # Keep the validation result describing the overall dataframe but
             # prefer the status coming from the first split write.
-            return WritePlan(primary=None, additional=tuple(requests), result=None)
+            warnings_snapshot = tuple(result.warnings)
 
-        return WritePlan(primary=primary, additional=tuple(requests))
+            def _final_result() -> ValidationResult:
+                validation = context.revalidate(context.aligned_df)
+                for message in warnings_snapshot:
+                    if message not in validation.warnings:
+                        validation.warnings.append(message)
+                return validation
+
+            return WritePlan(
+                primary=None,
+                additional=tuple(requests),
+                result_factory=_final_result,
+            )
+
+        return WritePlan(
+            primary=primary,
+            additional=tuple(requests),
+        )
 
     @staticmethod
     def _extend_path(path: Optional[str], suffix: str) -> Optional[str]:

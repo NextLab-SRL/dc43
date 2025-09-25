@@ -23,8 +23,10 @@ the right strategy through configuration while reusing the same runtime orchestr
 
 ## Runtime flow
 
-The Spark adapter exposes `write_with_contract`. After the dataframe is aligned to the contract and validated, the adapter builds a
-`WriteStrategyContext` and asks the configured strategy to produce a `WritePlan`.
+The Spark adapter exposes `write_with_contract`. It first aligns the dataframe to the contract and runs a **preview validation** to
+decide whether enforcement should block the write and to give strategies enough context to plan additional actions. Once the plan is
+ready the adapter executes the writes and immediately revalidates each persisted subset so that metrics and schema snapshots reflect
+the immutable dataset version produced by the run.
 
 ```mermaid
 sequenceDiagram
@@ -34,15 +36,17 @@ sequenceDiagram
     participant DQ as Data-quality manager
 
     Pipeline->>Adapter: submit df + contract + options
-    Adapter->>DQ: validate(df)
-    DQ-->>Adapter: ValidationResult
+    Adapter->>Adapter: align dataframe
+    Adapter->>Adapter: preview validate(df)
+    Adapter-->>Adapter: Preview ValidationResult
     Adapter->>Strategy: plan(context)
     Strategy-->>Adapter: WritePlan (primary + additional requests)
     loop each request
         Adapter->>Adapter: execute write
+        Adapter->>Adapter: revalidate persisted subset
         Adapter->>DQ: report observations (per request)
     end
-    Adapter-->>Pipeline: propagated ValidationResult + warnings
+    Adapter-->>Pipeline: final ValidationResult + warnings
 ```
 
 The strategy controls which write requests run:
@@ -52,7 +56,8 @@ The strategy controls which write requests run:
 - Each `WriteRequest` carries the dataframe subset, runtime options, and—after execution—the `ValidationResult` for that subset.
 
 The adapter executes the primary request first (if present) and then processes additional requests while reporting observations back
-through the data-quality manager.
+through the data-quality manager. Revalidation happens after each write to guarantee that the recorded metrics and warnings refer to
+the persisted snapshot rather than an in-memory dataframe that could still change before storage.
 
 ## Strategy building blocks
 
@@ -64,8 +69,8 @@ re-run validation on derived subsets. From this context they can:
 - Derive new dataset identifiers (`dataset_id::suffix`) and storage paths.
 - Re-validate each subset via `context.revalidate` to capture row counts and violation metrics for downstream governance.
 
-`WritePlan` returns the primary write request, a collection of additional requests, and an optional global validation result override
-when the strategy replaces the primary write entirely (e.g., valid/reject only).
+`WritePlan` returns the primary write request, a collection of additional requests, and an optional factory that lets the strategy
+override the final validation result after the adapter has revalidated the persisted outputs (e.g., valid/reject only).
 
 ## Built-in strategies
 
