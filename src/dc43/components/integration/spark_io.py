@@ -472,6 +472,27 @@ def write_with_contract(
                 if status.reason:
                     details_snapshot.setdefault("reason", status.reason)
                 raise ValueError(f"DQ violation: {details_snapshot or status.status}")
+        request_draft = False
+        if contract:
+            if not result.ok:
+                request_draft = True
+            elif status and status.status not in (None, "ok"):
+                request_draft = True
+        if request_draft:
+            draft_contract = quality_manager.review_validation_outcome(
+                validation=result,
+                base_contract=contract,
+                dataset_id=dq_dataset_id,
+                dataset_version=dq_dataset_version,
+                data_format=format,
+                dq_status=status,
+                draft_requested=True,
+            )
+            if draft_contract is not None:
+                if status:
+                    details = dict(status.details or {})
+                    details.setdefault("draft_contract_version", draft_contract.version)
+                    status.details = details
         if assessment.draft and enforce:
             raise ValueError(
                 "DQ governance returned a draft contract for the submitted dataset, "
