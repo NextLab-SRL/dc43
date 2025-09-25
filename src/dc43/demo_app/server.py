@@ -68,6 +68,9 @@ shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
 
 _VERSION_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}(?:T[^_]+Z)?")
 _DERIVED_SUFFIXES = {"valid", "reject"}
+_VERSION_ALIASES = {
+    "partial": "2024-04-10",
+}
 
 
 def _normalise_dataset_layout(root: Path) -> None:
@@ -87,6 +90,7 @@ def _normalise_dataset_layout(root: Path) -> None:
             suffix = parts.pop()
 
         version = parts[-1]
+        version = _VERSION_ALIASES.get(version, version)
         if not _VERSION_PATTERN.fullmatch(version):
             continue
 
@@ -662,7 +666,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         },
     },
     "read-override-full": {
-        "label": "Override block with full batch",
+        "label": "Force blocked batch (manual override)",
         "description": (
             "<p>Documents what happens when the blocked data is forced through.</p>"
             "<ul>"
@@ -670,14 +674,14 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>orders:2025-09-28</code> and downgrades the read status to"
             " <code>warn</code>.</li>"
             "<li><strong>Override strategy:</strong> Uses"
-            " <code>allow-block</code> to document that the batch was accepted"
-            " manually even though governance marked it invalid.</li>"
+            " <code>allow-block</code> to document that the blocked slice was"
+            " manually forced through despite the governance verdict.</li>"
             "<li><strong>Contract:</strong> Applies"
             " <code>orders_enriched:1.1.0</code> and captures draft"
             " <code>orders_enriched:1.2.0</code>.</li>"
             "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
             " (timestamped under contract <code>1.1.0</code>) while surfacing the manual override"
-            " and the reject-row metrics.</li>"
+            " note alongside the reject-row metrics.</li>"
             "<li><strong>Governance:</strong> Stub records the downgrade in the"
             " run summary alongside violation counts and the explicit override"
             " note.</li>"
@@ -709,7 +713,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                     "path": str(DATA_DIR / "orders" / "2025-09-28"),
                     "status_strategy": {
                         "name": "allow-block",
-                        "note": "Manual override: accepted 2025-09-28 batch",
+                        "note": "Manual override: forced 2025-09-28 slice",
                         "target_status": "warn",
                     },
                 }

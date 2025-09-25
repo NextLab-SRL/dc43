@@ -472,7 +472,7 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
                     "path": str(Path(pipeline.DATA_DIR) / "orders" / "2025-09-28"),
                     "status_strategy": {
                         "name": "allow-block",
-                        "note": "Manual override: accepted 2025-09-28 batch",
+                        "note": "Manual override: forced 2025-09-28 slice",
                         "target_status": "warn",
                     },
                 }
@@ -486,7 +486,7 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
         assert last.dataset_version == dataset_version
         orders_details = last.dq_details.get("orders", {})
         overrides = orders_details.get("overrides", [])
-        assert any("accepted 2025-09-28 batch" in note for note in overrides)
+        assert any("forced 2025-09-28 slice" in note for note in overrides)
         assert last.status in {"warning", "error"}
         output_details = last.dq_details.get("output", {})
         transformations = output_details.get("transformations", [])

@@ -50,7 +50,7 @@ override the locator to the `2025-09-28` submission, including its curated
 | **Invalid input blocked** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:2025-09-28` as `block` while pointing to the curated valid/reject slices. |
 | **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Reads `orders::valid:2025-09-28` and writes `orders_enriched` with the run timestamp under contract `1.1.0`. |
 | **Valid subset, invalid output** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Starts from `orders::valid:2025-09-28`, but the join lowers a value so `orders_enriched` (timestamped) is stored with `block` status and a draft. |
-| **Override block with full batch** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Downgrades the `orders:2025-09-28` verdict to `warn`, writes `orders_enriched` with the run timestamp, and logs the manual override plus reject metrics. |
+| **Force blocked batch (manual override)** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Downgrades the `orders:2025-09-28` verdict to `warn`, writes `orders_enriched` with the run timestamp, and records the manual override note alongside reject metrics. |
 | **Split invalid rows** | `SplitWriteViolationStrategy` | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched`, `orders_enriched::valid`, and `orders_enriched::reject` share the same timestamped version. |
 
 ### Scenario breakdown
@@ -92,10 +92,10 @@ All dataset versions default to an ISO-8601 timestamp captured at write time. Wh
 - **Dataset versions:** `orders_enriched` (timestamped) is persisted but tagged with draft `orders_enriched:1.2.0` because the demo deliberately lowers a value below the threshold.
 - **Outcome:** Shows that clean inputs do not guarantee compliant outputs—the enforcement mode raises after the stub governance service returns a `block` verdict.
 
-#### Override block with full batch
+#### Force blocked batch (manual override)
 - **Target contract:** `orders_enriched:1.1.0` while governance continues to flag the original dataset as invalid.
 - **Dataset versions:** `orders_enriched` (timestamped) is persisted alongside a draft `orders_enriched:1.2.0` describing violations and carrying the manual override note.
-- **Override:** The `allow-block` read strategy downgrades the verdict to `warn` and appends the "accepted 2025-09-28 batch" note so the run history reflects manual intervention.
+- **Override:** The `allow-block` read strategy downgrades the verdict to `warn` and appends a "forced 2025-09-28 slice" note so the run history captures the manual intervention.
 - **Outcome:** A custom read-status strategy downgrades the `block` verdict to `warn`, allowing the run to proceed so observers can inspect the downstream blast radius while the registry highlights the override note, the downgrade, and the reject-row metrics.
 
 #### Split invalid rows
