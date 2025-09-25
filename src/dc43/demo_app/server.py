@@ -18,7 +18,7 @@ Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Mapping
 from uuid import uuid4
 from threading import Lock
 import json
@@ -40,6 +40,7 @@ from open_data_contract_standard.model import (
     SchemaProperty,
     Description,
     Server,
+    DataQuality,
 )
 from pydantic import ValidationError
 from packaging.version import Version
@@ -116,6 +117,198 @@ class DatasetRecord:
     run_type: str = "infer"
     violations: int = 0
     draft_contract_version: str | None = None
+
+
+_STATUS_BADGES: Dict[str, str] = {
+    "kept": "bg-success",
+    "updated": "bg-primary",
+    "relaxed": "bg-warning text-dark",
+    "removed": "bg-danger",
+    "added": "bg-info text-dark",
+    "missing": "bg-secondary",
+    "error": "bg-danger",
+    "warning": "bg-warning text-dark",
+    "not_nullable": "bg-info text-dark",
+}
+
+
+def _format_scope(scope: str | None) -> str:
+    """Return a human readable label for change log scopes."""
+
+    if not scope or scope == "contract":
+        return "Contract"
+    if scope.startswith("field:"):
+        return f"Field {scope.split(':', 1)[1]}"
+    return scope.replace("_", " ").title()
+
+
+def _stringify_value(value: Any) -> str:
+    """Return a readable representation for rule parameter values."""
+
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(str(item) for item in value)
+    return str(value)
+
+
+def _quality_rule_summary(dq: DataQuality) -> Dict[str, Any]:
+    """Produce a structured summary for a data-quality rule."""
+
+    conditions: List[str] = []
+    if dq.description:
+        conditions.append(str(dq.description))
+
+    if dq.mustBeGreaterThan is not None:
+        conditions.append(f"Value must be greater than {dq.mustBeGreaterThan}")
+    if dq.mustBeGreaterOrEqualTo is not None:
+        conditions.append(f"Value must be greater than or equal to {dq.mustBeGreaterOrEqualTo}")
+    if dq.mustBeLessThan is not None:
+        conditions.append(f"Value must be less than {dq.mustBeLessThan}")
+    if dq.mustBeLessOrEqualTo is not None:
+        conditions.append(f"Value must be less than or equal to {dq.mustBeLessOrEqualTo}")
+    if dq.mustBeBetween:
+        low, high = dq.mustBeBetween
+        conditions.append(f"Value must be between {low} and {high}")
+    if dq.mustNotBeBetween:
+        low, high = dq.mustNotBeBetween
+        conditions.append(f"Value must not be between {low} and {high}")
+
+    if dq.mustBe is not None:
+        if (dq.rule or "").lower() == "regex":
+            conditions.append(f"Value must match the pattern {dq.mustBe}")
+        elif isinstance(dq.mustBe, (list, tuple, set)):
+            conditions.append(
+                "Value must be one of: " + ", ".join(str(item) for item in dq.mustBe)
+            )
+        else:
+            conditions.append(f"Value must be {_stringify_value(dq.mustBe)}")
+
+    if dq.mustNotBe is not None:
+        if isinstance(dq.mustNotBe, (list, tuple, set)):
+            conditions.append(
+                "Value must not be any of: "
+                + ", ".join(str(item) for item in dq.mustNotBe)
+            )
+        else:
+            conditions.append(f"Value must not be {_stringify_value(dq.mustNotBe)}")
+
+    if dq.query:
+        engine = (dq.engine or "spark_sql").replace("_", " ")
+        conditions.append(f"Query ({engine}): {dq.query}")
+
+    if not conditions:
+        label = dq.rule or dq.name or "rule"
+        conditions.append(f"See contract metadata for details on {label}.")
+
+    title = dq.name or dq.rule or "Rule"
+    title = title.replace("_", " ").title()
+
+    return {
+        "title": title,
+        "conditions": conditions,
+        "severity": dq.severity,
+        "dimension": dq.dimension,
+    }
+
+
+def _field_quality_sections(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:
+    """Return quality rule summaries grouped per field."""
+
+    sections: List[Dict[str, Any]] = []
+    for obj in contract.schema_ or []:
+        for prop in obj.properties or []:
+            rules: List[Dict[str, Any]] = []
+            if prop.required:
+                rules.append(
+                    {
+                        "title": "Required",
+                        "conditions": [
+                            "Field must always be present (non-null values required)."
+                        ],
+                    }
+                )
+            if prop.unique:
+                rules.append(
+                    {
+                        "title": "Unique",
+                        "conditions": [
+                            "Each record must contain a distinct value for this field.",
+                        ],
+                    }
+                )
+            for dq in prop.quality or []:
+                rules.append(_quality_rule_summary(dq))
+
+            sections.append(
+                {
+                    "name": prop.name or "",
+                    "type": prop.physicalType or "",
+                    "required": bool(prop.required),
+                    "rules": rules,
+                }
+            )
+    return sections
+
+
+def _dataset_quality_sections(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:
+    """Return dataset-level quality rules defined on schema objects."""
+
+    sections: List[Dict[str, Any]] = []
+    for obj in contract.schema_ or []:
+        rules = [_quality_rule_summary(dq) for dq in obj.quality or []]
+        if rules:
+            sections.append({"name": obj.name or contract.id or "dataset", "rules": rules})
+    return sections
+
+
+def _summarise_change_entry(entry: Mapping[str, Any]) -> str:
+    details = entry.get("details")
+    if isinstance(details, Mapping):
+        for key in ("message", "reason"):
+            message = details.get(key)
+            if message:
+                return str(message)
+    target = entry.get("constraint") or entry.get("rule") or entry.get("kind")
+    status = entry.get("status")
+    if target and status:
+        return f"{str(target).replace('_', ' ').title()} {str(status).replace('_', ' ')}."
+    if status:
+        return str(status).replace("_", " ").title()
+    return ""
+
+
+def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:
+    """Extract change log entries from the contract custom properties."""
+
+    entries: List[Dict[str, Any]] = []
+    for prop in contract.customProperties or []:
+        if prop.property != "draft_change_log":
+            continue
+        for item in prop.value or []:
+            if not isinstance(item, Mapping):
+                continue
+            details = item.get("details")
+            details_text = ""
+            if details is not None:
+                try:
+                    details_text = json.dumps(details, indent=2, sort_keys=True, default=str)
+                except TypeError:
+                    details_text = str(details)
+            status = str(item.get("status", ""))
+            entries.append(
+                {
+                    "scope": item.get("scope", ""),
+                    "scope_label": _format_scope(item.get("scope")),
+                    "kind": item.get("kind", ""),
+                    "status": status,
+                    "status_label": status.replace("_", " ").title(),
+                    "constraint": item.get("constraint"),
+                    "rule": item.get("rule"),
+                    "summary": _summarise_change_entry(item),
+                    "details_text": details_text,
+                }
+            )
+        break
+    return entries
 
 
 def load_records() -> List[DatasetRecord]:
@@ -347,11 +540,18 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r for r in load_records() if r.contract_id == cid and r.contract_version == ver]
+    field_quality = _field_quality_sections(contract)
+    dataset_quality = _dataset_quality_sections(contract)
+    change_log = _contract_change_log(contract)
     context = {
         "request": request,
         "contract": contract_to_dict(contract),
         "datasets": datasets,
         "expectations": expectations_from_contract(contract),
+        "field_quality": field_quality,
+        "dataset_quality": dataset_quality,
+        "change_log": change_log,
+        "status_badges": _STATUS_BADGES,
     }
     return templates.TemplateResponse("contract_detail.html", context)
 

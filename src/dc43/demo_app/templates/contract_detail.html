@@ -18,6 +18,9 @@
     <button class="nav-link" id="quality-tab" data-bs-toggle="tab" data-bs-target="#quality" type="button" role="tab">Quality</button>
   </li>
   <li class="nav-item" role="presentation">
+    <button class="nav-link" id="change-log-tab" data-bs-toggle="tab" data-bs-target="#change-log" type="button" role="tab">Change Log</button>
+  </li>
+  <li class="nav-item" role="presentation">
     <button class="nav-link" id="json-tab" data-bs-toggle="tab" data-bs-target="#json" type="button" role="tab">JSON</button>
   </li>
 </ul>
@@ -65,7 +68,76 @@
     {% endfor %}
   </div>
   <div class="tab-pane fade" id="quality" role="tabpanel" aria-labelledby="quality-tab">
+    {% if field_quality %}
+    <h5>Field quality rules</h5>
+    {% for field in field_quality %}
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <strong>{{ field.name }}</strong>
+          {% if field.type %}<span class="text-muted">({{ field.type }})</span>{% endif %}
+        </div>
+        <span class="badge {{ 'bg-success' if field.required else 'bg-secondary' }}">{{ 'Required' if field.required else 'Optional' }}</span>
+      </div>
+      <div class="card-body">
+        {% if field.rules %}
+          {% for rule in field.rules %}
+          <div class="mb-3">
+            <h6 class="mb-1">{{ rule.title }}</h6>
+            <ul class="small mb-2">
+              {% for text in rule.conditions %}
+              <li>{{ text }}</li>
+              {% endfor %}
+            </ul>
+            {% if rule.severity or rule.dimension %}
+            <p class="small text-muted mb-0">
+              {% if rule.severity %}<span class="me-3">Severity: {{ rule.severity }}</span>{% endif %}
+              {% if rule.dimension %}<span>Dimension: {{ rule.dimension }}</span>{% endif %}
+            </p>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">No quality rules defined for this field.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p>No field-level quality rules defined.</p>
+    {% endif %}
+
+    {% if dataset_quality %}
+    <h5>Dataset-level quality rules</h5>
+    {% for section in dataset_quality %}
+    <div class="card mb-3">
+      <div class="card-header">
+        <strong>{{ section.name }}</strong>
+      </div>
+      <div class="card-body">
+        {% for rule in section.rules %}
+        <div class="mb-3">
+          <h6 class="mb-1">{{ rule.title }}</h6>
+          <ul class="small mb-2">
+            {% for text in rule.conditions %}
+            <li>{{ text }}</li>
+            {% endfor %}
+          </ul>
+          {% if rule.severity or rule.dimension %}
+          <p class="small text-muted mb-0">
+            {% if rule.severity %}<span class="me-3">Severity: {{ rule.severity }}</span>{% endif %}
+            {% if rule.dimension %}<span>Dimension: {{ rule.dimension }}</span>{% endif %}
+          </p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
     {% if expectations %}
+    <h5>SQL predicates</h5>
     <table class="table table-sm">
       <thead><tr><th>Name</th><th>Predicate</th></tr></thead>
       <tbody>
@@ -74,8 +146,39 @@
       {% endfor %}
       </tbody>
     </table>
+    {% endif %}
+  </div>
+  <div class="tab-pane fade" id="change-log" role="tabpanel" aria-labelledby="change-log-tab">
+    {% if change_log %}
+    <div class="list-group">
+      {% for entry in change_log %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <span class="badge {{ status_badges.get(entry.status, 'bg-secondary') }}">{{ entry.status_label }}</span>
+            <strong class="ms-2">{{ entry.scope_label }}</strong>
+          </div>
+          {% if entry.kind %}
+          <small class="text-muted text-uppercase">{{ entry.kind }}</small>
+          {% endif %}
+        </div>
+        {% if entry.summary %}
+        <p class="mb-1 mt-2">{{ entry.summary }}</p>
+        {% endif %}
+        {% if entry.constraint %}
+        <p class="mb-1 small text-muted"><strong>Constraint:</strong> {{ entry.constraint }}</p>
+        {% endif %}
+        {% if entry.rule %}
+        <p class="mb-1 small text-muted"><strong>Rule:</strong> {{ entry.rule }}</p>
+        {% endif %}
+        {% if entry.details_text %}
+        <pre class="small bg-light p-2 rounded">{{ entry.details_text }}</pre>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
     {% else %}
-    <p>No quality rules defined.</p>
+    <p class="text-muted">No change log entries available.</p>
     {% endif %}
   </div>
   <div class="tab-pane fade" id="json" role="tabpanel" aria-labelledby="json-tab">
