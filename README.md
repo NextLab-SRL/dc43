@@ -135,7 +135,7 @@ contract = OpenDataContractStandard(
 from dc43.components.contract_store.impl.filesystem import FSContractStore
 from dc43.components.integration.spark_io import (
     write_with_contract,
-    StaticDatasetLocator,
+    ContractVersionLocator,
 )
 
 store = FSContractStore(base_path="/mnt/contracts")
@@ -145,7 +145,7 @@ write_with_contract(
     contract_id="sales.orders",
     contract_store=store,
     expected_contract_version=">=0.1.0",
-    dataset_locator=StaticDatasetLocator(format="delta"),
+    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
     mode="append",
     enforce=True,
     auto_cast=True,
@@ -181,7 +181,7 @@ latest = store.latest("sales.orders")
 ```python
 from dc43.components.integration.spark_io import (
     read_with_contract,
-    StaticDatasetLocator,
+    ContractVersionLocator,
 )
 from dc43.components.data_quality.governance.stubs import StubDQClient
 
@@ -192,7 +192,7 @@ df, status = read_with_contract(
     contract_store=store,
     expected_contract_version="==0.1.0",
     dq_client=dq,
-    dataset_locator=StaticDatasetLocator(format="delta"),
+    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
     return_status=True,
 )
 print(status.status, status.reason)
@@ -203,7 +203,7 @@ print(status.status, status.reason)
 ```python
 from dc43.components.integration.spark_io import (
     write_with_contract,
-    StaticDatasetLocator,
+    ContractVersionLocator,
 )
 
 vr, status = write_with_contract(
@@ -211,7 +211,7 @@ vr, status = write_with_contract(
     contract_id="sales.orders",
     contract_store=store,
     expected_contract_version=">=0.1.0",
-    dataset_locator=StaticDatasetLocator(format="delta"),
+    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
     mode="append",
     enforce=False,                 # continue writing
     dq_client=dq,

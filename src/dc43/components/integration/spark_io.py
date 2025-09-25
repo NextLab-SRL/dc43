@@ -257,6 +257,80 @@ class StaticDatasetLocator:
 
 
 @dataclass
+class ContractVersionLocator:
+    """Locator that appends a version directory under the contract path."""
+
+    dataset_version: str
+    dataset_id: Optional[str] = None
+    subpath: Optional[str] = None
+    base: DatasetLocatorStrategy = field(default_factory=ContractFirstDatasetLocator)
+
+    def _resolve_path(self, path: Optional[str]) -> Optional[str]:
+        if not path:
+            return None
+
+        base = Path(path)
+        if base.suffix:
+            folder = base.parent / base.stem / self.dataset_version
+            if self.subpath:
+                folder = folder / self.subpath
+            target = folder / base.name
+            return str(target)
+
+        folder = base / self.dataset_version
+        if self.subpath:
+            folder = folder / self.subpath
+        return str(folder)
+
+    def _merge(self, resolution: DatasetResolution) -> DatasetResolution:
+        resolved_path = self._resolve_path(resolution.path)
+        dataset_id = self.dataset_id or resolution.dataset_id
+        return DatasetResolution(
+            path=resolved_path or resolution.path,
+            table=resolution.table,
+            format=resolution.format,
+            dataset_id=dataset_id,
+            dataset_version=self.dataset_version,
+        )
+
+    def for_read(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        spark: SparkSession,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        base_resolution = self.base.for_read(
+            contract=contract,
+            spark=spark,
+            format=format,
+            path=path,
+            table=table,
+        )
+        return self._merge(base_resolution)
+
+    def for_write(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        df: DataFrame,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        base_resolution = self.base.for_write(
+            contract=contract,
+            df=df,
+            format=format,
+            path=path,
+            table=table,
+        )
+        return self._merge(base_resolution)
+
+
+@dataclass
 class ReadStatusContext:
     """Information exposed to read status strategies."""
 

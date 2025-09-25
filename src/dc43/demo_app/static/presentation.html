@@ -138,7 +138,7 @@ contract = OpenDataContractStandard(
     contract_id="orders",
     contract_store=store,
     dq_client=dq,
-    dataset_locator=StaticDatasetLocator(dataset_version="2025-09-28")
+    dataset_locator=ContractVersionLocator(dataset_version="2025-09-28")
 )</code></pre>
     </section>
 
@@ -182,7 +182,7 @@ if errors:
     contract_id="orders",
     contract_store=store,
     dq_client=dq,
-    dataset_locator=StaticDatasetLocator(path="out/orders")
+    dataset_locator=ContractVersionLocator(dataset_version="2025-09-28T12:00:00Z")
 )</code></pre>
     </section>
 

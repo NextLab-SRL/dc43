@@ -7,6 +7,7 @@ from .spark_io import (
     write_with_contract,
     StaticDatasetLocator,
     ContractFirstDatasetLocator,
+    ContractVersionLocator,
 )
 from .dlt_helpers import expectations_from_contract, apply_dlt_expectations
 
@@ -17,6 +18,7 @@ __all__ = [
     "write_with_contract",
     "StaticDatasetLocator",
     "ContractFirstDatasetLocator",
+    "ContractVersionLocator",
     "expectations_from_contract",
     "apply_dlt_expectations",
 ]

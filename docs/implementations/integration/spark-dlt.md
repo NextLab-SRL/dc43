@@ -35,7 +35,7 @@ Pipelines typically import these helpers directly:
 from dc43.components.integration.spark_io import (
     read_with_contract,
     write_with_contract,
-    StaticDatasetLocator,
+    ContractVersionLocator,
 )
 
 validated_df, status = read_with_contract(
@@ -44,7 +44,7 @@ validated_df, status = read_with_contract(
     contract_store=store,
     expected_contract_version=">=1.0.0",
     dq_client=dq_client,
-    dataset_locator=StaticDatasetLocator(format="delta"),
+    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
     return_status=True,
 )
 ```

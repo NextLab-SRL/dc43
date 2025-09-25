@@ -24,6 +24,8 @@ from dc43.components.data_quality.governance import DQStatus
 from dc43.components.data_quality.integration import attach_failed_expectations
 from dc43.components.data_quality.governance.stubs import StubDQClient
 from dc43.components.integration.spark_io import (
+    ContractFirstDatasetLocator,
+    ContractVersionLocator,
     ReadStatusContext,
     ReadStatusStrategy,
     StaticDatasetLocator,
@@ -62,12 +64,17 @@ def _resolve_output_path(
     """Return output path for dataset relative to contract servers."""
     server = (contract.servers or [None])[0] if contract else None
     data_root = Path(DATA_DIR).parent
-    base_path = Path(getattr(server, "path", "")) if server else data_root
-    if base_path.suffix:
-        base_path = base_path.parent
+    server_path = Path(getattr(server, "path", "")) if server else data_root
+    if server_path.suffix:
+        base_path = server_path.parent / server_path.stem
+    else:
+        base_path = server_path
     if not base_path.is_absolute():
         base_path = data_root / base_path
-    out = base_path / dataset_name / dataset_version
+    if base_path.name == dataset_name:
+        out = base_path / dataset_version
+    else:
+        out = base_path / dataset_name / dataset_version
     out.parent.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -229,9 +236,9 @@ def _resolve_read_status_strategy(spec: ReadStrategySpec) -> ReadStatusStrategy 
 
 
 def _apply_locator_overrides(
-    default: StaticDatasetLocator,
+    default: ContractVersionLocator | StaticDatasetLocator,
     overrides: Mapping[str, Any] | None,
-) -> StaticDatasetLocator:
+) -> ContractVersionLocator | StaticDatasetLocator:
     """Return a locator with overrides merged onto ``default``."""
 
     if overrides is None:
@@ -241,31 +248,33 @@ def _apply_locator_overrides(
     if locator_candidate is not None and hasattr(locator_candidate, "for_read"):
         return locator_candidate  # type: ignore[return-value]
 
-    params = {
-        "dataset_id": overrides.get("dataset_id", default.dataset_id)
-        if isinstance(overrides, Mapping)
-        else default.dataset_id,
-        "dataset_version": overrides.get("dataset_version", default.dataset_version)
-        if isinstance(overrides, Mapping)
-        else default.dataset_version,
-        "path": overrides.get("path", default.path)
-        if isinstance(overrides, Mapping)
-        else default.path,
-        "table": overrides.get("table", default.table)
-        if isinstance(overrides, Mapping)
-        else default.table,
-        "format": overrides.get("format", default.format)
-        if isinstance(overrides, Mapping)
-        else default.format,
-    }
+    dataset_id = overrides.get("dataset_id") if isinstance(overrides, Mapping) else None
+    dataset_version = overrides.get("dataset_version") if isinstance(overrides, Mapping) else None
+    subpath = overrides.get("subpath") if isinstance(overrides, Mapping) else None
 
-    base_strategy = default.base
+    base_strategy = getattr(default, "base", ContractFirstDatasetLocator())  # type: ignore[arg-type]
     if isinstance(overrides, Mapping) and overrides.get("base") is not None:
         candidate = overrides["base"]
         if hasattr(candidate, "for_read"):
             base_strategy = candidate  # type: ignore[assignment]
         else:  # pragma: no cover - defensive guard for unexpected inputs
             raise TypeError(f"Unsupported base locator: {candidate!r}")
+
+    if isinstance(default, ContractVersionLocator):
+        return ContractVersionLocator(
+            dataset_version=dataset_version or default.dataset_version,
+            dataset_id=dataset_id or default.dataset_id,
+            subpath=subpath or default.subpath,
+            base=base_strategy,
+        )
+
+    params = {
+        "dataset_id": dataset_id or default.dataset_id,
+        "dataset_version": dataset_version or default.dataset_version,
+        "path": overrides.get("path", default.path) if isinstance(overrides, Mapping) else default.path,
+        "table": overrides.get("table", default.table) if isinstance(overrides, Mapping) else default.table,
+        "format": overrides.get("format", default.format) if isinstance(overrides, Mapping) else default.format,
+    }
 
     return StaticDatasetLocator(base=base_strategy, **params)
 
@@ -331,10 +340,10 @@ def run_pipeline(
 
     orders_overrides = input_overrides.get("orders")
     orders_locator = _apply_locator_overrides(
-        StaticDatasetLocator(
+        ContractVersionLocator(
             dataset_id="orders",
             dataset_version="2024-01-01",
-            path=str(DATA_DIR / "orders" / "2024-01-01"),
+            base=ContractFirstDatasetLocator(),
         ),
         orders_overrides,
     )
@@ -359,10 +368,10 @@ def run_pipeline(
 
     customers_overrides = input_overrides.get("customers")
     customers_locator = _apply_locator_overrides(
-        StaticDatasetLocator(
+        ContractVersionLocator(
             dataset_id="customers",
             dataset_version="2024-01-01",
-            path=str(DATA_DIR / "customers" / "2024-01-01"),
+            base=ContractFirstDatasetLocator(),
         ),
         customers_overrides,
     )
@@ -416,12 +425,18 @@ def run_pipeline(
 
     strategy = _resolve_violation_strategy(violation_strategy)
 
-    locator = StaticDatasetLocator(
-        dataset_id=dataset_name,
-        dataset_version=dataset_version,
-        path=str(output_path),
-        format=getattr(server, "format", "parquet"),
-    )
+    if output_contract:
+        locator = ContractVersionLocator(
+            dataset_id=dataset_name,
+            dataset_version=dataset_version,
+            base=ContractFirstDatasetLocator(),
+        )
+    else:
+        locator = StaticDatasetLocator(
+            dataset_id=dataset_name,
+            dataset_version=dataset_version,
+            path=str(output_path),
+        )
     contract_id_ref = getattr(output_contract, "id", None)
     expected_version = f"=={output_contract.version}" if output_contract else None
     result, output_status = write_with_contract(
@@ -488,20 +503,32 @@ def run_pipeline(
             if dataset_name:
                 base_id = dataset_name
                 base_path = Path(str(output_path))
+                server_path_hint = Path(getattr(server, "path", "")) if server else None
+                server_filename = (
+                    server_path_hint.name
+                    if server_path_hint and server_path_hint.suffix
+                    else None
+                )
                 if strategy.include_valid:
+                    valid_dir = base_path / strategy.valid_suffix
+                    if server_filename:
+                        valid_dir = base_path / server_filename / strategy.valid_suffix
                     aux.append(
                         {
                             "kind": "valid",
                             "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.valid_suffix}",
-                            "path": str(base_path / strategy.valid_suffix),
+                            "path": str(valid_dir),
                         }
                     )
                 if strategy.include_reject:
+                    reject_dir = base_path / strategy.reject_suffix
+                    if server_filename:
+                        reject_dir = base_path / server_filename / strategy.reject_suffix
                     aux.append(
                         {
                             "kind": "reject",
                             "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.reject_suffix}",
-                            "path": str(base_path / strategy.reject_suffix),
+                            "path": str(reject_dir),
                         }
                     )
             if aux:

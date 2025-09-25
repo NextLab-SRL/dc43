@@ -109,7 +109,61 @@ def _normalise_dataset_layout(root: Path) -> None:
             candidate.rename(destination)
 
 
-_normalise_dataset_layout(DATA_DIR)
+    _normalise_dataset_layout(DATA_DIR)
+
+
+def _link_path(target: Path, source: Path) -> None:
+    """Create a symlink (or copy fallback) from ``target`` to ``source``."""
+
+    if target.exists() or target.is_symlink():
+        try:
+            if target.is_symlink() and target.resolve() == source.resolve():
+                return
+        except OSError:
+            pass
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        relative = os.path.relpath(source, target.parent)
+        target.symlink_to(relative, target_is_directory=source.is_dir())
+    except OSError:
+        if source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(source, target)
+
+
+def _ensure_version_aliases(root: Path) -> None:
+    """Populate ``latest`` and derived-slice aliases for dataset versions."""
+
+    for dataset_dir in root.iterdir():
+        if not dataset_dir.is_dir() or "__" in dataset_dir.name:
+            continue
+        versions = sorted([p for p in dataset_dir.iterdir() if p.is_dir()])
+        if not versions:
+            continue
+        latest = versions[-1]
+        _link_path(dataset_dir / "latest", latest)
+
+    for derived_dir in root.glob("*__*"):
+        if not derived_dir.is_dir():
+            continue
+        base_name, suffix = derived_dir.name.split("__", 1)
+        base_dir = root / base_name
+        if not base_dir.exists():
+            continue
+        for version_dir in derived_dir.iterdir():
+            if not version_dir.is_dir():
+                continue
+            target = base_dir / version_dir.name / suffix
+            _link_path(target, version_dir)
+
+
+_ensure_version_aliases(DATA_DIR)
 
 # Prepare contracts with absolute server paths pointing inside the working dir.
 for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
@@ -535,7 +589,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
     "read-invalid-block": {
         "label": "Invalid input blocked",
         "description": (
-            "<p>Attempts to process the 2025-09-28 batch flagged as invalid.</p>"
+            "<p>Attempts to process the 2025-09-28 slice flagged as invalid.</p>"
             "<ul>"
             "<li><strong>Inputs:</strong> Governance records mark"
             " <code>orders:2025-09-28</code> as <code>block</code> while pointing"
@@ -566,7 +620,6 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "inputs": {
                 "orders": {
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders" / "2025-09-28"),
                 }
             },
         },
@@ -612,7 +665,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 "orders": {
                     "dataset_id": "orders::valid",
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders__valid" / "2025-09-28"),
+                    "subpath": "valid",
                 }
             },
         },
@@ -659,14 +712,14 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 "orders": {
                     "dataset_id": "orders::valid",
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders__valid" / "2025-09-28"),
+                    "subpath": "valid",
                 }
             },
             "output_adjustment": "valid-subset-violation",
         },
     },
     "read-override-full": {
-        "label": "Force blocked batch (manual override)",
+        "label": "Force blocked slice (manual override)",
         "description": (
             "<p>Documents what happens when the blocked data is forced through.</p>"
             "<ul>"
@@ -710,7 +763,6 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "inputs": {
                 "orders": {
                     "dataset_version": "2025-09-28",
-                    "path": str(DATA_DIR / "orders" / "2025-09-28"),
                     "status_strategy": {
                         "name": "allow-block",
                         "note": "Manual override: forced 2025-09-28 slice",
@@ -734,7 +786,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>orders_enriched:1.2.0</code> when rejects exist.</li>"
             "<li><strong>Writes:</strong> Persists three datasets sharing the same"
             " timestamp: the contracted"
-            " <code>orders_enriched</code> (full batch),"
+            " <code>orders_enriched</code> (full slice),"
             " <code>orders_enriched::valid</code>, and"
             " <code>orders_enriched::reject</code>.</li>"
             "<li><strong>Status:</strong> Run finishes with a warning because"
