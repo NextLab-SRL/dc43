@@ -12,6 +12,7 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
+from dc43.components.data_quality.engine import ValidationResult
 from dc43.odcs import contract_identity
 from dc43.versioning import SemVer
 
@@ -98,4 +99,30 @@ def draft_from_observations(
     )
 
 
-__all__ = ["draft_from_observations"]
+def draft_from_validation_result(
+    *,
+    validation: ValidationResult,
+    base_contract: OpenDataContractStandard,
+    bump: str = "minor",
+    dataset_id: Optional[str] = None,
+    dataset_version: Optional[str] = None,
+    data_format: Optional[str] = None,
+    dq_feedback: Optional[Mapping[str, Any]] = None,
+) -> OpenDataContractStandard:
+    """Create a draft contract document from an engine validation result."""
+
+    schema_payload: Mapping[str, Mapping[str, Any]] | None = validation.schema or None
+    metrics_payload: Mapping[str, Any] | None = validation.metrics or None
+    return draft_from_observations(
+        schema=schema_payload or {},
+        metrics=metrics_payload or None,
+        base_contract=base_contract,
+        bump=bump,
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        data_format=data_format,
+        dq_feedback=dict(dq_feedback) if dq_feedback else None,
+    )
+
+
+__all__ = ["draft_from_observations", "draft_from_validation_result"]

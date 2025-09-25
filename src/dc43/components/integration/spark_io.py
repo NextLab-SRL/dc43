@@ -6,22 +6,16 @@ High-level wrappers to read/write DataFrames while enforcing ODCS contracts
 and coordinating with an external Data Quality client when provided.
 """
 
-from typing import Any, Dict, Optional, Tuple, Literal, overload
+from typing import Any, Dict, Optional, Tuple, Literal, Mapping, overload
 import logging
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.components.contract_drafter import draft_from_observations
 from dc43.components.contract_store import ContractStore
-from dc43.components.data_quality import (
-    DQClient,
-    DQStatus,
-    ValidationResult,
-    build_metrics_payload,
-    schema_snapshot,
-    validate_dataframe,
-)
+from dc43.components.data_quality import DataQualityManager, DQClient, DQStatus, QualityDraftContext
+from dc43.components.data_quality.engine import ValidationResult
+from dc43.components.data_quality.integration import build_metrics_payload, schema_snapshot, validate_dataframe
 from dc43.components.data_quality.validation import apply_contract
 from dc43.odcs import contract_identity, ensure_version
 from dc43.versioning import SemVer
@@ -71,6 +65,33 @@ def _simple_contract_id(dataset_id: str) -> str:
     if dataset_id.startswith("table:"):
         return dataset_id.split(":", 1)[1]
     return dataset_id
+
+
+def _as_quality_manager(dq: Optional[DataQualityManager | DQClient]) -> Optional[DataQualityManager]:
+    """Return a :class:`DataQualityManager` regardless of input flavour."""
+
+    if dq is None:
+        return None
+    if isinstance(dq, DataQualityManager):
+        return dq
+    return DataQualityManager(dq)
+
+
+def _draft_context(
+    *,
+    dataset_id: Optional[str],
+    dataset_version: Optional[str],
+    data_format: Optional[str],
+    dq_feedback: Optional[Mapping[str, Any]] = None,
+) -> QualityDraftContext:
+    """Build a :class:`QualityDraftContext` helper."""
+
+    return QualityDraftContext(
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        data_format=data_format,
+        dq_feedback=dq_feedback,
+    )
 
 def _check_contract_version(expected: str | None, actual: str) -> None:
     """Check expected contract version constraint against an actual version.
@@ -141,33 +162,6 @@ def _paths_compatible(provided: str, contract_path: str) -> bool:
     return base in actual.parents
 
 
-def _draft_from_validation(
-    *,
-    df: DataFrame,
-    base_contract: OpenDataContractStandard,
-    validation: ValidationResult,
-    bump: str,
-    dataset_id: Optional[str],
-    dataset_version: Optional[str],
-    data_format: Optional[str],
-    dq_feedback: Optional[Dict[str, Any]] = None,
-) -> OpenDataContractStandard:
-    """Build a draft contract using cached schema/metrics from validation."""
-
-    schema = validation.schema or schema_snapshot(df)
-    metrics = validation.metrics or {}
-    return draft_from_observations(
-        schema=schema,
-        metrics=metrics or None,
-        base_contract=base_contract,
-        bump=bump,
-        dataset_id=dataset_id,
-        dataset_version=dataset_version,
-        data_format=data_format,
-        dq_feedback=dq_feedback,
-    )
-
-
 # Overloads help type checkers infer the return type based on ``return_status``
 # so callers can destructure the tuple without false positives.
 @overload
@@ -181,7 +175,7 @@ def read_with_contract(
     contract: Optional[OpenDataContractStandard] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     expected_contract_version: Optional[str] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
@@ -201,7 +195,7 @@ def read_with_contract(
     contract: Optional[OpenDataContractStandard] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     expected_contract_version: Optional[str] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
@@ -221,7 +215,7 @@ def read_with_contract(
     contract: Optional[OpenDataContractStandard] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     expected_contract_version: Optional[str] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
@@ -241,7 +235,7 @@ def read_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     # Governance / DQ orchestration
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     expected_contract_version: Optional[str] = None,  # e.g. '==1.2.0' or '>=1.0.0'
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
@@ -250,8 +244,9 @@ def read_with_contract(
     """Read a DataFrame and validate/enforce an ODCS contract.
 
     - If ``contract`` is provided, validates schema and aligns columns/types.
-    - If ``dq_client`` is provided, checks dataset status and submits metrics
-      when needed; returns status when ``return_status=True``.
+    - If ``dq_client`` is provided (either a :class:`DataQualityManager` or a
+      raw :class:`DQClient` implementation), checks dataset status and submits
+      metrics when needed; returns status when ``return_status=True``.
     """
     # Resolve the physical location from the contract when one is provided.
     #
@@ -285,6 +280,8 @@ def read_with_contract(
         reader = reader.options(**options)
     df = reader.table(table) if table else reader.load(path)
     result: Optional[ValidationResult] = None
+    cid: Optional[str] = None
+    cver: Optional[str] = None
     if contract:
         ensure_version(contract)
         cid, cver = contract_identity(contract)
@@ -302,51 +299,37 @@ def read_with_contract(
         df = apply_contract(df, contract, auto_cast=auto_cast)
 
     # DQ integration
+    quality_manager = _as_quality_manager(dq_client)
     status: Optional[DQStatus] = None
-    if dq_client and contract:
+    if quality_manager and contract and result is not None:
         ds_id = dataset_id or dataset_id_from_ref(table=table, path=path)
         ds_ver = dataset_version or get_delta_version(spark, table=table, path=path) or "unknown"
 
-        # Check dataset->contract linkage if tracked; link when missing
-        linked = dq_client.get_linked_contract_version(dataset_id=ds_id)
-        if linked and linked != f"{cid}:{cver}":
-            status = DQStatus(status="block", reason=f"dataset linked to {linked}")
-        else:
-            if not linked:
-                dq_client.link_dataset_contract(
-                    dataset_id=ds_id,
-                    dataset_version=ds_ver,
-                    contract_id=cid,
-                    contract_version=cver,
-                )
-            status = dq_client.get_status(
-                contract_id=cid,
-                contract_version=cver,
-                dataset_id=ds_id,
-                dataset_version=ds_ver,
+        def _observations() -> tuple[Mapping[str, object], bool]:
+            metrics_payload, _schema_payload, reused = build_metrics_payload(
+                df,
+                contract,
+                validation=result,
+                include_schema=True,
             )
-            if status.status in ("unknown", "stale"):
-                metrics_payload, _schema_payload, reused = build_metrics_payload(
-                    df,
-                    contract,
-                    validation=result,
-                    include_schema=True,
-                )
-                if reused:
-                    logger.info(
-                        "Using cached validation metrics for %s@%s", ds_id, ds_ver
-                    )
-                else:
-                    logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
-                status = dq_client.submit_metrics(
-                    contract=contract,
-                    dataset_id=ds_id,
-                    dataset_version=ds_ver,
-                    metrics=metrics_payload,
-                )
-        logger.info("DQ status for %s@%s: %s", ds_id, ds_ver, status.status)
-        if enforce and status and status.status == "block":
-            raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
+            if reused:
+                logger.info("Using cached validation metrics for %s@%s", ds_id, ds_ver)
+            else:
+                logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
+            return metrics_payload, reused
+
+        assessment = quality_manager.evaluate_dataset(
+            contract=contract,
+            dataset_id=ds_id,
+            dataset_version=ds_ver,
+            validation=result,
+            observations=_observations,
+        )
+        status = assessment.status
+        if status:
+            logger.info("DQ status for %s@%s: %s", ds_id, ds_ver, status.status)
+            if enforce and status.status == "block":
+                raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
 
     return (df, status) if return_status else df
 
@@ -369,7 +352,7 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[True],
@@ -393,7 +376,7 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[True],
@@ -417,7 +400,7 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[False] = False,
@@ -441,7 +424,7 @@ def write_with_contract(
     draft_on_mismatch: bool = False,
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: Literal[False] = False,
@@ -466,7 +449,7 @@ def write_with_contract(
     draft_store: Optional[ContractStore] = None,
     draft_bump: str = "minor",
     # DQ integration
-    dq_client: Optional[DQClient] = None,
+    dq_client: Optional[DataQualityManager | DQClient] = None,
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: bool = False,
@@ -489,9 +472,68 @@ def write_with_contract(
         table = table or c_table
 
     out_df = df
+    quality_manager = _as_quality_manager(dq_client)
     draft_doc: Optional[OpenDataContractStandard] = None
     # Default to an "all good" validation result; this will be replaced when a
     # contract is actually enforced below.
+    def _build_context(
+        *,
+        data_format_override: Optional[str] = None,
+        dq_feedback: Optional[Mapping[str, Any]] = None,
+    ) -> QualityDraftContext:
+        ds_id_local = dataset_id or dataset_id_from_ref(table=table, path=path)
+        ds_ver_local = (
+            dataset_version
+            or (
+                get_delta_version(df.sparkSession, table=table, path=path)
+                if hasattr(df, "sparkSession")
+                else None
+            )
+        )
+        fmt_local = data_format_override or format or c_fmt
+        return _draft_context(
+            dataset_id=ds_id_local,
+            dataset_version=ds_ver_local,
+            data_format=fmt_local,
+            dq_feedback=dq_feedback,
+        )
+
+    def _request_draft(
+        *,
+        reason: str,
+        context: QualityDraftContext,
+    ) -> None:
+        nonlocal draft_doc
+        if draft_doc is not None or not draft_on_mismatch or not contract:
+            return
+        if quality_manager:
+            candidate = quality_manager.review_validation_outcome(
+                validation=result,
+                base_contract=contract,
+                bump=draft_bump,
+                context=context,
+                draft_requested=True,
+            )
+        else:
+            candidate = DataQualityManager().review_validation_outcome(
+                validation=result,
+                base_contract=contract,
+                bump=draft_bump,
+                context=context,
+                draft_requested=True,
+            )
+        if candidate is None:
+            return
+        draft_doc = candidate
+        if draft_store is not None:
+            logger.info(
+                "Persisting draft contract %s:%s due to %s",
+                draft_doc.id,
+                draft_doc.version,
+                reason,
+            )
+            draft_store.put(draft_doc)
+
     result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
     if contract:
         ensure_version(contract)
@@ -510,81 +552,24 @@ def write_with_contract(
             msg = f"Format {format} does not match contract server format {c_fmt}"
             logger.warning(msg)
             result.warnings.append(msg)
-            if draft_on_mismatch and draft_doc is None:
-                ds_id = dataset_id_from_ref(table=table, path=path)
-                ds_ver = (
-                    get_delta_version(df.sparkSession, table=table, path=path)
-                    if hasattr(df, "sparkSession")
-                    else None
-                )
-                draft_doc = _draft_from_validation(
-                    df=df,
-                    base_contract=contract,
-                    validation=result,
-                    bump=draft_bump,
-                    dataset_id=ds_id,
-                    dataset_version=ds_ver,
-                    data_format=format,
-                )
-                if draft_store is not None:
-                    logger.info(
-                        "Persisting draft contract %s:%s due to format mismatch",
-                        draft_doc.id,
-                        draft_doc.version,
-                    )
-                    draft_store.put(draft_doc)
+            _request_draft(
+                reason="format mismatch",
+                context=_build_context(data_format_override=format),
+            )
         format = format or c_fmt
         if path and c_path and not _paths_compatible(path, c_path):
             msg = f"Path {path} does not match contract server path {c_path}"
             logger.warning(msg)
             result.warnings.append(msg)
-            if draft_on_mismatch and draft_doc is None:
-                ds_id = dataset_id_from_ref(table=table, path=path)
-                ds_ver = (
-                    get_delta_version(df.sparkSession, table=table, path=path)
-                    if hasattr(df, "sparkSession")
-                    else None
-                )
-                draft_doc = _draft_from_validation(
-                    df=df,
-                    base_contract=contract,
-                    validation=result,
-                    bump=draft_bump,
-                    dataset_id=ds_id,
-                    dataset_version=ds_ver,
-                    data_format=format,
-                )
-                if draft_store is not None:
-                    logger.info(
-                        "Persisting draft contract %s:%s due to path mismatch",
-                        draft_doc.id,
-                        draft_doc.version,
-                    )
-                    draft_store.put(draft_doc)
+            _request_draft(
+                reason="path mismatch",
+                context=_build_context(data_format_override=format),
+            )
         if not result.ok:
-            if draft_on_mismatch and draft_doc is None:
-                ds_id = dataset_id_from_ref(table=table, path=path) if (table or path) else "unknown"
-                ds_ver = (
-                    get_delta_version(df.sparkSession, table=table, path=path)
-                    if hasattr(df, "sparkSession")
-                    else None
-                )
-                draft_doc = _draft_from_validation(
-                    df=df,
-                    base_contract=contract,
-                    validation=result,
-                    bump=draft_bump,
-                    dataset_id=ds_id,
-                    dataset_version=ds_ver,
-                    data_format=format,
-                )
-                if draft_store is not None:
-                    logger.info(
-                        "Persisting draft contract %s:%s due to mismatch",
-                        draft_doc.id,
-                        draft_doc.version,
-                    )
-                    draft_store.put(draft_doc)
+            _request_draft(
+                reason="validation mismatch",
+                context=_build_context(),
+            )
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
     elif draft_store is not None:
@@ -604,15 +589,27 @@ def write_with_contract(
             id=ds_id,
             name=ds_id,
         )
-        draft_doc = draft_from_observations(
-            schema=schema_snapshot(df),
-            metrics=None,
+        inferred_schema = schema_snapshot(df)
+        validation = ValidationResult(
+            ok=True,
+            errors=[],
+            warnings=[],
+            metrics={},
+            schema=inferred_schema,
+        )
+        draft_doc = DataQualityManager().review_validation_outcome(
+            validation=validation,
             base_contract=base,
             bump=draft_bump,
-            dataset_id=ds_id_raw,
-            dataset_version=ds_ver,
-            data_format=format,
+            context=_draft_context(
+                dataset_id=ds_id_raw,
+                dataset_version=ds_ver,
+                data_format=format,
+            ),
+            draft_requested=True,
         )
+        if draft_doc is None:
+            raise ValueError("Failed to generate draft from inferred schema")
         logger.info(
             "Persisting inferred draft contract %s:%s",
             draft_doc.id,
@@ -637,44 +634,15 @@ def write_with_contract(
 
     # DQ integration after write
     status: Optional[DQStatus] = None
-    dq_feedback_payload: Optional[Dict[str, Any]] = None
-    dq_dataset_id: Optional[str] = None
-    dq_dataset_version: Optional[str] = None
-    if dq_client and contract:
+    if quality_manager and contract:
         dq_dataset_id = dataset_id or dataset_id_from_ref(table=table, path=path)
         dq_dataset_version = (
             dataset_version
             or get_delta_version(df.sparkSession, table=table, path=path)
             or "unknown"
         )
-        linked = dq_client.get_linked_contract_version(dataset_id=dq_dataset_id)
-        target_link = f"{cid}:{cver}"
-        if linked and linked != target_link:
-            linked_id, _, _ = linked.partition(":")
-            if linked_id == cid:
-                logger.info(
-                    "Updating DQ link for %s from %s to %s",
-                    dq_dataset_id,
-                    linked,
-                    target_link,
-                )
-                dq_client.link_dataset_contract(
-                    dataset_id=dq_dataset_id,
-                    dataset_version=dq_dataset_version,
-                    contract_id=cid,
-                    contract_version=cver,
-                )
-                linked = target_link
-            else:
-                status = DQStatus(status="block", reason=f"dataset linked to {linked}")
-        if status is None:
-            if not linked:
-                dq_client.link_dataset_contract(
-                    dataset_id=dq_dataset_id,
-                    dataset_version=dq_dataset_version,
-                    contract_id=cid,
-                    contract_version=cver,
-                )
+
+        def _post_write_observations() -> tuple[Mapping[str, Any], bool]:
             metrics, _schema_payload, reused_metrics = build_metrics_payload(
                 out_df,
                 contract,
@@ -683,72 +651,56 @@ def write_with_contract(
             )
             if reused_metrics:
                 logger.info(
-                    "Using cached validation metrics for %s@%s", dq_dataset_id, dq_dataset_version
+                    "Using cached validation metrics for %s@%s",
+                    dq_dataset_id,
+                    dq_dataset_version,
                 )
             else:
                 logger.info(
-                    "Computing DQ metrics for %s@%s after write", dq_dataset_id, dq_dataset_version
+                    "Computing DQ metrics for %s@%s after write",
+                    dq_dataset_id,
+                    dq_dataset_version,
                 )
-            status = dq_client.submit_metrics(
-                contract=contract,
-                dataset_id=dq_dataset_id,
-                dataset_version=dq_dataset_version,
-                metrics=metrics,
-            )
-        if status:
-            dq_feedback_payload = {"status": status.status}
-            if status.reason:
-                dq_feedback_payload["reason"] = status.reason
-            if status.details:
-                dq_feedback_payload["details"] = status.details
-        violation_total = 0
-        metrics_detail: Dict[str, Any] = {}
-        if status and status.details:
-            try:
-                violation_total = int(status.details.get("violations") or 0)
-            except (TypeError, ValueError):
-                violation_total = 0
-            metrics_detail = status.details.get("metrics") or {}
-        should_infer_draft_from_dq = (
-            draft_on_mismatch
-            and draft_doc is None
-            and status is not None
-            and status.status in ("warn", "block")
-            and (
-                violation_total > 0
-                or any(
-                    int(metrics_detail.get(key) or 0) > 0
-                    for key in metrics_detail
-                    if key.startswith("violations.")
-                )
-            )
+            return metrics, reused_metrics
+
+        dq_context = _draft_context(
+            dataset_id=dq_dataset_id,
+            dataset_version=dq_dataset_version,
+            data_format=format,
         )
-        if should_infer_draft_from_dq:
-            ds_id_for_draft = dq_dataset_id or dataset_id_from_ref(table=table, path=path)
-            ds_ver_for_draft = dq_dataset_version
-            draft_doc = _draft_from_validation(
-                df=df,
-                base_contract=contract,
-                validation=result,
-                bump=draft_bump,
-                dataset_id=ds_id_for_draft,
-                dataset_version=ds_ver_for_draft,
-                data_format=format,
-                dq_feedback=dict(dq_feedback_payload or {}),
+        assessment = quality_manager.evaluate_dataset(
+            contract=contract,
+            dataset_id=dq_dataset_id,
+            dataset_version=dq_dataset_version,
+            validation=result,
+            observations=_post_write_observations,
+            bump=draft_bump,
+            context=dq_context,
+            draft_on_violation=draft_on_mismatch,
+        )
+        status = assessment.status
+        if status:
+            logger.info(
+                "DQ status for %s@%s after write: %s",
+                dq_dataset_id,
+                dq_dataset_version,
+                status.status,
             )
+            if enforce and status.status == "block":
+                details_snapshot: Dict[str, Any] = dict(status.details or {})
+                if status.reason:
+                    details_snapshot.setdefault("reason", status.reason)
+                raise ValueError(f"DQ violation: {details_snapshot or status.status}")
+        if assessment.draft and draft_doc is None:
+            draft_doc = assessment.draft
             if draft_store is not None:
                 logger.info(
                     "Persisting draft contract %s:%s due to dq status %s",
                     draft_doc.id,
                     draft_doc.version,
-                    status.status,
+                    status.status if status else "unknown",
                 )
                 draft_store.put(draft_doc)
-        if enforce and status and status.status == "block":
-            details_snapshot: Dict[str, Any] = status.details or {}
-            if status.reason:
-                details_snapshot = {**details_snapshot, "reason": status.reason}
-            raise ValueError(f"DQ violation: {details_snapshot or status.status}")
 
     # Propagate the validation result to callers.
     if return_status and return_draft:

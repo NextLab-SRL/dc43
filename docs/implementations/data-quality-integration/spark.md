@@ -1,7 +1,7 @@
 # Spark Data-Quality Integration
 
 The Spark integration captures schema snapshots and expectation metrics inside
-Spark jobs before forwarding them to the data-quality governance layer. Runtime
+Spark jobs before forwarding them to the **data quality manager**. Runtime
 helpers live in `dc43.components.data_quality.integration` while the
 runtime-agnostic evaluation logic stays inside
 `dc43.components.data_quality.engine`. Use
@@ -29,8 +29,12 @@ The Spark integration exposes the following building blocks:
   writes (via `dc43.components.data_quality.validation`).
 
 ```python
-from dc43.components.data_quality import build_metrics_payload, schema_snapshot
-from dc43.components.data_quality.integration import collect_observations
+from dc43.components.data_quality.integration import (
+    build_metrics_payload,
+    collect_observations,
+    schema_snapshot,
+)
+from dc43.components.data_quality.manager import DataQualityManager
 from dc43.components.data_quality.governance import DQClient
 
 schema, metrics = collect_observations(df, contract)
@@ -40,7 +44,8 @@ metrics_payload, _, _ = build_metrics_payload(
     validation=None,
     include_schema=True,
 )
-status = dq_client.submit_metrics(
+quality = DataQualityManager(dq_client)
+status = quality.submit_metrics(
     contract=contract,
     dataset_id="table:catalog.schema.orders",
     dataset_version="2024-05-30",
@@ -56,8 +61,9 @@ violations or `"ignore"` to silence them entirely.
 
 `submit_metrics` delegates the final compatibility verdict to whichever
 data-quality governance adapter you configure (filesystem stub, Collibra,
-bespoke service).  Those adapters reuse the engine to evaluate the submitted
-observations so the integration and engine layers stay decoupled.
+bespoke service). The data quality manager wraps that adapter, refreshing
+statuses when they are unknown and orchestrating draft proposals when
+metrics surface schema drift.
 
 ## Extending the Spark integration
 

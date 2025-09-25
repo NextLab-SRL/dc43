@@ -334,4 +334,9 @@ def evaluate_contract(
     )
 
 
-__all__ = ["ExpectationSpec", "ValidationResult", "evaluate_contract", "expectation_specs"]
+__all__ = [
+    "ExpectationSpec",
+    "ValidationResult",
+    "evaluate_contract",
+    "expectation_specs",
+]

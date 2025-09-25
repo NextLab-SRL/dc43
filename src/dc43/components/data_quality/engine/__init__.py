@@ -26,8 +26,6 @@ def evaluate_observations(
         allow_extra_columns=allow_extra_columns,
         expectation_severity=expectation_severity,
     )
-
-
 __all__ = [
     "ExpectationSpec",
     "ValidationResult",

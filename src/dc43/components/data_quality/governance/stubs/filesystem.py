@@ -8,7 +8,8 @@ import os
 from typing import Any, Dict, Optional, Mapping
 
 from ..interface import DQClient, DQStatus
-from dc43.components.data_quality.engine import evaluate_observations
+from dc43.components.contract_drafter import draft_from_validation_result
+from dc43.components.data_quality.engine import ValidationResult, evaluate_observations
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -110,6 +111,29 @@ class StubDQClient(DQClient):
             contract_version=contract_identity(contract)[1],
         )
         return DQStatus(status=status, details=details)
+
+    def propose_draft(
+        self,
+        *,
+        validation: ValidationResult,
+        base_contract: OpenDataContractStandard,
+        bump: str = "minor",
+        dataset_id: Optional[str] = None,
+        dataset_version: Optional[str] = None,
+        data_format: Optional[str] = None,
+        dq_feedback: Optional[Mapping[str, Any]] = None,
+    ) -> Optional[OpenDataContractStandard]:
+        """Produce a draft contract using the engine helper."""
+
+        return draft_from_validation_result(
+            validation=validation,
+            base_contract=base_contract,
+            bump=bump,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            data_format=data_format,
+            dq_feedback=dq_feedback,
+        )
 
     def link_dataset_contract(
         self,

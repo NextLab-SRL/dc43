@@ -1,10 +1,10 @@
 # Data Quality Governance Component
 
 The governance layer coordinates data-quality (DQ) verdicts and approvals
-alongside contract lifecycle. dc43 exposes a `DQClient` protocol so you
-can connect authoring and runtime workflows with catalog-native quality
-services. This document explains the responsibilities of that interface
-and points to concrete adapters.
+alongside contract lifecycle. dc43 exposes a `DQClient` protocol used by
+the **data quality manager** so you can connect authoring and runtime
+workflows with catalog-native quality services. This document explains
+the responsibilities of that interface and points to concrete adapters.
 
 ## What the component does
 
@@ -24,10 +24,12 @@ At minimum it must be able to:
 
 ```mermaid
 flowchart LR
-    Runtime["Execution layer"] --> Metrics["Metrics & verdict requests"]
-    Metrics --> DQClient["DQ governance adapter"]
-    DQClient --> Catalog["Compatibility matrix\n(authoritative)"]
-    Catalog --> Runtime["Execution layer"]
+    Integration["Runtime integration"] --> DQMgr["Data quality manager"]
+    DQMgr --> Metrics["Observations"]
+    Metrics --> Engine["DQ engine"]
+    DQMgr --> DQClient["DQ governance adapter"]
+    DQClient --> Catalog["Compatibility matrix"]
+    Catalog --> Integration
     DQClient --> Stewardship["Steward workflows / alerts"]
 ```
 

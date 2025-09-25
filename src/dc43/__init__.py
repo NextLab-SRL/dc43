@@ -6,16 +6,31 @@ validation utilities, and DQ protocol types.
 
 from .versioning import SemVer
 from .components.data_quality import (
+    DataQualityManager,
     DQClient,
     DQStatus,
+    QualityAssessment,
+    QualityDraftContext,
+)
+from .components.data_quality.engine import (
+    ExpectationSpec,
     ValidationResult,
-    apply_contract,
     evaluate_contract,
+    expectation_specs,
+)
+from .components.data_quality.integration import (
+    SPARK_TYPES,
+    attach_failed_expectations,
+    build_metrics_payload,
+    collect_observations,
+    compute_metrics,
     odcs_type_name_from_spark,
     schema_snapshot,
     spark_type_name,
     validate_dataframe,
 )
+from .components.data_quality.validation import apply_contract
+from .components.contract_drafter import draft_from_observations, draft_from_validation_result
 from .odcs import (
     BITOL_SCHEMA_URL,
     as_odcs_dict,
@@ -35,13 +50,25 @@ except Exception:  # pragma: no cover
 
 __all__ = [
     "SemVer",
+    "DataQualityManager",
+    "QualityAssessment",
+    "QualityDraftContext",
     "ValidationResult",
+    "ExpectationSpec",
+    "expectation_specs",
     "evaluate_contract",
     "validate_dataframe",
     "schema_snapshot",
     "spark_type_name",
     "odcs_type_name_from_spark",
     "apply_contract",
+    "SPARK_TYPES",
+    "attach_failed_expectations",
+    "collect_observations",
+    "compute_metrics",
+    "build_metrics_payload",
+    "draft_from_observations",
+    "draft_from_validation_result",
     "BITOL_SCHEMA_URL",
     "as_odcs_dict",
     "ensure_version",

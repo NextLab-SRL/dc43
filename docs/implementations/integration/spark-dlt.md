@@ -1,21 +1,23 @@
 # Integration Layer (Spark & DLT Adapters)
 
-dc43 keeps governance logic decoupled from runtime execution. The integration layer provides adapters that apply contracts, call the data quality engine, and coordinate with platform-specific services such as Delta, Unity Catalog, or DLT expectations.
+dc43 keeps governance logic decoupled from runtime execution. The integration layer provides adapters that apply contracts, talk to the data contract manager, and ask the data quality manager for verdicts while coordinating with platform-specific services such as Delta, Unity Catalog, or DLT expectations.
 
 ## Responsibilities
 
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
-2. **Validate and coerce data** using `dc43.components.data_quality` helpers while respecting enforcement flags.
-3. **Bridge runtime metrics** to the `DQClient` and contract drafter when mismatches occur.
+2. **Validate and coerce data** using helpers from `dc43.components.data_quality.integration` while respecting enforcement flags.
+3. **Bridge runtime metrics** to the data quality manager and contract drafter when mismatches occur.
 4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`, `expectations_from_contract`).
 
 ```mermaid
 flowchart TD
-    ContractStore["Contract Store"] --> IO["dc43.components.integration.spark_io"]
+    ContractStore["Contract store"] --> IO["dc43.components.integration.spark_io"]
     IO --> Spark["Spark Jobs / DLT"]
-    IO --> Drafter["Contract Drafter"]
-    IO --> DQEngine["DQ Engine"]
-    DQEngine --> DQClient["DQ Governance"]
+    IO --> ContractMgr["Data contract manager"]
+    IO --> DQMgr["Data quality manager"]
+    DQMgr --> DQEngine["DQ engine"]
+    DQMgr --> Drafter["Contract drafter"]
+    DQMgr --> Governance["DQ governance"]
 ```
 
 ## Spark & Delta Helpers
@@ -24,7 +26,8 @@ The canonical implementation lives in [`src/dc43/components/integration`](../../
 
 * `spark_io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
 * `dlt_helpers.py` — Functions to translate ODCS expectations into Delta Live Tables expectations.
-* [`dc43.components.data_quality`](../../src/dc43/components/data_quality/__init__.py) — Core validation, schema, and casting helpers shared across adapters.
+* [`dc43.components.data_quality.integration`](../../src/dc43/components/data_quality/integration/__init__.py) — Schema snapshots, expectation predicates, and metric builders used by adapters.
+* [`dc43.components.data_quality.manager`](../../src/dc43/components/data_quality/manager.py) — Facade that wraps governance adapters and draft generation.
 
 Pipelines typically import these helpers directly:
 
