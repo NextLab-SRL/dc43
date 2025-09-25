@@ -283,8 +283,8 @@ def run_pipeline(
     declared server path.  Callers may supply a custom name when no contract is
     available.  The ``inputs`` mapping can override dataset locators, enforce
     flags, and read-status strategies for each source (``"orders"`` and
-    ``"customers"``) so demo scenarios can highlight how partial datasets are
-    handled.  Returns the dataset name used along with the materialized
+    ``"customers"``) so demo scenarios can highlight how mixed-validity inputs
+    are handled.  Returns the dataset name used along with the materialized
     version.
     """
     existing_session = SparkSession.getActiveSession()

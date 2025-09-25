@@ -39,9 +39,9 @@ written datasets use the same auto-incrementing semantic version (for example
 | **Existing contract OK** | No-op (default) | `orders_enriched:1.0.0` | *(none)* | `orders_enriched:1.0.x` (full batch). |
 | **Existing contract fails DQ** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Write blocked; no dataset versions materialised. |
 | **Contract fails schema and DQ** | No-op (default) | `orders_enriched:2.0.0` | `orders_enriched:2.1.0` | Write blocked; no dataset versions materialised. |
-| **Blocked partial input** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:partial-batch` as `block`. |
-| **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Uses `orders::valid:partial-batch`; writes `orders_enriched:1.0.x`. |
-| **Override with full batch** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Forced read of `orders:partial-batch` continues; downstream validation records violations. |
+| **Blocked invalid batch** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:2024-04-10` as `block`. |
+| **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Uses `orders::valid:2024-04-10`; writes `orders_enriched:1.0.x`. |
+| **Override with full batch** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Forced read of `orders:2024-04-10` continues; downstream validation records violations. |
 | **Split invalid rows** | `SplitWriteViolationStrategy` | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched:1.0.x`, `orders_enriched::valid:1.0.x`, `orders_enriched::reject:1.0.x`. |
 
 ### Scenario breakdown
@@ -68,13 +68,13 @@ All dataset versions default to `1.0.0` the first time a scenario writes a given
 - **Dataset versions:** None; schema alignment fails before persistence.
 - **Outcome:** Enforcement errors and flags the draft for review.
 
-#### Blocked partial input
+#### Blocked invalid batch
 - **Target contract:** `orders_enriched:1.1.0` but the run never reaches the write step.
-- **Dataset versions:** None; `read_with_contract` raises when the stored DQ status for `orders:partial-batch` is `block`.
-- **Outcome:** Demonstrates how strict enforcement prevents downstream consumers from ingesting a partially valid submission.
+- **Dataset versions:** None; `read_with_contract` raises when the stored DQ status for `orders:2024-04-10` is `block`.
+- **Outcome:** Demonstrates how strict enforcement prevents downstream consumers from ingesting the mixed-validity submission. Governance points to `orders::valid:2024-04-10` and `orders::reject:2024-04-10` for consumers that can tolerate subsets.
 
 #### Prefer valid subset
-- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid:partial-batch` slice.
+- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid:2024-04-10` slice.
 - **Dataset versions:** `orders_enriched:1.0.x` is written because every surviving record still satisfies the `amount > 100` expectation after transformation.
 - **Outcome:** Read validation succeeds; the registry records an OK run and surfaces the smaller input metrics (two rows instead of three).
 

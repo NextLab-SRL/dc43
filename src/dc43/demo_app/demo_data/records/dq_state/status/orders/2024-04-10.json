@@ -14,12 +14,22 @@
     "auxiliary_statuses": [
       {
         "dataset_id": "orders::valid",
-        "dataset_version": "partial-batch",
+        "dataset_version": "2024-04-10",
         "status": "ok",
         "details": {
           "violations": 0,
           "note": "Valid subset without negative amounts",
           "row_count": 2
+        }
+      },
+      {
+        "dataset_id": "orders::reject",
+        "dataset_version": "2024-04-10",
+        "status": "warn",
+        "details": {
+          "violations": 1,
+          "note": "Rows that break contract expectations",
+          "row_count": 1
         }
       }
     ]

@@ -473,15 +473,15 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "run_type": "enforce",
         },
     },
-    "read-partial-block": {
-        "label": "Blocked partial input",
+    "read-invalid-block": {
+        "label": "Blocked invalid batch",
         "description": (
-            "<p>Attempts to process a batch flagged as invalid.</p>"
+            "<p>Attempts to process the 2024-04-10 batch flagged as invalid.</p>"
             "<ul>"
-            "<li><strong>Inputs:</strong> Orders batch <code>partial-batch</code>"
-            " mixes valid and invalid rows; governance marks the dataset as"
+            "<li><strong>Inputs:</strong> Orders <code>2024-04-10</code> mixes"
+            " valid and reject-worthy rows; governance marks the dataset as"
             " <code>block</code>.</li>"
-            "<li><strong>Contract:</strong> Aims for <code>orders_enriched:1.1.0</code>"
+            "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.1.0</code>"
             " but aborts during the read step.</li>"
             "<li><strong>Status:</strong> Default enforcement stops the run before"
             " any writes occur.</li>"
@@ -492,7 +492,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Partial[orders:partial-batch] -->|DQ block| Halt[Read fails]
+                    Invalid[orders:2024-04-10] -->|DQ block| Halt[Read fails]
                 """
             ).strip()
             + "</div>"
@@ -503,19 +503,19 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "run_type": "enforce",
             "inputs": {
                 "orders": {
-                    "dataset_version": "partial-batch",
-                    "path": str(DATA_DIR / "orders_partial.json"),
+                    "dataset_version": "2024-04-10",
+                    "path": str(DATA_DIR / "orders_2024-04-10.json"),
                 }
             },
         },
     },
-    "read-partial-valid": {
+    "read-valid-subset": {
         "label": "Prefer valid subset",
         "description": (
             "<p>Steers reads toward the curated valid slice.</p>"
             "<ul>"
             "<li><strong>Inputs:</strong> Uses <code>orders::valid</code>"
-            " derived from <code>partial-batch</code> to satisfy governance</li>"
+            " derived from <code>orders:2024-04-10</code> to satisfy governance.</li>"
             "<li><strong>Contract:</strong> Continues to target"
             " <code>orders_enriched:1.1.0</code>.</li>"
             "<li><strong>Status:</strong> Read succeeds and downstream checks"
@@ -527,8 +527,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Partial[orders:partial-batch] --> Option[Governance]
-                    Option -->|valid slice| Valid[orders::valid]
+                    Invalid[orders:2024-04-10] --> Option[Governance]
+                    Option -->|valid slice| Valid[orders::valid 2024-04-10]
                     Valid --> Join[Join datasets]
                 """
             ).strip()
@@ -543,19 +543,19 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "inputs": {
                 "orders": {
                     "dataset_id": "orders::valid",
-                    "dataset_version": "partial-batch",
-                    "path": str(DATA_DIR / "orders_partial_valid.json"),
+                    "dataset_version": "2024-04-10",
+                    "path": str(DATA_DIR / "orders_2024-04-10_valid.json"),
                 }
             },
         },
     },
-    "read-partial-full": {
+    "read-override-full": {
         "label": "Override with full batch",
         "description": (
             "<p>Documents what happens when the blocked data is forced through.</p>"
             "<ul>"
             "<li><strong>Inputs:</strong> Reuses the blocked"
-            " <code>partial-batch</code> but downgrades the read status.</li>"
+            " <code>orders:2024-04-10</code> but downgrades the read status.</li>"
             "<li><strong>Contract:</strong> Still targets"
             " <code>orders_enriched:1.1.0</code>.</li>"
             "<li><strong>Status:</strong> The UI highlights the manual override"
@@ -567,7 +567,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Partial[orders:partial-batch] --> Override[Override block]
+                    Invalid[orders:2024-04-10] --> Override[Override block]
                     Override --> Join[Join datasets]
                 """
             ).strip()
@@ -581,11 +581,11 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "examples_limit": 3,
             "inputs": {
                 "orders": {
-                    "dataset_version": "partial-batch",
-                    "path": str(DATA_DIR / "orders_partial.json"),
+                    "dataset_version": "2024-04-10",
+                    "path": str(DATA_DIR / "orders_2024-04-10.json"),
                     "status_strategy": {
                         "name": "allow-block",
-                        "note": "Manual override: accepted partial batch",
+                        "note": "Manual override: accepted 2024-04-10 batch",
                         "target_status": "warn",
                     },
                 }

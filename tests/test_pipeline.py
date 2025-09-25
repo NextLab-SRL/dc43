@@ -275,10 +275,10 @@ def test_demo_pipeline_strict_split_marks_error(tmp_path: Path) -> None:
             .getOrCreate()
 
 
-def test_demo_pipeline_partial_read_block(tmp_path: Path) -> None:
+def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
     original_records = pipeline.load_records()
     dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
-    backup = tmp_path / "dq_state_backup_partial_block"
+    backup = tmp_path / "dq_state_backup_invalid_block"
     if dq_dir.exists():
         shutil.copytree(dq_dir, backup)
 
@@ -292,8 +292,8 @@ def test_demo_pipeline_partial_read_block(tmp_path: Path) -> None:
                 run_type="enforce",
                 inputs={
                     "orders": {
-                        "dataset_version": "partial-batch",
-                        "path": str(Path(pipeline.DATA_DIR) / "orders_partial.json"),
+                        "dataset_version": "2024-04-10",
+                        "path": str(Path(pipeline.DATA_DIR) / "orders_2024-04-10.json"),
                     }
                 },
             )
@@ -313,10 +313,10 @@ def test_demo_pipeline_partial_read_block(tmp_path: Path) -> None:
             .getOrCreate()
 
 
-def test_demo_pipeline_partial_read_valid_subset(tmp_path: Path) -> None:
+def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
     original_records = pipeline.load_records()
     dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
-    backup = tmp_path / "dq_state_backup_partial_valid"
+    backup = tmp_path / "dq_state_backup_valid_subset"
     if dq_dir.exists():
         shutil.copytree(dq_dir, backup)
     existing_versions = set(pipeline.store.list_versions("orders_enriched"))
@@ -335,8 +335,8 @@ def test_demo_pipeline_partial_read_valid_subset(tmp_path: Path) -> None:
             inputs={
                 "orders": {
                     "dataset_id": "orders::valid",
-                    "dataset_version": "partial-batch",
-                    "path": str(Path(pipeline.DATA_DIR) / "orders_partial_valid.json"),
+                    "dataset_version": "2024-04-10",
+                    "path": str(Path(pipeline.DATA_DIR) / "orders_2024-04-10_valid.json"),
                 }
             },
         )
@@ -376,10 +376,10 @@ def test_demo_pipeline_partial_read_valid_subset(tmp_path: Path) -> None:
             .getOrCreate()
 
 
-def test_demo_pipeline_partial_read_full_override(tmp_path: Path) -> None:
+def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
     original_records = pipeline.load_records()
     dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
-    backup = tmp_path / "dq_state_backup_partial_full"
+    backup = tmp_path / "dq_state_backup_full_override"
     if dq_dir.exists():
         shutil.copytree(dq_dir, backup)
     existing_versions = set(pipeline.store.list_versions("orders_enriched"))
@@ -397,11 +397,11 @@ def test_demo_pipeline_partial_read_full_override(tmp_path: Path) -> None:
             examples_limit=2,
             inputs={
                 "orders": {
-                    "dataset_version": "partial-batch",
-                    "path": str(Path(pipeline.DATA_DIR) / "orders_partial.json"),
+                    "dataset_version": "2024-04-10",
+                    "path": str(Path(pipeline.DATA_DIR) / "orders_2024-04-10.json"),
                     "status_strategy": {
                         "name": "allow-block",
-                        "note": "Manual override: accepted partial batch",
+                        "note": "Manual override: accepted 2024-04-10 batch",
                         "target_status": "warn",
                     },
                 }
@@ -413,7 +413,7 @@ def test_demo_pipeline_partial_read_full_override(tmp_path: Path) -> None:
         assert last.dataset_name == dataset_name
         orders_details = last.dq_details.get("orders", {})
         overrides = orders_details.get("overrides", [])
-        assert any("accepted partial batch" in note for note in overrides)
+        assert any("accepted 2024-04-10 batch" in note for note in overrides)
         assert last.status in {"warning", "error"}
     finally:
         pipeline.save_records(original_records)
