@@ -135,9 +135,10 @@ contract = OpenDataContractStandard(
       <h2>2. Read with Contract</h2>
       <pre><code class="language-python">orders_df, status = read_with_contract(
     spark,
-    path="orders.json",
-    contract=contract,
-    dq_client=dq
+    contract_id="orders",
+    contract_store=store,
+    dq_client=dq,
+    dataset_locator=StaticDatasetLocator(path="orders.json")
 )</code></pre>
     </section>
 
@@ -178,9 +179,10 @@ if errors:
       <h2>4. Write with Contract</h2>
       <pre><code class="language-python">result, status = write_with_contract(
     enriched,
-    contract=contract,
-    path="out/orders",
+    contract_id="orders",
+    contract_store=store,
     dq_client=dq,
+    dataset_locator=StaticDatasetLocator(path="out/orders")
 )</code></pre>
     </section>
 

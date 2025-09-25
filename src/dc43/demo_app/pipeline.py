@@ -21,7 +21,11 @@ from dc43.demo_app.server import (
 from dc43.components.data_quality import DataQualityManager
 from dc43.components.data_quality.integration import attach_failed_expectations
 from dc43.components.data_quality.governance.stubs import StubDQClient
-from dc43.components.integration.spark_io import read_with_contract, write_with_contract
+from dc43.components.integration.spark_io import (
+    read_with_contract,
+    write_with_contract,
+    StaticDatasetLocator,
+)
 from dc43.components.integration.violation_strategy import (
     NoOpWriteViolationStrategy,
     SplitWriteViolationStrategy,
@@ -166,29 +170,29 @@ def run_pipeline(
     dq = DataQualityManager(dq_client, draft_store=store)
 
     # Read primary orders dataset with its contract
-    orders_contract = store.get("orders", "1.1.0")
-    orders_path = str(DATA_DIR / "orders/1.1.0/orders.json")
     orders_df, orders_status = read_with_contract(
         spark,
-        path=orders_path,
-        contract=orders_contract,
+        contract_id="orders",
+        contract_store=store,
         expected_contract_version="==1.1.0",
         dq_client=dq,
-        dataset_id="orders",
-        dataset_version="1.1.0",
+        dataset_locator=StaticDatasetLocator(
+            dataset_id="orders",
+            dataset_version="1.1.0",
+        ),
     )
 
     # Join with customers lookup dataset
-    customers_contract = store.get("customers", "1.0.0")
-    customers_path = str(DATA_DIR / "customers/1.0.0/customers.json")
     customers_df, customers_status = read_with_contract(
         spark,
-        path=customers_path,
-        contract=customers_contract,
+        contract_id="customers",
+        contract_store=store,
         expected_contract_version="==1.0.0",
         dq_client=dq,
-        dataset_id="customers",
-        dataset_version="1.0.0",
+        dataset_locator=StaticDatasetLocator(
+            dataset_id="customers",
+            dataset_version="1.0.0",
+        ),
     )
 
     df = orders_df.join(customers_df, "customer_id")
@@ -220,16 +224,25 @@ def run_pipeline(
 
     strategy = _resolve_violation_strategy(violation_strategy)
 
-    result, output_status = write_with_contract(
-        df=df,
-        contract=output_contract,
+    locator = StaticDatasetLocator(
+        dataset_id=dataset_name,
+        dataset_version=dataset_version,
         path=str(output_path),
         format=getattr(server, "format", "parquet"),
+    )
+    contract_id_ref = getattr(output_contract, "id", None)
+    expected_version = f"=={output_contract.version}" if output_contract else None
+    result, output_status = write_with_contract(
+        df=df,
+        contract_id=contract_id_ref,
+        contract_store=store if contract_id_ref else None,
+        path=None if contract_id_ref else str(output_path),
+        format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
         dq_client=dq,
-        dataset_id=dataset_name,
-        dataset_version=dataset_version,
+        dataset_locator=locator,
+        expected_contract_version=expected_version,
         return_status=True,
         violation_strategy=strategy,
     )
