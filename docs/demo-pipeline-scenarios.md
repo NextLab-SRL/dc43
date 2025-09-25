@@ -45,9 +45,9 @@ override the locator to the `2025-09-28` submission, including its curated
 | --- | --- | --- | --- | --- |
 | **No contract provided** | No-op (default) | *(none)* | *(none)* | Write blocked; the planned dataset is never created. |
 | **Existing contract OK** | No-op (default) | `orders_enriched:1.0.0` | *(none)* | `orders_enriched` persisted with the run timestamp. |
-| **Existing contract fails DQ** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Write blocked; no dataset versions materialised. |
-| **Contract fails schema and DQ** | No-op (default) | `orders_enriched:2.0.0` | `orders_enriched:2.1.0` | Write blocked; no dataset versions materialised. |
-| **Blocked invalid batch** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:2025-09-28` as `block` while pointing to the curated valid/reject slices. |
+| **Existing contract fails DQ** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched` is persisted with the run timestamp before governance returns a `block` verdict and a draft. |
+| **Contract fails schema and DQ** | No-op (default) | `orders_enriched:2.0.0` | `orders_enriched:2.1.0` | `orders_enriched` is written with the run timestamp, but schema drift and DQ failures downgrade the run to `block`. |
+| **Invalid input blocked** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:2025-09-28` as `block` while pointing to the curated valid/reject slices. |
 | **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Reads `orders::valid:2025-09-28` and writes `orders_enriched` with the run timestamp under contract `1.1.0`. |
 | **Valid subset, invalid output** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Starts from `orders::valid:2025-09-28`, but the join lowers a value so `orders_enriched` (timestamped) is stored with `block` status and a draft. |
 | **Override block with full batch** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Downgrades the `orders:2025-09-28` verdict to `warn`, writes `orders_enriched` with the run timestamp, and logs the manual override plus reject metrics. |
@@ -69,21 +69,21 @@ All dataset versions default to an ISO-8601 timestamp captured at write time. Wh
 
 #### Existing contract fails DQ
 - **Target contract:** `orders_enriched:1.1.0` while draft `orders_enriched:1.2.0` captures failed expectations.
-- **Dataset versions:** None; the split is planned but blocked after validation detects violations.
-- **Outcome:** Enforcement errors, signalling downstream flows to halt.
+- **Dataset versions:** `orders_enriched` is created with the run timestamp before governance flips the outcome to `block` and records the draft.
+- **Outcome:** Enforcement errors, signalling downstream flows to halt while the persisted dataset remains quarantined under a `block` verdict.
 
 #### Contract fails schema and DQ
 - **Target contract:** `orders_enriched:2.0.0` with proposed draft `orders_enriched:2.1.0`.
-- **Dataset versions:** None; schema alignment fails before persistence.
-- **Outcome:** Enforcement errors and flags the draft for review.
+- **Dataset versions:** `orders_enriched` is written with the run timestamp, but downstream schema validation and DQ checks respond with a `block` verdict.
+- **Outcome:** Enforcement errors and flags the draft for review while the run history shows the blocked write.
 
-#### Blocked invalid batch
+#### Invalid input blocked
 - **Target contract:** `orders_enriched:1.1.0`, but strict enforcement stops at the read stage.
 - **Dataset versions:** None; `read_with_contract` raises because governance records `orders:2025-09-28` as `block`.
 - **Outcome:** Highlights the default behaviour when mixed-validity inputs arrive. The stub governance entry also references `orders::valid:2025-09-28` and `orders::reject:2025-09-28` so downstream jobs know where to look for remediated slices.
 
 #### Prefer valid subset
-- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid:2025-09-28` slice.
+- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid:2025-09-28` slice alongside `customers:2024-01-01`.
 - **Dataset versions:** `orders_enriched` is written with the run timestamp because every surviving record still satisfies the `amount > 100` expectation after transformation.
 - **Outcome:** Read validation succeeds; the registry records an OK run and surfaces the smaller input metrics (two rows instead of three).
 

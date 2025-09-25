@@ -458,9 +458,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> Validates against"
             " <code>orders_enriched:1.1.0</code> and prepares draft"
             " <code>orders_enriched:1.2.0</code>.</li>"
-            "<li><strong>Writes:</strong> Planned dataset"
-            " <code>orders_enriched</code> would have been tagged with the run"
-            " timestamp, but persistence halts because post-write validation fails.</li>"
+            "<li><strong>Writes:</strong> Persists"
+            " <code>orders_enriched</code> with the run timestamp before"
+            " governance flips the outcome to <code>block</code> and records"
+            " draft <code>orders_enriched:1.2.0</code>.</li>"
             "<li><strong>Status:</strong> The enforcement run errors when rule"
             " <code>amount &gt; 100</code> is violated.</li>"
             "</ul>"
@@ -472,9 +473,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 flowchart TD
                     Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
                     Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
-                    Join --> Validate[Validate contract orders_enriched:1.1.0]
-                    Validate --> Draft[Draft orders_enriched 1.2.0]
-                    Validate -->|violations| Block[Run blocked, no dataset version]
+                    Join --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Write --> Governance[Post-write validation]
+                    Governance --> Draft[Draft orders_enriched 1.2.0]
+                    Governance -->|violations| Block["DQ verdict: block"]
                 """
             ).strip()
             + "</div>"
@@ -496,8 +498,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>customers:1.0.0</code>.</li>"
             "<li><strong>Contract:</strong> Targets <code>orders_enriched:2.0.0</code>"
             " and proposes draft <code>orders_enriched:2.1.0</code>.</li>"
-            "<li><strong>Writes:</strong> Validation stops the job before any"
-            " dataset version of <code>orders_enriched</code> is created.</li>"
+            "<li><strong>Writes:</strong> Persists"
+            " <code>orders_enriched</code> with the run timestamp, then"
+            " validation downgrades the outcome to <code>block</code> while"
+            " recording draft <code>orders_enriched:2.1.0</code>.</li>"
             "<li><strong>Status:</strong> Schema drift plus failed expectations"
             " produce an error outcome.</li>"
             "</ul>"
@@ -510,8 +514,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                     Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
                     Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
                     Join --> Align[Schema align to contract orders_enriched:2.0.0]
-                    Align --> Draft[Draft orders_enriched 2.1.0]
-                    Align -->|errors| Block[Run blocked, no dataset version]
+                    Align --> Write["orders_enriched «timestamp»\ncontract orders_enriched:2.0.0"]
+                    Write --> Governance[Post-write validation]
+                    Governance --> Draft[Draft orders_enriched 2.1.0]
+                    Governance -->|violations| Block["DQ verdict: block"]
                 """
             ).strip()
             + "</div>"
@@ -523,7 +529,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         },
     },
     "read-invalid-block": {
-        "label": "Blocked invalid batch",
+        "label": "Invalid input blocked",
         "description": (
             "<p>Attempts to process the 2025-09-28 batch flagged as invalid.</p>"
             "<ul>"
@@ -567,7 +573,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<p>Steers reads toward the curated valid slice.</p>"
             "<ul>"
             "<li><strong>Inputs:</strong> Uses <code>orders::valid</code>"
-            " version <code>2025-09-28</code> to satisfy governance.</li>"
+            " version <code>2025-09-28</code> alongside"
+            " <code>customers:2024-01-01</code> to satisfy governance.</li>"
             "<li><strong>Contract:</strong> Applies <code>orders_enriched:1.1.0</code>"
             " and keeps draft creation disabled.</li>"
             "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
@@ -583,6 +590,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                 """
                 flowchart TD
                     Valid["orders::valid 2025-09-28\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
                     Join --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
                     Write --> Governance[Governance verdict ok]
                     Governance --> Status["DQ status: ok"]
