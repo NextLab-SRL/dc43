@@ -43,17 +43,18 @@ The split scenario executes with the following configuration:
     "name": "split",
     "include_valid": True,
     "include_reject": True,
-    "write_primary_on_violation": False,
+    "write_primary_on_violation": True,
 }
 ```
 
 Key outcomes:
 
-* When the quality rule `amount > 100` fails, the primary dataset is skipped and two new datasets are materialised:
+* When the quality rule `amount > 100` fails, the contracted dataset is written alongside two auxiliary datasets:
+  * `orders_enriched` still reflects the full batch so auditors can reconcile the original submission.
   * `orders_enriched::valid` contains all rows that passed every expectation.
   * `orders_enriched::reject` captures rows that violated at least one expectation so data stewards can remediate them.
   * The demo boosts one sample order above the threshold so the valid subset always includes illustrative data.
 * The validation warnings bubble up in the registry UI so readers know that auxiliary datasets exist.
-* Data-quality governance evaluates each split write, persisting metrics and draft contracts per dataset so change management stays intact.
+* Data-quality governance evaluates each split write, persisting metrics and draft contracts per dataset so change management stays intact. The registry now records the highest violation count across every output so the summary table reflects the number of affected rows.
 
 Use this scenario as a template to plug custom strategies into your own pipelines—swap out suffixes, toggle the primary write, or specialise behaviour by subclassing `WriteViolationStrategy`.

@@ -275,6 +275,9 @@ def run_pipeline(
             output_details["violations"] = dq_payload["violations"]
         if "failed_expectations" in dq_payload:
             output_details["failed_expectations"] = dq_payload["failed_expectations"]
+        aux_statuses = dq_payload.get("auxiliary_statuses", [])
+        if aux_statuses:
+            output_details.setdefault("dq_auxiliary_statuses", aux_statuses)
 
         summary = dict(output_details.get("dq_status", {}))
         summary.setdefault("status", dq_payload.get("status", output_status.status))
@@ -294,6 +297,14 @@ def run_pipeline(
     draft_version = output_details.get("draft_contract_version")
     if not draft_version and dq_payload:
         draft_version = dq_payload.get("draft_contract_version")
+    if not draft_version:
+        for aux_status in output_details.get("dq_auxiliary_statuses", []) or []:
+            details = aux_status.get("details") if isinstance(aux_status, dict) else None
+            if isinstance(details, dict):
+                candidate = details.get("draft_contract_version")
+                if candidate:
+                    draft_version = candidate
+                    break
     if draft_version:
         output_details.setdefault("draft_contract_version", draft_version)
 
@@ -306,7 +317,15 @@ def run_pipeline(
     for det in combined_details.values():
         if not det or not isinstance(det, dict):
             continue
-        total_violations += int(det.get("violations", 0) or 0)
+        violations_value = det.get("violations")
+        if isinstance(violations_value, (int, float)):
+            total_violations += int(violations_value)
+        else:
+            metrics_map = det.get("metrics", {})
+            if isinstance(metrics_map, Mapping):
+                for key, value in metrics_map.items():
+                    if key.startswith("violations.") and isinstance(value, (int, float)):
+                        total_violations += int(value)
         errs = det.get("errors")
         if isinstance(errs, list):
             total_violations += len(errs)

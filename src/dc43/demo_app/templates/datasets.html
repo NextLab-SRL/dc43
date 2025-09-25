@@ -105,6 +105,20 @@
               {% endfor %}
             </div>
           {% endif %}
+          {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) %}
+          {% if dq_aux %}
+            <div class="small text-muted">
+              {% for entry in dq_aux %}
+                {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
+                <div>
+                  <code>{{ entry.get('dataset_id') }}</code> status → {{ entry.get('status') }}
+                  {% if details.get('draft_contract_version') %}
+                    (draft {{ details.get('draft_contract_version') }})
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
           {% if not fails and not schema_errors %}
             {{ r.violations }}
           {% endif %}
@@ -173,6 +187,26 @@
                         <ul class="small mb-0 ps-3">
                           {% for entry in aux %}
                             <li><span class="text-capitalize">{{ entry.kind }}</span>: <code>{{ entry.dataset }}</code>{% if entry.path %} ({{ entry.path }}){% endif %}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) %}
+                    {% if dq_aux %}
+                      <div class="mb-2">
+                        <strong>Auxiliary DQ statuses</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for entry in dq_aux %}
+                            {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
+                            <li>
+                              <code>{{ entry.get('dataset_id') }}</code> → {{ entry.get('status') }}
+                              {% if details.get('draft_contract_version') %}
+                                (draft {{ details.get('draft_contract_version') }})
+                              {% endif %}
+                              {% if details.get('violations') is not none %}
+                                – violations: {{ details.get('violations') }}
+                              {% endif %}
+                            </li>
                           {% endfor %}
                         </ul>
                       </div>

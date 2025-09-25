@@ -160,6 +160,13 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
         aux_map = {entry["kind"]: entry for entry in aux}
         assert {"valid", "reject"}.issubset(aux_map.keys())
 
+        dq_aux = output.get("dq_auxiliary_statuses", [])
+        assert dq_aux
+        status_map = {entry["dataset_id"]: entry for entry in dq_aux}
+        assert "orders_enriched::valid" in status_map
+        assert "orders_enriched::reject" in status_map
+        assert status_map["orders_enriched::reject"].get("details", {}).get("violations") == 1
+
         valid_path = Path(aux_map["valid"]["path"])
         reject_path = Path(aux_map["reject"]["path"])
         assert valid_path.exists()
@@ -174,6 +181,9 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
         )
         assert spark.read.parquet(str(valid_path)).count() > 0
         assert spark.read.parquet(str(reject_path)).count() > 0
+
+        assert last.violations >= 1
+        assert last.draft_contract_version == "1.2.0"
     finally:
         pipeline.save_records(original_records)
         if dq_dir.exists():

@@ -454,6 +454,7 @@ def write_with_contract(
     requests: list[WriteRequest] = []
     primary_status: Optional[DQStatus] = None
     validations: list[ValidationResult] = []
+    status_records: list[tuple[Optional[DQStatus], WriteRequest]] = []
 
     if plan.primary is not None:
         requests.append(plan.primary)
@@ -472,6 +473,7 @@ def write_with_contract(
             quality_manager=quality_manager,
             enforce=enforce,
         )
+        status_records.append((status, request))
         if request_validation is not None:
             validations.append(request_validation)
         if index == 0:
@@ -483,6 +485,79 @@ def write_with_contract(
         final_result = validations[0]
     else:
         final_result = result
+
+    if status_records:
+        aggregated_entries: list[Dict[str, Any]] = []
+        aggregated_violations = 0
+        aggregated_draft: Optional[str] = None
+        merged_warnings: list[str] = []
+        merged_errors: list[str] = []
+
+        for index, (status, request) in enumerate(status_records):
+            if status is None:
+                continue
+
+            details = dict(status.details or {})
+            dataset_ref = request.dataset_id or dataset_id_from_ref(
+                table=request.table,
+                path=request.path,
+            )
+            entry: Dict[str, Any] = {
+                "role": "primary" if index == 0 else "auxiliary",
+                "dataset_id": dataset_ref,
+                "dataset_version": request.dataset_version,
+                "status": status.status,
+            }
+            if request.path:
+                entry["path"] = request.path
+            if request.table:
+                entry["table"] = request.table
+            if status.reason:
+                entry["reason"] = status.reason
+            if details:
+                entry["details"] = details
+            aggregated_entries.append(entry)
+
+            violations = details.get("violations")
+            if isinstance(violations, (int, float)):
+                aggregated_violations = max(aggregated_violations, int(violations))
+            draft_version = details.get("draft_contract_version")
+            if isinstance(draft_version, str) and not aggregated_draft:
+                aggregated_draft = draft_version
+            merged_warnings.extend(details.get("warnings", []) or [])
+            merged_errors.extend(details.get("errors", []) or [])
+
+        if aggregated_entries:
+            if primary_status is None:
+                primary_status = next(
+                    (status for status, _ in status_records if status is not None),
+                    None,
+                )
+            if primary_status is not None:
+                primary_details = dict(primary_status.details or {})
+                primary_details.setdefault("auxiliary_statuses", aggregated_entries)
+                if aggregated_violations:
+                    primary_details["violations"] = aggregated_violations
+                if aggregated_draft and not primary_details.get("draft_contract_version"):
+                    primary_details["draft_contract_version"] = aggregated_draft
+
+                if merged_warnings:
+                    existing_warnings = list(primary_details.get("warnings", []) or [])
+                    for warning in merged_warnings:
+                        if warning not in existing_warnings:
+                            existing_warnings.append(warning)
+                    if existing_warnings:
+                        primary_details["warnings"] = existing_warnings
+
+                if merged_errors:
+                    existing_errors = list(primary_details.get("errors", []) or [])
+                    for error in merged_errors:
+                        if error not in existing_errors:
+                            existing_errors.append(error)
+                    if existing_errors:
+                        primary_details["errors"] = existing_errors
+
+                primary_status.details = primary_details
 
     if return_status:
         return final_result, primary_status

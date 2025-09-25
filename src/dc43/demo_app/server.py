@@ -453,6 +453,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<p>Routes violations to dedicated datasets using the split strategy.</p>"
             "<ul>"
             "<li>Contract <code>orders_enriched:1.1.0</code> enforces amount &gt; 100.</li>"
+            "<li>The full dataset still lands in the contracted location for auditability.</li>"
             "<li>Rows violating the rule land in <code>orders_enriched::reject</code>.</li>"
             "<li>Valid rows land in <code>orders_enriched::valid</code> for lenient consumers.</li>"
             "</ul>"
@@ -478,12 +479,11 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "run_type": "observe",
             "collect_examples": True,
             "examples_limit": 3,
-            "dataset_version": "split-demo",
             "violation_strategy": {
                 "name": "split",
                 "include_valid": True,
                 "include_reject": True,
-                "write_primary_on_violation": False,
+                "write_primary_on_violation": True,
             },
         },
     },
