@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping
 from uuid import uuid4
 from threading import Lock
+from textwrap import dedent
 import json
 import shutil
 import tempfile
@@ -331,10 +332,29 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Run the pipeline without supplying an output contract.</p>"
             "<ul>"
-            "<li>Reads orders:1.1.0 and customers:1.0.0.</li>"
-            "<li>Write is attempted in <em>enforce</em> mode so the missing contract"
-            " triggers an error.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and "
+            "<code>customers:1.0.0</code> with schema validation.</li>"
+            "<li><strong>Contract:</strong> None provided, so no draft can be"
+            " created.</li>"
+            "<li><strong>Writes:</strong> Planned dataset <code>result-no-existing-contract</code>"
+            " version <code>1.0.0</code> is blocked before any files are"
+            " materialised.</li>"
+            "<li><strong>Status:</strong> The run exits with an error because the contract is"
+            " missing.</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Write[Plan result-no-existing-contract 1.0.0]
+                    Write -->|no contract| Block[Run blocked, nothing written]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": None,
@@ -348,9 +368,30 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Happy path using contract <code>orders_enriched:1.0.0</code>.</p>"
             "<ul>"
-            "<li>Input data matches the contract schema and quality rules.</li>"
-            "<li>The pipeline writes a new dataset version and records an OK status.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code> then aligns to the target schema.</li>"
+            "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.0.0</code>"
+            " with no draft changes.</li>"
+            "<li><strong>Writes:</strong> Persists dataset <code>orders_enriched</code>"
+            " version <code>1.0.0</code> on the first run; later runs"
+            " auto-increment the patch segment (<code>1.0.1</code>,"
+            " <code>1.0.2</code>, …).</li>"
+            "<li><strong>Status:</strong> Post-write validation reports OK.</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Validate[Align to contract 1.0.0]
+                    Validate --> Write[Write orders_enriched 1.0.x]
+                    Write --> Status[Run status: OK]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -363,10 +404,31 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Demonstrates a data quality failure.</p>"
             "<ul>"
-            "<li>Contract <code>orders_enriched:1.1.0</code> requires amount &gt; 100.</li>"
-            "<li>Sample data contains smaller amounts, producing DQ violations.</li>"
-            "<li>The pipeline blocks the write and surfaces an error.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code>.</li>"
+            "<li><strong>Contract:</strong> Validates against"
+            " <code>orders_enriched:1.1.0</code> and prepares draft"
+            " <code>orders_enriched:1.2.0</code>.</li>"
+            "<li><strong>Writes:</strong> Planned dataset"
+            " <code>orders_enriched</code> version <code>1.0.x</code> is never"
+            " persisted because post-write validation fails.</li>"
+            "<li><strong>Status:</strong> The enforcement run errors when rule"
+            " <code>amount &gt; 100</code> is violated.</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Validate[Validate contract 1.1.0]
+                    Validate --> Draft[Draft orders_enriched 1.2.0]
+                    Validate -->|violations| Block[Run blocked, no dataset version]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -381,15 +443,85 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Shows combined schema and data quality issues.</p>"
             "<ul>"
-            "<li>Contract <code>orders_enriched:2.0.0</code> introduces new fields.</li>"
-            "<li>The DataFrame does not match the schema and violates quality rules.</li>"
-            "<li>A draft contract is generated for review and the run fails.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code>.</li>"
+            "<li><strong>Contract:</strong> Targets <code>orders_enriched:2.0.0</code>"
+            " and proposes draft <code>orders_enriched:2.1.0</code>.</li>"
+            "<li><strong>Writes:</strong> Validation stops the job before any"
+            " dataset version of <code>orders_enriched</code> is created.</li>"
+            "<li><strong>Status:</strong> Schema drift plus failed expectations"
+            " produce an error outcome.</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Align[Schema align to contract 2.0.0]
+                    Align --> Draft[Draft orders_enriched 2.1.0]
+                    Align -->|errors| Block[Run blocked, no dataset version]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "2.0.0",
             "run_type": "enforce",
+        },
+    },
+    "split-lenient": {
+        "label": "Split invalid rows",
+        "description": (
+            "<p>Routes violations to dedicated datasets using the split strategy.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code> before aligning to"
+            " <code>orders_enriched:1.1.0</code>.</li>"
+            "<li><strong>Contract:</strong> Validates against"
+            " <code>orders_enriched:1.1.0</code> and stores draft"
+            " <code>orders_enriched:1.2.0</code> when rejects exist.</li>"
+            "<li><strong>Writes:</strong> Persists three datasets sharing the same"
+            " auto-incremented version: the contracted"
+            " <code>orders_enriched</code> (full batch),"
+            " <code>orders_enriched::valid</code>, and"
+            " <code>orders_enriched::reject</code>.</li>"
+            "<li><strong>Status:</strong> Run finishes with a warning because"
+            " validation finds violations, and the UI links the auxiliary"
+            " datasets.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Validate[Validate contract 1.1.0]
+                    Validate --> Strategy[Split strategy]
+                    Strategy --> Full[orders_enriched 1.0.x]
+                    Strategy --> Valid[orders_enriched::valid 1.0.x]
+                    Strategy --> Reject[orders_enriched::reject 1.0.x]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "observe",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "violation_strategy": {
+                "name": "split",
+                "include_valid": True,
+                "include_reject": True,
+                "write_primary_on_violation": True,
+            },
         },
     },
 }
@@ -808,6 +940,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("run_type", "infer"),
             p.get("collect_examples", False),
             p.get("examples_limit", 5),
+            p.get("violation_strategy"),
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")

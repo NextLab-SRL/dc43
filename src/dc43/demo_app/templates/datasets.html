@@ -77,7 +77,7 @@
         <td>
           {{ r.status }}
           {% if output_details.get('warnings') %}
-            <span class="text-warning ms-1" title="Schema warnings">&#9888;</span>
+            <span class="text-warning ms-1" title="Validation warnings">&#9888;</span>
           {% endif %}
           {% if output_details.get('errors') %}
             <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
@@ -86,6 +86,9 @@
         <td>
           {% set fails = output_details.get('failed_expectations', {}) %}
           {% set schema_errors = output_details.get('errors', []) %}
+          {% if output_details.get('violation_strategy') %}
+            <div>Strategy: {{ output_details.get('violation_strategy') }}</div>
+          {% endif %}
           {% if schema_errors %}
             <div>Schema errors: {{ schema_errors | length }}</div>
           {% endif %}
@@ -93,6 +96,28 @@
             {% for key, info in fails.items() %}
               <div>{{ key }} ({{ info.count }})</div>
             {% endfor %}
+          {% endif %}
+          {% set aux = output_details.get('auxiliary_datasets', []) %}
+          {% if aux %}
+            <div class="small text-muted">
+              {% for entry in aux %}
+                <div>{{ entry.kind | capitalize }} → <code>{{ entry.dataset }}</code></div>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) %}
+          {% if dq_aux %}
+            <div class="small text-muted">
+              {% for entry in dq_aux %}
+                {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
+                <div>
+                  <code>{{ entry.get('dataset_id') }}</code> status → {{ entry.get('status') }}
+                  {% if details.get('draft_contract_version') %}
+                    (draft {{ details.get('draft_contract_version') }})
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
           {% endif %}
           {% if not fails and not schema_errors %}
             {{ r.violations }}
@@ -144,6 +169,51 @@
                         </ul>
                       </div>
                     {% endif %}
+                    {% set warnings = output_details.get('warnings', []) %}
+                    {% if warnings %}
+                      <div class="mb-2">
+                        <strong>Warnings</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for warning in warnings %}
+                            <li>{{ warning }}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    {% set aux = output_details.get('auxiliary_datasets', []) %}
+                    {% if aux %}
+                      <div class="mb-2">
+                        <strong>Auxiliary datasets</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for entry in aux %}
+                            <li><span class="text-capitalize">{{ entry.kind }}</span>: <code>{{ entry.dataset }}</code>{% if entry.path %} ({{ entry.path }}){% endif %}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) %}
+                    {% if dq_aux %}
+                      <div class="mb-2">
+                        <strong>Auxiliary DQ statuses</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for entry in dq_aux %}
+                            {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
+                            <li>
+                              <code>{{ entry.get('dataset_id') }}</code> → {{ entry.get('status') }}
+                              {% if details.get('draft_contract_version') %}
+                                (draft {{ details.get('draft_contract_version') }})
+                              {% endif %}
+                              {% if details.get('violations') is not none %}
+                                – violations: {{ details.get('violations') }}
+                              {% endif %}
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    {% if output_details.get('violation_strategy') %}
+                      <div class="mb-2 small text-muted">Violation strategy: {{ output_details.get('violation_strategy') }}</div>
+                    {% endif %}
                     <pre class="small mb-0">{{ output_details | tojson(indent=2) }}</pre>
                   </div>
                 </div>
@@ -161,7 +231,19 @@
     const descEl = document.getElementById('scenario-desc');
     scenarioSel.addEventListener('change', () => {
       const sc = scenarios[scenarioSel.value];
-      descEl.innerHTML = sc ? sc.description : '';
+      if (sc) {
+        const parts = [sc.description];
+        if (sc.diagram) {
+          parts.push(sc.diagram);
+        }
+        descEl.innerHTML = parts.join('');
+        const diagrams = descEl.querySelectorAll('.mermaid');
+        if (window.mermaid && diagrams.length) {
+          window.mermaid.init(undefined, diagrams);
+        }
+      } else {
+        descEl.innerHTML = '';
+      }
     });
     const runForm = document.getElementById('run-form');
     const runBtn = document.getElementById('run-btn');

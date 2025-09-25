@@ -39,6 +39,7 @@ Guides for each component live under `docs/`:
 - Data-quality governance interface: [`component-data-quality-governance.md`](docs/component-data-quality-governance.md)
 - Data-quality engine: [`component-data-quality-engine.md`](docs/component-data-quality-engine.md)
 - Integration layer: [`component-integration-layer.md`](docs/component-integration-layer.md); Spark & DLT adapter: [`implementations/integration/spark-dlt.md`](docs/implementations/integration/spark-dlt.md)
+- Write violation strategies: [`component-write-violation-strategies.md`](docs/component-write-violation-strategies.md)
 
 ## Architecture
 
@@ -230,7 +231,11 @@ An additional Reveal.js presentation is available at
 contract lifecycle and automation steps.
 
 The application also exposes an example Spark pipeline in
-``dc43.demo_app.pipeline`` used when registering new dataset versions.
+``dc43.demo_app.pipeline`` used when registering new dataset versions. The
+preconfigured scenarios are documented in
+[`docs/demo-pipeline-scenarios.md`](docs/demo-pipeline-scenarios.md) including
+the new split strategy example that writes ``orders_enriched::valid`` and
+``orders_enriched::reject`` alongside the main dataset.
 
 ## Spark Flow (Mermaid)
 

@@ -18,8 +18,39 @@
 {% if record.contract_id and record.draft_contract_version %}
 <p>Draft Contract: <a href="/contracts/{{ record.contract_id }}/{{ record.draft_contract_version }}">{{ record.draft_contract_version }}</a></p>
 {% endif %}
+{% set output_details = record.dq_details.get('output', {}) %}
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>
-{% set fails = record.dq_details.get('output', {}).get('failed_expectations', {}) %}
+{% if output_details.get('violation_strategy') %}
+<p><strong>Violation strategy:</strong> {{ output_details.get('violation_strategy') }}</p>
+{% endif %}
+{% set warnings = output_details.get('warnings', []) %}
+{% if warnings %}
+<div class="alert alert-warning">
+  <strong>Warnings</strong>
+  <ul class="mb-0">
+    {% for warning in warnings %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% set aux = output_details.get('auxiliary_datasets', []) %}
+{% if aux %}
+<h2>Auxiliary datasets</h2>
+<table class="table table-sm">
+  <thead><tr><th>Kind</th><th>Dataset</th><th>Path</th></tr></thead>
+  <tbody>
+  {% for entry in aux %}
+  <tr>
+    <td class="text-capitalize">{{ entry.kind }}</td>
+    <td><code>{{ entry.dataset }}</code></td>
+    <td>{% if entry.path %}<code>{{ entry.path }}</code>{% else %}<span class="text-muted">n/a</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% set fails = output_details.get('failed_expectations', {}) %}
 <h2>Data Quality</h2>
 {% if fails %}
 <table class="table table-sm">
@@ -33,8 +64,19 @@
 {% else %}
 <p>No data quality failures.</p>
 {% endif %}
+{% set schema_errors = output_details.get('errors', []) %}
+{% if schema_errors %}
+<div class="alert alert-danger">
+  <strong>Schema errors</strong>
+  <ul class="mb-0">
+    {% for err in schema_errors %}
+    <li>{{ err }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 <h2>Details</h2>
-<pre class="small">{{ record.dq_details.get('output') | tojson(indent=2) }}</pre>
+<pre class="small">{{ output_details | tojson(indent=2) }}</pre>
 {% if data_preview %}
 <h2>Data</h2>
 <pre class="small">{{ data_preview }}</pre>
