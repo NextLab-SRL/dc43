@@ -332,10 +332,14 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Run the pipeline without supplying an output contract.</p>"
             "<ul>"
-            "<li>Reads orders:1.1.0 and customers:1.0.0.</li>"
-            "<li>Demonstrates schema validation without a contract-driven target.</li>"
-            "<li>Write is attempted in <em>enforce</em> mode so the missing contract"
-            " triggers an error.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and "
+            "<code>customers:1.0.0</code> with schema validation.</li>"
+            "<li><strong>Writes:</strong> The enforced write is blocked before persistence so"
+            " dataset <code>result-no-existing-contract</code> never records a"
+            " version.</li>"
+            "<li><strong>Drafts:</strong> No output contract or draft is generated.</li>"
+            "<li><strong>Status:</strong> The run exits with an error because the contract is"
+            " missing.</li>"
             "</ul>"
         ),
         "diagram": (
@@ -363,8 +367,14 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Happy path using contract <code>orders_enriched:1.0.0</code>.</p>"
             "<ul>"
-            "<li>Input data matches the contract schema and quality rules.</li>"
-            "<li>The pipeline writes a new dataset version and records an OK status.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code> then aligns to the target schema.</li>"
+            "<li><strong>Writes:</strong> Persists dataset <code>orders_enriched</code>"
+            " with version <code>1.0.0</code> on the first run; later runs"
+            " auto-increment the patch segment (<code>1.0.1</code>,"
+            " <code>1.0.2</code>, …).</li>"
+            "<li><strong>Drafts:</strong> None—validation succeeds without changes.</li>"
+            "<li><strong>Status:</strong> Post-write validation reports OK.</li>"
             "</ul>"
         ),
         "diagram": (
@@ -392,9 +402,15 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Demonstrates a data quality failure.</p>"
             "<ul>"
-            "<li>Contract <code>orders_enriched:1.1.0</code> requires amount &gt; 100.</li>"
-            "<li>Sample data contains smaller amounts, producing DQ violations.</li>"
-            "<li>The pipeline blocks the write and surfaces an error.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code>.</li>"
+            "<li><strong>Writes:</strong> Planned dataset <code>orders_enriched</code>"
+            " version <code>1.0.x</code> is never persisted because validation"
+            " fails after the write attempt.</li>"
+            "<li><strong>Drafts:</strong> Records draft <code>orders_enriched:1.2.0</code>"
+            " alongside failed-expectation samples.</li>"
+            "<li><strong>Status:</strong> The enforcement run errors when rule"
+            " <code>amount &gt; 100</code> is violated.</li>"
             "</ul>"
         ),
         "diagram": (
@@ -423,9 +439,14 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Shows combined schema and data quality issues.</p>"
             "<ul>"
-            "<li>Contract <code>orders_enriched:2.0.0</code> introduces new fields.</li>"
-            "<li>The DataFrame does not match the schema and violates quality rules.</li>"
-            "<li>A draft contract is generated for review and the run fails.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code>.</li>"
+            "<li><strong>Writes:</strong> Validation stops the job before any"
+            " dataset version of <code>orders_enriched</code> is created.</li>"
+            "<li><strong>Drafts:</strong> Suggests draft <code>orders_enriched:2.1.0</code>"
+            " capturing schema alignment changes.</li>"
+            "<li><strong>Status:</strong> Schema drift plus failed expectations"
+            " produce an error outcome.</li>"
             "</ul>"
         ),
         "diagram": (
@@ -452,10 +473,19 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "description": (
             "<p>Routes violations to dedicated datasets using the split strategy.</p>"
             "<ul>"
-            "<li>Contract <code>orders_enriched:1.1.0</code> enforces amount &gt; 100.</li>"
-            "<li>The full dataset still lands in the contracted location for auditability.</li>"
-            "<li>Rows violating the rule land in <code>orders_enriched::reject</code>.</li>"
-            "<li>Valid rows land in <code>orders_enriched::valid</code> for lenient consumers.</li>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code> before aligning to"
+            " <code>orders_enriched:1.1.0</code>.</li>"
+            "<li><strong>Writes:</strong> Persists three datasets sharing the same"
+            " auto-incremented version: the contracted"
+            " <code>orders_enriched</code> (full batch),"
+            " <code>orders_enriched::valid</code>, and"
+            " <code>orders_enriched::reject</code>.</li>"
+            "<li><strong>Drafts:</strong> Captures draft <code>orders_enriched:1.2.0</code>"
+            " whenever rejects exist.</li>"
+            "<li><strong>Status:</strong> Run finishes with a warning because"
+            " validation finds violations, and the UI links the auxiliary"
+            " datasets.</li>"
             "</ul>"
         ),
         "diagram": (
