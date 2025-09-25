@@ -238,7 +238,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
         )
 
 
-def test_write_updates_link_for_contract_upgrade(spark, tmp_path: Path):
+def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     dest_dir = tmp_path / "upgrade"
     contract_v1 = make_contract(str(dest_dir))
     data_ok = [
@@ -294,7 +294,10 @@ def test_write_updates_link_for_contract_upgrade(spark, tmp_path: Path):
     assert status_block is not None
     assert status_block.status == "block"
     assert status_block.reason and "linked to contract" in status_block.reason
+    # Governance keeps the link anchored to the last accepted contract when the
+    # submitted version is rejected, so the integration layer should not
+    # override it locally.
     assert (
         dq.get_linked_contract_version(dataset_id=dataset_ref)
-        == f"{contract_v2.id}:{contract_v2.version}"
+        == f"{contract_v1.id}:{contract_v1.version}"
     )
