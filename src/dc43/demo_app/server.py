@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping
 from uuid import uuid4
 from threading import Lock
+from textwrap import dedent
 import json
 import shutil
 import tempfile
@@ -338,11 +339,17 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "</ul>"
         ),
         "diagram": (
-            "<pre class=\"small bg-light border p-2\">"
-            "Orders --+           "
-            "\n        Join -> Write (no contract)"
-            "\nCustomers-+           "
-            "</pre>"
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Write[Write attempt]
+                    Write -->|no contract| Block[Run blocked]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": None,
@@ -361,11 +368,18 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "</ul>"
         ),
         "diagram": (
-            "<pre class=\"small bg-light border p-2\">"
-            "Orders --+            "
-            "\n        Join -> Validate -> Contracted Write"
-            "\nCustomers-+            "
-            "</pre>"
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Validate[Schema align + validate]
+                    Validate --> Write[Contracted write]
+                    Write --> Status[Run status: OK]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -384,11 +398,17 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "</ul>"
         ),
         "diagram": (
-            "<pre class=\"small bg-light border p-2\">"
-            "Orders --+            "
-            "\n        Join -> Validate -> DQ Block"
-            "\nCustomers-+            "
-            "</pre>"
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Validate[Schema align + validate]
+                    Validate -->|violations| Block[Run blocked]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -409,11 +429,17 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "</ul>"
         ),
         "diagram": (
-            "<pre class=\"small bg-light border p-2\">"
-            "Orders --+            "
-            "\n        Join -> Schema Align ✖"
-            "\nCustomers-+            "
-            "</pre>"
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Align[Schema align]
+                    Align -->|errors| Draft[Draft contract + run failure]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": "orders_enriched",
@@ -432,13 +458,19 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "</ul>"
         ),
         "diagram": (
-            "<pre class=\"small bg-light border p-2\">"
-            "Orders --+            "
-            "\n        Join -> Validate -> Split Strategy"
-            "\nCustomers-+            "
-            "\n              |-> orders_enriched::valid"
-            "\n              \-> orders_enriched::reject"
-            "</pre>"
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders[orders:1.1.0] --> Join[Join datasets]
+                    Customers[customers:1.0.0] --> Join
+                    Join --> Validate[Schema align + validate]
+                    Validate --> Strategy[Split strategy]
+                    Strategy --> Valid[orders_enriched::valid]
+                    Strategy --> Reject[orders_enriched::reject]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "contract_id": "orders_enriched",

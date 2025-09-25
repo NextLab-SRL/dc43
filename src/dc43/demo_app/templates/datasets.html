@@ -203,6 +203,10 @@
           parts.push(sc.diagram);
         }
         descEl.innerHTML = parts.join('');
+        const diagrams = descEl.querySelectorAll('.mermaid');
+        if (window.mermaid && diagrams.length) {
+          window.mermaid.init(undefined, diagrams);
+        }
       } else {
         descEl.innerHTML = '';
       }
