@@ -13,7 +13,6 @@ from open_data_contract_standard.model import (
 
 from dc43.components.integration.spark_io import read_with_contract, write_with_contract
 from dc43.components.data_quality.governance.stubs import StubDQClient
-from dc43.components.contract_store.impl.filesystem import FSContractStore
 from datetime import datetime
 import logging
 
@@ -71,49 +70,35 @@ def test_dq_integration_warn(spark, tmp_path: Path):
     assert status.status in ("warn", "ok")
 
 
-def test_write_draft_on_mismatch(spark, tmp_path: Path):
+def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
     dest_dir = tmp_path / "out"
     contract = make_contract(str(dest_dir))
     # Missing required column 'currency' to trigger validation error
     data = [(1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0)]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount"])
-    drafts = FSContractStore(str(tmp_path / "drafts"))
-
-    vr, draft = write_with_contract(
+    result = write_with_contract(
         df=df,
         contract=contract,
         mode="overwrite",
-        enforce=False,              # continue writing despite mismatch
-        draft_on_mismatch=True,
-        draft_store=drafts,
-        return_draft=True,
+        enforce=False,  # continue writing despite mismatch
     )
-    assert draft is not None
-    assert draft.status == "draft"
-    # persisted
-    stored = drafts.get(draft.id, draft.version)
-    assert stored.id == draft.id
-    assert draft.servers and draft.servers[0].path == str(dest_dir)
-    assert draft.servers[0].format == "parquet"
+    assert not result.ok
+    assert result.errors
+    assert any("currency" in err.lower() for err in result.errors)
 
 
 def test_inferred_contract_id_simple(spark, tmp_path: Path):
     dest = tmp_path / "out" / "sample" / "1.0.0"
     df = spark.createDataFrame([(1,)], ["a"])
-    drafts = FSContractStore(str(tmp_path / "drafts"))
-    vr, draft = write_with_contract(
+    # Without a contract the function simply writes the dataframe.
+    result = write_with_contract(
         df=df,
         path=str(dest),
         format="parquet",
         mode="overwrite",
-        draft_on_mismatch=True,
-        draft_store=drafts,
         enforce=False,
     )
-    assert draft is not None
-    assert draft.id == "sample"
-    assert drafts.get(draft.id, draft.version).id == "sample"
-    assert draft.servers and draft.servers[0].format == "parquet"
+    assert result.ok
 
 
 def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
@@ -127,21 +112,14 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
         data,
         ["order_id", "customer_id", "order_ts", "amount", "currency"],
     )
-    drafts = FSContractStore(str(tmp_path / "drafts"))
-    vr, draft = write_with_contract(
+    result = write_with_contract(
         df=df,
         contract=contract,
         path=str(actual_dir),
         mode="overwrite",
         enforce=False,
-        draft_on_mismatch=True,
-        draft_store=drafts,
-        return_draft=True,
     )
-    assert draft is not None
-    assert draft.servers and draft.servers[0].path == str(actual_dir)
-    assert draft.servers[0].format == "parquet"
-    assert any("does not match" in w for w in vr.warnings)
+    assert any("does not match" in w for w in result.warnings)
 
 
 def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
@@ -157,7 +135,7 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
     )
     target = base_dir / "orders_enriched" / "1.0.0"
     with caplog.at_level(logging.WARNING):
-        vr, _ = write_with_contract(
+        result = write_with_contract(
             df=df,
             contract=contract,
             path=str(target),
@@ -165,7 +143,7 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
             enforce=False,
         )
     assert not any("does not match contract server path" in msg for msg in caplog.messages)
-    assert not any("does not match" in w for w in vr.warnings)
+    assert not any("does not match" in w for w in result.warnings)
 
 
 def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
@@ -202,32 +180,26 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
         data,
         ["order_id", "customer_id", "order_ts", "amount", "currency"],
     )
-    drafts = FSContractStore(str(tmp_path / "drafts"))
     with caplog.at_level(logging.WARNING):
-        vr, draft = write_with_contract(
+        result = write_with_contract(
             df=df,
             contract=contract,
             path=str(dest_dir),
             format="json",
             mode="overwrite",
             enforce=False,
-            draft_on_mismatch=True,
-            draft_store=drafts,
-            return_draft=True,
         )
     assert any(
         "Format json does not match contract server format parquet" in w
-        for w in vr.warnings
+        for w in result.warnings
     )
     assert any(
         "format json does not match contract server format parquet" in m.lower()
         for m in caplog.messages
     )
-    assert draft is not None
-    assert draft.servers and draft.servers[0].format == "json"
 
 
-def test_write_dq_violation_creates_draft(spark, tmp_path: Path):
+def test_write_dq_violation_reports_status(spark, tmp_path: Path):
     dest_dir = tmp_path / "dq_out"
     contract = make_contract(str(dest_dir))
     # Tighten quality rule to trigger a violation for the sample data below.
@@ -242,30 +214,31 @@ def test_write_dq_violation_creates_draft(spark, tmp_path: Path):
         ["order_id", "customer_id", "order_ts", "amount", "currency"],
     )
 
-    drafts = FSContractStore(str(tmp_path / "drafts"))
     dq = StubDQClient(base_path=str(tmp_path / "dq_state"))
-    vr, status, draft = write_with_contract(
+    result, status = write_with_contract(
         df=df,
         contract=contract,
         mode="overwrite",
         enforce=False,
-        draft_on_mismatch=True,
-        draft_store=drafts,
         dq_client=dq,
         return_status=True,
     )
 
-    assert vr.ok
+    assert result.ok
     assert status is not None
     assert status.status == "block"
     assert status.details and status.details.get("violations", 0) > 0
-    assert draft is not None
-    assert draft.status == "draft"
-    assert any(cp.property == "dq_feedback" for cp in (draft.customProperties or []))
-    assert drafts.get(draft.id, draft.version).id == draft.id
+    with pytest.raises(ValueError):
+        write_with_contract(
+            df=df,
+            contract=contract,
+            mode="overwrite",
+            enforce=True,
+            dq_client=dq,
+        )
 
 
-def test_write_updates_link_for_contract_upgrade(spark, tmp_path: Path):
+def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     dest_dir = tmp_path / "upgrade"
     contract_v1 = make_contract(str(dest_dir))
     data_ok = [
@@ -278,7 +251,7 @@ def test_write_updates_link_for_contract_upgrade(spark, tmp_path: Path):
     )
 
     dq = StubDQClient(base_path=str(tmp_path / "dq_state_upgrade"))
-    _, status_ok, _ = write_with_contract(
+    _, status_ok = write_with_contract(
         df=df_ok,
         contract=contract_v1,
         mode="overwrite",
@@ -309,23 +282,22 @@ def test_write_updates_link_for_contract_upgrade(spark, tmp_path: Path):
         ["order_id", "customer_id", "order_ts", "amount", "currency"],
     )
 
-    drafts = FSContractStore(str(tmp_path / "drafts_upgrade"))
-    _, status_block, draft = write_with_contract(
+    _, status_block = write_with_contract(
         df=df_bad,
         contract=contract_v2,
         mode="overwrite",
         enforce=False,
-        draft_on_mismatch=True,
-        draft_store=drafts,
         dq_client=dq,
         return_status=True,
     )
 
     assert status_block is not None
     assert status_block.status == "block"
-    assert status_block.details and status_block.details.get("violations", 0) > 0
+    assert status_block.reason and "linked to contract" in status_block.reason
+    # Governance keeps the link anchored to the last accepted contract when the
+    # submitted version is rejected, so the integration layer should not
+    # override it locally.
     assert (
         dq.get_linked_contract_version(dataset_id=dataset_ref)
-        == f"{contract_v2.id}:{contract_v2.version}"
+        == f"{contract_v1.id}:{contract_v1.version}"
     )
-    assert draft is not None

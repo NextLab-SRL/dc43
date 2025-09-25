@@ -36,10 +36,7 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
         assert "gt_amount" in fails
         assert fails["gt_amount"]["count"] > 0
         assert out.get("dq_status", {}).get("status") in {"block", "warn", "error"}
-        assert last.draft_contract_version
-
-        draft = pipeline.store.get(last.contract_id, last.draft_contract_version)
-        assert draft.status == "draft"
+        assert last.draft_contract_version is None
     finally:
         pipeline.save_records(original_records)
         if dq_dir.exists():

@@ -187,26 +187,23 @@ df, status = read_with_contract(
 print(status.status, status.reason)
 ```
 
-6) Draft contract proposal on mismatch (write)
+6) Quality status check on write
 
 ```python
 from dc43.components.integration.spark_io import write_with_contract
-from dc43.components.contract_store.impl.filesystem import FSContractStore
 
-store = FSContractStore("/mnt/contracts-drafts")
-vr, draft = write_with_contract(
+vr, status = write_with_contract(
     df=orders_df,
     contract=contract,
     path="/mnt/gold/sales/orders",
     format=contract.servers[0].format,
     mode="append",
     enforce=False,                 # continue writing
-    draft_on_mismatch=True,        # create a draft when schema diverges
-    draft_store=store,             # persist the draft
-    return_draft=True,
+    dq_client=dq,
+    return_status=True,
 )
-if draft:
-    print("Draft created:", draft.id, draft.version)  # send to workflow
+if status and status.status == "block":
+    raise ValueError(f"DQ blocked write: {status.details}")
 ```
 
 ## Demo application
@@ -262,15 +259,18 @@ flowchart LR
       T --> WWC{write_with_contract}
       WWC --> V2[validate_dataframe]
       V2 -->|ok| AC2[apply_contract]
-      V2 -->|errors & draft_on_mismatch| PD["propose draft (ODCS model)"]
-      PD --> PS[draft_store.put]
       V2 -->|errors & enforce| E3[Raise]
+      V2 -->|errors & !enforce| AC2
       AC2 --> SW["spark.write.(format, options).mode.save"]
       SW --> DELTA[Delta table / UC]
+      DELTA --> DQ2{dq_client?}
+      DQ2 -->|yes| EVAL["evaluate_dataset"]
+      EVAL -->|status block & enforce| E4[Raise]
+      EVAL -->|status ok/warn| DELTA
     end
 
     classDef err fill:#ffe5e5,stroke:#ff4d4f,color:#000
-    class E1,E2,E3 err
+    class E1,E2,E3,E4 err
 ```
 
 Notes
