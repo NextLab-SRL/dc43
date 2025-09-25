@@ -12,6 +12,7 @@ from open_data_contract_standard.model import (
 )
 
 from dc43.components.integration.spark_io import read_with_contract, write_with_contract
+from dc43.components.integration.violation_strategy import SplitWriteViolationStrategy
 from dc43.components.data_quality.governance.stubs import StubDQClient
 from datetime import datetime
 import logging
@@ -197,6 +198,44 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
         "format json does not match contract server format parquet" in m.lower()
         for m in caplog.messages
     )
+
+
+def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
+    base_dir = tmp_path / "split"
+    contract = make_contract(str(base_dir))
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        (2, 102, datetime(2024, 1, 2, 10, 0, 0), 15.5, "INR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    strategy = SplitWriteViolationStrategy()
+    result = write_with_contract(
+        df=df,
+        contract=contract,
+        mode="overwrite",
+        enforce=False,
+        violation_strategy=strategy,
+    )
+
+    assert result.ok
+    assert any("Valid subset written" in warning for warning in result.warnings)
+    assert any("Rejected subset written" in warning for warning in result.warnings)
+    assert any("outside enum" in warning for warning in result.warnings)
+
+    valid_path = base_dir / strategy.valid_suffix
+    reject_path = base_dir / strategy.reject_suffix
+
+    valid_df = spark.read.parquet(str(valid_path))
+    reject_df = spark.read.parquet(str(reject_path))
+
+    assert valid_df.count() == 1
+    assert reject_df.count() == 1
+    assert {row.currency for row in valid_df.collect()} == {"EUR"}
+    assert {row.currency for row in reject_df.collect()} == {"INR"}
 
 
 def test_write_dq_violation_reports_status(spark, tmp_path: Path):

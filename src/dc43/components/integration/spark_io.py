@@ -6,7 +6,7 @@ High-level wrappers to read/write DataFrames while enforcing ODCS contracts
 and coordinating with an external Data Quality client when provided.
 """
 
-from typing import Any, Dict, Optional, Tuple, Literal, Mapping, overload
+from typing import Any, Callable, Dict, Optional, Tuple, Literal, Mapping, overload
 import logging
 from pathlib import Path
 
@@ -14,11 +14,22 @@ from pyspark.sql import DataFrame, SparkSession
 
 from dc43.components.data_quality import DataQualityManager, DQClient, DQStatus
 from dc43.components.data_quality.engine import ValidationResult
-from dc43.components.data_quality.integration import build_metrics_payload, validate_dataframe
+from dc43.components.data_quality.integration import (
+    build_metrics_payload,
+    expectations_from_contract,
+    validate_dataframe,
+)
 from dc43.components.data_quality.validation import apply_contract
 from dc43.odcs import contract_identity, ensure_version
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
+
+from .violation_strategy import (
+    NoOpWriteViolationStrategy,
+    WriteRequest,
+    WriteStrategyContext,
+    WriteViolationStrategy,
+)
 
 
 def get_delta_version(
@@ -360,6 +371,7 @@ def write_with_contract(
     dataset_id: Optional[str] = None,
     dataset_version: Optional[str] = None,
     return_status: bool = False,
+    violation_strategy: Optional[WriteViolationStrategy] = None,
 ) -> Any:
     """Validate/align a DataFrame then write it using Spark writers.
 
@@ -406,36 +418,116 @@ def write_with_contract(
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
 
-    writer = out_df.write
-    if format:
-        writer = writer.format(format)
-    if options:
-        writer = writer.options(**options)
-    writer = writer.mode(mode)
-    if table:
-        logger.info("Writing dataframe to table %s", table)
-        writer.saveAsTable(table)
-    else:
-        if not path:
-            raise ValueError("Either table or path must be provided for write")
-        logger.info("Writing dataframe to path %s", path)
-        writer.save(path)
+    options_dict = dict(options) if options else {}
+    expectation_map: Mapping[str, str] = expectations_from_contract(contract) if contract else {}
 
-    # DQ integration after write
+    strategy = violation_strategy or NoOpWriteViolationStrategy()
+    revalidator: Callable[[DataFrame], ValidationResult]
+    if contract:
+        revalidator = lambda new_df: validate_dataframe(new_df, contract)  # type: ignore[misc]
+    else:
+        revalidator = lambda new_df: ValidationResult(  # type: ignore[return-value]
+            ok=True,
+            errors=[],
+            warnings=[],
+            metrics={},
+            schema={},
+        )
+
+    context = WriteStrategyContext(
+        df=df,
+        aligned_df=out_df,
+        contract=contract,
+        path=path,
+        table=table,
+        format=format,
+        options=options_dict,
+        mode=mode,
+        validation=result,
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        revalidate=revalidator,
+        expectation_predicates=expectation_map,
+    )
+    plan = strategy.plan(context)
+
+    requests: list[WriteRequest] = []
+    primary_status: Optional[DQStatus] = None
+    final_result: ValidationResult = plan.result or result
+
+    if plan.primary is not None:
+        requests.append(plan.primary)
+        if plan.primary.validation is not None:
+            final_result = plan.primary.validation
+    elif plan.result is not None:
+        final_result = plan.result
+
+    requests.extend(list(plan.additional))
+
+    if not requests:
+        if return_status:
+            return final_result, None
+        return final_result
+
+    for index, request in enumerate(requests):
+        status = _execute_write_request(
+            request,
+            quality_manager=quality_manager,
+            enforce=enforce,
+        )
+        if index == 0:
+            primary_status = status
+
+    if return_status:
+        return final_result, primary_status
+    return final_result
+
+
+def _execute_write_request(
+    request: WriteRequest,
+    *,
+    quality_manager: Optional[DataQualityManager],
+    enforce: bool,
+) -> Optional[DQStatus]:
+    writer = request.df.write
+    if request.format:
+        writer = writer.format(request.format)
+    if request.options:
+        writer = writer.options(**request.options)
+    writer = writer.mode(request.mode)
+
+    if request.table:
+        logger.info("Writing dataframe to table %s", request.table)
+        writer.saveAsTable(request.table)
+    else:
+        if not request.path:
+            raise ValueError("Either table or path must be provided for write")
+        logger.info("Writing dataframe to path %s", request.path)
+        writer.save(request.path)
+
+    validation = request.validation
+    contract = request.contract
     status: Optional[DQStatus] = None
-    if quality_manager and contract:
-        dq_dataset_id = dataset_id or dataset_id_from_ref(table=table, path=path)
+    if quality_manager and contract and validation is not None:
+        dq_dataset_id = request.dataset_id or dataset_id_from_ref(
+            table=request.table,
+            path=request.path,
+        )
         dq_dataset_version = (
-            dataset_version
-            or get_delta_version(df.sparkSession, table=table, path=path)
+            request.dataset_version
+            or get_delta_version(
+                request.df.sparkSession,
+                table=request.table,
+                path=request.path,
+            )
             or "unknown"
         )
 
         def _post_write_observations() -> tuple[Mapping[str, Any], bool]:
             metrics, _schema_payload, reused_metrics = build_metrics_payload(
-                out_df,
+                request.df,
                 contract,
-                validation=result,
+                validation=validation,
                 include_schema=True,
             )
             if reused_metrics:
@@ -456,7 +548,7 @@ def write_with_contract(
             contract=contract,
             dataset_id=dq_dataset_id,
             dataset_version=dq_dataset_version,
-            validation=result,
+            validation=validation,
             observations=_post_write_observations,
         )
         status = assessment.status
@@ -472,33 +564,32 @@ def write_with_contract(
                 if status.reason:
                     details_snapshot.setdefault("reason", status.reason)
                 raise ValueError(f"DQ violation: {details_snapshot or status.status}")
+
         request_draft = False
-        if contract:
-            if not result.ok:
-                request_draft = True
-            elif status and status.status not in (None, "ok"):
-                request_draft = True
+        if not validation.ok:
+            request_draft = True
+        elif status and status.status not in (None, "ok"):
+            request_draft = True
+
         if request_draft:
             draft_contract = quality_manager.review_validation_outcome(
-                validation=result,
+                validation=validation,
                 base_contract=contract,
                 dataset_id=dq_dataset_id,
                 dataset_version=dq_dataset_version,
-                data_format=format,
+                data_format=request.format,
                 dq_status=status,
                 draft_requested=True,
             )
-            if draft_contract is not None:
-                if status:
-                    details = dict(status.details or {})
-                    details.setdefault("draft_contract_version", draft_contract.version)
-                    status.details = details
+            if draft_contract is not None and status is not None:
+                details = dict(status.details or {})
+                details.setdefault("draft_contract_version", draft_contract.version)
+                status.details = details
+
         if assessment.draft and enforce:
             raise ValueError(
                 "DQ governance returned a draft contract for the submitted dataset, "
                 "indicating the provided contract version is out of date",
             )
 
-    if return_status:
-        return result, status
-    return result
+    return status

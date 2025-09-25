@@ -39,6 +39,7 @@ Guides for each component live under `docs/`:
 - Data-quality governance interface: [`component-data-quality-governance.md`](docs/component-data-quality-governance.md)
 - Data-quality engine: [`component-data-quality-engine.md`](docs/component-data-quality-engine.md)
 - Integration layer: [`component-integration-layer.md`](docs/component-integration-layer.md); Spark & DLT adapter: [`implementations/integration/spark-dlt.md`](docs/implementations/integration/spark-dlt.md)
+- Write violation strategies: [`component-write-violation-strategies.md`](docs/component-write-violation-strategies.md)
 
 ## Architecture
 
