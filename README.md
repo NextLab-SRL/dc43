@@ -132,13 +132,20 @@ contract = OpenDataContractStandard(
 2) Validate and write with Spark
 
 ```python
-from dc43.components.integration.spark_io import write_with_contract
+from dc43.components.contract_store.impl.filesystem import FSContractStore
+from dc43.components.integration.spark_io import (
+    write_with_contract,
+    ContractVersionLocator,
+)
+
+store = FSContractStore(base_path="/mnt/contracts")
 
 write_with_contract(
     df=orders_df,
-    contract=contract,
-    path="/mnt/gold/sales/orders",
-    format=contract.servers[0].format,
+    contract_id="sales.orders",
+    contract_store=store,
+    expected_contract_version=">=0.1.0",
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",
     enforce=True,
     auto_cast=True,
@@ -172,17 +179,20 @@ latest = store.latest("sales.orders")
 5) DQ/DO orchestration on read
 
 ```python
-from dc43.components.integration.spark_io import read_with_contract
+from dc43.components.integration.spark_io import (
+    read_with_contract,
+    ContractVersionLocator,
+)
 from dc43.components.data_quality.governance.stubs import StubDQClient
 
 dq = StubDQClient(base_path="/mnt/dq_state")
 df, status = read_with_contract(
     spark,
-    format="delta",
-    path="/mnt/gold/sales/orders",
-    contract=contract,
+    contract_id="sales.orders",
+    contract_store=store,
     expected_contract_version="==0.1.0",
     dq_client=dq,
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     return_status=True,
 )
 print(status.status, status.reason)
@@ -191,13 +201,17 @@ print(status.status, status.reason)
 6) Quality status check on write
 
 ```python
-from dc43.components.integration.spark_io import write_with_contract
+from dc43.components.integration.spark_io import (
+    write_with_contract,
+    ContractVersionLocator,
+)
 
 vr, status = write_with_contract(
     df=orders_df,
-    contract=contract,
-    path="/mnt/gold/sales/orders",
-    format=contract.servers[0].format,
+    contract_id="sales.orders",
+    contract_store=store,
+    expected_contract_version=">=0.1.0",
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",
     enforce=False,                 # continue writing
     dq_client=dq,

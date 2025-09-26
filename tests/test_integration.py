@@ -11,7 +11,12 @@ from open_data_contract_standard.model import (
     Server,
 )
 
-from dc43.components.integration.spark_io import read_with_contract, write_with_contract
+from dc43.components.contract_store.impl.filesystem import FSContractStore
+from dc43.components.integration.spark_io import (
+    read_with_contract,
+    write_with_contract,
+    StaticDatasetLocator,
+)
 from dc43.components.integration.violation_strategy import SplitWriteViolationStrategy
 from dc43.components.data_quality.governance.stubs import StubDQClient
 from datetime import datetime
@@ -47,9 +52,16 @@ def make_contract(base_path: str, fmt: str = "parquet") -> OpenDataContractStand
     )
 
 
+def persist_contract(tmp_path: Path, contract: OpenDataContractStandard) -> FSContractStore:
+    store = FSContractStore(str(tmp_path / "contracts"))
+    store.put(contract)
+    return store
+
+
 def test_dq_integration_warn(spark, tmp_path: Path):
     data_dir = tmp_path / "parquet"
     contract = make_contract(str(data_dir))
+    store = persist_contract(tmp_path, contract)
     # Prepare data with one enum violation for currency
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -62,7 +74,9 @@ def test_dq_integration_warn(spark, tmp_path: Path):
     # enforce=False to avoid raising on validation expectation failures
     _, status = read_with_contract(
         spark,
-        contract=contract,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
         enforce=False,
         dq_client=dq,
         return_status=True,
@@ -74,12 +88,15 @@ def test_dq_integration_warn(spark, tmp_path: Path):
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
     dest_dir = tmp_path / "out"
     contract = make_contract(str(dest_dir))
+    store = persist_contract(tmp_path, contract)
     # Missing required column 'currency' to trigger validation error
     data = [(1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0)]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount"])
     result = write_with_contract(
         df=df,
-        contract=contract,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,  # continue writing despite mismatch
     )
@@ -106,6 +123,7 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     expected_dir = tmp_path / "expected"
     actual_dir = tmp_path / "actual"
     contract = make_contract(str(expected_dir))
+    store = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -115,7 +133,9 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     )
     result = write_with_contract(
         df=df,
-        contract=contract,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
         path=str(actual_dir),
         mode="overwrite",
         enforce=False,
@@ -127,6 +147,7 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
     base_dir = tmp_path / "data"
     contract_path = base_dir / "orders_enriched.parquet"
     contract = make_contract(str(contract_path))
+    store = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -138,7 +159,9 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
     with caplog.at_level(logging.WARNING):
         result = write_with_contract(
             df=df,
-            contract=contract,
+            contract_id=contract.id,
+            contract_store=store,
+            expected_contract_version=f"=={contract.version}",
             path=str(target),
             mode="overwrite",
             enforce=False,
@@ -150,6 +173,7 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
 def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     data_dir = tmp_path / "json"
     contract = make_contract(str(data_dir), fmt="parquet")
+    store = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -161,7 +185,9 @@ def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     with caplog.at_level(logging.WARNING):
         read_with_contract(
             spark,
-            contract=contract,
+            contract_id=contract.id,
+            contract_store=store,
+            expected_contract_version=f"=={contract.version}",
             format="json",
             enforce=False,
         )
@@ -174,6 +200,7 @@ def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
 def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     dest_dir = tmp_path / "out"
     contract = make_contract(str(dest_dir), fmt="parquet")
+    store = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -184,7 +211,9 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     with caplog.at_level(logging.WARNING):
         result = write_with_contract(
             df=df,
-            contract=contract,
+            contract_id=contract.id,
+            contract_store=store,
+            expected_contract_version=f"=={contract.version}",
             path=str(dest_dir),
             format="json",
             mode="overwrite",
@@ -203,6 +232,7 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
 def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
     base_dir = tmp_path / "split"
     contract = make_contract(str(base_dir))
+    store = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
         (2, 102, datetime(2024, 1, 2, 10, 0, 0), 15.5, "INR"),
@@ -215,7 +245,9 @@ def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
     strategy = SplitWriteViolationStrategy()
     result = write_with_contract(
         df=df,
-        contract=contract,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
         violation_strategy=strategy,
@@ -243,6 +275,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
     contract = make_contract(str(dest_dir))
     # Tighten quality rule to trigger a violation for the sample data below.
     contract.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=100)]
+    store = persist_contract(tmp_path, contract)
 
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 50.0, "EUR"),
@@ -254,12 +287,16 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
     )
 
     dq = StubDQClient(base_path=str(tmp_path / "dq_state"))
+    locator = StaticDatasetLocator(dataset_version="dq-out")
     result, status = write_with_contract(
         df=df,
-        contract=contract,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
         dq_client=dq,
+        dataset_locator=locator,
         return_status=True,
     )
 
@@ -270,10 +307,13 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
     with pytest.raises(ValueError):
         write_with_contract(
             df=df,
-            contract=contract,
+            contract_id=contract.id,
+            contract_store=store,
+            expected_contract_version=f"=={contract.version}",
             mode="overwrite",
             enforce=True,
             dq_client=dq,
+            dataset_locator=locator,
         )
 
 
@@ -290,12 +330,21 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     )
 
     dq = StubDQClient(base_path=str(tmp_path / "dq_state_upgrade"))
+    store = FSContractStore(str(tmp_path / "upgrade_contracts"))
+    store.put(contract_v1)
+    upgrade_locator = StaticDatasetLocator(
+        dataset_version="2024-01-01",
+        dataset_id=f"path:{dest_dir}",
+    )
     _, status_ok = write_with_contract(
         df=df_ok,
-        contract=contract_v1,
+        contract_id=contract_v1.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract_v1.version}",
         mode="overwrite",
         enforce=False,
         dq_client=dq,
+        dataset_locator=upgrade_locator,
         return_status=True,
     )
 
@@ -311,6 +360,7 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     contract_v2 = make_contract(str(dest_dir))
     contract_v2.version = "0.2.0"
     contract_v2.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=800)]
+    store.put(contract_v2)
 
     data_bad = [
         (3, 103, datetime(2024, 1, 3, 12, 0, 0), 200.0, "EUR"),
@@ -323,10 +373,13 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
 
     _, status_block = write_with_contract(
         df=df_bad,
-        contract=contract_v2,
+        contract_id=contract_v2.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract_v2.version}",
         mode="overwrite",
         enforce=False,
         dq_client=dq,
+        dataset_locator=upgrade_locator,
         return_status=True,
     )
 

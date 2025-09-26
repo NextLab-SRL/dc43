@@ -112,7 +112,7 @@ contract = OpenDataContractStandard(
   "name": "Orders",
   "description": {"usage": "Sample orders contract"},
   "status": "active",
-  "servers": [ { "server": "local", "type": "filesystem", "path": "data/orders.json", "format": "json" } ],
+  "servers": [ { "server": "local", "type": "filesystem", "path": "data/orders", "format": "json" } ],
   "schema": [
     {
       "name": "orders",
@@ -135,9 +135,10 @@ contract = OpenDataContractStandard(
       <h2>2. Read with Contract</h2>
       <pre><code class="language-python">orders_df, status = read_with_contract(
     spark,
-    path="orders.json",
-    contract=contract,
-    dq_client=dq
+    contract_id="orders",
+    contract_store=store,
+    dq_client=dq,
+    dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
     </section>
 
@@ -153,7 +154,7 @@ contract = OpenDataContractStandard(
 
     <section>
       <h2>Manual Alternative</h2>
-      <pre><code class="language-python">df = spark.read.json("orders.json")
+      <pre><code class="language-python">df = spark.read.json("orders/latest")
 errors = validate_schema(df)
 if errors:
     raise ValueError(errors)</code></pre>
@@ -178,9 +179,10 @@ if errors:
       <h2>4. Write with Contract</h2>
       <pre><code class="language-python">result, status = write_with_contract(
     enriched,
-    contract=contract,
-    path="out/orders",
+    contract_id="orders",
+    contract_store=store,
     dq_client=dq,
+    dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
     </section>
 

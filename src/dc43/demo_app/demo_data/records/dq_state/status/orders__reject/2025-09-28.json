@@ -1,0 +1,15 @@
+{
+  "status": "warn",
+  "reason": "quality-issues",
+  "details": {
+    "status": "warn",
+    "violations": 1,
+    "metrics": {
+      "row_count": 1,
+      "violations.gt_amount": 1
+    },
+    "notes": [
+      "Contains the negative amount flagged by governance."
+    ]
+  }
+}

@@ -7,6 +7,7 @@ validation, perform transformations (omitted) and write the result while
 recording the dataset version in the demo app's registry.
 """
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Sequence
 
@@ -17,11 +18,22 @@ from dc43.demo_app.server import (
     DatasetRecord,
     load_records,
     save_records,
+    set_active_version,
+    register_dataset_version,
 )
 from dc43.components.data_quality import DataQualityManager
+from dc43.components.data_quality.governance import DQStatus
 from dc43.components.data_quality.integration import attach_failed_expectations
 from dc43.components.data_quality.governance.stubs import StubDQClient
-from dc43.components.integration.spark_io import read_with_contract, write_with_contract
+from dc43.components.integration.spark_io import (
+    ContractFirstDatasetLocator,
+    ContractVersionLocator,
+    ReadStatusContext,
+    ReadStatusStrategy,
+    StaticDatasetLocator,
+    read_with_contract,
+    write_with_contract,
+)
 from dc43.components.integration.violation_strategy import (
     NoOpWriteViolationStrategy,
     SplitWriteViolationStrategy,
@@ -29,17 +41,21 @@ from dc43.components.integration.violation_strategy import (
     WriteViolationStrategy,
 )
 from open_data_contract_standard.model import OpenDataContractStandard
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, when
 
 
 def _next_version(existing: list[str]) -> str:
-    """Return the next patch version given existing semver strings."""
-    if not existing:
-        return "1.0.0"
-    parts = [list(map(int, v.split("."))) for v in existing]
-    major, minor, patch = max(parts)
-    return f"{major}.{minor}.{patch + 1}"
+    """Return a new ISO-8601 timestamp not present in ``existing``."""
+
+    used = set(existing)
+    offset = 0
+    while True:
+        candidate = (datetime.now(timezone.utc) + timedelta(seconds=offset)).isoformat()
+        candidate = candidate.replace("+00:00", "Z")
+        if candidate not in used:
+            return candidate
+        offset += 1
 
 
 def _resolve_output_path(
@@ -50,17 +66,54 @@ def _resolve_output_path(
     """Return output path for dataset relative to contract servers."""
     server = (contract.servers or [None])[0] if contract else None
     data_root = Path(DATA_DIR).parent
-    base_path = Path(getattr(server, "path", "")) if server else data_root
-    if base_path.suffix:
-        base_path = base_path.parent
+    server_path = Path(getattr(server, "path", "")) if server else data_root
+    if server_path.suffix:
+        base_path = server_path.parent / server_path.stem
+    else:
+        base_path = server_path
     if not base_path.is_absolute():
         base_path = data_root / base_path
-    out = base_path / dataset_name / dataset_version
+    if base_path.name == dataset_name:
+        out = base_path / dataset_version
+    else:
+        out = base_path / dataset_name / dataset_version
     out.parent.mkdir(parents=True, exist_ok=True)
     return out
 
 
 StrategySpec = WriteViolationStrategy | str | Mapping[str, Any] | None
+
+
+class _DowngradeBlockingReadStrategy:
+    """Interpret blocking read statuses as warnings while annotating details."""
+
+    def __init__(self, *, note: str, target_status: str = "warn") -> None:
+        self.note = note
+        self.target_status = target_status
+
+    def apply(
+        self,
+        *,
+        dataframe: DataFrame,
+        status: DQStatus | None,
+        enforce: bool,
+        context: ReadStatusContext,
+    ) -> tuple[DataFrame, DQStatus | None]:
+        if status and status.status == "block":
+            details = dict(status.details or {})
+            notes = list(details.get("overrides", []))
+            notes.append(self.note)
+            details["overrides"] = notes
+            details.setdefault("status_before_override", status.status)
+            return dataframe, DQStatus(
+                status=self.target_status,
+                reason=status.reason,
+                details=details,
+            )
+        return dataframe, status
+
+
+ReadStrategySpec = ReadStatusStrategy | str | Mapping[str, Any] | None
 
 
 def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | None:
@@ -142,6 +195,120 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
     raise ValueError(f"Unknown violation strategy: {name}")
 
 
+def _resolve_read_status_strategy(spec: ReadStrategySpec) -> ReadStatusStrategy | None:
+    """Return a read status strategy instance for the supplied spec."""
+
+    if spec is None:
+        return None
+
+    if hasattr(spec, "apply"):
+        return spec  # type: ignore[return-value]
+
+    name: str
+    options: MutableMapping[str, Any]
+    if isinstance(spec, str):
+        name = spec
+        options = {}
+    elif isinstance(spec, Mapping):
+        opt_map: MutableMapping[str, Any] = dict(spec)
+        name = str(
+            opt_map.pop("name", None)
+            or opt_map.pop("strategy", None)
+            or opt_map.pop("type", None)
+            or ""
+        )
+        options = opt_map
+    else:  # pragma: no cover - defensive guard
+        raise TypeError(f"Unsupported read status strategy spec: {spec!r}")
+
+    key = name.lower()
+    if key in {"default", "none", "pass", "passthrough"}:
+        return None
+    if key in {"allow", "allow-block", "downgrade"}:
+        note = str(
+            options.pop(
+                "note",
+                "Blocked dataset accepted for downstream processing",
+            )
+        )
+        target = str(options.pop("target_status", "warn"))
+        return _DowngradeBlockingReadStrategy(note=note, target_status=target)
+
+    raise ValueError(f"Unknown read status strategy: {name}")
+
+
+def _apply_locator_overrides(
+    default: ContractVersionLocator | StaticDatasetLocator,
+    overrides: Mapping[str, Any] | None,
+) -> ContractVersionLocator | StaticDatasetLocator:
+    """Return a locator with overrides merged onto ``default``."""
+
+    if overrides is None:
+        return default
+
+    locator_candidate = overrides.get("dataset_locator") if isinstance(overrides, Mapping) else None
+    if locator_candidate is not None and hasattr(locator_candidate, "for_read"):
+        return locator_candidate  # type: ignore[return-value]
+
+    dataset_id = overrides.get("dataset_id") if isinstance(overrides, Mapping) else None
+    dataset_version = overrides.get("dataset_version") if isinstance(overrides, Mapping) else None
+    subpath = overrides.get("subpath") if isinstance(overrides, Mapping) else None
+
+    base_strategy = getattr(default, "base", ContractFirstDatasetLocator())  # type: ignore[arg-type]
+    if isinstance(overrides, Mapping) and overrides.get("base") is not None:
+        candidate = overrides["base"]
+        if hasattr(candidate, "for_read"):
+            base_strategy = candidate  # type: ignore[assignment]
+        else:  # pragma: no cover - defensive guard for unexpected inputs
+            raise TypeError(f"Unsupported base locator: {candidate!r}")
+
+    if isinstance(default, ContractVersionLocator):
+        return ContractVersionLocator(
+            dataset_version=dataset_version or default.dataset_version,
+            dataset_id=dataset_id or default.dataset_id,
+            subpath=subpath or default.subpath,
+            base=base_strategy,
+        )
+
+    params = {
+        "dataset_id": dataset_id or default.dataset_id,
+        "dataset_version": dataset_version or default.dataset_version,
+        "path": overrides.get("path", default.path) if isinstance(overrides, Mapping) else default.path,
+        "table": overrides.get("table", default.table) if isinstance(overrides, Mapping) else default.table,
+        "format": overrides.get("format", default.format) if isinstance(overrides, Mapping) else default.format,
+    }
+
+    return StaticDatasetLocator(base=base_strategy, **params)
+
+
+def _apply_output_adjustment(
+    df: DataFrame,
+    adjustment: str | None,
+) -> tuple[DataFrame, list[str]]:
+    """Apply scenario-specific output adjustments and describe them."""
+
+    if not adjustment:
+        return df, []
+
+    key = adjustment.lower()
+    notes: list[str] = []
+
+    if key in {"valid-subset-violation", "degrade-valid", "valid_subset_violation"}:
+        notes.append("downgraded order 3 amount to illustrate post-join violations")
+        df = df.withColumn(
+            "amount",
+            when(col("order_id") == 3, col("amount") / 2).otherwise(col("amount")),
+        )
+        return df, notes
+
+    if key in {"amplify-negative", "full-batch-violation", "amplify_negative"}:
+        notes.append("preserved negative input amounts to surface contract breach")
+        # Ensure the negative row propagates; keep identity transformation.
+        return df, notes
+
+    return df, []
+
+
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
@@ -151,44 +318,80 @@ def run_pipeline(
     collect_examples: bool = False,
     examples_limit: int = 5,
     violation_strategy: StrategySpec = None,
-    ) -> tuple[str, str]:
+    inputs: Mapping[str, Mapping[str, Any]] | None = None,
+    output_adjustment: str | None = None,
+) -> tuple[str, str]:
     """Run an example pipeline using the stored contract.
 
     When an output contract is supplied the dataset name is derived from the
     contract identifier so the recorded runs and filesystem layout match the
     declared server path.  Callers may supply a custom name when no contract is
-    available.  Returns the dataset name used along with the materialized
-    version.
+    available.  The ``inputs`` mapping can override dataset locators, enforce
+    flags, and read-status strategies for each source (``"orders"`` and
+    ``"customers"``) so demo scenarios can highlight how mixed-validity inputs
+    are handled.  ``output_adjustment`` optionally tweaks the joined dataframe
+    (for example to deliberately surface violations). Returns the dataset name
+    used along with the materialized version.
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     dq_client = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
     dq = DataQualityManager(dq_client, draft_store=store)
 
+    input_overrides: Mapping[str, Mapping[str, Any]] = inputs or {}
+
+    orders_overrides = input_overrides.get("orders")
+    orders_locator = _apply_locator_overrides(
+        ContractVersionLocator(
+            dataset_version="latest",
+            base=ContractFirstDatasetLocator(),
+        ),
+        orders_overrides,
+    )
+    orders_strategy = _resolve_read_status_strategy(
+        orders_overrides.get("status_strategy") if orders_overrides else None
+    )
+    orders_enforce = bool(
+        orders_overrides.get("enforce", True) if orders_overrides else True
+    )
+
     # Read primary orders dataset with its contract
-    orders_contract = store.get("orders", "1.1.0")
-    orders_path = str(DATA_DIR / "orders/1.1.0/orders.json")
     orders_df, orders_status = read_with_contract(
         spark,
-        path=orders_path,
-        contract=orders_contract,
+        contract_id="orders",
+        contract_store=store,
         expected_contract_version="==1.1.0",
         dq_client=dq,
-        dataset_id="orders",
-        dataset_version="1.1.0",
+        dataset_locator=orders_locator,
+        status_strategy=orders_strategy,
+        enforce=orders_enforce,
+    )
+
+    customers_overrides = input_overrides.get("customers")
+    customers_locator = _apply_locator_overrides(
+        ContractVersionLocator(
+            dataset_version="latest",
+            base=ContractFirstDatasetLocator(),
+        ),
+        customers_overrides,
+    )
+    customers_strategy = _resolve_read_status_strategy(
+        customers_overrides.get("status_strategy") if customers_overrides else None
+    )
+    customers_enforce = bool(
+        customers_overrides.get("enforce", True) if customers_overrides else True
     )
 
     # Join with customers lookup dataset
-    customers_contract = store.get("customers", "1.0.0")
-    customers_path = str(DATA_DIR / "customers/1.0.0/customers.json")
     customers_df, customers_status = read_with_contract(
         spark,
-        path=customers_path,
-        contract=customers_contract,
+        contract_id="customers",
+        contract_store=store,
         expected_contract_version="==1.0.0",
         dq_client=dq,
-        dataset_id="customers",
-        dataset_version="1.0.0",
+        dataset_locator=customers_locator,
+        status_strategy=customers_strategy,
+        enforce=customers_enforce,
     )
 
     df = orders_df.join(customers_df, "customer_id")
@@ -198,6 +401,8 @@ def run_pipeline(
         "amount",
         when(col("order_id") == 1, col("amount") * 20).otherwise(col("amount")),
     )
+
+    df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
 
     records = load_records()
     output_contract = (
@@ -220,16 +425,30 @@ def run_pipeline(
 
     strategy = _resolve_violation_strategy(violation_strategy)
 
+    if output_contract:
+        locator = ContractVersionLocator(
+            dataset_version=dataset_version,
+            base=ContractFirstDatasetLocator(),
+        )
+    else:
+        locator = StaticDatasetLocator(
+            dataset_id=dataset_name,
+            dataset_version=dataset_version,
+            path=str(output_path),
+        )
+    contract_id_ref = getattr(output_contract, "id", None)
+    expected_version = f"=={output_contract.version}" if output_contract else None
     result, output_status = write_with_contract(
         df=df,
-        contract=output_contract,
-        path=str(output_path),
-        format=getattr(server, "format", "parquet"),
+        contract_id=contract_id_ref,
+        contract_store=store if contract_id_ref else None,
+        path=None if contract_id_ref else str(output_path),
+        format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
         dq_client=dq,
-        dataset_id=dataset_name,
-        dataset_version=dataset_version,
+        dataset_locator=locator,
+        expected_contract_version=expected_version,
         return_status=True,
         violation_strategy=strategy,
     )
@@ -259,6 +478,12 @@ def run_pipeline(
 
     draft_version: str | None = None
     output_details = result.details.copy()
+    if adjustment_notes:
+        extra = output_details.setdefault("transformations", [])
+        if isinstance(extra, list):
+            extra.extend(adjustment_notes)
+        else:
+            output_details["transformations"] = adjustment_notes
     if strategy is not None:
         output_details.setdefault("violation_strategy", type(strategy).__name__)
         if isinstance(strategy, SplitWriteViolationStrategy):
@@ -277,24 +502,54 @@ def run_pipeline(
             if dataset_name:
                 base_id = dataset_name
                 base_path = Path(str(output_path))
+                server_path_hint = Path(getattr(server, "path", "")) if server else None
+                server_filename = (
+                    server_path_hint.name
+                    if server_path_hint and server_path_hint.suffix
+                    else None
+                )
                 if strategy.include_valid:
+                    valid_dir = base_path / strategy.valid_suffix
+                    if server_filename:
+                        valid_dir = base_path / server_filename / strategy.valid_suffix
                     aux.append(
                         {
                             "kind": "valid",
                             "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.valid_suffix}",
-                            "path": str(base_path / strategy.valid_suffix),
+                            "path": str(valid_dir),
                         }
                     )
                 if strategy.include_reject:
+                    reject_dir = base_path / strategy.reject_suffix
+                    if server_filename:
+                        reject_dir = base_path / server_filename / strategy.reject_suffix
                     aux.append(
                         {
                             "kind": "reject",
                             "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.reject_suffix}",
-                            "path": str(base_path / strategy.reject_suffix),
+                            "path": str(reject_dir),
                         }
                     )
             if aux:
                 output_details.setdefault("auxiliary_datasets", aux)
+
+    if dataset_name and dataset_version:
+        try:
+            set_active_version(dataset_name, dataset_version)
+        except FileNotFoundError:
+            pass
+        else:
+            for aux in output_details.get("auxiliary_datasets", []):
+                dataset_ref = aux.get("dataset") if isinstance(aux, Mapping) else None
+                path_ref = aux.get("path") if isinstance(aux, Mapping) else None
+                if not dataset_ref or not path_ref:
+                    continue
+                alias = dataset_ref.replace("::", "__")
+                try:
+                    register_dataset_version(alias, dataset_version, Path(path_ref))
+                    set_active_version(alias, dataset_version)
+                except FileNotFoundError:
+                    continue
 
     dq_payload: dict[str, Any] = {}
     if output_status:

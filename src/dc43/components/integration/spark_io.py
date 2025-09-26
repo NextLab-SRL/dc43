@@ -6,12 +6,25 @@ High-level wrappers to read/write DataFrames while enforcing ODCS contracts
 and coordinating with an external Data Quality client when provided.
 """
 
-from typing import Any, Callable, Dict, Optional, Tuple, Literal, Mapping, overload
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Mapping,
+    Optional,
+    Protocol,
+    Tuple,
+    Literal,
+    overload,
+)
 import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
+from dc43.components.contract_store.interface import ContractStore
 from dc43.components.data_quality import DataQualityManager, DQClient, DQStatus
 from dc43.components.data_quality.engine import ValidationResult
 from dc43.components.data_quality.integration import (
@@ -72,6 +85,309 @@ def _as_quality_manager(dq: Optional[DataQualityManager | DQClient]) -> Optional
     if isinstance(dq, DataQualityManager):
         return dq
     return DataQualityManager(dq)
+
+
+@dataclass
+class DatasetResolution:
+    """Resolved location and governance identifiers for a dataset."""
+
+    path: Optional[str]
+    table: Optional[str]
+    format: Optional[str]
+    dataset_id: Optional[str]
+    dataset_version: Optional[str]
+
+
+class DatasetLocatorStrategy(Protocol):
+    """Resolve IO coordinates and identifiers for read/write operations."""
+
+    def for_read(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        spark: SparkSession,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:
+        ...
+
+    def for_write(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        df: DataFrame,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:
+        ...
+
+
+def _timestamp() -> str:
+    """Return an ISO timestamp suitable for dataset versioning."""
+
+    now = datetime.utcnow().replace(tzinfo=timezone.utc)
+    return now.isoformat().replace("+00:00", "Z")
+
+
+@dataclass
+class ContractFirstDatasetLocator:
+    """Default locator that favours contract servers over provided hints."""
+
+    clock: Callable[[], str] = _timestamp
+
+    def _resolve_base(
+        self,
+        contract: Optional[OpenDataContractStandard],
+        *,
+        path: Optional[str],
+        table: Optional[str],
+        format: Optional[str],
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        if contract and contract.servers:
+            c_path, c_table = _ref_from_contract(contract)
+            server = contract.servers[0]
+            c_format = getattr(server, "format", None)
+            if c_path is not None:
+                path = c_path
+            if c_table is not None:
+                table = c_table
+            if c_format is not None and format is None:
+                format = c_format
+        return path, table, format
+
+    def _resolution(
+        self,
+        contract: Optional[OpenDataContractStandard],
+        *,
+        path: Optional[str],
+        table: Optional[str],
+        format: Optional[str],
+        include_timestamp: bool,
+    ) -> DatasetResolution:
+        dataset_id = contract.id if contract else dataset_id_from_ref(table=table, path=path)
+        dataset_version = self.clock() if include_timestamp else None
+        return DatasetResolution(
+            path=path,
+            table=table,
+            format=format,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
+
+    def for_read(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        spark: SparkSession,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        path, table, format = self._resolve_base(contract, path=path, table=table, format=format)
+        return self._resolution(
+            contract,
+            path=path,
+            table=table,
+            format=format,
+            include_timestamp=False,
+        )
+
+    def for_write(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        df: DataFrame,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        path, table, format = self._resolve_base(contract, path=path, table=table, format=format)
+        return self._resolution(
+            contract,
+            path=path,
+            table=table,
+            format=format,
+            include_timestamp=True,
+        )
+
+
+@dataclass
+class StaticDatasetLocator:
+    """Locator overriding specific fields while delegating to a base strategy."""
+
+    dataset_id: Optional[str] = None
+    dataset_version: Optional[str] = None
+    path: Optional[str] = None
+    table: Optional[str] = None
+    format: Optional[str] = None
+    base: DatasetLocatorStrategy = field(default_factory=ContractFirstDatasetLocator)
+
+    def _merge(self, resolution: DatasetResolution) -> DatasetResolution:
+        return DatasetResolution(
+            path=self.path or resolution.path,
+            table=self.table or resolution.table,
+            format=self.format or resolution.format,
+            dataset_id=self.dataset_id or resolution.dataset_id,
+            dataset_version=self.dataset_version or resolution.dataset_version,
+        )
+
+    def for_read(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        spark: SparkSession,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        base_resolution = self.base.for_read(
+            contract=contract,
+            spark=spark,
+            format=format,
+            path=path,
+            table=table,
+        )
+        return self._merge(base_resolution)
+
+    def for_write(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        df: DataFrame,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        base_resolution = self.base.for_write(
+            contract=contract,
+            df=df,
+            format=format,
+            path=path,
+            table=table,
+        )
+        return self._merge(base_resolution)
+
+
+@dataclass
+class ContractVersionLocator:
+    """Locator that appends a version directory under the contract path."""
+
+    dataset_version: str
+    dataset_id: Optional[str] = None
+    subpath: Optional[str] = None
+    base: DatasetLocatorStrategy = field(default_factory=ContractFirstDatasetLocator)
+
+    def _resolve_path(self, path: Optional[str]) -> Optional[str]:
+        if not path:
+            return None
+
+        base = Path(path)
+        if base.suffix:
+            folder = base.parent / base.stem / self.dataset_version
+            if self.subpath:
+                folder = folder / self.subpath
+            target = folder / base.name
+            return str(target)
+
+        folder = base / self.dataset_version
+        if self.subpath:
+            folder = folder / self.subpath
+        return str(folder)
+
+    def _merge(
+        self,
+        contract: Optional[OpenDataContractStandard],
+        resolution: DatasetResolution,
+    ) -> DatasetResolution:
+        resolved_path = self._resolve_path(resolution.path)
+        dataset_id = self.dataset_id or resolution.dataset_id
+        if dataset_id is None and contract is not None:
+            dataset_id = contract.id
+        return DatasetResolution(
+            path=resolved_path or resolution.path,
+            table=resolution.table,
+            format=resolution.format,
+            dataset_id=dataset_id,
+            dataset_version=self.dataset_version,
+        )
+
+    def for_read(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        spark: SparkSession,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        base_resolution = self.base.for_read(
+            contract=contract,
+            spark=spark,
+            format=format,
+            path=path,
+            table=table,
+        )
+        return self._merge(contract, base_resolution)
+
+    def for_write(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        df: DataFrame,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:  # noqa: D401 - short docstring
+        base_resolution = self.base.for_write(
+            contract=contract,
+            df=df,
+            format=format,
+            path=path,
+            table=table,
+        )
+        return self._merge(contract, base_resolution)
+
+
+@dataclass
+class ReadStatusContext:
+    """Information exposed to read status strategies."""
+
+    contract: Optional[OpenDataContractStandard]
+    dataset_id: Optional[str]
+    dataset_version: Optional[str]
+
+
+class ReadStatusStrategy(Protocol):
+    """Allow callers to react to DQ statuses before returning a dataframe."""
+
+    def apply(
+        self,
+        *,
+        dataframe: DataFrame,
+        status: Optional[DQStatus],
+        enforce: bool,
+        context: ReadStatusContext,
+    ) -> tuple[DataFrame, Optional[DQStatus]]:
+        ...
+
+
+@dataclass
+class DefaultReadStatusStrategy:
+    """Default behaviour preserving enforcement semantics."""
+
+    def apply(
+        self,
+        *,
+        dataframe: DataFrame,
+        status: Optional[DQStatus],
+        enforce: bool,
+        context: ReadStatusContext,
+    ) -> tuple[DataFrame, Optional[DQStatus]]:  # noqa: D401 - short docstring
+        if enforce and status and status.status == "block":
+            raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
+        return dataframe, status
 
 def _check_contract_version(expected: str | None, actual: str) -> None:
     """Check expected contract version constraint against an actual version.
@@ -142,23 +458,82 @@ def _paths_compatible(provided: str, contract_path: str) -> bool:
     return base in actual.parents
 
 
+def _select_version(versions: list[str], minimum: str) -> str:
+    """Return the highest version satisfying ``>= minimum``."""
+
+    try:
+        base = SemVer.parse(minimum)
+    except ValueError as exc:  # pragma: no cover - defensive guard
+        raise ValueError(f"Invalid minimum version: {minimum}") from exc
+
+    best: tuple[int, int, int] | None = None
+    best_value: Optional[str] = None
+    for candidate in versions:
+        try:
+            parsed = SemVer.parse(candidate)
+        except ValueError:
+            # Fallback to string comparison when candidate matches exactly.
+            if candidate == minimum:
+                return candidate
+            continue
+        key = (parsed.major, parsed.minor, parsed.patch)
+        if key < (base.major, base.minor, base.patch):
+            continue
+        if best is None or key > best:
+            best = key
+            best_value = candidate
+    if best_value is None:
+        raise ValueError(f"No versions found satisfying >= {minimum}")
+    return best_value
+
+
+def _resolve_contract(
+    *,
+    contract_id: str,
+    expected_version: Optional[str],
+    store: ContractStore,
+) -> OpenDataContractStandard:
+    """Fetch a contract from ``store`` honouring the expected version constraint."""
+
+    if store is None:
+        raise ValueError("contract_store is required when contract_id is provided")
+
+    if not expected_version:
+        contract = store.latest(contract_id)
+        if contract is None:
+            raise ValueError(f"No versions available for contract {contract_id}")
+        return contract
+
+    if expected_version.startswith("=="):
+        version = expected_version[2:]
+        return store.get(contract_id, version)
+
+    if expected_version.startswith(">="):
+        base = expected_version[2:]
+        version = _select_version(store.list_versions(contract_id), base)
+        return store.get(contract_id, version)
+
+    return store.get(contract_id, expected_version)
+
+
 # Overloads help type checkers infer the return type based on ``return_status``
 # so callers can destructure the tuple without false positives.
 @overload
 def read_with_contract(
     spark: SparkSession,
     *,
+    contract_id: Optional[str] = None,
+    contract_store: Optional[ContractStore] = None,
+    expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     options: Optional[Dict[str, str]] = None,
-    contract: Optional[OpenDataContractStandard] = None,
     enforce: bool = True,
     auto_cast: bool = True,
     dq_client: Optional[DataQualityManager | DQClient] = None,
-    expected_contract_version: Optional[str] = None,
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    status_strategy: Optional[ReadStatusStrategy] = None,
     return_status: Literal[True] = True,
 ) -> tuple[DataFrame, Optional[DQStatus]]:
     ...
@@ -168,17 +543,18 @@ def read_with_contract(
 def read_with_contract(
     spark: SparkSession,
     *,
+    contract_id: Optional[str] = None,
+    contract_store: Optional[ContractStore] = None,
+    expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     options: Optional[Dict[str, str]] = None,
-    contract: Optional[OpenDataContractStandard] = None,
     enforce: bool = True,
     auto_cast: bool = True,
     dq_client: Optional[DataQualityManager | DQClient] = None,
-    expected_contract_version: Optional[str] = None,
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    status_strategy: Optional[ReadStatusStrategy] = None,
     return_status: Literal[False],
 ) -> DataFrame:
     ...
@@ -188,17 +564,18 @@ def read_with_contract(
 def read_with_contract(
     spark: SparkSession,
     *,
+    contract_id: Optional[str] = None,
+    contract_store: Optional[ContractStore] = None,
+    expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     options: Optional[Dict[str, str]] = None,
-    contract: Optional[OpenDataContractStandard] = None,
     enforce: bool = True,
     auto_cast: bool = True,
     dq_client: Optional[DataQualityManager | DQClient] = None,
-    expected_contract_version: Optional[str] = None,
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    status_strategy: Optional[ReadStatusStrategy] = None,
     return_status: bool = True,
 ) -> DataFrame | tuple[DataFrame, Optional[DQStatus]]:
     ...
@@ -207,52 +584,84 @@ def read_with_contract(
 def read_with_contract(
     spark: SparkSession,
     *,
+    contract_id: Optional[str] = None,
+    contract_store: Optional[ContractStore] = None,
+    expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     options: Optional[Dict[str, str]] = None,
-    contract: Optional[OpenDataContractStandard] = None,
     enforce: bool = True,
     auto_cast: bool = True,
     # Governance / DQ orchestration
     dq_client: Optional[DataQualityManager | DQClient] = None,
-    expected_contract_version: Optional[str] = None,  # e.g. '==1.2.0' or '>=1.0.0'
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    status_strategy: Optional[ReadStatusStrategy] = None,
     return_status: bool = True,
 ) -> DataFrame | Tuple[DataFrame, Optional[DQStatus]]:
     """Read a DataFrame and validate/enforce an ODCS contract.
 
-    - If ``contract`` is provided, validates schema and aligns columns/types.
+    - If ``contract_id`` is provided, the contract is fetched from ``contract_store``
+      before validating schema and aligning columns/types.
     - If ``dq_client`` is provided (either a :class:`DataQualityManager` or a
       raw :class:`DQClient` implementation), checks dataset status and submits
       metrics when needed; returns status when ``return_status=True``.
     """
-    # Resolve the physical location from the contract when one is provided.
-    #
-    # ``read_with_contract`` originally only looked up the path/table when both
-    # arguments were omitted.  When tests started to rely solely on the server
-    # information contained in the contract document, this behaviour caused the
-    # reader to attempt loading an empty path (Spark then warns that *all paths
-    # were ignored*).  By always considering the contract's first server we make
-    # the function robust regardless of how the caller specifies the location.
-    c_fmt: Optional[str] = None
+    locator = dataset_locator or ContractFirstDatasetLocator()
+    status_handler = status_strategy or DefaultReadStatusStrategy()
+
+    contract: Optional[OpenDataContractStandard] = None
+    if contract_id:
+        contract = _resolve_contract(
+            contract_id=contract_id,
+            expected_version=expected_contract_version,
+            store=contract_store,
+        )
+        ensure_version(contract)
+        _check_contract_version(expected_contract_version, contract.version)
+
+    original_path = path
+    original_table = table
+    original_format = format
+
+    resolution = locator.for_read(
+        contract=contract,
+        spark=spark,
+        format=format,
+        path=path,
+        table=table,
+    )
+    path = resolution.path
+    table = resolution.table
+    format = resolution.format
+
     if contract:
         c_path, c_table = _ref_from_contract(contract)
         c_fmt = contract.servers[0].format if contract.servers else None
-        path = path or c_path
-        table = table or c_table
-        if path and c_path and not _paths_compatible(path, c_path):
+        if original_path and c_path and not _paths_compatible(original_path, c_path):
             logger.warning(
-                "Provided path %s does not match contract server path %s", path, c_path
+                "Provided path %s does not match contract server path %s",
+                original_path,
+                c_path,
             )
+        if original_table and c_table and original_table != c_table:
+            logger.warning(
+                "Provided table %s does not match contract server table %s",
+                original_table,
+                c_table,
+            )
+        if original_format and c_fmt and original_format != c_fmt:
+            logger.warning(
+                "Provided format %s does not match contract server format %s",
+                original_format,
+                c_fmt,
+            )
+        if format is None:
+            format = c_fmt
+
     if not path and not table:
         raise ValueError("Either table or path must be provided for read")
-    if format and c_fmt and format != c_fmt:
-        logger.warning(
-            "Provided format %s does not match contract server format %s", format, c_fmt
-        )
-    format = format or c_fmt
+
     reader = spark.read
     if format:
         reader = reader.format(format)
@@ -263,10 +672,8 @@ def read_with_contract(
     cid: Optional[str] = None
     cver: Optional[str] = None
     if contract:
-        ensure_version(contract)
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
-        _check_contract_version(expected_contract_version, cver)
         result = validate_dataframe(df, contract)
         logger.info(
             "Read validation: ok=%s errors=%s warnings=%s",
@@ -282,8 +689,12 @@ def read_with_contract(
     quality_manager = _as_quality_manager(dq_client)
     status: Optional[DQStatus] = None
     if quality_manager and contract and result is not None:
-        ds_id = dataset_id or dataset_id_from_ref(table=table, path=path)
-        ds_ver = dataset_version or get_delta_version(spark, table=table, path=path) or "unknown"
+        ds_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
+        ds_ver = (
+            resolution.dataset_version
+            or get_delta_version(spark, table=table, path=path)
+            or "unknown"
+        )
 
         def _observations() -> tuple[Mapping[str, object], bool]:
             metrics_payload, _schema_payload, reused = build_metrics_payload(
@@ -308,8 +719,17 @@ def read_with_contract(
         status = assessment.status
         if status:
             logger.info("DQ status for %s@%s: %s", ds_id, ds_ver, status.status)
-            if enforce and status.status == "block":
-                raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
+
+        df, status = status_handler.apply(
+            dataframe=df,
+            status=status,
+            enforce=enforce,
+            context=ReadStatusContext(
+                contract=contract,
+                dataset_id=resolution.dataset_id,
+                dataset_version=resolution.dataset_version,
+            ),
+        )
 
     return (df, status) if return_status else df
 
@@ -320,7 +740,9 @@ def read_with_contract(
 def write_with_contract(
     *,
     df: DataFrame,
-    contract: Optional[OpenDataContractStandard] = None,
+    contract_id: Optional[str] = None,
+    contract_store: Optional[ContractStore] = None,
+    expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     format: Optional[str] = None,
@@ -329,8 +751,7 @@ def write_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     dq_client: Optional[DataQualityManager | DQClient] = None,
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
     return_status: Literal[True],
 ) -> tuple[ValidationResult, Optional[DQStatus]]:
     ...
@@ -340,7 +761,9 @@ def write_with_contract(
 def write_with_contract(
     *,
     df: DataFrame,
-    contract: Optional[OpenDataContractStandard] = None,
+    contract_id: Optional[str] = None,
+    contract_store: Optional[ContractStore] = None,
+    expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     format: Optional[str] = None,
@@ -349,8 +772,7 @@ def write_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     dq_client: Optional[DataQualityManager | DQClient] = None,
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
     return_status: Literal[False] = False,
 ) -> ValidationResult:
     ...
@@ -359,7 +781,9 @@ def write_with_contract(
 def write_with_contract(
     *,
     df: DataFrame,
-    contract: Optional[OpenDataContractStandard] = None,
+    contract_id: Optional[str] = None,
+    contract_store: Optional[ContractStore] = None,
+    expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
     format: Optional[str] = None,
@@ -368,8 +792,7 @@ def write_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     dq_client: Optional[DataQualityManager | DQClient] = None,
-    dataset_id: Optional[str] = None,
-    dataset_version: Optional[str] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
 ) -> Any:
@@ -379,25 +802,66 @@ def write_with_contract(
     from the contract (``io.format``, ``io.write_options``) and user options.
     Returns a ``ValidationResult`` for pre-write checks.
     """
-    # As with ``read_with_contract`` above, always derive the target path or
-    # table from the contract when one is supplied.  This allows callers to rely
-    # solely on the contract's server definition.
-    c_fmt: Optional[str] = None
+    locator = dataset_locator or ContractFirstDatasetLocator()
+
+    contract: Optional[OpenDataContractStandard] = None
+    if contract_id:
+        contract = _resolve_contract(
+            contract_id=contract_id,
+            expected_version=expected_contract_version,
+            store=contract_store,
+        )
+        ensure_version(contract)
+        _check_contract_version(expected_contract_version, contract.version)
+
+    original_path = path
+    original_table = table
+    original_format = format
+
+    resolution = locator.for_write(
+        contract=contract,
+        df=df,
+        format=format,
+        path=path,
+        table=table,
+    )
+    path = resolution.path
+    table = resolution.table
+    format = resolution.format
+
+    pre_validation_warnings: list[str] = []
     if contract:
         c_path, c_table = _ref_from_contract(contract)
         c_fmt = contract.servers[0].format if contract.servers else None
-        path = path or c_path
-        table = table or c_table
+        if original_path and c_path and not _paths_compatible(original_path, c_path):
+            message = f"Provided path {original_path} does not match contract server path {c_path}"
+            logger.warning(message)
+            pre_validation_warnings.append(message)
+        if original_table and c_table and original_table != c_table:
+            logger.warning(
+                "Provided table %s does not match contract server table %s",
+                original_table,
+                c_table,
+            )
+        if original_format and c_fmt and original_format != c_fmt:
+            message = f"Format {original_format} does not match contract server format {c_fmt}"
+            logger.warning(message)
+            pre_validation_warnings.append(message)
+        if format is None:
+            format = c_fmt
 
     out_df = df
     quality_manager = _as_quality_manager(dq_client)
     result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
     if contract:
-        ensure_version(contract)
         cid, cver = contract_identity(contract)
         logger.info("Writing with contract %s:%s", cid, cver)
         # validate before write and always align schema for downstream metrics
         result = validate_dataframe(df, contract)
+        if pre_validation_warnings:
+            for warning in pre_validation_warnings:
+                if warning not in result.warnings:
+                    result.warnings.append(warning)
         logger.info(
             "Write validation: ok=%s errors=%s warnings=%s",
             result.ok,
@@ -409,7 +873,6 @@ def write_with_contract(
             msg = f"Format {format} does not match contract server format {c_fmt}"
             logger.warning(msg)
             result.warnings.append(msg)
-        format = format or c_fmt
         if path and c_path and not _paths_compatible(path, c_path):
             msg = f"Path {path} does not match contract server path {c_path}"
             logger.warning(msg)
@@ -444,8 +907,8 @@ def write_with_contract(
         options=options_dict,
         mode=mode,
         validation=result,
-        dataset_id=dataset_id,
-        dataset_version=dataset_version,
+        dataset_id=resolution.dataset_id,
+        dataset_version=resolution.dataset_version,
         revalidate=revalidator,
         expectation_predicates=expectation_map,
     )

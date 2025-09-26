@@ -18,14 +18,15 @@ Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Mapping
+from typing import List, Dict, Any, Tuple, Mapping, Optional
 from uuid import uuid4
 from threading import Lock
 from textwrap import dedent
 import json
+import os
+import re
 import shutil
 import tempfile
-import os
 
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -64,6 +65,165 @@ DATASETS_FILE = RECORDS_DIR / "datasets.json"
 shutil.copytree(SAMPLE_DIR / "data", DATA_DIR)
 shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
 
+
+_VERSION_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}(?:T[^_]+Z)?")
+_DERIVED_SUFFIXES = {"valid", "reject"}
+_VERSION_ALIASES = {
+    "partial": "2024-04-10",
+}
+
+
+def _normalise_dataset_layout(root: Path) -> None:
+    """Ensure datasets under ``root`` follow ``dataset/version/file`` layout."""
+
+    for candidate in list(root.glob("*.json")):
+        stem = candidate.stem
+        if "_" not in stem:
+            dataset_dir = root / stem
+            if dataset_dir.exists():
+                candidate.unlink()
+            continue
+
+        parts = stem.split("_")
+        suffix: Optional[str] = None
+        if parts[-1] in _DERIVED_SUFFIXES:
+            suffix = parts.pop()
+
+        version = parts[-1]
+        version = _VERSION_ALIASES.get(version, version)
+        if not _VERSION_PATTERN.fullmatch(version):
+            continue
+
+        dataset = "_".join(parts[:-1]) or parts[-1]
+        if not dataset:
+            continue
+
+        dataset_dir_name = dataset if suffix is None else f"{dataset}__{suffix}"
+        target_dir = root / dataset_dir_name / version
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        destination = target_dir / f"{dataset}.json"
+        if destination.exists():
+            candidate.unlink()
+        else:
+            candidate.rename(destination)
+
+
+_normalise_dataset_layout(DATA_DIR)
+
+
+def _link_path(target: Path, source: Path) -> None:
+    """Create a symlink (or copy fallback) from ``target`` to ``source``."""
+
+    if target.exists() or target.is_symlink():
+        try:
+            if target.is_symlink() and target.resolve() == source.resolve():
+                return
+        except OSError:
+            pass
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        relative = os.path.relpath(source, target.parent)
+        target.symlink_to(relative, target_is_directory=source.is_dir())
+    except OSError:
+        if source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(source, target)
+
+
+def _iter_versions(dataset_dir: Path) -> list[Path]:
+    """Return sorted dataset version directories ignoring alias folders."""
+
+    versions: list[Path] = []
+    for candidate in dataset_dir.iterdir():
+        if not candidate.is_dir():
+            continue
+        name = candidate.name
+        if name == "latest" or name.startswith("latest__"):
+            continue
+        versions.append(candidate)
+    return sorted(versions)
+
+
+def refresh_dataset_aliases(dataset: str | None = None) -> None:
+    """Populate ``latest``/derived aliases for the selected dataset(s)."""
+
+    roots: list[Path]
+    if dataset:
+        base = DATA_DIR / dataset
+        roots = [base] if base.exists() else []
+    else:
+        roots = [p for p in DATA_DIR.iterdir() if p.is_dir() and "__" not in p.name]
+
+    for dataset_dir in roots:
+        versions = _iter_versions(dataset_dir)
+        if not versions:
+            continue
+        latest = versions[-1]
+        _link_path(dataset_dir / "latest", latest)
+
+        derived_dirs = sorted(DATA_DIR.glob(f"{dataset_dir.name}__*"))
+        for derived_dir in derived_dirs:
+            if not derived_dir.is_dir():
+                continue
+            suffix = derived_dir.name.split("__", 1)[1]
+            derived_versions = _iter_versions(derived_dir)
+            for version_dir in derived_versions:
+                target = dataset_dir / version_dir.name / suffix
+                _link_path(target, version_dir)
+            if derived_versions:
+                _link_path(dataset_dir / f"latest__{suffix}", derived_versions[-1])
+
+
+def set_active_version(dataset: str, version: str) -> None:
+    """Point the ``latest`` alias of ``dataset`` (and derivatives) to ``version``."""
+
+    dataset_dir = DATA_DIR / dataset
+    target = dataset_dir / version
+    if not target.exists():
+        raise FileNotFoundError(f"Unknown dataset version: {dataset} {version}")
+
+    _link_path(dataset_dir / "latest", target)
+
+    if "__" not in dataset:
+        for derived_dir in DATA_DIR.glob(f"{dataset}__*"):
+            suffix = derived_dir.name.split("__", 1)[1]
+            derived_target = derived_dir / version
+            if derived_target.exists():
+                _link_path((dataset_dir / version) / suffix, derived_target)
+                _link_path(dataset_dir / f"latest__{suffix}", derived_target)
+    else:
+        base, suffix = dataset.split("__", 1)
+        base_dir = DATA_DIR / base
+        version_dir = base_dir / version
+        if version_dir.exists():
+            _link_path(version_dir / suffix, target)
+            _link_path(base_dir / f"latest__{suffix}", target)
+
+
+def register_dataset_version(dataset: str, version: str, source: Path) -> None:
+    """Expose ``source`` under ``data/<dataset>/<version>`` via symlink."""
+
+    target = DATA_DIR / dataset / version
+    _link_path(target, source)
+
+
+refresh_dataset_aliases()
+try:
+    set_active_version("customers", "2024-01-01")
+    set_active_version("orders", "2024-01-01")
+    set_active_version("orders__valid", "2025-09-28")
+    set_active_version("orders__reject", "2025-09-28")
+except FileNotFoundError:
+    # Sample data may be absent during tests that override the workspace.
+    pass
+
 # Prepare contracts with absolute server paths pointing inside the working dir.
 for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
     model = OpenDataContractStandard.model_validate_json(src.read_text())
@@ -94,13 +254,21 @@ for _r in _sample_records:
     if not _srv or not _srv.path:
         continue
     _dest = Path(_srv.path)
-    _src = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
-    if not _src.exists():
-        continue
     base = _dest.parent if _dest.suffix else _dest
-    _ds_dir = base / _r["dataset_name"] / _r["dataset_version"]
-    _ds_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_src, _ds_dir / _src.name)
+    if base.name == _r["dataset_name"]:
+        target_root = base / _r["dataset_version"]
+    else:
+        target_root = base / _r["dataset_name"] / _r["dataset_version"]
+    _base_dir = SAMPLE_DIR / "data" / _r["dataset_name"]
+    _src_dir = _base_dir / _r["dataset_version"]
+    if _src_dir.is_dir():
+        shutil.copytree(_src_dir, target_root, dirs_exist_ok=True)
+        continue
+    _src_file = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
+    if not _src_file.exists():
+        continue
+    target_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_src_file, target_root / _src_file.name)
 
 app = FastAPI(title="DC43 Demo")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -323,6 +491,19 @@ def save_records(records: List[DatasetRecord]) -> None:
     )
 
 
+# Default slice activations used to drive the ``latest`` aliases for scenarios.
+_DEFAULT_SLICE = {
+    "orders": "2024-01-01",
+    "customers": "2024-01-01",
+}
+
+_INVALID_SLICE = {
+    "orders": "2025-09-28",
+    "orders__valid": "2025-09-28",
+    "orders__reject": "2025-09-28",
+    "customers": "2024-01-01",
+}
+
 # Predefined pipeline scenarios exposed in the UI. Each scenario describes the
 # parameters passed to the example pipeline along with a human readable
 # description shown to the user.
@@ -337,8 +518,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> None provided, so no draft can be"
             " created.</li>"
             "<li><strong>Writes:</strong> Planned dataset <code>result-no-existing-contract</code>"
-            " version <code>1.0.0</code> is blocked before any files are"
-            " materialised.</li>"
+            " is blocked before any files are materialised, so no version is"
+            " assigned.</li>"
             "<li><strong>Status:</strong> The run exits with an error because the contract is"
             " missing.</li>"
             "</ul>"
@@ -348,14 +529,15 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Write[Plan result-no-existing-contract 1.0.0]
+                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Write["Plan result-no-existing-contract\nno output contract"]
                     Write -->|no contract| Block[Run blocked, nothing written]
                 """
             ).strip()
             + "</div>"
         ),
+        "activate_versions": dict(_DEFAULT_SLICE),
         "params": {
             "contract_id": None,
             "contract_version": None,
@@ -373,9 +555,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.0.0</code>"
             " with no draft changes.</li>"
             "<li><strong>Writes:</strong> Persists dataset <code>orders_enriched</code>"
-            " version <code>1.0.0</code> on the first run; later runs"
-            " auto-increment the patch segment (<code>1.0.1</code>,"
-            " <code>1.0.2</code>, …).</li>"
+            " tagged with the run timestamp so repeated runs never collide.</li>"
             "<li><strong>Status:</strong> Post-write validation reports OK.</li>"
             "</ul>"
         ),
@@ -384,15 +564,16 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Validate[Align to contract 1.0.0]
-                    Validate --> Write[Write orders_enriched 1.0.x]
+                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Validate[Align to contract orders_enriched:1.0.0]
+                    Validate --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.0.0"]
                     Write --> Status[Run status: OK]
                 """
             ).strip()
             + "</div>"
         ),
+        "activate_versions": dict(_DEFAULT_SLICE),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.0.0",
@@ -409,9 +590,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<li><strong>Contract:</strong> Validates against"
             " <code>orders_enriched:1.1.0</code> and prepares draft"
             " <code>orders_enriched:1.2.0</code>.</li>"
-            "<li><strong>Writes:</strong> Planned dataset"
-            " <code>orders_enriched</code> version <code>1.0.x</code> is never"
-            " persisted because post-write validation fails.</li>"
+            "<li><strong>Writes:</strong> Persists"
+            " <code>orders_enriched</code> with the run timestamp before"
+            " governance flips the outcome to <code>block</code> and records"
+            " draft <code>orders_enriched:1.2.0</code>.</li>"
             "<li><strong>Status:</strong> The enforcement run errors when rule"
             " <code>amount &gt; 100</code> is violated.</li>"
             "</ul>"
@@ -421,15 +603,17 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Validate[Validate contract 1.1.0]
-                    Validate --> Draft[Draft orders_enriched 1.2.0]
-                    Validate -->|violations| Block[Run blocked, no dataset version]
+                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Write --> Governance[Post-write validation]
+                    Governance --> Draft[Draft orders_enriched 1.2.0]
+                    Governance -->|violations| Block["DQ verdict: block"]
                 """
             ).strip()
             + "</div>"
         ),
+        "activate_versions": dict(_DEFAULT_SLICE),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
@@ -447,8 +631,10 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>customers:1.0.0</code>.</li>"
             "<li><strong>Contract:</strong> Targets <code>orders_enriched:2.0.0</code>"
             " and proposes draft <code>orders_enriched:2.1.0</code>.</li>"
-            "<li><strong>Writes:</strong> Validation stops the job before any"
-            " dataset version of <code>orders_enriched</code> is created.</li>"
+            "<li><strong>Writes:</strong> Persists"
+            " <code>orders_enriched</code> with the run timestamp, then"
+            " validation downgrades the outcome to <code>block</code> while"
+            " recording draft <code>orders_enriched:2.1.0</code>.</li>"
             "<li><strong>Status:</strong> Schema drift plus failed expectations"
             " produce an error outcome.</li>"
             "</ul>"
@@ -458,19 +644,211 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Align[Schema align to contract 2.0.0]
-                    Align --> Draft[Draft orders_enriched 2.1.0]
-                    Align -->|errors| Block[Run blocked, no dataset version]
+                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Align[Schema align to contract orders_enriched:2.0.0]
+                    Align --> Write["orders_enriched «timestamp»\ncontract orders_enriched:2.0.0"]
+                    Write --> Governance[Post-write validation]
+                    Governance --> Draft[Draft orders_enriched 2.1.0]
+                    Governance -->|violations| Block["DQ verdict: block"]
                 """
             ).strip()
             + "</div>"
         ),
+        "activate_versions": dict(_DEFAULT_SLICE),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "2.0.0",
             "run_type": "enforce",
+        },
+    },
+    "read-invalid-block": {
+        "label": "Invalid input blocked",
+        "description": (
+            "<p>Attempts to process the latest slice (→2025-09-28) flagged as invalid.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Governance records mark"
+            " <code>orders latest → 2025-09-28</code> as <code>block</code> while pointing"
+            " at curated <code>valid</code> and <code>reject</code> slices.</li>"
+            "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.1.0</code>"
+            " but enforcement aborts before writes.</li>"
+            "<li><strong>Outputs:</strong> None; the job fails fast.</li>"
+            "<li><strong>Governance:</strong> Stub DQ client returns the stored"
+            " `block` verdict and its auxiliary dataset hints.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Invalid["orders latest → 2025-09-28\ncontract orders:1.1.0\nDQ status: block"] -->|default enforcement| Halt[Read aborted]
+                    Invalid -.-> Valid["orders::valid latest__valid → 2025-09-28\ncontract orders:1.1.0"]
+                    Invalid -.-> Reject["orders::reject latest__reject → 2025-09-28\ncontract orders:1.1.0"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_INVALID_SLICE),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "enforce",
+            "inputs": {
+                "orders": {
+                    "dataset_version": "latest",
+                }
+            },
+        },
+    },
+    "read-valid-subset": {
+        "label": "Prefer valid subset",
+        "description": (
+            "<p>Steers reads toward the curated valid slice.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Uses <code>orders::valid</code>"
+            " <code>latest__valid → 2025-09-28</code> alongside"
+            " <code>customers latest → 2024-01-01</code> to satisfy governance.</li>"
+            "<li><strong>Contract:</strong> Applies <code>orders_enriched:1.1.0</code>"
+            " and keeps draft creation disabled.</li>"
+            "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
+            " stamped with the run timestamp under contract"
+            " <code>orders_enriched:1.1.0</code> with a clean DQ verdict.</li>"
+            "<li><strong>Governance:</strong> Stub evaluates post-write metrics"
+            " and records an OK status.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Valid["orders::valid latest__valid → 2025-09-28\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Write --> Governance[Governance verdict ok]
+                    Governance --> Status["DQ status: ok"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_INVALID_SLICE),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "observe",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "inputs": {
+                "orders": {
+                    "dataset_id": "orders::valid",
+                    "dataset_version": "latest__valid",
+                }
+            },
+        },
+    },
+    "read-valid-subset-violation": {
+        "label": "Valid subset, invalid output",
+        "description": (
+            "<p>Highlights when clean inputs still breach the output contract.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Same curated"
+            " <code>orders::valid</code> <code>latest__valid → 2025-09-28</code> slice.</li>"
+            "<li><strong>Contract:</strong> Writes to"
+            " <code>orders_enriched</code> under <code>orders_enriched:1.1.0</code>.</li>"
+            "<li><strong>Outputs:</strong> Produces <code>orders_enriched</code>"
+            " (timestamped under contract <code>1.1.0</code>) but post-write checks fail because"
+            " the demo purposely lowers one amount below the"
+            " <code>&gt; 100</code> expectation.</li>"
+            "<li><strong>Governance:</strong> Stub DQ client records a blocking"
+            " verdict and drafts <code>orders_enriched:1.2.0</code>.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Valid["orders::valid latest__valid → 2025-09-28\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Join --> Adjust[Lower amount to 60]
+                    Adjust --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Write --> Governance[Governance verdict block]
+                    Governance --> Draft["Draft orders_enriched 1.2.0"]
+                    Governance --> Status["DQ status: block"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_INVALID_SLICE),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "enforce",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "inputs": {
+                "orders": {
+                    "dataset_id": "orders::valid",
+                    "dataset_version": "latest__valid",
+                }
+            },
+            "output_adjustment": "valid-subset-violation",
+        },
+    },
+    "read-override-full": {
+        "label": "Force blocked slice (manual override)",
+        "description": (
+            "<p>Documents what happens when the blocked data is forced through.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reuses the blocked"
+            " <code>orders latest → 2025-09-28</code> and downgrades the read status to"
+            " <code>warn</code>.</li>"
+            "<li><strong>Override strategy:</strong> Uses"
+            " <code>allow-block</code> to document that the blocked slice was"
+            " manually forced through despite the governance verdict.</li>"
+            "<li><strong>Contract:</strong> Applies"
+            " <code>orders_enriched:1.1.0</code> and captures draft"
+            " <code>orders_enriched:1.2.0</code>.</li>"
+            "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
+            " (timestamped under contract <code>1.1.0</code>) while surfacing the manual override"
+            " note alongside the reject-row metrics.</li>"
+            "<li><strong>Governance:</strong> Stub records the downgrade in the"
+            " run summary alongside violation counts and the explicit override"
+            " note.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Invalid["orders latest → 2025-09-28\ncontract orders:1.1.0\nDQ status: block"] --> Override[Downgrade to warn]
+                    Override --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Write --> Governance[Governance verdict warn]
+                    Governance --> Draft["Draft orders_enriched 1.2.0"]
+                    Governance --> Status["DQ status: warn"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_INVALID_SLICE),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "run_type": "observe",
+            "collect_examples": True,
+            "examples_limit": 3,
+            "inputs": {
+                "orders": {
+                    "dataset_version": "latest",
+                    "status_strategy": {
+                        "name": "allow-block",
+                        "note": "Manual override: forced latest slice (→2025-09-28)",
+                        "target_status": "warn",
+                    },
+                }
+            },
+            "output_adjustment": "amplify-negative",
         },
     },
     "split-lenient": {
@@ -485,8 +863,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             " <code>orders_enriched:1.1.0</code> and stores draft"
             " <code>orders_enriched:1.2.0</code> when rejects exist.</li>"
             "<li><strong>Writes:</strong> Persists three datasets sharing the same"
-            " auto-incremented version: the contracted"
-            " <code>orders_enriched</code> (full batch),"
+            " timestamp: the contracted"
+            " <code>orders_enriched</code> (full slice),"
             " <code>orders_enriched::valid</code>, and"
             " <code>orders_enriched::reject</code>.</li>"
             "<li><strong>Status:</strong> Run finishes with a warning because"
@@ -499,17 +877,18 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    Orders[orders:1.1.0] --> Join[Join datasets]
-                    Customers[customers:1.0.0] --> Join
-                    Join --> Validate[Validate contract 1.1.0]
+                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> Validate[Validate contract orders_enriched:1.1.0]
                     Validate --> Strategy[Split strategy]
-                    Strategy --> Full[orders_enriched 1.0.x]
-                    Strategy --> Valid[orders_enriched::valid 1.0.x]
-                    Strategy --> Reject[orders_enriched::reject 1.0.x]
+                    Strategy --> Full["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Strategy --> Valid["orders_enriched::valid «timestamp»\ncontract orders_enriched:1.1.0"]
+                    Strategy --> Reject["orders_enriched::reject «timestamp»\ncontract orders_enriched:1.1.0"]
                 """
             ).strip()
             + "</div>"
         ),
+        "activate_versions": dict(_DEFAULT_SLICE),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
@@ -873,6 +1252,8 @@ def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, 
         base = base.parent
     if not base.is_absolute():
         base = data_root / base
+    if base.name == dataset_name:
+        return base / dataset_version
     return base / dataset_name / dataset_version
 
 
@@ -931,6 +1312,11 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         params = urlencode({"error": f"Unknown scenario: {scenario}"})
         return RedirectResponse(url=f"/datasets?{params}", status_code=303)
     p = cfg["params"]
+    for dataset, version in cfg.get("activate_versions", {}).items():
+        try:
+            set_active_version(dataset, version)
+        except FileNotFoundError:
+            continue
     try:
         dataset_name, new_version = run_pipeline(
             p.get("contract_id"),
@@ -941,6 +1327,8 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("collect_examples", False),
             p.get("examples_limit", 5),
             p.get("violation_strategy"),
+            p.get("inputs"),
+            p.get("output_adjustment"),
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")

@@ -5,6 +5,9 @@ from .spark_io import (
     get_delta_version,
     read_with_contract,
     write_with_contract,
+    StaticDatasetLocator,
+    ContractFirstDatasetLocator,
+    ContractVersionLocator,
 )
 from .dlt_helpers import expectations_from_contract, apply_dlt_expectations
 
@@ -13,6 +16,9 @@ __all__ = [
     "get_delta_version",
     "read_with_contract",
     "write_with_contract",
+    "StaticDatasetLocator",
+    "ContractFirstDatasetLocator",
+    "ContractVersionLocator",
     "expectations_from_contract",
     "apply_dlt_expectations",
 ]
