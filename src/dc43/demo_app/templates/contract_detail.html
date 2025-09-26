@@ -18,6 +18,9 @@
     <button class="nav-link" id="quality-tab" data-bs-toggle="tab" data-bs-target="#quality" type="button" role="tab">Quality</button>
   </li>
   <li class="nav-item" role="presentation">
+    <button class="nav-link" id="access-tab" data-bs-toggle="tab" data-bs-target="#access" type="button" role="tab">Access</button>
+  </li>
+  <li class="nav-item" role="presentation">
     <button class="nav-link" id="change-log-tab" data-bs-toggle="tab" data-bs-target="#change-log" type="button" role="tab">Change Log</button>
   </li>
   <li class="nav-item" role="presentation">
@@ -148,6 +151,106 @@
     </table>
     {% endif %}
   </div>
+  <div class="tab-pane fade" id="access" role="tabpanel" aria-labelledby="access-tab">
+    {% if server_info %}
+    <div class="card mb-3">
+      <div class="card-header">Server definition</div>
+      <div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-3">Server</dt><dd class="col-sm-9">{{ server_info.server or '—' }}</dd>
+          <dt class="col-sm-3">Type</dt><dd class="col-sm-9">{{ server_info.type or '—' }}</dd>
+          <dt class="col-sm-3">Format</dt><dd class="col-sm-9">{{ server_info.format or '—' }}</dd>
+          {% if server_info.path %}
+          <dt class="col-sm-3">Path</dt><dd class="col-sm-9"><code>{{ server_info.path }}</code></dd>
+          {% endif %}
+          {% if server_info.dataset %}
+          <dt class="col-sm-3">Dataset</dt><dd class="col-sm-9"><code>{{ server_info.dataset }}</code></dd>
+          {% endif %}
+          {% if server_info.dataset_id %}
+          <dt class="col-sm-3">Dataset ID</dt><dd class="col-sm-9"><code>{{ server_info.dataset_id }}</code></dd>
+          {% endif %}
+        </dl>
+      </div>
+      {% if server_info.path_pattern or server_info.versioning or server_info.custom %}
+      <div class="card-footer">
+        {% if server_info.path_pattern %}
+        <p class="mb-2"><strong>Path pattern:</strong> <code>{{ server_info.path_pattern }}</code></p>
+        {% endif %}
+        {% if server_info.versioning %}
+        <div class="mb-2">
+          <strong>Versioning guidance</strong>
+          <pre class="small bg-light p-2 rounded mb-0">{{ server_info.versioning | tojson(indent=2) }}</pre>
+        </div>
+        {% endif %}
+        {% if server_info.custom %}
+        <details>
+          <summary class="small text-muted">View raw custom properties</summary>
+          <pre class="small bg-light p-2 mt-2 rounded">{{ server_info.custom | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="mb-3">
+      <h5>Compatibility matrix</h5>
+      {% if compatibility_versions %}
+      <ul class="list-unstyled mb-0">
+        {% for entry in compatibility_versions %}
+        <li class="mb-1"><span class="badge {{ entry.badge }} me-2">{{ entry.status_label }}</span>{{ entry.version }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted mb-0">No compatibility verdicts recorded for this dataset yet.</p>
+      {% endif %}
+    </div>
+
+    {% if preview_versions %}
+    <div class="card" id="contract-data-panel"
+         data-contract-id="{{ contract.id }}"
+         data-contract-version="{{ contract.version }}"
+         data-dataset-id="{{ preview_dataset_id }}"
+         data-versions='{{ preview_versions | tojson | safe }}'
+         data-status-map='{{ preview_status_map | tojson | safe }}'
+         {% if preview_default_index is not none %}data-default-index="{{ preview_default_index }}"{% endif %}>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <strong>Data preview</strong>
+          {% if preview_dataset_id %}<div class="small text-muted">Dataset <code>{{ preview_dataset_id }}</code></div>{% endif %}
+        </div>
+        <div class="small text-muted">Showing first <span class="preview-limit-display">100</span> rows</div>
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label for="data-version-slider" class="form-label">Select version</label>
+          <input type="range" class="form-range data-version-slider" id="data-version-slider" min="0" max="{{ preview_versions|length - 1 }}" step="1" value="{{ preview_default_index if preview_default_index is not none else 0 }}" {% if preview_versions|length <= 1 %}disabled{% endif %}>
+          <div class="d-flex justify-content-between small text-muted">
+            <span>{{ preview_versions[0] }}</span>
+            <span>{{ preview_versions[-1] }}</span>
+          </div>
+          <div class="mt-2">
+            <span class="fw-semibold data-version-label"></span>
+            <span class="badge bg-secondary ms-2 data-status-badge"></span>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label for="data-limit-input" class="form-label">Rows to display</label>
+          <input type="number" class="form-control form-control-sm data-limit-input" id="data-limit-input" value="100" min="1" max="500">
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped data-preview-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="small text-muted data-preview-placeholder"></p>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-muted">No dataset versions available for preview.</p>
+    {% endif %}
+  </div>
   <div class="tab-pane fade" id="change-log" role="tabpanel" aria-labelledby="change-log-tab">
     {% if change_log %}
     <div class="list-group">
@@ -185,5 +288,185 @@
     <pre class="small">{{ contract | tojson(indent=2) }}</pre>
   </div>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const panel = document.getElementById('contract-data-panel');
+  if (!panel) {
+    return;
+  }
+  const contractId = panel.dataset.contractId || '';
+  const contractVersion = panel.dataset.contractVersion || '';
+  const datasetId = panel.dataset.datasetId || '';
+  let versions = [];
+  try {
+    versions = JSON.parse(panel.dataset.versions || '[]');
+  } catch (err) {
+    versions = [];
+  }
+  let statusMap = {};
+  try {
+    statusMap = JSON.parse(panel.dataset.statusMap || '{}');
+  } catch (err) {
+    statusMap = {};
+  }
+  const slider = panel.querySelector('.data-version-slider');
+  const label = panel.querySelector('.data-version-label');
+  const badge = panel.querySelector('.data-status-badge');
+  const limitInput = panel.querySelector('.data-limit-input');
+  const limitDisplay = panel.querySelector('.preview-limit-display');
+  const table = panel.querySelector('.data-preview-table');
+  const thead = table ? table.querySelector('thead') : null;
+  const tbody = table ? table.querySelector('tbody') : null;
+  const placeholder = panel.querySelector('.data-preview-placeholder');
+
+  if (!slider || !label || !badge || !table || !thead || !tbody || !limitInput || versions.length === 0) {
+    return;
+  }
+
+  const applyStatus = (version) => {
+    const info = statusMap[version] || {};
+    badge.className = 'badge ' + (info.badge || 'bg-secondary');
+    badge.textContent = info.label || (info.status ? info.status.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) : 'Unknown');
+  };
+
+  const updateLabel = (index) => {
+    const safeIndex = Math.max(0, Math.min(index, versions.length - 1));
+    const version = versions[safeIndex];
+    label.textContent = version || '';
+    applyStatus(version);
+  };
+
+  const formatValue = (value) => {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch (err) {
+        return String(value);
+      }
+    }
+    return String(value);
+  };
+
+  const renderTable = (columns, rows) => {
+    if (!thead || !tbody) {
+      return;
+    }
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    const resolvedColumns = Array.isArray(columns) && columns.length ? columns : (rows[0] ? Object.keys(rows[0]) : []);
+    if (resolvedColumns.length) {
+      const headerRow = document.createElement('tr');
+      resolvedColumns.forEach((col) => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+    }
+    if (!rows.length) {
+      if (placeholder) {
+        placeholder.textContent = 'No rows available for this version.';
+      }
+      return;
+    }
+    rows.forEach((row) => {
+      const tr = document.createElement('tr');
+      resolvedColumns.forEach((col) => {
+        const td = document.createElement('td');
+        td.textContent = formatValue(row[col]);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    if (placeholder) {
+      placeholder.textContent = '';
+    }
+  };
+
+  const setVersions = (nextVersions, currentVersion) => {
+    if (!Array.isArray(nextVersions) || !nextVersions.length) {
+      return;
+    }
+    versions = nextVersions;
+    slider.max = String(Math.max(versions.length - 1, 0));
+    if (versions.length > 1) {
+      slider.removeAttribute('disabled');
+    } else {
+      slider.setAttribute('disabled', 'disabled');
+    }
+    const idx = currentVersion ? versions.indexOf(currentVersion) : -1;
+    const targetIndex = idx >= 0 ? idx : versions.length - 1;
+    slider.value = String(Math.max(0, targetIndex));
+    updateLabel(Number(slider.value));
+  };
+
+  const fetchPreview = async () => {
+    const index = Number(slider.value) || 0;
+    const version = versions[Math.max(0, Math.min(index, versions.length - 1))];
+    if (placeholder) {
+      placeholder.textContent = 'Loading preview…';
+    }
+    const limit = Number(limitInput.value) || 100;
+    if (limitDisplay) {
+      limitDisplay.textContent = String(limit);
+    }
+    const params = new URLSearchParams();
+    params.set('dataset_version', version);
+    params.set('limit', String(limit));
+    if (datasetId) {
+      params.set('dataset_id', datasetId);
+    }
+    let response;
+    try {
+      response = await fetch(`/api/contracts/${encodeURIComponent(contractId)}/${encodeURIComponent(contractVersion)}/preview?${params.toString()}`);
+    } catch (err) {
+      if (placeholder) {
+        placeholder.textContent = 'Preview unavailable.';
+      }
+      return;
+    }
+    if (!response.ok) {
+      if (placeholder) {
+        placeholder.textContent = `Preview unavailable (status ${response.status}).`;
+      }
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+      return;
+    }
+    const data = await response.json();
+    if (Array.isArray(data.known_versions) && data.known_versions.length) {
+      setVersions(data.known_versions, data.dataset_version || version);
+    }
+    if (data.status && data.status.status) {
+      statusMap[data.dataset_version] = {
+        status: data.status.status,
+        label: data.status.status_label,
+        badge: data.status.badge,
+      };
+      applyStatus(data.dataset_version);
+    }
+    renderTable(data.columns || [], Array.isArray(data.rows) ? data.rows : []);
+    if (!Array.isArray(data.rows) || !data.rows.length) {
+      if (placeholder) {
+        placeholder.textContent = 'No rows available for this version.';
+      }
+    }
+  };
+
+  slider.addEventListener('input', () => {
+    updateLabel(Number(slider.value));
+  });
+  slider.addEventListener('change', fetchPreview);
+  limitInput.addEventListener('change', fetchPreview);
+
+  const defaultIndex = Number(panel.dataset.defaultIndex || slider.max || 0);
+  slider.value = String(Math.max(0, Math.min(defaultIndex, versions.length - 1)));
+  updateLabel(Number(slider.value));
+  fetchPreview();
+});
+</script>
 {% endblock %}
 

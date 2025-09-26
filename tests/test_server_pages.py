@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from dc43.demo_app.server import (
@@ -7,6 +8,14 @@ from dc43.demo_app.server import (
     DatasetRecord,
     queue_flash,
 )
+
+
+try:  # pragma: no cover - optional dependency in CI
+    import pyspark  # type: ignore  # noqa: F401
+
+    PYSPARK_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - fallback when pyspark missing
+    PYSPARK_AVAILABLE = False
 
 
 def test_contracts_page():
@@ -20,6 +29,8 @@ def test_contract_detail_page():
     client = TestClient(app)
     resp = client.get(f"/contracts/{rec.contract_id}/{rec.contract_version}")
     assert resp.status_code == 200
+    assert 'id="access-tab"' in resp.text
+    assert 'contract-data-panel' in resp.text
 
 
 def test_contract_versions_page():
@@ -91,4 +102,16 @@ def test_flash_message_consumed_once():
     second = client.get(f"/datasets?flash={token}")
     assert second.status_code == 200
     assert "Hello there" not in second.text
+
+
+@pytest.mark.skipif(not PYSPARK_AVAILABLE, reason="pyspark required for preview API")
+def test_contract_preview_api():
+    rec = load_records()[0]
+    client = TestClient(app)
+    resp = client.get(f"/api/contracts/{rec.contract_id}/{rec.contract_version}/preview")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload.get("dataset_version")
+    assert isinstance(payload.get("rows"), list)
+    assert isinstance(payload.get("known_versions"), list)
 
