@@ -153,6 +153,15 @@ def _safe_fs_name(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in value)
 
 
+def _read_json_file(path: Path) -> Optional[Dict[str, Any]]:
+    """Return decoded JSON for ``path`` or ``None`` on failure."""
+
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def _version_sort_key(value: str) -> tuple[int, Tuple[int, int, int] | float | str, str]:
     """Sort versions treating ISO timestamps and SemVer intelligently."""
 
@@ -196,20 +205,124 @@ def _dq_status_payload(dataset_id: str, dataset_version: str) -> Optional[Dict[s
     path = _dq_status_path(dataset_id, dataset_version)
     if not path.exists():
         return None
+    return _read_json_file(path)
+
+
+def _dataset_root_for(dataset_id: str, dataset_path: Optional[str] = None) -> Optional[Path]:
+    """Return the directory that should contain materialised versions."""
+
+    base: Optional[Path] = None
+    if dataset_path:
+        try:
+            path = Path(dataset_path)
+        except (TypeError, ValueError):
+            path = None
+        if path is not None:
+            if path.suffix:
+                path = path.parent / path.stem
+            if not path.is_absolute():
+                path = (Path(DATA_DIR).parent / path).resolve()
+            base = path
+    if base is None and dataset_id:
+        base = DATA_DIR / dataset_id.replace("::", "__")
+    return base
+
+
+def _version_marker_value(folder: Path) -> str:
+    """Return the canonical version value for ``folder`` if annotated."""
+
+    marker = folder / ".dc43_version"
+    if marker.exists():
+        try:
+            text = marker.read_text().strip()
+        except OSError:
+            text = ""
+        if text:
+            return text
+    return folder.name
+
+
+def _candidate_version_paths(dataset_dir: Path, version: str) -> List[Path]:
+    """Return directories that may correspond to ``version``."""
+
+    candidates: List[Path] = []
+    direct = dataset_dir / version
+    candidates.append(direct)
+    safe = dataset_dir / _safe_fs_name(version)
+    if safe != direct:
+        candidates.append(safe)
     try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return None
+        for entry in dataset_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            if _version_marker_value(entry) == version and entry not in candidates:
+                candidates.append(entry)
+    except FileNotFoundError:
+        return []
+    return candidates
+
+
+def _has_version_materialisation(dataset_dir: Path, version: str) -> bool:
+    """Return ``True`` if ``dataset_dir`` contains files for ``version``."""
+
+    lowered = version.lower()
+    if lowered in {"latest", "current"} or lowered.startswith("latest__"):
+        return True
+    for candidate in _candidate_version_paths(dataset_dir, version):
+        if candidate.exists():
+            return True
+    return False
+
+
+def _existing_version_dir(dataset_dir: Path, version: str) -> Optional[Path]:
+    """Return an existing directory matching ``version`` if available."""
+
+    for candidate in _candidate_version_paths(dataset_dir, version):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _target_version_dir(dataset_dir: Path, version: str) -> Path:
+    """Return the directory path where ``version`` should be materialised."""
+
+    safe = _safe_fs_name(version)
+    if not safe:
+        safe = "version"
+    return dataset_dir / safe
+
+
+def _ensure_version_marker(path: Path, version: str) -> None:
+    """Record ``version`` inside ``path`` for lookup when sanitised."""
+
+    if not path.exists() or not path.is_dir():
+        return
+    marker = path / ".dc43_version"
+    try:
+        marker.write_text(version)
+    except OSError:
+        pass
+
+
+def _dq_status_entries(dataset_id: str) -> List[Tuple[str, str, Dict[str, Any]]]:
+    """Return (display_version, stored_version, payload) tuples."""
+
+    directory = _dq_status_dir_for(dataset_id)
+    entries: List[Tuple[str, str, Dict[str, Any]]] = []
+    if not directory.exists():
+        return entries
+    for path in directory.glob("*.json"):
+        payload = _read_json_file(path) or {}
+        display_version = str(payload.get("dataset_version") or path.stem)
+        entries.append((display_version, path.stem, payload))
+    entries.sort(key=lambda item: _version_sort_key(item[0]))
+    return entries
 
 
 def _dq_status_versions(dataset_id: str) -> List[str]:
     """Return known dataset versions recorded by the governance stub."""
 
-    directory = _dq_status_dir_for(dataset_id)
-    if not directory.exists():
-        return []
-    versions = [path.stem for path in directory.glob("*.json")]
-    return _sort_versions(versions)
+    return [entry[0] for entry in _dq_status_entries(dataset_id)]
 
 
 def _link_path(target: Path, source: Path) -> None:
@@ -285,7 +398,9 @@ def set_active_version(dataset: str, version: str) -> None:
     """Point the ``latest`` alias of ``dataset`` (and derivatives) to ``version``."""
 
     dataset_dir = DATA_DIR / dataset
-    target = dataset_dir / version
+    target = _existing_version_dir(dataset_dir, version)
+    if target is None:
+        target = _target_version_dir(dataset_dir, version)
     if not target.exists():
         raise FileNotFoundError(f"Unknown dataset version: {dataset} {version}")
 
@@ -294,15 +409,16 @@ def set_active_version(dataset: str, version: str) -> None:
     if "__" not in dataset:
         for derived_dir in DATA_DIR.glob(f"{dataset}__*"):
             suffix = derived_dir.name.split("__", 1)[1]
-            derived_target = derived_dir / version
-            if derived_target.exists():
-                _link_path((dataset_dir / version) / suffix, derived_target)
-                _link_path(dataset_dir / f"latest__{suffix}", derived_target)
+            derived_target = _existing_version_dir(derived_dir, version)
+            if derived_target is None:
+                continue
+            _link_path(target / suffix, derived_target)
+            _link_path(dataset_dir / f"latest__{suffix}", derived_target)
     else:
         base, suffix = dataset.split("__", 1)
         base_dir = DATA_DIR / base
-        version_dir = base_dir / version
-        if version_dir.exists():
+        version_dir = _existing_version_dir(base_dir, version)
+        if version_dir is not None and version_dir.exists():
             _link_path(version_dir / suffix, target)
             _link_path(base_dir / f"latest__{suffix}", target)
 
@@ -310,8 +426,11 @@ def set_active_version(dataset: str, version: str) -> None:
 def register_dataset_version(dataset: str, version: str, source: Path) -> None:
     """Expose ``source`` under ``data/<dataset>/<version>`` via symlink."""
 
-    target = DATA_DIR / dataset / version
+    dataset_dir = DATA_DIR / dataset
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    target = _target_version_dir(dataset_dir, version)
     _link_path(target, source)
+    _ensure_version_marker(target, version)
 
 
 refresh_dataset_aliases()
@@ -410,16 +529,36 @@ _DQ_STATUS_BADGES: Dict[str, str] = {
 }
 
 
-def _dq_version_records(dataset_id: str) -> List[Dict[str, Any]]:
+def _dq_version_records(
+    dataset_id: str,
+    *,
+    contract: Optional[OpenDataContractStandard] = None,
+    dataset_path: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Return version → status entries for the supplied dataset id."""
 
     records: List[Dict[str, Any]] = []
-    for version in _dq_status_versions(dataset_id):
-        payload = _dq_status_payload(dataset_id, version) or {}
+    entries = _dq_status_entries(dataset_id)
+    if not entries:
+        return records
+
+    dataset_dir = _dataset_root_for(dataset_id, dataset_path)
+    skip_fs_check = False
+    if contract and contract.servers:
+        server = contract.servers[0]
+        fmt = (getattr(server, "format", "") or "").lower()
+        if fmt == "delta":
+            skip_fs_check = True
+
+    for display_version, stored_version, payload in entries:
+        if not skip_fs_check and dataset_dir is not None:
+            if not _has_version_materialisation(dataset_dir, display_version):
+                continue
         status_value = str(payload.get("status", "unknown") or "unknown")
         records.append(
             {
-                "version": version,
+                "version": display_version,
+                "stored_version": stored_version,
                 "status": status_value,
                 "status_label": status_value.replace("_", " ").title(),
                 "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
@@ -1154,8 +1293,18 @@ async def api_contract_preview(
         raise HTTPException(status_code=404, detail=str(exc))
 
     effective_dataset_id = str(dataset_id or contract.id or cid)
-    known_versions = _dq_status_versions(effective_dataset_id)
-    selected_version = str(dataset_version or (known_versions[-1] if known_versions else "latest"))
+    server = (contract.servers or [None])[0]
+    dataset_path_hint = getattr(server, "path", None) if server else None
+    version_contract = contract if effective_dataset_id == (contract.id or cid) else None
+    version_records = _dq_version_records(
+        effective_dataset_id,
+        contract=version_contract,
+        dataset_path=dataset_path_hint if version_contract else None,
+    )
+    known_versions = [entry["version"] for entry in version_records]
+    if not known_versions:
+        known_versions = ["latest"]
+    selected_version = str(dataset_version or known_versions[-1])
     if selected_version not in known_versions:
         known_versions = _sort_versions([*known_versions, selected_version])
     limit = max(1, min(limit, 500))
@@ -1275,7 +1424,12 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
     change_log = _contract_change_log(contract)
     server_info = _server_details(contract)
     dataset_id = server_info.get("dataset_id") if server_info else contract.id or cid
-    version_records = _dq_version_records(dataset_id or cid)
+    dataset_path_hint = server_info.get("path") if server_info else None
+    version_records = _dq_version_records(
+        dataset_id or cid,
+        contract=contract,
+        dataset_path=dataset_path_hint,
+    )
     version_list = [entry["version"] for entry in version_records]
     status_map = {
         entry["version"]: {

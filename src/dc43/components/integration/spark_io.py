@@ -95,6 +95,13 @@ def dataset_id_from_ref(*, table: Optional[str] = None, path: Optional[str | Ite
         return f"path:{normalised}"
     return "unknown"
 
+
+def _safe_fs_name(value: str) -> str:
+    """Return a filesystem-safe representation of ``value``."""
+
+    return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in value)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -345,8 +352,24 @@ class ContractVersionLocator:
         return sorted(entries, key=lambda item: cls._version_key(item))
 
     @staticmethod
-    def _render_template(template: str, *, version_value: str) -> str:
-        return template.replace("{version}", version_value)
+    @staticmethod
+    def _render_template(template: str, *, version_value: str, safe_value: str) -> str:
+        return (
+            template.replace("{version}", version_value)
+            .replace("{safeVersion}", safe_value)
+        )
+
+    @staticmethod
+    def _folder_version_value(path: Path) -> str:
+        marker = path / ".dc43_version"
+        if marker.exists():
+            try:
+                text = marker.read_text().strip()
+            except OSError:
+                text = ""
+            if text:
+                return text
+        return path.name
 
     @classmethod
     def _versioning_config(cls, resolution: DatasetResolution) -> Optional[Mapping[str, Any]]:
@@ -383,39 +406,67 @@ class ContractVersionLocator:
 
         dataset_version_normalised = dataset_version
         lower = dataset_version.lower()
-        versions = [entry.name for entry in base_dir.iterdir() if entry.is_dir()]
-        versions = cls._sorted_versions(versions)
+        entries: List[tuple[str, str]] = []
+        try:
+            for entry in base_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+                display = cls._folder_version_value(entry)
+                entries.append((display, entry.name))
+        except FileNotFoundError:
+            return None, {}
+        if not entries:
+            return None, {}
+        entries.sort(key=lambda item: cls._version_key(item[0]))
 
-        selected: List[str] = []
+        selected: List[tuple[str, str]] = []
         if lower == "latest":
             if include_prior:
-                selected = versions
-            elif versions:
-                selected = [versions[-1]]
+                selected = entries
+            elif entries:
+                selected = [entries[-1]]
         else:
             target_key = cls._version_key(dataset_version_normalised)
-            eligible = [v for v in versions if cls._version_key(v) <= target_key]
+            eligible = [entry for entry in entries if cls._version_key(entry[0]) <= target_key]
             if include_prior:
                 selected = eligible
             else:
-                if (base_dir / dataset_version_normalised).exists():
-                    selected = [dataset_version_normalised]
-                elif eligible:
-                    selected = [eligible[-1]]
+                exact = next((entry for entry in entries if entry[0] == dataset_version_normalised), None)
+                if exact:
+                    selected = [exact]
+                else:
+                    safe_candidate = _safe_fs_name(dataset_version_normalised)
+                    fallback = next((entry for entry in entries if entry[1] == safe_candidate), None)
+                    if fallback:
+                        selected = [fallback]
+                    elif eligible:
+                        selected = [eligible[-1]]
 
         if not selected:
             candidate_path = base_dir / dataset_version_normalised
             if candidate_path.exists():
-                selected = [dataset_version_normalised]
+                selected = [(dataset_version_normalised, candidate_path.name)]
             else:
                 return None, {}
 
         resolved_paths: List[str] = []
-        for version_value in selected:
-            folder_name = cls._render_template(folder_template, version_value=version_value)
-            root = base_dir / folder_name if folder_name else base_dir
+        for display_value, folder_name in selected:
+            rendered_folder = cls._render_template(
+                folder_template,
+                version_value=display_value,
+                safe_value=folder_name,
+            )
+            root = base_dir / rendered_folder if rendered_folder else base_dir
+            if not root.exists():
+                fallback_root = base_dir / folder_name
+                if fallback_root.exists():
+                    root = fallback_root
             if file_pattern:
-                pattern = cls._render_template(file_pattern, version_value=version_value)
+                pattern = cls._render_template(
+                    file_pattern,
+                    version_value=display_value,
+                    safe_value=folder_name,
+                )
                 matches = list(root.glob(pattern))
                 if matches:
                     resolved_paths.extend(str(path) for path in matches)

@@ -101,8 +101,14 @@ class StubDQClient(DQClient):
 
         path = self._status_path(dataset_id, dataset_version)
         logger.info("Persisting DQ status %s for %s@%s to %s", status, dataset_id, dataset_version, path)
+        payload = {
+            "status": status,
+            "details": details,
+            "dataset_id": dataset_id,
+            "dataset_version": dataset_version,
+        }
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"status": status, "details": details}, f)
+            json.dump(payload, f)
 
         self.link_dataset_contract(
             dataset_id=dataset_id,
