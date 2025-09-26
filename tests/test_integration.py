@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Optional
 
+import json
+
 import pytest
 
 from open_data_contract_standard.model import (
@@ -359,6 +361,29 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
         dq.get_linked_contract_version(dataset_id=dataset_ref)
         == f"{contract_v1.id}:{contract_v1.version}"
     )
+    assert (
+        dq.get_linked_contract_version(
+            dataset_id=dataset_ref,
+            dataset_version="2024-01-01",
+        )
+        == f"{contract_v1.id}:{contract_v1.version}"
+    )
+
+    def _safe(value: str) -> str:
+        return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in value)
+
+    status_file = (
+        tmp_path
+        / "dq_state_upgrade"
+        / "status"
+        / _safe(dataset_ref)
+        / f"{_safe('2024-01-01')}.json"
+    )
+    payload = json.loads(status_file.read_text())
+    assert payload["contract_id"] == contract_v1.id
+    assert payload["contract_version"] == contract_v1.version
+    assert payload["dataset_version"] == "2024-01-01"
+    assert "recorded_at" in payload
 
 
 class _DummyLocator:

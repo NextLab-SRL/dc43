@@ -567,7 +567,20 @@ def _dq_version_records(
 
     seen_versions: set[str] = set()
     for display_version, stored_version, payload in entries:
-        if scoped_versions and display_version not in scoped_versions:
+        record = dataset_record_map.get(display_version)
+        payload_contract_id = str(payload.get("contract_id") or "")
+        payload_contract_version = str(payload.get("contract_version") or "")
+        if contract and (contract.id or contract.version):
+            contract_id_value = contract.id or ""
+            if payload_contract_id and payload_contract_version:
+                if (
+                    payload_contract_id != contract_id_value
+                    or payload_contract_version != contract.version
+                ):
+                    continue
+            elif scoped_versions and display_version not in scoped_versions:
+                continue
+        elif scoped_versions and display_version not in scoped_versions:
             continue
         if not skip_fs_check and dataset_dir is not None:
             if not _has_version_materialisation(dataset_dir, display_version):
@@ -580,6 +593,10 @@ def _dq_version_records(
                 "status": status_value,
                 "status_label": status_value.replace("_", " ").title(),
                 "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
+                "contract_id": payload_contract_id or (record.contract_id if record else ""),
+                "contract_version": payload_contract_version
+                or (record.contract_version if record else ""),
+                "recorded_at": payload.get("recorded_at"),
             }
         )
         seen_versions.add(display_version)
@@ -597,6 +614,9 @@ def _dq_version_records(
                     "status": status_value,
                     "status_label": status_value.replace("_", " ").title(),
                     "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
+                    "contract_id": record.contract_id if record else "",
+                    "contract_version": record.contract_version if record else "",
+                    "recorded_at": None,
                 }
             )
 

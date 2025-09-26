@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Mapping
 
 from ..interface import DQClient, DQStatus
@@ -29,10 +30,46 @@ class StubDQClient(DQClient):
 
         return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in s)
 
-    def _links_path(self, dataset_id: str) -> str:
+    def _links_dir(self) -> str:
         d = os.path.join(self.base_path, "links")
         os.makedirs(d, exist_ok=True)
-        return os.path.join(d, f"{self._safe(dataset_id)}.json")
+        return d
+
+    def _links_path(self, dataset_id: str) -> str:
+        return os.path.join(self._links_dir(), f"{self._safe(dataset_id)}.json")
+
+    def _load_links(self, dataset_id: str) -> Dict[str, Any]:
+        path = self._links_path(dataset_id)
+        if not os.path.exists(path):
+            return {"versions": {}}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return {"versions": {}}
+
+        if not isinstance(data, dict):
+            return {"versions": {}}
+
+        # Upgrade legacy payloads that stored a single entry at the root.
+        if "versions" not in data:
+            entry = {
+                key: data[key]
+                for key in ("contract_id", "contract_version", "dataset_version", "linked_at")
+                if key in data
+            }
+            upgraded: Dict[str, Any] = {"versions": {}}
+            if entry.get("dataset_version"):
+                upgraded["versions"][entry["dataset_version"]] = entry
+                upgraded["latest"] = entry
+            else:
+                upgraded["latest"] = entry
+            return upgraded
+
+        versions = data.get("versions")
+        if not isinstance(versions, dict):
+            data["versions"] = {}
+        return data
 
     def _status_path(self, dataset_id: str, dataset_version: str) -> str:
         d = os.path.join(self.base_path, "status", self._safe(dataset_id))
@@ -53,7 +90,10 @@ class StubDQClient(DQClient):
             return DQStatus(status="unknown", reason="no-status-for-version")
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        link = self.get_linked_contract_version(dataset_id=dataset_id)
+        link = self.get_linked_contract_version(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
         if link and link != f"{contract_id}:{contract_version}":
             return DQStatus(status="block", reason=f"dataset linked to contract {link}", details=data)
         return DQStatus(status=data.get("status", "warn"), reason=data.get("reason"), details=data.get("details", {}))
@@ -101,11 +141,16 @@ class StubDQClient(DQClient):
 
         path = self._status_path(dataset_id, dataset_version)
         logger.info("Persisting DQ status %s for %s@%s to %s", status, dataset_id, dataset_version, path)
+        contract_id_value, contract_version_value = contract_identity(contract)
+        recorded_at = datetime.now(timezone.utc).isoformat()
         payload = {
             "status": status,
             "details": details,
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
+            "contract_id": contract_id_value,
+            "contract_version": contract_version_value,
+            "recorded_at": recorded_at,
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f)
@@ -113,8 +158,8 @@ class StubDQClient(DQClient):
         self.link_dataset_contract(
             dataset_id=dataset_id,
             dataset_version=dataset_version,
-            contract_id=contract_identity(contract)[0],
-            contract_version=contract_identity(contract)[1],
+            contract_id=contract_id_value,
+            contract_version=contract_version_value,
         )
         return DQStatus(status=status, details=details)
 
@@ -158,18 +203,62 @@ class StubDQClient(DQClient):
             contract_version,
             path,
         )
+        payload = self._load_links(dataset_id)
+        linked_at = datetime.now(timezone.utc).isoformat()
+        entry = {
+            "contract_id": contract_id,
+            "contract_version": contract_version,
+            "dataset_version": dataset_version,
+            "linked_at": linked_at,
+        }
+        versions = payload.setdefault("versions", {})
+        versions[dataset_version] = entry
+        payload["latest"] = entry
         with open(path, "w", encoding="utf-8") as f:
-            json.dump({"contract_id": contract_id, "contract_version": contract_version, "dataset_version": dataset_version}, f)
+            json.dump(payload, f)
 
-    def get_linked_contract_version(self, *, dataset_id: str) -> Optional[str]:
-        path = self._links_path(dataset_id)
-        if not os.path.exists(path):
+    def get_linked_contract_version(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+    ) -> Optional[str]:
+        payload = self._load_links(dataset_id)
+
+        def _entry_to_link(entry: Mapping[str, Any] | None) -> Optional[str]:
+            if not isinstance(entry, Mapping):
+                return None
+            contract_id_value = entry.get("contract_id")
+            contract_version_value = entry.get("contract_version")
+            if contract_id_value and contract_version_value:
+                link_value = f"{contract_id_value}:{contract_version_value}"
+                logger.debug("Found contract link for %s -> %s", dataset_id, link_value)
+                return link_value
             return None
-        with open(path, "r", encoding="utf-8") as f:
-            d = json.load(f)
-        link = f"{d.get('contract_id')}:{d.get('contract_version')}"
-        logger.debug("Found contract link for %s -> %s", dataset_id, link)
-        return link
+
+        versions = payload.get("versions") if isinstance(payload, Mapping) else None
+        if dataset_version and isinstance(versions, Mapping):
+            entry = versions.get(dataset_version)
+            if entry is None:
+                # Attempt to match on stored dataset version values when keys were sanitised.
+                for candidate in versions.values():
+                    if (
+                        isinstance(candidate, Mapping)
+                        and candidate.get("dataset_version") == dataset_version
+                    ):
+                        entry = candidate
+                        break
+            link = _entry_to_link(entry)
+            if link:
+                return link
+
+        latest = payload.get("latest") if isinstance(payload, Mapping) else None
+        link = _entry_to_link(latest)
+        if link:
+            return link
+
+        # Compatibility with legacy payloads that stored the entry at the root.
+        return _entry_to_link(payload if isinstance(payload, Mapping) else None)
 
 
 __all__ = ["StubDQClient"]

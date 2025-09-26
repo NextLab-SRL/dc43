@@ -95,12 +95,20 @@ class DataQualityManager:
             metrics=dict(metrics),
         )
 
-    def get_linked_contract_version(self, *, dataset_id: str) -> Optional[str]:
+    def get_linked_contract_version(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str | None = None,
+    ) -> Optional[str]:
         """Return the contract currently associated to ``dataset_id``."""
 
         if not self._client:
             return None
-        return self._client.get_linked_contract_version(dataset_id=dataset_id)
+        return self._client.get_linked_contract_version(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
 
     def link_dataset_contract(
         self,
