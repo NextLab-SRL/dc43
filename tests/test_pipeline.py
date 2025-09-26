@@ -282,6 +282,10 @@ def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
     if dq_dir.exists():
         shutil.copytree(dq_dir, backup)
 
+    pipeline.set_active_version("orders", "2025-09-28")
+    pipeline.set_active_version("orders__valid", "2025-09-28")
+    pipeline.set_active_version("orders__reject", "2025-09-28")
+
     try:
         with pytest.raises(ValueError) as excinfo:
             pipeline.run_pipeline(
@@ -292,7 +296,7 @@ def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
                 run_type="enforce",
                 inputs={
                     "orders": {
-                        "dataset_version": "2025-09-28",
+                        "dataset_version": "latest",
                     }
                 },
             )
@@ -305,6 +309,9 @@ def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
             shutil.rmtree(dq_dir)
         if backup.exists():
             shutil.copytree(backup, dq_dir)
+        pipeline.set_active_version("orders", "2024-01-01")
+        pipeline.set_active_version("orders__valid", "2025-09-28")
+        pipeline.set_active_version("orders__reject", "2025-09-28")
         SparkSession.builder.master("local[2]") \
             .appName("dc43-tests") \
             .config("spark.ui.enabled", "false") \
@@ -322,6 +329,10 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
     dataset_name = "orders_enriched"
     dataset_version = "valid-ok"
 
+    pipeline.set_active_version("orders", "2025-09-28")
+    pipeline.set_active_version("orders__valid", "2025-09-28")
+    pipeline.set_active_version("orders__reject", "2025-09-28")
+
     try:
         dataset_name, dataset_version = pipeline.run_pipeline(
             contract_id="orders_enriched",
@@ -334,8 +345,7 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
             inputs={
                 "orders": {
                     "dataset_id": "orders::valid",
-                    "dataset_version": "2025-09-28",
-                    "subpath": "valid",
+                    "dataset_version": "latest__valid",
                 }
             },
         )
@@ -355,6 +365,9 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
             shutil.rmtree(dq_dir)
         if backup.exists():
             shutil.copytree(backup, dq_dir)
+        pipeline.set_active_version("orders", "2024-01-01")
+        pipeline.set_active_version("orders__valid", "2025-09-28")
+        pipeline.set_active_version("orders__reject", "2025-09-28")
         new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
         for ver in new_versions:
             draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
@@ -385,6 +398,10 @@ def test_demo_pipeline_valid_subset_invalid_output(tmp_path: Path) -> None:
     forced_version = "valid-invalid"
     created_dataset_version: str | None = None
 
+    pipeline.set_active_version("orders", "2025-09-28")
+    pipeline.set_active_version("orders__valid", "2025-09-28")
+    pipeline.set_active_version("orders__reject", "2025-09-28")
+
     try:
         with pytest.raises(ValueError):
             pipeline.run_pipeline(
@@ -398,8 +415,7 @@ def test_demo_pipeline_valid_subset_invalid_output(tmp_path: Path) -> None:
                 inputs={
                     "orders": {
                         "dataset_id": "orders::valid",
-                        "dataset_version": "2025-09-28",
-                        "subpath": "valid",
+                        "dataset_version": "latest__valid",
                     }
                 },
                 output_adjustment="valid-subset-violation",
@@ -421,6 +437,9 @@ def test_demo_pipeline_valid_subset_invalid_output(tmp_path: Path) -> None:
             shutil.rmtree(dq_dir)
         if backup.exists():
             shutil.copytree(backup, dq_dir)
+        pipeline.set_active_version("orders", "2024-01-01")
+        pipeline.set_active_version("orders__valid", "2025-09-28")
+        pipeline.set_active_version("orders__reject", "2025-09-28")
         new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
         for ver in new_versions:
             draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
@@ -456,6 +475,10 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
     dataset_name = "orders_enriched"
     dataset_version = "override-full"
 
+    pipeline.set_active_version("orders", "2025-09-28")
+    pipeline.set_active_version("orders__valid", "2025-09-28")
+    pipeline.set_active_version("orders__reject", "2025-09-28")
+
     try:
         dataset_name, dataset_version = pipeline.run_pipeline(
             contract_id="orders_enriched",
@@ -467,10 +490,10 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
             examples_limit=2,
             inputs={
                 "orders": {
-                    "dataset_version": "2025-09-28",
+                    "dataset_version": "latest",
                     "status_strategy": {
                         "name": "allow-block",
-                        "note": "Manual override: forced 2025-09-28 slice",
+                        "note": "Manual override: forced latest slice",
                         "target_status": "warn",
                     },
                 }
@@ -484,7 +507,7 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
         assert last.dataset_version == dataset_version
         orders_details = last.dq_details.get("orders", {})
         overrides = orders_details.get("overrides", [])
-        assert any("forced 2025-09-28 slice" in note for note in overrides)
+        assert any("forced latest slice" in note for note in overrides)
         assert last.status in {"warning", "error"}
         output_details = last.dq_details.get("output", {})
         transformations = output_details.get("transformations", [])
@@ -495,6 +518,9 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
             shutil.rmtree(dq_dir)
         if backup.exists():
             shutil.copytree(backup, dq_dir)
+        pipeline.set_active_version("orders", "2024-01-01")
+        pipeline.set_active_version("orders__valid", "2025-09-28")
+        pipeline.set_active_version("orders__reject", "2025-09-28")
         new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
         for ver in new_versions:
             draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"

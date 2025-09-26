@@ -13,8 +13,8 @@ the UI mirrors what a catalog-integrated deployment would display.
 
 ```mermaid
 graph TD
-    Orders["orders 2024-01-01\ncontract orders:1.1.0"] --> Join
-    Customers["customers 2024-01-01\ncontract customers:1.0.0"] --> Join
+    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join
+    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
     Join --> Align[Align to contract orders_enriched:«target»]
     Align --> Strategy{Violation strategy}
     Strategy -->|full slice| Output["orders_enriched «run timestamp»\ncontract orders_enriched:1.1.0"]
@@ -29,8 +29,8 @@ graph TD
 and «draft» illustrates the optional draft recorded when violations exist. The demo
 records every write with an ISO-8601 timestamp (for example `2025-09-28T19:05:42Z`),
 so retries never collide with previous runs. The default `orders` input references
-the curated `2024-01-01` slice; scenarios that demonstrate governance overrides
-point the locator at the `2025-09-28` submission, including its curated
+the curated `orders latest → 2024-01-01` alias; scenarios that demonstrate governance overrides
+point the locator at the `orders latest → 2025-09-28` submission, including its curated
 `orders::valid` and `orders::reject` siblings.*
 
 * **Orders** and **Customers** are validated against their contracts on read.
@@ -47,10 +47,10 @@ point the locator at the `2025-09-28` submission, including its curated
 | **Existing contract OK** | No-op (default) | `orders_enriched:1.0.0` | *(none)* | `orders_enriched` persisted with the run timestamp. |
 | **Existing contract fails DQ** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched` is persisted with the run timestamp before governance returns a `block` verdict and a draft. |
 | **Contract fails schema and DQ** | No-op (default) | `orders_enriched:2.0.0` | `orders_enriched:2.1.0` | `orders_enriched` is written with the run timestamp, but schema drift and DQ failures downgrade the run to `block`. |
-| **Invalid input blocked** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders:2025-09-28` as `block` while pointing to the curated valid/reject slices. |
-| **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Reads `orders::valid:2025-09-28` and writes `orders_enriched` with the run timestamp under contract `1.1.0`. |
-| **Valid subset, invalid output** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Starts from `orders::valid:2025-09-28`, but the join lowers a value so `orders_enriched` (timestamped) is stored with `block` status and a draft. |
-| **Force blocked slice (manual override)** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Downgrades the `orders:2025-09-28` verdict to `warn`, writes `orders_enriched` with the run timestamp, and records the manual override note alongside reject metrics. |
+| **Invalid input blocked** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders latest → 2025-09-28` as `block` while pointing to the curated valid/reject slices. |
+| **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Reads `orders::valid latest__valid → 2025-09-28` and writes `orders_enriched` with the run timestamp under contract `1.1.0`. |
+| **Valid subset, invalid output** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Starts from `orders::valid latest__valid → 2025-09-28`, but the join lowers a value so `orders_enriched` (timestamped) is stored with `block` status and a draft. |
+| **Force blocked slice (manual override)** | No-op (default) with read override | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Downgrades the `orders latest → 2025-09-28` verdict to `warn`, writes `orders_enriched` with the run timestamp, and records the manual override note alongside reject metrics. |
 | **Split invalid rows** | `SplitWriteViolationStrategy` | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched`, `orders_enriched::valid`, and `orders_enriched::reject` share the same timestamped version. |
 
 ### Scenario breakdown
@@ -79,23 +79,23 @@ All dataset versions default to an ISO-8601 timestamp captured at write time. Wh
 
 #### Invalid input blocked
 - **Target contract:** `orders_enriched:1.1.0`, but strict enforcement stops at the read stage.
-- **Dataset versions:** None; `read_with_contract` raises because governance records `orders:2025-09-28` as `block`.
-- **Outcome:** Highlights the default behaviour when mixed-validity inputs arrive. The stub governance entry also references `orders::valid:2025-09-28` and `orders::reject:2025-09-28` so downstream jobs know where to look for remediated slices.
+- **Dataset versions:** None; `read_with_contract` raises because governance records `orders latest → 2025-09-28` as `block`.
+- **Outcome:** Highlights the default behaviour when mixed-validity inputs arrive. The stub governance entry also references `orders::valid latest__valid → 2025-09-28` and `orders::reject latest__reject → 2025-09-28` so downstream jobs know where to look for remediated slices.
 
 #### Prefer valid subset
-- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid:2025-09-28` slice alongside `customers:2024-01-01`.
+- **Target contract:** `orders_enriched:1.1.0` using the curated `orders::valid latest__valid → 2025-09-28` slice alongside `customers latest → 2024-01-01`.
 - **Dataset versions:** `orders_enriched` is written with the run timestamp because every surviving record still satisfies the `amount > 100` expectation after transformation.
 - **Outcome:** Read validation succeeds; the registry records an OK run and surfaces the smaller input metrics (two rows instead of three).
 
 #### Valid subset, invalid output
-- **Target contract:** `orders_enriched:1.1.0`, still reading `orders::valid:2025-09-28`.
+- **Target contract:** `orders_enriched:1.1.0`, still reading `orders::valid latest__valid → 2025-09-28`.
 - **Dataset versions:** `orders_enriched` (timestamped) is persisted but tagged with draft `orders_enriched:1.2.0` because the demo deliberately lowers a value below the threshold.
 - **Outcome:** Shows that clean inputs do not guarantee compliant outputs—the enforcement mode raises after the stub governance service returns a `block` verdict.
 
 #### Force blocked slice (manual override)
 - **Target contract:** `orders_enriched:1.1.0` while governance continues to flag the original dataset as invalid.
 - **Dataset versions:** `orders_enriched` (timestamped) is persisted alongside a draft `orders_enriched:1.2.0` describing violations and carrying the manual override note.
-- **Override:** The `allow-block` read strategy downgrades the verdict to `warn` and appends a "forced 2025-09-28 slice" note so the run history captures the manual intervention.
+- **Override:** The `allow-block` read strategy downgrades the verdict to `warn` and appends a "forced latest slice (→2025-09-28)" note so the run history captures the manual intervention.
 - **Outcome:** A custom read-status strategy downgrades the `block` verdict to `warn`, allowing the run to proceed so observers can inspect the downstream blast radius while the registry highlights the override note, the downgrade, and the reject-row metrics.
 
 #### Split invalid rows

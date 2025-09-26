@@ -145,7 +145,7 @@ write_with_contract(
     contract_id="sales.orders",
     contract_store=store,
     expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",
     enforce=True,
     auto_cast=True,
@@ -192,7 +192,7 @@ df, status = read_with_contract(
     contract_store=store,
     expected_contract_version="==0.1.0",
     dq_client=dq,
-    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     return_status=True,
 )
 print(status.status, status.reason)
@@ -211,7 +211,7 @@ vr, status = write_with_contract(
     contract_id="sales.orders",
     contract_store=store,
     expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",
     enforce=False,                 # continue writing
     dq_client=dq,

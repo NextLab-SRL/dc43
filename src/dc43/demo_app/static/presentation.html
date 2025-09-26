@@ -138,7 +138,7 @@ contract = OpenDataContractStandard(
     contract_id="orders",
     contract_store=store,
     dq_client=dq,
-    dataset_locator=ContractVersionLocator(dataset_version="2025-09-28")
+    dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
     </section>
 
@@ -154,7 +154,7 @@ contract = OpenDataContractStandard(
 
     <section>
       <h2>Manual Alternative</h2>
-      <pre><code class="language-python">df = spark.read.json("orders/2025-09-28")
+      <pre><code class="language-python">df = spark.read.json("orders/latest")
 errors = validate_schema(df)
 if errors:
     raise ValueError(errors)</code></pre>
@@ -182,7 +182,7 @@ if errors:
     contract_id="orders",
     contract_store=store,
     dq_client=dq,
-    dataset_locator=ContractVersionLocator(dataset_version="2025-09-28T12:00:00Z")
+    dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
     </section>
 

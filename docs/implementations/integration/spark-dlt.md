@@ -44,7 +44,7 @@ validated_df, status = read_with_contract(
     contract_store=store,
     expected_contract_version=">=1.0.0",
     dq_client=dq_client,
-    dataset_locator=ContractVersionLocator(dataset_version="2024-01-01"),
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     return_status=True,
 )
 ```

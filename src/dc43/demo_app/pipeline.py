@@ -18,6 +18,8 @@ from dc43.demo_app.server import (
     DatasetRecord,
     load_records,
     save_records,
+    set_active_version,
+    register_dataset_version,
 )
 from dc43.components.data_quality import DataQualityManager
 from dc43.components.data_quality.governance import DQStatus
@@ -342,7 +344,7 @@ def run_pipeline(
     orders_locator = _apply_locator_overrides(
         ContractVersionLocator(
             dataset_id="orders",
-            dataset_version="2024-01-01",
+            dataset_version="latest",
             base=ContractFirstDatasetLocator(),
         ),
         orders_overrides,
@@ -370,7 +372,7 @@ def run_pipeline(
     customers_locator = _apply_locator_overrides(
         ContractVersionLocator(
             dataset_id="customers",
-            dataset_version="2024-01-01",
+            dataset_version="latest",
             base=ContractFirstDatasetLocator(),
         ),
         customers_overrides,
@@ -533,6 +535,24 @@ def run_pipeline(
                     )
             if aux:
                 output_details.setdefault("auxiliary_datasets", aux)
+
+    if dataset_name and dataset_version:
+        try:
+            set_active_version(dataset_name, dataset_version)
+        except FileNotFoundError:
+            pass
+        else:
+            for aux in output_details.get("auxiliary_datasets", []):
+                dataset_ref = aux.get("dataset") if isinstance(aux, Mapping) else None
+                path_ref = aux.get("path") if isinstance(aux, Mapping) else None
+                if not dataset_ref or not path_ref:
+                    continue
+                alias = dataset_ref.replace("::", "__")
+                try:
+                    register_dataset_version(alias, dataset_version, Path(path_ref))
+                    set_active_version(alias, dataset_version)
+                except FileNotFoundError:
+                    continue
 
     dq_payload: dict[str, Any] = {}
     if output_status:
