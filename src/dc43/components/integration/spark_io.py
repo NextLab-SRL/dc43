@@ -10,6 +10,8 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Iterable,
+    List,
     Mapping,
     Optional,
     Protocol,
@@ -65,13 +67,32 @@ def get_delta_version(
         return None
 
 
-def dataset_id_from_ref(*, table: Optional[str] = None, path: Optional[str] = None) -> str:
+def _normalise_path_ref(path: Optional[str | Iterable[str]]) -> Optional[str]:
+    """Return a representative path from ``path``.
+
+    Readers may receive an iterable of concrete paths when a contract describes
+    cumulative layouts (for example, delta-style incremental folders).  For
+    dataset identifiers and compatibility checks we fall back to the first
+    element so downstream logic keeps working with a stable reference.
+    """
+
+    if path is None:
+        return None
+    if isinstance(path, (list, tuple, set)):
+        for item in path:
+            return str(item)
+        return None
+    return path
+
+
+def dataset_id_from_ref(*, table: Optional[str] = None, path: Optional[str | Iterable[str]] = None) -> str:
     """Build a dataset id from a table name or path (``table:...``/``path:...``)."""
 
     if table:
         return f"table:{table}"
-    if path:
-        return f"path:{path}"
+    normalised = _normalise_path_ref(path)
+    if normalised:
+        return f"path:{normalised}"
     return "unknown"
 
 logger = logging.getLogger(__name__)
@@ -96,6 +117,10 @@ class DatasetResolution:
     format: Optional[str]
     dataset_id: Optional[str]
     dataset_version: Optional[str]
+    read_options: Optional[Dict[str, str]] = None
+    write_options: Optional[Dict[str, str]] = None
+    custom_properties: Optional[Dict[str, Any]] = None
+    load_paths: Optional[List[str]] = None
 
 
 class DatasetLocatorStrategy(Protocol):
@@ -144,7 +169,8 @@ class ContractFirstDatasetLocator:
         path: Optional[str],
         table: Optional[str],
         format: Optional[str],
-    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[Server]]:
+        server: Optional[Server] = None
         if contract and contract.servers:
             c_path, c_table = _ref_from_contract(contract)
             server = contract.servers[0]
@@ -155,7 +181,7 @@ class ContractFirstDatasetLocator:
                 table = c_table
             if c_format is not None and format is None:
                 format = c_format
-        return path, table, format
+        return path, table, format, server
 
     def _resolution(
         self,
@@ -168,12 +194,25 @@ class ContractFirstDatasetLocator:
     ) -> DatasetResolution:
         dataset_id = contract.id if contract else dataset_id_from_ref(table=table, path=path)
         dataset_version = self.clock() if include_timestamp else None
+        server_props: Optional[Dict[str, Any]] = None
+        if contract and contract.servers:
+            first = contract.servers[0]
+            props: Dict[str, Any] = {}
+            for item in getattr(first, "customProperties", []) or []:
+                if getattr(item, "property", None):
+                    props[item.property] = item.value
+            if props:
+                server_props = props
         return DatasetResolution(
             path=path,
             table=table,
             format=format,
             dataset_id=dataset_id,
             dataset_version=dataset_version,
+            read_options=None,
+            write_options=None,
+            custom_properties=server_props,
+            load_paths=None,
         )
 
     def for_read(
@@ -185,7 +224,7 @@ class ContractFirstDatasetLocator:
         path: Optional[str],
         table: Optional[str],
     ) -> DatasetResolution:  # noqa: D401 - short docstring
-        path, table, format = self._resolve_base(contract, path=path, table=table, format=format)
+        path, table, format, _ = self._resolve_base(contract, path=path, table=table, format=format)
         return self._resolution(
             contract,
             path=path,
@@ -203,7 +242,7 @@ class ContractFirstDatasetLocator:
         path: Optional[str],
         table: Optional[str],
     ) -> DatasetResolution:  # noqa: D401 - short docstring
-        path, table, format = self._resolve_base(contract, path=path, table=table, format=format)
+        path, table, format, _ = self._resolve_base(contract, path=path, table=table, format=format)
         return self._resolution(
             contract,
             path=path,
@@ -231,6 +270,10 @@ class StaticDatasetLocator:
             format=self.format or resolution.format,
             dataset_id=self.dataset_id or resolution.dataset_id,
             dataset_version=self.dataset_version or resolution.dataset_version,
+            read_options=dict(resolution.read_options or {}),
+            write_options=dict(resolution.write_options or {}),
+            custom_properties=resolution.custom_properties,
+            load_paths=list(resolution.load_paths or []),
         )
 
     def for_read(
@@ -272,16 +315,133 @@ class StaticDatasetLocator:
 
 @dataclass
 class ContractVersionLocator:
-    """Locator that appends a version directory under the contract path."""
+    """Locator that appends a version directory or time-travel hint."""
 
     dataset_version: str
     dataset_id: Optional[str] = None
     subpath: Optional[str] = None
     base: DatasetLocatorStrategy = field(default_factory=ContractFirstDatasetLocator)
 
-    def _resolve_path(self, path: Optional[str]) -> Optional[str]:
+    VERSIONING_PROPERTY = "dc43.versioning"
+
+    @staticmethod
+    def _version_key(value: str) -> tuple[int, Tuple[int, int, int] | float | str, str]:
+        candidate = value
+        if candidate.endswith("Z"):
+            candidate = candidate[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(candidate)
+            return (0, dt.timestamp(), value)
+        except ValueError:
+            pass
+        try:
+            parsed = SemVer.parse(value)
+            return (1, (parsed.major, parsed.minor, parsed.patch), value)
+        except ValueError:
+            return (2, value, value)
+
+    @classmethod
+    def _sorted_versions(cls, entries: Iterable[str]) -> List[str]:
+        return sorted(entries, key=lambda item: cls._version_key(item))
+
+    @staticmethod
+    def _render_template(template: str, *, version_value: str) -> str:
+        return template.replace("{version}", version_value)
+
+    @classmethod
+    def _versioning_config(cls, resolution: DatasetResolution) -> Optional[Mapping[str, Any]]:
+        props = resolution.custom_properties or {}
+        value = props.get(cls.VERSIONING_PROPERTY)
+        if isinstance(value, Mapping):
+            return value
+        return None
+
+    @classmethod
+    def _expand_versioning_paths(
+        cls,
+        resolution: DatasetResolution,
+        *,
+        base_path: Optional[str],
+        dataset_version: Optional[str],
+    ) -> tuple[Optional[List[str]], Dict[str, str]]:
+        config = cls._versioning_config(resolution)
+        if not config or not base_path or not dataset_version:
+            return None, {}
+
+        base = Path(base_path)
+        base_dir = base.parent if base.suffix else base
+        if not base_dir.exists():
+            return None, {}
+
+        include_prior = bool(config.get("includePriorVersions"))
+        folder_template = str(config.get("subfolder", "{version}"))
+        file_pattern = config.get("filePattern")
+        if file_pattern is not None:
+            file_pattern = str(file_pattern)
+        elif base.suffix:
+            file_pattern = base.name
+
+        dataset_version_normalised = dataset_version
+        lower = dataset_version.lower()
+        versions = [entry.name for entry in base_dir.iterdir() if entry.is_dir()]
+        versions = cls._sorted_versions(versions)
+
+        selected: List[str] = []
+        if lower == "latest":
+            if include_prior:
+                selected = versions
+            elif versions:
+                selected = [versions[-1]]
+        else:
+            target_key = cls._version_key(dataset_version_normalised)
+            eligible = [v for v in versions if cls._version_key(v) <= target_key]
+            if include_prior:
+                selected = eligible
+            else:
+                if (base_dir / dataset_version_normalised).exists():
+                    selected = [dataset_version_normalised]
+                elif eligible:
+                    selected = [eligible[-1]]
+
+        if not selected:
+            candidate_path = base_dir / dataset_version_normalised
+            if candidate_path.exists():
+                selected = [dataset_version_normalised]
+            else:
+                return None, {}
+
+        resolved_paths: List[str] = []
+        for version_value in selected:
+            folder_name = cls._render_template(folder_template, version_value=version_value)
+            root = base_dir / folder_name if folder_name else base_dir
+            if file_pattern:
+                pattern = cls._render_template(file_pattern, version_value=version_value)
+                matches = list(root.glob(pattern))
+                if matches:
+                    resolved_paths.extend(str(path) for path in matches)
+            else:
+                if root.exists():
+                    resolved_paths.append(str(root))
+
+        read_opts: Dict[str, str] = {}
+        extra_read = config.get("readOptions")
+        if isinstance(extra_read, Mapping):
+            for k, v in extra_read.items():
+                if isinstance(v, bool):
+                    read_opts[str(k)] = str(v).lower()
+                else:
+                    read_opts[str(k)] = str(v)
+
+        return (resolved_paths or None), read_opts
+
+    def _resolve_path(self, resolution: DatasetResolution) -> Optional[str]:
+        path = resolution.path
         if not path:
             return None
+
+        fmt = (resolution.format or "").lower()
+        if fmt == "delta":
+            return path
 
         base = Path(path)
         if base.suffix:
@@ -296,21 +456,62 @@ class ContractVersionLocator:
             folder = folder / self.subpath
         return str(folder)
 
+    @staticmethod
+    def _delta_time_travel_option(dataset_version: Optional[str]) -> Optional[tuple[str, str]]:
+        if not dataset_version:
+            return None
+
+        version = dataset_version.strip()
+        if not version or version.lower() == "latest":
+            return None
+
+        if version.isdigit():
+            return "versionAsOf", version
+
+        candidate = version
+        if candidate.endswith("Z"):
+            candidate = candidate[:-1] + "+00:00"
+        try:
+            datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
+        return "timestampAsOf", version
+
     def _merge(
         self,
         contract: Optional[OpenDataContractStandard],
         resolution: DatasetResolution,
     ) -> DatasetResolution:
-        resolved_path = self._resolve_path(resolution.path)
+        resolved_path = self._resolve_path(resolution)
         dataset_id = self.dataset_id or resolution.dataset_id
         if dataset_id is None and contract is not None:
             dataset_id = contract.id
+        read_options = dict(resolution.read_options or {})
+        write_options = dict(resolution.write_options or {})
+        load_paths = list(resolution.load_paths or [])
+        version_paths, extra_read_options = self._expand_versioning_paths(
+            resolution,
+            base_path=resolved_path or resolution.path,
+            dataset_version=self.dataset_version,
+        )
+        if version_paths:
+            load_paths = version_paths
+        if extra_read_options:
+            read_options.update(extra_read_options)
+        if (resolution.format or "").lower() == "delta":
+            option = self._delta_time_travel_option(self.dataset_version)
+            if option:
+                read_options.setdefault(*option)
         return DatasetResolution(
             path=resolved_path or resolution.path,
             table=resolution.table,
             format=resolution.format,
             dataset_id=dataset_id,
             dataset_version=self.dataset_version,
+            read_options=read_options or None,
+            write_options=write_options or None,
+            custom_properties=resolution.custom_properties,
+            load_paths=load_paths or None,
         )
 
     def for_read(
@@ -659,15 +860,21 @@ def read_with_contract(
         if format is None:
             format = c_fmt
 
-    if not path and not table:
+    if not table and not (path or resolution.load_paths):
         raise ValueError("Either table or path must be provided for read")
 
     reader = spark.read
     if format:
         reader = reader.format(format)
+    option_map: Dict[str, str] = {}
+    if resolution.read_options:
+        option_map.update(resolution.read_options)
     if options:
-        reader = reader.options(**options)
-    df = reader.table(table) if table else reader.load(path)
+        option_map.update(options)
+    if option_map:
+        reader = reader.options(**option_map)
+    target = resolution.load_paths or path
+    df = reader.table(table) if table else reader.load(target)
     result: Optional[ValidationResult] = None
     cid: Optional[str] = None
     cver: Optional[str] = None
@@ -881,7 +1088,11 @@ def write_with_contract(
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
 
-    options_dict = dict(options) if options else {}
+    options_dict: Dict[str, str] = {}
+    if resolution.write_options:
+        options_dict.update(resolution.write_options)
+    if options:
+        options_dict.update(options)
     expectation_map: Mapping[str, str] = expectations_from_contract(contract) if contract else {}
 
     strategy = violation_strategy or NoOpWriteViolationStrategy()

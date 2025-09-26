@@ -11,7 +11,22 @@
       "server": "local",
       "type": "filesystem",
       "path": "data/customers",
-      "format": "json"
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.versioning",
+          "value": {
+            "mode": "snapshot",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "customers.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/customers/{==version}/customers.json"
+        }
+      ]
     }
   ],
   "schema": [

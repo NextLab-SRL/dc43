@@ -11,7 +11,23 @@
       "server": "local",
       "type": "filesystem",
       "path": "data/orders",
-      "format": "json"
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": true,
+            "subfolder": "{version}",
+            "filePattern": "orders.json",
+            "readOptions": {"recursiveFileLookup": true}
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/orders/{<=version}/orders.json"
+        }
+      ]
     }
   ],
   "schema": [

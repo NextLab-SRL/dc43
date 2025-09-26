@@ -11,7 +11,21 @@
       "server": "local",
       "type": "filesystem",
       "path": "data/orders_enriched.parquet",
-      "format": "parquet"
+      "format": "parquet",
+      "customProperties": [
+        {
+          "property": "dc43.versioning",
+          "value": {
+            "mode": "delta",
+            "timeTravel": "versionAsOf",
+            "notes": "Use dataset_version as Delta time travel hint"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "delta.`data/orders_enriched.parquet` versionAsOf={version}"
+        }
+      ]
     }
   ],
   "schema": [
