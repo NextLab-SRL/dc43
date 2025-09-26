@@ -56,3 +56,46 @@ validated_df, status = read_with_contract(
 * **Platform-specific metadata**: Augment dataset ids with cluster/job identifiers or lineage metadata for governance audit trails.
 
 Keep the integration layer thin: it should delegate to the contract drafter, DQ engine, and governance interfaces rather than re-implementing them.
+
+## Versioned layouts and Delta time travel
+
+Dataset locators describe how an input or output path is derived from the contract
+server definition. `ContractVersionLocator` keeps the legacy behaviour of nesting
+the requested dataset version under the declared server root, which works well for
+JSON/Parquet dumps. When the server format is `delta`, the locator now leaves the
+path untouched and instead annotates Spark reads with the appropriate time-travel
+options:
+
+* Numeric dataset versions map to `option("versionAsOf", <version>)`.
+* ISO-8601 timestamps (including the `Z` suffix) map to `option("timestampAsOf", <ts>)`.
+* The sentinel value `latest` skips time travel entirely.
+
+Custom locators can still override this behaviour—for example to glob subfolders
+or derive dataset ids differently—but the default mapping means pipelines can
+switch an input to Delta Lake simply by updating the ODCS server format without
+touching application code.
+
+### Encoding folder semantics in contracts
+
+ODCS 3.x servers expose a `customProperties` array that dc43 now uses to keep the
+filesystem layout self-describing.  When a server declares the
+`dc43.versioning` property the integration layer inspects the metadata to
+materialise concrete paths before the Spark read takes place.  The following
+fields are supported:
+
+* `includePriorVersions`: when `true` all folders whose name is lower-or-equal to
+  the requested dataset version are included (useful for incremental feeds).
+* `subfolder`: template applied to every version folder; accepts the
+  `{version}` placeholder.
+* `filePattern`: optional glob evaluated inside each folder.  Without it the
+  folder itself is used as the read root.
+* `readOptions`: static reader options merged into Spark (for example
+  `{"recursiveFileLookup": true}` when loading JSON deltas stored in nested
+  directories).
+
+Contracts can still include a human-readable pattern such as
+`dc43.pathPattern: data/orders/{<=version}/orders.json` so that implementers see
+how the layout works, while dc43's runtime uses the structured `dc43.versioning`
+payload to glob the correct files.  Output contracts can annotate Delta tables
+with `{"mode": "delta", "timeTravel": "versionAsOf"}` to document that the
+dataset version aligns with Delta Lake time-travel semantics.

@@ -66,7 +66,12 @@ class DQClient(Protocol):
     ) -> None:
         ...
 
-    def get_linked_contract_version(self, *, dataset_id: str) -> Optional[str]:
+    def get_linked_contract_version(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+    ) -> Optional[str]:
         """Return contract version associated to dataset if tracked (format: "<contract_id>:<version>")."""
         ...
 

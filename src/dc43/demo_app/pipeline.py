@@ -58,6 +58,23 @@ def _next_version(existing: list[str]) -> str:
         offset += 1
 
 
+def _safe_version_segment(value: str) -> str:
+    """Return a filesystem-safe folder name for ``value``."""
+
+    safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in value)
+    return safe or "version"
+
+
+def _write_version_marker(directory: Path, version: str) -> None:
+    """Persist a marker with the canonical version inside ``directory``."""
+
+    marker = directory / ".dc43_version"
+    try:
+        marker.write_text(version)
+    except OSError:
+        pass
+
+
 def _resolve_output_path(
     contract: OpenDataContractStandard | None,
     dataset_name: str,
@@ -73,11 +90,14 @@ def _resolve_output_path(
         base_path = server_path
     if not base_path.is_absolute():
         base_path = data_root / base_path
+    segment = _safe_version_segment(dataset_version)
     if base_path.name == dataset_name:
-        out = base_path / dataset_version
+        out = base_path / segment
     else:
-        out = base_path / dataset_name / dataset_version
-    out.parent.mkdir(parents=True, exist_ok=True)
+        out = base_path / dataset_name / segment
+    out.mkdir(parents=True, exist_ok=True)
+    if dataset_version and not (out / ".dc43_version").exists():
+        _write_version_marker(out, dataset_version)
     return out
 
 

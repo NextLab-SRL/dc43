@@ -1,4 +1,7 @@
 from pathlib import Path
+from typing import Optional
+
+import json
 
 import pytest
 
@@ -16,6 +19,8 @@ from dc43.components.integration.spark_io import (
     read_with_contract,
     write_with_contract,
     StaticDatasetLocator,
+    ContractVersionLocator,
+    DatasetResolution,
 )
 from dc43.components.integration.violation_strategy import SplitWriteViolationStrategy
 from dc43.components.data_quality.governance.stubs import StubDQClient
@@ -356,7 +361,192 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
         dq.get_linked_contract_version(dataset_id=dataset_ref)
         == f"{contract_v1.id}:{contract_v1.version}"
     )
+    assert (
+        dq.get_linked_contract_version(
+            dataset_id=dataset_ref,
+            dataset_version="2024-01-01",
+        )
+        == f"{contract_v1.id}:{contract_v1.version}"
+    )
 
+    def _safe(value: str) -> str:
+        return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in value)
+
+    status_file = (
+        tmp_path
+        / "dq_state_upgrade"
+        / "status"
+        / _safe(dataset_ref)
+        / f"{_safe('2024-01-01')}.json"
+    )
+    payload = json.loads(status_file.read_text())
+    assert payload["contract_id"] == contract_v1.id
+    assert payload["contract_version"] == contract_v1.version
+    assert payload["dataset_version"] == "2024-01-01"
+    assert "recorded_at" in payload
+
+
+class _DummyLocator:
+    def __init__(self, resolution: DatasetResolution) -> None:
+        self._resolution = resolution
+
+    def for_read(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        spark,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:
+        return self._resolution
+
+    def for_write(
+        self,
+        *,
+        contract: Optional[OpenDataContractStandard],
+        df,
+        format: Optional[str],
+        path: Optional[str],
+        table: Optional[str],
+    ) -> DatasetResolution:
+        return self._resolution
+
+
+def test_contract_version_locator_sets_delta_version_option():
+    base_resolution = DatasetResolution(
+        path="/tmp/delta/orders",
+        table=None,
+        format="delta",
+        dataset_id="orders",
+        dataset_version=None,
+    )
+    locator = ContractVersionLocator(dataset_version="7", base=_DummyLocator(base_resolution))
+    merged = locator.for_read(
+        contract=None,
+        spark=None,
+        format="delta",
+        path=base_resolution.path,
+        table=None,
+    )
+    assert merged.path == base_resolution.path
+    assert merged.read_options == {"versionAsOf": "7"}
+
+
+def test_contract_version_locator_timestamp_sets_delta_option():
+    base_resolution = DatasetResolution(
+        path="/tmp/delta/orders",
+        table=None,
+        format="delta",
+        dataset_id="orders",
+        dataset_version=None,
+    )
+    locator = ContractVersionLocator(
+        dataset_version="2024-05-31T10:00:00Z",
+        base=_DummyLocator(base_resolution),
+    )
+    merged = locator.for_read(
+        contract=None,
+        spark=None,
+        format="delta",
+        path=base_resolution.path,
+        table=None,
+    )
+    assert merged.read_options == {"timestampAsOf": "2024-05-31T10:00:00Z"}
+
+
+def test_contract_version_locator_latest_skips_delta_option():
+    base_resolution = DatasetResolution(
+        path="/tmp/delta/orders",
+        table=None,
+        format="delta",
+        dataset_id="orders",
+        dataset_version=None,
+    )
+    locator = ContractVersionLocator(dataset_version="latest", base=_DummyLocator(base_resolution))
+    merged = locator.for_read(
+        contract=None,
+        spark=None,
+        format="delta",
+        path=base_resolution.path,
+        table=None,
+    )
+    assert merged.read_options is None
+
+
+def test_contract_version_locator_expands_versioning_paths(tmp_path: Path) -> None:
+    base_dir = tmp_path / "orders"
+    (base_dir / "2024-01-01").mkdir(parents=True)
+    (base_dir / "2024-01-02").mkdir()
+    for version in ("2024-01-01", "2024-01-02"):
+        target = base_dir / version / "orders.json"
+        target.write_text("[]", encoding="utf-8")
+
+    resolution = DatasetResolution(
+        path=str(base_dir),
+        table=None,
+        format="json",
+        dataset_id="orders",
+        dataset_version=None,
+        custom_properties={
+            "dc43.versioning": {
+                "mode": "delta",
+                "includePriorVersions": True,
+                "subfolder": "{version}",
+                "filePattern": "orders.json",
+                "readOptions": {"recursiveFileLookup": True},
+            }
+        },
+    )
+    locator = ContractVersionLocator(dataset_version="2024-01-02", base=_DummyLocator(resolution))
+    merged = locator.for_read(
+        contract=None,
+        spark=None,
+        format="json",
+        path=str(base_dir),
+        table=None,
+    )
+    assert merged.path == str(base_dir)
+    assert merged.load_paths
+    assert set(merged.load_paths) == {
+        str(base_dir / "2024-01-01" / "orders.json"),
+        str(base_dir / "2024-01-02" / "orders.json"),
+    }
+    assert merged.read_options and merged.read_options.get("recursiveFileLookup") == "true"
+
+
+def test_contract_version_locator_snapshot_paths(tmp_path: Path) -> None:
+    base_dir = tmp_path / "customers"
+    (base_dir / "2024-01-01").mkdir(parents=True)
+    (base_dir / "2024-02-01").mkdir()
+    for version in ("2024-01-01", "2024-02-01"):
+        target = base_dir / version / "customers.json"
+        target.write_text("[]", encoding="utf-8")
+
+    resolution = DatasetResolution(
+        path=str(base_dir),
+        table=None,
+        format="json",
+        dataset_id="customers",
+        dataset_version=None,
+        custom_properties={
+            "dc43.versioning": {
+                "mode": "snapshot",
+                "includePriorVersions": False,
+                "subfolder": "{version}",
+                "filePattern": "customers.json",
+            }
+        },
+    )
+    locator = ContractVersionLocator(dataset_version="2024-02-01", base=_DummyLocator(resolution))
+    merged = locator.for_read(
+        contract=None,
+        spark=None,
+        format="json",
+        path=str(base_dir),
+        table=None,
+    )
+    assert merged.load_paths == [str(base_dir / "2024-02-01" / "customers.json")]
     contract_v2 = make_contract(str(dest_dir))
     contract_v2.version = "0.2.0"
     contract_v2.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=800)]

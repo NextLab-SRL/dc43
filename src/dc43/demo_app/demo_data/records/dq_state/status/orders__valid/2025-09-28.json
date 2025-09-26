@@ -1,6 +1,11 @@
 {
   "status": "ok",
   "reason": "quality-pass",
+  "dataset_id": "orders::valid",
+  "dataset_version": "2025-09-28",
+  "contract_id": "orders",
+  "contract_version": "1.1.0",
+  "recorded_at": "2025-09-28T13:28:23Z",
   "details": {
     "status": "ok",
     "violations": 0,

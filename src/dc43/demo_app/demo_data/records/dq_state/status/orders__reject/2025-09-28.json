@@ -1,6 +1,11 @@
 {
   "status": "warn",
   "reason": "quality-issues",
+  "dataset_id": "orders::reject",
+  "dataset_version": "2025-09-28",
+  "contract_id": "orders",
+  "contract_version": "1.1.0",
+  "recorded_at": "2025-09-28T13:28:23Z",
   "details": {
     "status": "warn",
     "violations": 1,
