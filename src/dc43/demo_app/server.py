@@ -534,13 +534,28 @@ def _dq_version_records(
     *,
     contract: Optional[OpenDataContractStandard] = None,
     dataset_path: Optional[str] = None,
+    dataset_records: Optional[Iterable[DatasetRecord]] = None,
 ) -> List[Dict[str, Any]]:
-    """Return version → status entries for the supplied dataset id."""
+    """Return version → status entries for the supplied dataset id.
+
+    ``dataset_records`` can be provided to scope compatibility information to
+    runs that were produced for a specific contract version. This ensures, for
+    example, that the compatibility matrix rendered for ``orders`` version
+    ``1.0.0`` does not surface the validation outcome that belongs to the
+    ``1.1.0`` contract.
+    """
 
     records: List[Dict[str, Any]] = []
     entries = _dq_status_entries(dataset_id)
-    if not entries:
-        return records
+
+    scoped_versions: set[str] = set()
+    dataset_record_map: Dict[str, DatasetRecord] = {}
+    if dataset_records:
+        for record in dataset_records:
+            if not record.dataset_version:
+                continue
+            scoped_versions.add(record.dataset_version)
+            dataset_record_map[record.dataset_version] = record
 
     dataset_dir = _dataset_root_for(dataset_id, dataset_path)
     skip_fs_check = False
@@ -550,7 +565,10 @@ def _dq_version_records(
         if fmt == "delta":
             skip_fs_check = True
 
+    seen_versions: set[str] = set()
     for display_version, stored_version, payload in entries:
+        if scoped_versions and display_version not in scoped_versions:
+            continue
         if not skip_fs_check and dataset_dir is not None:
             if not _has_version_materialisation(dataset_dir, display_version):
                 continue
@@ -564,6 +582,25 @@ def _dq_version_records(
                 "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
             }
         )
+        seen_versions.add(display_version)
+
+    # If we scoped by contract runs, surface any versions without a stored DQ
+    # payload using the dataset records so the UI can still display a verdict.
+    if scoped_versions:
+        for missing_version in scoped_versions - seen_versions:
+            record = dataset_record_map.get(missing_version)
+            status_value = str(record.status or "unknown") if record else "unknown"
+            records.append(
+                {
+                    "version": missing_version,
+                    "stored_version": _safe_fs_name(missing_version),
+                    "status": status_value,
+                    "status_label": status_value.replace("_", " ").title(),
+                    "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
+                }
+            )
+
+    records.sort(key=lambda item: _version_sort_key(item["version"]))
     return records
 
 
@@ -1296,10 +1333,18 @@ async def api_contract_preview(
     server = (contract.servers or [None])[0]
     dataset_path_hint = getattr(server, "path", None) if server else None
     version_contract = contract if effective_dataset_id == (contract.id or cid) else None
+    scoped_records = [
+        record
+        for record in load_records()
+        if record.contract_id == cid
+        and record.contract_version == ver
+        and record.dataset_name == effective_dataset_id
+    ]
     version_records = _dq_version_records(
         effective_dataset_id,
         contract=version_contract,
         dataset_path=dataset_path_hint if version_contract else None,
+        dataset_records=scoped_records,
     )
     known_versions = [entry["version"] for entry in version_records]
     if not known_versions:
@@ -1429,6 +1474,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         dataset_id or cid,
         contract=contract,
         dataset_path=dataset_path_hint,
+        dataset_records=datasets,
     )
     version_list = [entry["version"] for entry in version_records]
     status_map = {

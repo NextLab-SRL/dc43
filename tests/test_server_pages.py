@@ -7,6 +7,8 @@ from dc43.demo_app.server import (
     save_records,
     DatasetRecord,
     queue_flash,
+    _dq_version_records,
+    store,
 )
 
 
@@ -114,4 +116,40 @@ def test_contract_preview_api():
     assert payload.get("dataset_version")
     assert isinstance(payload.get("rows"), list)
     assert isinstance(payload.get("known_versions"), list)
+
+
+def test_dq_version_records_scoped_to_contract_runs():
+    contract = store.get("orders", "1.0.0")
+    scoped_records = [
+        record
+        for record in load_records()
+        if record.contract_id == "orders" and record.contract_version == "1.0.0"
+    ]
+    entries = _dq_version_records(
+        "orders",
+        contract=contract,
+        dataset_records=scoped_records,
+    )
+    versions = [entry["version"] for entry in entries]
+    assert versions == ["2024-01-01"]
+    statuses = {entry["version"]: entry["status"] for entry in entries}
+    assert statuses["2024-01-01"] == "ok"
+
+
+def test_dq_version_records_excludes_other_contract_versions():
+    contract = store.get("orders", "1.1.0")
+    scoped_records = [
+        record
+        for record in load_records()
+        if record.contract_id == "orders" and record.contract_version == "1.1.0"
+    ]
+    entries = _dq_version_records(
+        "orders",
+        contract=contract,
+        dataset_records=scoped_records,
+    )
+    versions = [entry["version"] for entry in entries]
+    assert versions == ["2025-09-28"]
+    statuses = {entry["version"]: entry["status"] for entry in entries}
+    assert statuses["2025-09-28"] == "block"
 
