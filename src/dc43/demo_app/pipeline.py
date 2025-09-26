@@ -343,7 +343,6 @@ def run_pipeline(
     orders_overrides = input_overrides.get("orders")
     orders_locator = _apply_locator_overrides(
         ContractVersionLocator(
-            dataset_id="orders",
             dataset_version="latest",
             base=ContractFirstDatasetLocator(),
         ),
@@ -371,7 +370,6 @@ def run_pipeline(
     customers_overrides = input_overrides.get("customers")
     customers_locator = _apply_locator_overrides(
         ContractVersionLocator(
-            dataset_id="customers",
             dataset_version="latest",
             base=ContractFirstDatasetLocator(),
         ),
@@ -429,7 +427,6 @@ def run_pipeline(
 
     if output_contract:
         locator = ContractVersionLocator(
-            dataset_id=dataset_name,
             dataset_version=dataset_version,
             base=ContractFirstDatasetLocator(),
         )

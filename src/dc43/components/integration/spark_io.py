@@ -159,13 +159,15 @@ class ContractFirstDatasetLocator:
 
     def _resolution(
         self,
+        contract: Optional[OpenDataContractStandard],
         *,
         path: Optional[str],
         table: Optional[str],
         format: Optional[str],
+        include_timestamp: bool,
     ) -> DatasetResolution:
-        dataset_id = dataset_id_from_ref(table=table, path=path)
-        dataset_version = self.clock()
+        dataset_id = contract.id if contract else dataset_id_from_ref(table=table, path=path)
+        dataset_version = self.clock() if include_timestamp else None
         return DatasetResolution(
             path=path,
             table=table,
@@ -184,7 +186,13 @@ class ContractFirstDatasetLocator:
         table: Optional[str],
     ) -> DatasetResolution:  # noqa: D401 - short docstring
         path, table, format = self._resolve_base(contract, path=path, table=table, format=format)
-        return self._resolution(path=path, table=table, format=format)
+        return self._resolution(
+            contract,
+            path=path,
+            table=table,
+            format=format,
+            include_timestamp=False,
+        )
 
     def for_write(
         self,
@@ -196,7 +204,13 @@ class ContractFirstDatasetLocator:
         table: Optional[str],
     ) -> DatasetResolution:  # noqa: D401 - short docstring
         path, table, format = self._resolve_base(contract, path=path, table=table, format=format)
-        return self._resolution(path=path, table=table, format=format)
+        return self._resolution(
+            contract,
+            path=path,
+            table=table,
+            format=format,
+            include_timestamp=True,
+        )
 
 
 @dataclass
@@ -282,9 +296,15 @@ class ContractVersionLocator:
             folder = folder / self.subpath
         return str(folder)
 
-    def _merge(self, resolution: DatasetResolution) -> DatasetResolution:
+    def _merge(
+        self,
+        contract: Optional[OpenDataContractStandard],
+        resolution: DatasetResolution,
+    ) -> DatasetResolution:
         resolved_path = self._resolve_path(resolution.path)
         dataset_id = self.dataset_id or resolution.dataset_id
+        if dataset_id is None and contract is not None:
+            dataset_id = contract.id
         return DatasetResolution(
             path=resolved_path or resolution.path,
             table=resolution.table,
@@ -309,7 +329,7 @@ class ContractVersionLocator:
             path=path,
             table=table,
         )
-        return self._merge(base_resolution)
+        return self._merge(contract, base_resolution)
 
     def for_write(
         self,
@@ -327,7 +347,7 @@ class ContractVersionLocator:
             path=path,
             table=table,
         )
-        return self._merge(base_resolution)
+        return self._merge(contract, base_resolution)
 
 
 @dataclass
