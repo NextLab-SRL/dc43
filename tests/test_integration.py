@@ -23,6 +23,7 @@ from dc43.components.integration.spark_io import (
     DatasetResolution,
 )
 from dc43.components.integration.violation_strategy import SplitWriteViolationStrategy
+from dc43.components.data_quality import GovernanceHandles
 from dc43.components.data_quality.governance.stubs import StubDQClient
 from datetime import datetime
 import logging
@@ -386,6 +387,56 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     assert "recorded_at" in payload
 
 
+def test_governance_handles_persist_draft_context(spark, tmp_path: Path) -> None:
+    dest_dir = tmp_path / "handles"
+    contract = make_contract(str(dest_dir))
+    store = persist_contract(tmp_path, contract)
+
+    # Missing the 'currency' column to trigger a draft proposal.
+    data = [
+        (1, 101, datetime(2024, 1, 1, 12, 0, 0), 25.0),
+        (2, 102, datetime(2024, 1, 2, 15, 30, 0), 40.0),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount"],
+    )
+
+    handles = GovernanceHandles(
+        dq_client=StubDQClient(base_path=str(tmp_path / "handles_dq")),
+        contract_store=store,
+    )
+
+    locator = StaticDatasetLocator(dataset_version="handles-run")
+
+    result = write_with_contract(
+        df=df,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
+        mode="overwrite",
+        enforce=False,
+        dq_client=handles,
+        dataset_locator=locator,
+        pipeline_context={"job": "governance-bundle"},
+    )
+
+    assert not result.ok
+
+    versions = [ver for ver in store.list_versions(contract.id) if ver != contract.version]
+    assert versions
+    draft_contract = store.get(contract.id, versions[0])
+    properties = {
+        prop.property: prop.value
+        for prop in draft_contract.customProperties or []
+    }
+    context = properties.get("draft_context") or {}
+    assert context.get("job") == "governance-bundle"
+    assert context.get("io") == "write"
+    assert context.get("dataset_version") == "handles-run"
+    assert properties.get("draft_pipeline")
+
+
 class _DummyLocator:
     def __init__(self, resolution: DatasetResolution) -> None:
         self._resolution = resolution
@@ -547,39 +598,3 @@ def test_contract_version_locator_snapshot_paths(tmp_path: Path) -> None:
         table=None,
     )
     assert merged.load_paths == [str(base_dir / "2024-02-01" / "customers.json")]
-    contract_v2 = make_contract(str(dest_dir))
-    contract_v2.version = "0.2.0"
-    contract_v2.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=800)]
-    store.put(contract_v2)
-
-    data_bad = [
-        (3, 103, datetime(2024, 1, 3, 12, 0, 0), 200.0, "EUR"),
-        (4, 104, datetime(2024, 1, 4, 12, 30, 0), 100.0, "USD"),
-    ]
-    df_bad = spark.createDataFrame(
-        data_bad,
-        ["order_id", "customer_id", "order_ts", "amount", "currency"],
-    )
-
-    _, status_block = write_with_contract(
-        df=df_bad,
-        contract_id=contract_v2.id,
-        contract_store=store,
-        expected_contract_version=f"=={contract_v2.version}",
-        mode="overwrite",
-        enforce=False,
-        dq_client=dq,
-        dataset_locator=upgrade_locator,
-        return_status=True,
-    )
-
-    assert status_block is not None
-    assert status_block.status == "block"
-    assert status_block.reason and "linked to contract" in status_block.reason
-    # Governance keeps the link anchored to the last accepted contract when the
-    # submitted version is rejected, so the integration layer should not
-    # override it locally.
-    assert (
-        dq.get_linked_contract_version(dataset_id=dataset_ref)
-        == f"{contract_v1.id}:{contract_v1.version}"
-    )

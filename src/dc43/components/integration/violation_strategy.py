@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Mapping, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
 
 try:  # pragma: no cover - optional dependency at runtime
     from pyspark.sql import DataFrame
@@ -13,6 +13,20 @@ except Exception:  # pragma: no cover
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43.components.data_quality.engine import ValidationResult
+
+
+def _merge_pipeline_context(
+    base: Optional[Mapping[str, Any]],
+    extra: Optional[Mapping[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Return a merged pipeline context mapping."""
+
+    combined: Dict[str, Any] = {}
+    if base:
+        combined.update(base)
+    if extra:
+        combined.update(extra)
+    return combined or None
 
 
 @dataclass
@@ -30,6 +44,7 @@ class WriteRequest:
     dataset_version: Optional[str]
     validation_factory: Optional[Callable[[], ValidationResult]] = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    pipeline_context: Optional[Mapping[str, Any]] = None
 
 
 @dataclass
@@ -58,12 +73,14 @@ class WriteStrategyContext:
     dataset_version: Optional[str]
     revalidate: Callable[[DataFrame], ValidationResult]
     expectation_predicates: Mapping[str, str]
+    pipeline_context: Optional[Mapping[str, Any]] = None
 
     def base_request(
         self,
         *,
         validation_factory: Optional[Callable[[], ValidationResult]] = None,
         warnings: Optional[Sequence[str]] = None,
+        pipeline_context: Optional[Mapping[str, Any]] = None,
     ) -> WriteRequest:
         """Return the default write request for the aligned dataframe."""
 
@@ -83,6 +100,10 @@ class WriteStrategyContext:
             dataset_version=self.dataset_version,
             validation_factory=factory,
             warnings=tuple(warnings) if warnings is not None else tuple(self.validation.warnings),
+            pipeline_context=_merge_pipeline_context(
+                self.pipeline_context,
+                pipeline_context,
+            ),
         )
 
 
@@ -152,6 +173,10 @@ class SplitWriteViolationStrategy:
                     dataset_id=_extend_dataset_id(context.dataset_id, self.valid_suffix),
                     dataset_version=context.dataset_version,
                     validation_factory=lambda df=valid_df: context.revalidate(df),
+                    pipeline_context=_merge_pipeline_context(
+                        context.pipeline_context,
+                        {"subset": self.valid_suffix},
+                    ),
                 )
 
         if self.include_reject:
@@ -172,6 +197,10 @@ class SplitWriteViolationStrategy:
                     dataset_id=_extend_dataset_id(context.dataset_id, self.reject_suffix),
                     dataset_version=context.dataset_version,
                     validation_factory=lambda df=reject_df: context.revalidate(df),
+                    pipeline_context=_merge_pipeline_context(
+                        context.pipeline_context,
+                        {"subset": self.reject_suffix},
+                    ),
                 )
 
         for message in warnings:

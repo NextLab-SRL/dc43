@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from open_data_contract_standard.model import (  # type: ignore
     CustomProperty,
@@ -66,6 +66,10 @@ def _change_log(contract: OpenDataContractStandard) -> List[Dict[str, object]]:
             value = prop.value or []
             return list(value)
     return []
+
+
+def _custom_props(contract: OpenDataContractStandard) -> Dict[str, Any]:
+    return {prop.property: prop.value for prop in contract.customProperties or []}
 
 
 def test_draft_preserves_and_updates_quality_rules() -> None:
@@ -140,3 +144,48 @@ def test_draft_extends_enum_with_new_values() -> None:
         and ["CAD"] == list(entry.get("details", {}).get("added_values", []))
         for entry in log
     )
+
+
+def test_draft_version_carries_unique_suffix_and_context() -> None:
+    base = _build_contract()
+    validation = ValidationResult(
+        ok=False,
+        errors=["boom"],
+        warnings=[],
+        metrics={},
+        schema={},
+    )
+
+    dataset_version = "2024-06-01T12:00:00Z"
+    draft = draft_from_validation_result(
+        validation=validation,
+        base_contract=base,
+        dataset_id="test.orders",
+        dataset_version=dataset_version,
+        draft_context={"pipeline": "orders.pipeline"},
+    )
+
+    assert draft.version.startswith("1.1.0-draft-")
+    assert "2024-06-01T12-00-00Z" in draft.version
+
+    props = _custom_props(draft)
+    context_props = props.get("draft_context") or {}
+    assert context_props.get("pipeline") == "orders.pipeline"
+    assert context_props.get("dataset_id") == "test.orders"
+    assert context_props.get("dataset_version") == dataset_version
+    assert props.get("draft_pipeline") == "orders.pipeline"
+    assert props.get("provenance", {}).get("dataset_version") == dataset_version
+
+    retry = draft_from_validation_result(
+        validation=validation,
+        base_contract=base,
+        dataset_id="test.orders",
+        dataset_version=dataset_version,
+        draft_context={"pipeline": "orders.pipeline", "job": "retry"},
+    )
+
+    assert retry.version != draft.version
+    retry_props = _custom_props(retry)
+    retry_context = retry_props.get("draft_context") or {}
+    assert retry_context.get("pipeline") == "orders.pipeline"
+    assert retry_context.get("job") == "retry"

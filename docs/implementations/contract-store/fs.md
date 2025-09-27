@@ -20,7 +20,7 @@ through pull requests.
     ├── 0.1.0.json
     ├── 0.2.0.json
     └── drafts/
-        └── 0.2.0-draft-20240601T1015Z.json
+        └── 0.2.0-draft-20240601T101500Z-1a2b3c4d.json
 ```
 
 * **Version resolution** – `latest("sales.orders")` orders files
@@ -53,3 +53,11 @@ latest = store.latest("sales.orders")
 
 Document additional file-based variations (Git, S3, ADLS) in this folder if you
 extend the implementation with extra capabilities.
+
+### Governance metadata
+
+When combined with the demo governance stub, a sibling directory named
+`pipeline_activity/` persists JSON payloads describing which pipeline contexts
+read or wrote each dataset version. Entries capture the triggering operation,
+the resolved contract identifiers, and the caller-provided context so the demo
+UI can surface provenance alongside contract drafts and compatibility status.

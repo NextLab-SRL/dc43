@@ -358,6 +358,26 @@ def run_pipeline(
     dq_client = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
     dq = DataQualityManager(dq_client, draft_store=store)
 
+    run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    base_pipeline_context: dict[str, Any] = {
+        "pipeline": "dc43.demo_app.pipeline.run_pipeline",
+        "run_id": run_timestamp,
+        "run_type": run_type,
+    }
+    if contract_id:
+        base_pipeline_context["target_contract_id"] = contract_id
+    if contract_version:
+        base_pipeline_context["target_contract_version"] = contract_version
+    if dataset_name:
+        base_pipeline_context["output_dataset_hint"] = dataset_name
+
+    def _context_for(step: str, extra: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        payload = dict(base_pipeline_context)
+        payload["step"] = step
+        if extra:
+            payload.update(extra)
+        return payload
+
     input_overrides: Mapping[str, Mapping[str, Any]] = inputs or {}
 
     orders_overrides = input_overrides.get("orders")
@@ -371,9 +391,21 @@ def run_pipeline(
     orders_strategy = _resolve_read_status_strategy(
         orders_overrides.get("status_strategy") if orders_overrides else None
     )
+    orders_default_enforce = False
+    treat_orders_blocking = False
+    if orders_overrides and orders_overrides.get("dataset_version") == "latest":
+        if run_type == "enforce":
+            treat_orders_blocking = True
     orders_enforce = bool(
-        orders_overrides.get("enforce", True) if orders_overrides else True
+        orders_overrides.get("enforce", orders_default_enforce)
+        if orders_overrides
+        else orders_default_enforce
     )
+    if orders_strategy is None and not orders_enforce and not treat_orders_blocking:
+        orders_strategy = _DowngradeBlockingReadStrategy(
+            note="Blocked dataset accepted for downstream processing",
+            target_status="warn",
+        )
 
     # Read primary orders dataset with its contract
     orders_df, orders_status = read_with_contract(
@@ -385,7 +417,14 @@ def run_pipeline(
         dataset_locator=orders_locator,
         status_strategy=orders_strategy,
         enforce=orders_enforce,
+        pipeline_context=_context_for(
+            "orders-read",
+            {"dataset_role": "orders"},
+        ),
     )
+    if treat_orders_blocking and orders_status and orders_status.status == "block":
+        details = orders_status.reason or orders_status.details
+        raise ValueError(f"DQ status is blocking: {details}")
 
     customers_overrides = input_overrides.get("customers")
     customers_locator = _apply_locator_overrides(
@@ -398,9 +437,25 @@ def run_pipeline(
     customers_strategy = _resolve_read_status_strategy(
         customers_overrides.get("status_strategy") if customers_overrides else None
     )
+    customers_default_enforce = False
+    treat_customers_blocking = False
+    if customers_overrides and customers_overrides.get("dataset_version") == "latest":
+        if run_type == "enforce":
+            treat_customers_blocking = True
     customers_enforce = bool(
-        customers_overrides.get("enforce", True) if customers_overrides else True
+        customers_overrides.get("enforce", customers_default_enforce)
+        if customers_overrides
+        else customers_default_enforce
     )
+    if (
+        customers_strategy is None
+        and not customers_enforce
+        and not treat_customers_blocking
+    ):
+        customers_strategy = _DowngradeBlockingReadStrategy(
+            note="Blocked dataset accepted for downstream processing",
+            target_status="warn",
+        )
 
     # Join with customers lookup dataset
     customers_df, customers_status = read_with_contract(
@@ -412,7 +467,14 @@ def run_pipeline(
         dataset_locator=customers_locator,
         status_strategy=customers_strategy,
         enforce=customers_enforce,
+        pipeline_context=_context_for(
+            "customers-read",
+            {"dataset_role": "customers"},
+        ),
     )
+    if treat_customers_blocking and customers_status and customers_status.status == "block":
+        details = customers_status.reason or customers_status.details
+        raise ValueError(f"DQ status is blocking: {details}")
 
     df = orders_df.join(customers_df, "customer_id")
     # Promote one of the rows above the quality threshold so split strategies
@@ -443,6 +505,9 @@ def run_pipeline(
     output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
     server = (output_contract.servers or [None])[0] if output_contract else None
 
+    base_pipeline_context["output_dataset"] = dataset_name
+    base_pipeline_context["output_dataset_version"] = dataset_version
+
     strategy = _resolve_violation_strategy(violation_strategy)
 
     if output_contract:
@@ -471,6 +536,14 @@ def run_pipeline(
         expected_contract_version=expected_version,
         return_status=True,
         violation_strategy=strategy,
+        pipeline_context=_context_for(
+            "output-write",
+            {
+                "dataset": dataset_name,
+                "dataset_version": dataset_version,
+                "storage_path": str(output_path),
+            },
+        ),
     )
 
     if output_status and output_contract:
@@ -618,6 +691,16 @@ def run_pipeline(
                     break
     if draft_version:
         output_details.setdefault("draft_contract_version", draft_version)
+
+    try:
+        output_activity = dq.get_pipeline_activity(
+            dataset_id=dataset_name,
+            dataset_version=dataset_version,
+        )
+    except AttributeError:
+        output_activity = []
+    if output_activity:
+        output_details.setdefault("pipeline_activity", output_activity)
 
     combined_details = {
         "orders": orders_status.details if orders_status else None,
