@@ -547,6 +547,21 @@ def run_pipeline(
     if output_status and output_contract:
         output_status = attach_failed_expectations(output_contract, output_status)
 
+    handled_split_override = False
+    if isinstance(strategy, SplitWriteViolationStrategy) and output_status:
+        details = output_status.details or {}
+        if isinstance(details, Mapping) and details.get("status_before_override"):
+            handled_split_override = True
+
+    if handled_split_override and result.errors:
+        migrated = list(result.errors)
+        result.errors.clear()
+        for message in migrated:
+            if message not in result.warnings:
+                result.warnings.append(message)
+        if not result.errors:
+            result.ok = True
+
     error: ValueError | None = None
     if run_type == "enforce":
         if not output_contract:

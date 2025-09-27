@@ -476,7 +476,9 @@ class ContractVersionLocator:
         else:
             target_key = cls._version_key(dataset_version_normalised)
             eligible = [entry for entry in entries if cls._version_key(entry[0]) <= target_key]
-            if include_prior:
+            alias_like = "__" in dataset_version_normalised
+            effective_include_prior = include_prior and not alias_like
+            if effective_include_prior:
                 selected = eligible
             else:
                 exact = next((entry for entry in entries if entry[0] == dataset_version_normalised), None)
@@ -1343,6 +1345,24 @@ def write_with_contract(
                 if aggregated_draft and not primary_details.get("draft_contract_version"):
                     primary_details["draft_contract_version"] = aggregated_draft
 
+                aux_statuses = [
+                    str(entry.get("status", "")).lower()
+                    for entry in aggregated_entries
+                    if entry.get("role") != "primary"
+                ]
+                original_status = primary_status.status
+                override_note: Optional[str] = None
+                if isinstance(original_status, str) and original_status.lower() == "block":
+                    if any(status in {"ok", "warn", "warning"} for status in aux_statuses):
+                        override_note = (
+                            "Primary DQ status downgraded after split outputs succeeded"
+                        )
+                        if not primary_status.reason:
+                            primary_status.reason = (
+                                "Violations isolated into auxiliary outputs"
+                            )
+                        primary_status.status = "warn"
+
                 if merged_warnings:
                     existing_warnings = list(primary_details.get("warnings", []) or [])
                     for warning in merged_warnings:
@@ -1358,6 +1378,13 @@ def write_with_contract(
                             existing_errors.append(error)
                     if existing_errors:
                         primary_details["errors"] = existing_errors
+
+                if override_note:
+                    overrides = list(primary_details.get("overrides", []) or [])
+                    overrides.append(override_note)
+                    primary_details["overrides"] = overrides
+                    if original_status:
+                        primary_details.setdefault("status_before_override", original_status)
 
                 primary_status.details = primary_details
 

@@ -174,7 +174,7 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
                 "name": "split",
                 "include_valid": True,
                 "include_reject": True,
-                "write_primary_on_violation": False,
+                "write_primary_on_violation": True,
             },
         )
 
@@ -186,7 +186,7 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
         warnings = output.get("warnings", [])
         assert any("Valid subset written" in w for w in warnings)
         assert any("Rejected subset written" in w for w in warnings)
-        assert last.status == "error"
+        assert last.status == "warning"
 
         aux = output.get("auxiliary_datasets", [])
         assert aux
@@ -391,7 +391,7 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
         updated = pipeline.load_records()
         last = updated[-1]
         assert last.dataset_version == dataset_version
-        assert last.status == "error"
+        assert last.status == "ok"
         orders_details = last.dq_details.get("orders", {})
         metrics = orders_details.get("metrics", {})
         assert metrics.get("row_count", 0) >= 1
