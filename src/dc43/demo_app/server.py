@@ -5,7 +5,7 @@ from __future__ import annotations
 This application provides a small Bootstrap-powered UI to manage data
 contracts and run an example Spark pipeline that records dataset versions
 with their validation status. Contracts are stored on the local
-filesystem using :class:`~dc43.components.contract_store.impl.filesystem.FSContractStore` and dataset
+filesystem using :class:`~dc43.services.contracts.backend.stores.FSContractStore` and dataset
 metadata lives in a JSON file.
 
 Run the application with::
@@ -36,8 +36,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
 
-from dc43.components.contract_store.impl.filesystem import FSContractStore
-from dc43.components.data_quality.integration import expectations_from_contract
+from dc43.services.contracts.backend.stores import FSContractStore
+from dc43.integration.spark.data_quality import expectations_from_contract as dq_expectations_from_contract
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
     OpenDataContractStandard,
@@ -54,10 +54,7 @@ from packaging.version import Version
 # still load when pyspark is not installed (for example when running fast unit
 # tests).
 try:  # pragma: no cover - exercised indirectly when pyspark is available
-    from dc43.integration import (  # type: ignore[attr-defined]
-        ContractVersionLocator,
-        read_with_contract,
-    )
+    from dc43.integration.spark.io import ContractVersionLocator, read_with_contract
 except ModuleNotFoundError as exc:  # pragma: no cover - safety net for CI
     if exc.name != "pyspark":
         raise
@@ -1326,7 +1323,7 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r.__dict__ for r in load_records() if r.contract_id == cid and r.contract_version == ver]
-    expectations = expectations_from_contract(contract)
+    expectations = dq_expectations_from_contract(contract)
     return {
         "contract": contract_to_dict(contract),
         "datasets": datasets,
@@ -1434,7 +1431,7 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
-                "expectations": expectations_from_contract(contract),
+                "expectations": dq_expectations_from_contract(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -1510,7 +1507,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "request": request,
         "contract": contract_to_dict(contract),
         "datasets": datasets,
-        "expectations": expectations_from_contract(contract),
+        "expectations": dq_expectations_from_contract(contract),
         "field_quality": field_quality,
         "dataset_quality": dataset_quality,
         "change_log": change_log,

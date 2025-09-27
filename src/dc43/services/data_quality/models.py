@@ -1,4 +1,4 @@
-"""Shared models for interacting with data-quality services."""
+"""Shared data structures used across data-quality services."""
 
 from __future__ import annotations
 

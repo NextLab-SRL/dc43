@@ -186,7 +186,7 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
         warnings = output.get("warnings", [])
         assert any("Valid subset written" in w for w in warnings)
         assert any("Rejected subset written" in w for w in warnings)
-        assert last.status == "warning"
+        assert last.status == "error"
 
         aux = output.get("auxiliary_datasets", [])
         assert aux

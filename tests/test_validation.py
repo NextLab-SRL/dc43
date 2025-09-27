@@ -8,7 +8,8 @@ from open_data_contract_standard.model import (
     Description,
 )
 
-from dc43.components.data_quality import apply_contract, validate_dataframe
+from dc43.integration.spark.validation import apply_contract
+from dc43.integration.spark.data_quality import validate_dataframe
 from datetime import datetime
 from pyspark.sql.types import (
     StructType,

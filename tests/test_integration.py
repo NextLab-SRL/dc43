@@ -12,16 +12,16 @@ from open_data_contract_standard.model import (
     Server,
 )
 
-from dc43.components.contract_store.impl.filesystem import FSContractStore
-from dc43.integration.spark_io import (
+from dc43.services.contracts.backend.stores import FSContractStore
+from dc43.integration.spark.io import (
     read_with_contract,
     write_with_contract,
     StaticDatasetLocator,
     ContractVersionLocator,
     DatasetResolution,
 )
-from dc43.integration.violation_strategy import SplitWriteViolationStrategy
-from dc43.services.governance.local import build_local_governance_service
+from dc43.integration.spark.violation_strategy import SplitWriteViolationStrategy
+from dc43.services.governance.client import build_local_governance_service
 from datetime import datetime
 import logging
 
@@ -41,7 +41,12 @@ def make_contract(base_path: str, fmt: str = "parquet") -> OpenDataContractStand
                     SchemaProperty(name="order_id", physicalType="bigint", required=True),
                     SchemaProperty(name="customer_id", physicalType="bigint", required=True),
                     SchemaProperty(name="order_ts", physicalType="timestamp", required=True),
-                    SchemaProperty(name="amount", physicalType="double", required=True),
+                    SchemaProperty(
+                        name="amount",
+                        physicalType="double",
+                        required=True,
+                        quality=[DataQuality(mustBeGreaterThan=0.0)],
+                    ),
                     SchemaProperty(
                         name="currency",
                         physicalType="string",
@@ -61,7 +66,7 @@ def persist_contract(tmp_path: Path, contract: OpenDataContractStandard) -> FSCo
     return store
 
 
-def test_dq_integration_warn(spark, tmp_path: Path):
+def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
     data_dir = tmp_path / "parquet"
     contract = make_contract(str(data_dir))
     store = persist_contract(tmp_path, contract)
@@ -85,7 +90,42 @@ def test_dq_integration_warn(spark, tmp_path: Path):
         return_status=True,
     )
     assert status is not None
-    assert status.status in ("warn", "ok")
+    assert status.status == "block"
+    details = status.details or {}
+    errors = details.get("errors") or []
+    assert errors
+    assert any("currency" in str(message) for message in errors)
+
+
+def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
+    dest_dir = tmp_path / "dq"
+    contract = make_contract(str(dest_dir))
+    store = persist_contract(tmp_path, contract)
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+            (2, 102, datetime(2024, 1, 2, 10, 0, 0), -5.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    governance = build_local_governance_service(store)
+    result, status = write_with_contract(
+        df=df,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
+        mode="overwrite",
+        enforce=False,
+        governance_service=governance,
+        return_status=True,
+    )
+    assert status is not None
+    assert status.status == "block"
+    details = status.details or {}
+    errors = details.get("errors") or []
+    assert errors
+    assert any("amount" in str(message) for message in errors)
+    assert not result.ok  # violations surface as blocking failures
 
 
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
@@ -120,6 +160,7 @@ def test_inferred_contract_id_simple(spark, tmp_path: Path):
         enforce=False,
     )
     assert result.ok
+    assert not result.errors
 
 
 def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
@@ -256,10 +297,10 @@ def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
         violation_strategy=strategy,
     )
 
-    assert result.ok
+    assert not result.ok
+    assert any("outside enum" in error for error in result.errors)
     assert any("Valid subset written" in warning for warning in result.warnings)
     assert any("Rejected subset written" in warning for warning in result.warnings)
-    assert any("outside enum" in warning for warning in result.warnings)
 
     valid_path = base_dir / strategy.valid_suffix
     reject_path = base_dir / strategy.reject_suffix
@@ -303,7 +344,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
         return_status=True,
     )
 
-    assert result.ok
+    assert not result.ok
     assert status is not None
     assert status.status == "block"
     assert status.details and status.details.get("violations", 0) > 0
@@ -575,3 +616,48 @@ def test_contract_version_locator_snapshot_paths(tmp_path: Path) -> None:
         table=None,
     )
     assert merged.load_paths == [str(base_dir / "2024-02-01" / "customers.json")]
+
+
+def test_contract_version_locator_latest_respects_active_alias(tmp_path: Path) -> None:
+    base_dir = tmp_path / "orders"
+    versions = ["2023-12-31", "2024-01-01", "2025-09-28"]
+    for version in versions:
+        folder = base_dir / version
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "orders.json").write_text("[]", encoding="utf-8")
+        (folder / ".dc43_version").write_text(version, encoding="utf-8")
+
+    latest_target = base_dir / "2024-01-01"
+    latest_link = base_dir / "latest"
+    latest_link.symlink_to(latest_target)
+
+    resolution = DatasetResolution(
+        path=str(base_dir),
+        table=None,
+        format="json",
+        dataset_id="orders",
+        dataset_version=None,
+        custom_properties={
+            "dc43.versioning": {
+                "mode": "delta",
+                "includePriorVersions": True,
+                "subfolder": "{version}",
+                "filePattern": "orders.json",
+            }
+        },
+    )
+
+    locator = ContractVersionLocator(dataset_version="latest", base=_DummyLocator(resolution))
+    merged = locator.for_read(
+        contract=None,
+        spark=None,
+        format="json",
+        path=str(base_dir),
+        table=None,
+    )
+
+    assert merged.load_paths
+    assert set(merged.load_paths) == {
+        str(base_dir / "2023-12-31" / "orders.json"),
+        str(base_dir / "2024-01-01" / "orders.json"),
+    }
