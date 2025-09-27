@@ -2,12 +2,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dc43.demo_app.server import (
+    SCENARIOS,
+    DatasetRecord,
+    _dq_version_records,
     app,
     load_records,
-    save_records,
-    DatasetRecord,
     queue_flash,
-    _dq_version_records,
+    save_records,
+    scenario_run_rows,
     store,
 )
 
@@ -46,6 +48,16 @@ def test_customers_contract_versions_page():
     client = TestClient(app)
     resp = client.get("/contracts/customers")
     assert resp.status_code == 200
+
+
+def test_pipeline_runs_page_lists_scenarios():
+    client = TestClient(app)
+    resp = client.get("/datasets")
+    assert resp.status_code == 200
+    for key, cfg in SCENARIOS.items():
+        assert cfg["label"] in resp.text
+        if cfg.get("description") or cfg.get("diagram"):
+            assert f'data-scenario-popover="scenario-popover-{key}"' in resp.text
 
 
 def test_dataset_detail_page():
@@ -104,6 +116,61 @@ def test_flash_message_consumed_once():
     second = client.get(f"/datasets?flash={token}")
     assert second.status_code == 200
     assert "Hello there" not in second.text
+
+
+def test_scenario_rows_default_mapping():
+    rows = scenario_run_rows(load_records())
+    assert len(rows) == len(SCENARIOS)
+    row_map = {row["key"]: row for row in rows}
+
+    no_contract = row_map.get("no-contract")
+    assert no_contract is not None
+    assert no_contract["dataset_name"] == "result-no-existing-contract"
+    assert no_contract["latest"] is None
+
+    ok_row = row_map.get("ok")
+    assert ok_row is not None
+    assert ok_row["dataset_name"] == "orders_enriched"
+    assert ok_row["run_count"] == 0
+    assert ok_row["latest"] is None
+
+
+def test_scenario_rows_tracks_latest_record():
+    original = load_records()
+    extra_records = [
+        DatasetRecord(
+            contract_id="orders_enriched",
+            contract_version="1.0.0",
+            dataset_name="orders_enriched",
+            dataset_version="2024-12-01T00:00:00Z",
+            status="ok",
+            dq_details={"output": {"violations": 0}},
+            run_type="enforce",
+            violations=0,
+        ),
+        DatasetRecord(
+            contract_id="orders_enriched",
+            contract_version="1.0.0",
+            dataset_name="orders_enriched",
+            dataset_version="2024-12-02T00:00:00Z",
+            status="warning",
+            dq_details={"output": {"violations": 1}},
+            run_type="enforce",
+            violations=1,
+        ),
+    ]
+    try:
+        save_records([*original, *extra_records])
+        rows = scenario_run_rows(load_records())
+        row_map = {row["key"]: row for row in rows}
+        ok_row = row_map["ok"]
+        base_runs = len([rec for rec in original if rec.dataset_name == "orders_enriched"])
+        assert ok_row["run_count"] == base_runs + len(extra_records)
+        assert ok_row["latest"] is not None
+        assert ok_row["latest"]["dataset_version"] == "2024-12-02T00:00:00Z"
+        assert ok_row["latest"]["status"] == "warning"
+    finally:
+        save_records(original)
 
 
 @pytest.mark.skipif(not PYSPARK_AVAILABLE, reason="pyspark required for preview API")

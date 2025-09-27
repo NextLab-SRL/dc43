@@ -1255,6 +1255,56 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
+    """Return the expected output dataset for a scenario."""
+
+    dataset_name = params.get("dataset_name")
+    if dataset_name:
+        return str(dataset_name)
+    contract_id = params.get("contract_id")
+    if contract_id:
+        return str(contract_id)
+    dataset_id = params.get("dataset_id")
+    if dataset_id:
+        return str(dataset_id)
+    return "result"
+
+
+def scenario_run_rows(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    """Return scenario metadata enriched with the latest recorded run."""
+
+    grouped: Dict[str, List[DatasetRecord]] = {}
+    for record in records:
+        grouped.setdefault(record.dataset_name, []).append(record)
+
+    for entries in grouped.values():
+        entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+
+    rows: List[Dict[str, Any]] = []
+    for key, cfg in SCENARIOS.items():
+        params: Mapping[str, Any] = cfg.get("params", {})
+        dataset_name = _scenario_dataset_name(params)
+        dataset_records = grouped.get(dataset_name, [])
+        latest_record = dataset_records[-1] if dataset_records else None
+
+        rows.append(
+            {
+                "key": key,
+                "label": cfg.get("label", key.replace("-", " ").title()),
+                "description": cfg.get("description"),
+                "diagram": cfg.get("diagram"),
+                "dataset_name": dataset_name,
+                "contract_id": params.get("contract_id"),
+                "contract_version": params.get("contract_version"),
+                "run_type": params.get("run_type", "infer"),
+                "run_count": len(dataset_records),
+                "latest": latest_record.__dict__.copy() if latest_record else None,
+            }
+        )
+
+    return rows
+
+
 _FLASH_LOCK = Lock()
 _FLASH_MESSAGES: Dict[str, Dict[str, str | None]] = {}
 
@@ -1671,9 +1721,8 @@ async def create_contract(
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
-    recs = []
-    for r in records:
-        recs.append(r.__dict__.copy())
+    recs = [r.__dict__.copy() for r in records]
+    scenario_rows = scenario_run_rows(records)
     flash_token = request.query_params.get("flash")
     flash_message: str | None = None
     flash_error: str | None = None
@@ -1686,6 +1735,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
         "request": request,
         "records": recs,
         "scenarios": SCENARIOS,
+        "scenario_rows": scenario_rows,
         "message": flash_message,
         "error": flash_error,
     }
