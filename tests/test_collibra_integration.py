@@ -9,7 +9,7 @@ from dc43.lib.components.contract_store import (
     HttpCollibraContractAdapter,
     StubCollibraContractAdapter,
 )
-from dc43.lib.components.contract_store.impl.collibra import CollibraContractStore
+from dc43.services.contracts.backend.stores.collibra import CollibraContractStore
 from dc43.odcs import build_odcs
 from open_data_contract_standard.model import SchemaProperty, SchemaObject, Server  # type: ignore
 

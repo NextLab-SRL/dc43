@@ -12,7 +12,7 @@ from open_data_contract_standard.model import (
     Server,
 )
 
-from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
+from dc43.services.contracts.backend.stores import FSContractStore
 from dc43.integration.spark_io import (
     read_with_contract,
     write_with_contract,

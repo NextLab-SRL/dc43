@@ -9,8 +9,8 @@ from typing import Dict, List, Optional, Protocol, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from ..interface import ContractStore
-from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
+from dc43.lib.components.contract_store.interface import ContractStore
+from .filesystem import FSContractStore
 from dc43.odcs import as_odcs_dict, contract_identity, ensure_version, to_model
 from dc43.versioning import SemVer
 

@@ -35,7 +35,7 @@ through pull requests.
 Configure it via:
 
 ```python
-from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
+from dc43.services.contracts.backend.stores import FSContractStore
 
 store = FSContractStore(base_path="/mnt/contracts")
 store.put(contract)

@@ -1,5 +1,9 @@
-"""Filesystem-backed sample implementations of the DQ governance interface."""
+"""Compatibility layer for governance stubs.
 
-from .filesystem import StubDQClient
+Runtime stubs now live under :mod:`dc43.services.governance.backend.stubs` and
+are re-exported here for callers that still import from the library layout.
+"""
+
+from dc43.services.governance.backend.stubs import StubDQClient
 
 __all__ = ["StubDQClient"]

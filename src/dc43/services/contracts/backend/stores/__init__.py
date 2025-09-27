@@ -1,17 +1,12 @@
-"""Compatibility exports for contract-store implementations.
+"""Reference contract store implementations."""
 
-The concrete stores now live under :mod:`dc43.services.contracts.backend.stores`.
-This module re-exports them for backwards compatibility while third-party code
-migrates to the service-layer packages.
-"""
-
-from dc43.services.contracts.backend.stores import (
+from .filesystem import FSContractStore
+from .delta import DeltaContractStore
+from .collibra import (
     CollibraContractAdapter,
     CollibraContractGateway,
     CollibraContractStore,
     ContractSummary,
-    DeltaContractStore,
-    FSContractStore,
     HttpCollibraContractAdapter,
     HttpCollibraContractGateway,
     StubCollibraContractAdapter,

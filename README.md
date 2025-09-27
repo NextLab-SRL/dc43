@@ -132,7 +132,7 @@ contract = OpenDataContractStandard(
 2) Validate and write with Spark
 
 ```python
-from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
+from dc43.services.contracts.backend.stores import FSContractStore
 from dc43.integration.spark_io import (
     write_with_contract,
     ContractVersionLocator,
@@ -169,7 +169,7 @@ def orders():
 4) Store and resolve contracts
 
 ```python
-from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
+from dc43.services.contracts.backend.stores import FSContractStore
 
 store = FSContractStore(base_path="/mnt/contracts")
 store.put(contract)
