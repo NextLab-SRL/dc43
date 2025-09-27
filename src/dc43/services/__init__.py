@@ -1,8 +1,10 @@
 """Service runtimes and compatibility imports for the dc43 platform.
 
-The package now distinguishes between three layers:
+The package now distinguishes between several layers:
 
-* :mod:`dc43.lib` for pure library helpers that can run without any services.
+* :mod:`dc43.components` for pure library helpers that can run without any
+  services.
+* :mod:`dc43.integration` for execution-engine adapters.
 * :mod:`dc43.clients` for HTTP or in-process client abstractions.
 * :mod:`dc43.services` for running service backends or local orchestration.
 

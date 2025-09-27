@@ -37,7 +37,7 @@ from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
 
 from dc43.services.contracts.backend.stores import FSContractStore
-from dc43.lib.components.data_quality.integration import expectations_from_contract
+from dc43.integration import dq_expectations_from_contract
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
     OpenDataContractStandard,
@@ -1326,7 +1326,7 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r.__dict__ for r in load_records() if r.contract_id == cid and r.contract_version == ver]
-    expectations = expectations_from_contract(contract)
+    expectations = dq_expectations_from_contract(contract)
     return {
         "contract": contract_to_dict(contract),
         "datasets": datasets,
@@ -1434,7 +1434,7 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
-                "expectations": expectations_from_contract(contract),
+                "expectations": dq_expectations_from_contract(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -1510,7 +1510,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "request": request,
         "contract": contract_to_dict(contract),
         "datasets": datasets,
-        "expectations": expectations_from_contract(contract),
+        "expectations": dq_expectations_from_contract(contract),
         "field_quality": field_quality,
         "dataset_quality": dataset_quality,
         "change_log": change_log,

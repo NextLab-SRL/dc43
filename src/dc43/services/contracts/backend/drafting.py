@@ -15,7 +15,7 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
-from dc43.odcs import contract_identity
+from dc43.odcs import as_odcs_dict, contract_identity, to_model
 from dc43.services.data_quality.backend.engine import ValidationResult
 from dc43.versioning import SemVer
 
@@ -226,7 +226,10 @@ def draft_from_validation_result(
     contract_id, version = contract_identity(base_contract)
     bump_version = SemVer.parse(version).bump(bump)
 
-    draft = OpenDataContractStandard.from_dict(base_contract.to_dict())
+    if hasattr(base_contract, "model_copy"):
+        draft = base_contract.model_copy(deep=True)  # type: ignore[attr-defined]
+    else:
+        draft = to_model(as_odcs_dict(base_contract))
     draft.version = str(bump_version)
     draft.status = "draft"
 
@@ -237,6 +240,8 @@ def draft_from_validation_result(
     )
     draft.version = f"{draft.version}-{suffix}"
 
+    if not hasattr(draft, "metadata"):
+        draft.metadata = None  # type: ignore[attr-defined]
     draft.metadata = draft.metadata or {}
     draft.metadata.contract = draft.metadata.contract or {}
     draft.metadata.contract.references = draft.metadata.contract.references or []
@@ -326,6 +331,8 @@ def draft_from_observations(
     draft.version = f"{bump_version}-{suffix}"
     draft.status = "draft"
 
+    if not hasattr(draft, "metadata"):
+        draft.metadata = None  # type: ignore[attr-defined]
     draft.metadata = draft.metadata or {}
     draft.metadata.contract = draft.metadata.contract or {}
     draft.metadata.contract.customProperties = draft.metadata.contract.customProperties or []

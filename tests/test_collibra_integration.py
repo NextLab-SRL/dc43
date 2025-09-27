@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 
-from dc43.lib.components.contract_store import (
+from dc43.components.contract_store import (
     HttpCollibraContractAdapter,
     StubCollibraContractAdapter,
 )

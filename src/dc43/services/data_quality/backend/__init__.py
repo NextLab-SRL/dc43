@@ -4,7 +4,7 @@ from .engine import ExpectationSpec, ValidationResult, evaluate_contract, expect
 from .interface import DataQualityServiceBackend
 from .local import LocalDataQualityServiceBackend
 from .manager import DataQualityManager
-from .validation import apply_contract
+from dc43.integration.validation import apply_contract
 from ..models import ObservationPayload
 
 __all__ = [

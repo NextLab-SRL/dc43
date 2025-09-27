@@ -28,18 +28,17 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.lib.components.contract_store.interface import ContractStore
-from dc43.lib.components.data_quality import DQStatus
-from dc43.lib import ObservationPayload
+from dc43.components.contract_store.interface import ContractStore
+from dc43.components.data_quality import DQStatus, ObservationPayload
 from dc43.services.governance.client import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
-from dc43.lib.components.contract_validation import ValidationResult
-from dc43.lib.components.data_quality.integration import (
+from dc43.components.contract_validation import ValidationResult
+from .data_quality import (
     build_metrics_payload,
-    expectations_from_contract,
+    expectations_from_contract as dq_expectations_from_contract,
     validate_dataframe,
 )
-from dc43.lib.components.data_quality.validation import apply_contract
+from .validation import apply_contract
 from dc43.odcs import contract_identity, ensure_version
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
@@ -1187,7 +1186,9 @@ def write_with_contract(
         options_dict.update(resolution.write_options)
     if options:
         options_dict.update(options)
-    expectation_map: Mapping[str, str] = expectations_from_contract(contract) if contract else {}
+    expectation_map: Mapping[str, str] = (
+        dq_expectations_from_contract(contract) if contract else {}
+    )
 
     strategy = violation_strategy or NoOpWriteViolationStrategy()
     revalidator: Callable[[DataFrame], ValidationResult]

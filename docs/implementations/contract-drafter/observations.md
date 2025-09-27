@@ -5,7 +5,7 @@ core helper lives in
 `dc43.services.contracts.backend.drafting.draft_from_observations`
 and expects a schema snapshot plus optional metric payload produced by
 the data-quality engine. Use
-`dc43.services.data_quality.backend.integration.schema_snapshot` (or an
+`dc43.integration.data_quality.schema_snapshot` (or an
 equivalent helper in your runtime) to gather the fields before delegating
 to the drafter.
 
@@ -28,7 +28,7 @@ The helper consumes three categories of inputs:
 
 ```python
 from dc43.services.contracts.backend.drafting import draft_from_observations
-from dc43.services.data_quality.backend.integration import schema_snapshot
+from dc43.integration import schema_snapshot
 
 schema = schema_snapshot(dataframe)
 metrics = validation_result.metrics

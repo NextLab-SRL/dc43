@@ -21,8 +21,8 @@ from dc43.demo_app.server import (
     set_active_version,
     register_dataset_version,
 )
-from dc43.lib.components.data_quality.governance import DQStatus
-from dc43.lib.components.data_quality.integration import attach_failed_expectations
+from dc43.components.data_quality.governance import DQStatus
+from dc43.integration import attach_failed_expectations
 from dc43.services.governance.client import build_local_governance_service
 from dc43.integration.spark_io import (
     ContractFirstDatasetLocator,
