@@ -1,12 +1,17 @@
 """Client interfaces for interacting with dc43 services."""
 
-from dc43.services.contracts.client import ContractServiceClient
-from dc43.services.contracts.local import LocalContractServiceClient
+from dc43.services.contracts.client import (
+    ContractServiceClient,
+    LocalContractServiceClient,
+)
 from dc43.services.data_quality.client import (
     DataQualityServiceClient,
     LocalDataQualityServiceClient,
 )
-from dc43.services.governance.client import GovernanceServiceClient
+from dc43.services.governance.client import (
+    GovernanceServiceClient,
+    LocalGovernanceServiceClient,
+)
 from dc43.services.governance.models import (
     GovernanceCredentials,
     PipelineContext,
@@ -21,6 +26,7 @@ __all__ = [
     "DataQualityServiceClient",
     "LocalDataQualityServiceClient",
     "GovernanceServiceClient",
+    "LocalGovernanceServiceClient",
     "GovernanceCredentials",
     "PipelineContext",
     "PipelineContextSpec",

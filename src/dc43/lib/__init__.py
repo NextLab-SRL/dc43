@@ -17,7 +17,7 @@ from dc43.components.data_quality import (
     attach_failed_expectations,
     validate_dataframe,
 )
-from dc43.components.data_quality.engine import (
+from dc43.components.contract_validation import (
     ExpectationSpec,
     ValidationResult,
     evaluate_contract,

@@ -12,7 +12,7 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.data_quality.engine import ValidationResult
+from dc43.components.contract_validation import ValidationResult
 
 
 def _merge_pipeline_context(

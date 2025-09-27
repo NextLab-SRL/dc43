@@ -3,7 +3,7 @@
 from dc43.services.contracts import ContractServiceClient as ContractManagerClient
 from dc43.services.contracts import LocalContractServiceClient as LocalContractManager
 from dc43.services.governance.client import GovernanceServiceClient
-from dc43.services.governance.local import build_local_governance_service
+from dc43.services.governance.client import build_local_governance_service
 from dc43.services.governance.models import (
     GovernanceCredentials,
     PipelineContext,

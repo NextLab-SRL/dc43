@@ -12,7 +12,7 @@ from open_data_contract_standard.model import (  # type: ignore
 )
 
 from dc43.components.contract_drafter import draft_from_validation_result
-from dc43.components.data_quality.engine import ValidationResult
+from dc43.components.contract_validation import ValidationResult
 
 
 def _build_contract() -> OpenDataContractStandard:

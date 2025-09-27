@@ -1,15 +1,13 @@
-"""Client utilities for interacting with data-quality services.
-
-Prefer importing :class:`ObservationPayload` from :mod:`dc43.lib` when writing
-pure library integrations. The symbol remains available here for backwards
-compatibility with existing integrations.
-"""
+"""Backend and client helpers for running data-quality services."""
 
 from dc43.lib.data_quality import ObservationPayload
 
+from .backend import DataQualityServiceBackend, LocalDataQualityServiceBackend
 from .client import DataQualityServiceClient, LocalDataQualityServiceClient
 
 __all__ = [
+    "DataQualityServiceBackend",
+    "LocalDataQualityServiceBackend",
     "DataQualityServiceClient",
     "LocalDataQualityServiceClient",
     "ObservationPayload",

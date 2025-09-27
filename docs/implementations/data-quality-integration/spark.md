@@ -4,7 +4,7 @@ The Spark integration captures schema snapshots and expectation metrics inside
 Spark jobs before forwarding them to the **governance service**. Runtime
 helpers live in `dc43.components.data_quality.integration` while the
 runtime-agnostic evaluation logic stays inside
-`dc43.components.data_quality.engine`. Use
+`dc43.components.contract_validation`. Use
 `dc43.components.data_quality.validation.apply_contract` to align Spark IO with
 an approved contract when reading or writing datasets.
 
@@ -31,7 +31,7 @@ The Spark integration exposes the following building blocks:
 ```python
 from dc43.lib import ObservationPayload
 from dc43.components.data_quality.integration import build_metrics_payload
-from dc43.services.governance.local import build_local_governance_service
+from dc43.services.governance.client import build_local_governance_service
 
 metrics_payload, schema_payload, reused = build_metrics_payload(
     df,

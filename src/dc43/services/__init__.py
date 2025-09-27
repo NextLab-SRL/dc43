@@ -12,11 +12,24 @@ sub-packages to make the layering explicit.
 
 from dc43.lib.data_quality import ObservationPayload
 
-from .contracts import ContractServiceClient, LocalContractServiceClient
-from .data_quality import DataQualityServiceClient, LocalDataQualityServiceClient
+from .contracts import (
+    ContractServiceBackend,
+    ContractServiceClient,
+    LocalContractServiceBackend,
+    LocalContractServiceClient,
+)
+from .data_quality import (
+    DataQualityServiceBackend,
+    DataQualityServiceClient,
+    LocalDataQualityServiceBackend,
+    LocalDataQualityServiceClient,
+)
 from .governance import (
+    GovernanceServiceBackend,
     GovernanceCredentials,
     GovernanceServiceClient,
+    LocalGovernanceServiceBackend,
+    LocalGovernanceServiceClient,
     LocalGovernanceService,
     PipelineContext,
     PipelineContextSpec,
@@ -27,11 +40,18 @@ from .governance import (
 )
 
 __all__ = [
+    "DataQualityServiceBackend",
+    "LocalDataQualityServiceBackend",
     "DataQualityServiceClient",
     "LocalDataQualityServiceClient",
     "ObservationPayload",
+    "ContractServiceBackend",
+    "LocalContractServiceBackend",
     "GovernanceCredentials",
+    "GovernanceServiceBackend",
     "GovernanceServiceClient",
+    "LocalGovernanceServiceBackend",
+    "LocalGovernanceServiceClient",
     "LocalGovernanceService",
     "PipelineContext",
     "PipelineContextSpec",

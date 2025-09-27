@@ -1,4 +1,4 @@
-"""Client protocol for governance orchestration services."""
+"""Service-side contract for governance orchestration."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from typing import Callable, Mapping, Optional, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.data_quality.engine import ValidationResult
+from dc43.components.contract_validation import ValidationResult
 from dc43.components.data_quality.governance import DQStatus
 from dc43.lib.data_quality import ObservationPayload
 
-from .models import (
+from ..models import (
     GovernanceCredentials,
     PipelineContextSpec,
     QualityAssessment,
@@ -18,8 +18,8 @@ from .models import (
 )
 
 
-class GovernanceServiceClient(Protocol):
-    """High-level coordination API exposed to integration layers."""
+class GovernanceServiceBackend(Protocol):
+    """Operations exposed by a governance service implementation."""
 
     def configure_auth(
         self,
@@ -110,4 +110,4 @@ class GovernanceServiceClient(Protocol):
         ...
 
 
-__all__ = ["GovernanceServiceClient"]
+__all__ = ["GovernanceServiceBackend"]

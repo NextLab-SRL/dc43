@@ -183,7 +183,7 @@ from dc43.integration.spark_io import (
     read_with_contract,
     ContractVersionLocator,
 )
-from dc43.services.governance.local import build_local_governance_service
+from dc43.services.governance.client import build_local_governance_service
 
 governance = build_local_governance_service(store)
 df, status = read_with_contract(

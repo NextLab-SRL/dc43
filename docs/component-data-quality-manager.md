@@ -13,7 +13,7 @@ observations.
 1. **Normalise observation payloads** so metrics and schema snapshots are
    passed to the validation engine in a consistent shape.
 2. **Evaluate expectations** declared in the contract via
-   `dc43.components.data_quality.engine`, returning a `ValidationResult`
+   `dc43.components.contract_validation`, returning a `ValidationResult`
    that lists errors, warnings, and derived metrics.
 3. **Expose engine configuration knobs** (`strict_types`,
    `allow_extra_columns`, `expectation_severity`) so governance services

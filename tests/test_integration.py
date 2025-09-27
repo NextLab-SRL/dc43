@@ -21,7 +21,7 @@ from dc43.integration.spark_io import (
     DatasetResolution,
 )
 from dc43.integration.violation_strategy import SplitWriteViolationStrategy
-from dc43.services.governance.local import build_local_governance_service
+from dc43.services.governance.client import build_local_governance_service
 from datetime import datetime
 import logging
 

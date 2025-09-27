@@ -1,4 +1,4 @@
-"""Protocol for remote contract management services."""
+"""Client protocols for interacting with contract services."""
 
 from __future__ import annotations
 

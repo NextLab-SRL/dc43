@@ -1,4 +1,4 @@
-"""Local in-process implementation of :mod:`dc43.services.contracts`."""
+"""Local stub of the contract service backend."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 
 from dc43.components.contract_store.interface import ContractStore
 
-from .client import ContractServiceClient
+from .interface import ContractServiceBackend
 
 
-class LocalContractServiceClient(ContractServiceClient):
-    """Adapter that fulfils the service contract using a :class:`ContractStore`."""
+class LocalContractServiceBackend(ContractServiceBackend):
+    """Backend backed by an in-memory :class:`ContractStore`."""
 
     def __init__(self, store: ContractStore) -> None:
         self._store = store
@@ -41,4 +41,4 @@ class LocalContractServiceClient(ContractServiceClient):
         return None
 
 
-__all__ = ["LocalContractServiceClient"]
+__all__ = ["LocalContractServiceBackend"]

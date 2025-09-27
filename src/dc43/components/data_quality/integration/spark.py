@@ -13,7 +13,7 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.data_quality.engine import (
+from dc43.components.contract_validation import (
     ExpectationSpec,
     ValidationResult,
     evaluate_observations as _engine_evaluate_observations,

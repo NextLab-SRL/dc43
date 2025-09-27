@@ -33,7 +33,7 @@ from dc43.components.data_quality import DQStatus
 from dc43.lib import ObservationPayload
 from dc43.services.governance.client import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
-from dc43.components.data_quality.engine import ValidationResult
+from dc43.components.contract_validation import ValidationResult
 from dc43.components.data_quality.integration import (
     build_metrics_payload,
     expectations_from_contract,
