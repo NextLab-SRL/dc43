@@ -37,7 +37,7 @@ from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
 
 from dc43.services.contracts.backend.stores import FSContractStore
-from dc43.integration import dq_expectations_from_contract
+from dc43.integration.spark.data_quality import expectations_from_contract as dq_expectations_from_contract
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
     OpenDataContractStandard,
@@ -54,10 +54,7 @@ from packaging.version import Version
 # still load when pyspark is not installed (for example when running fast unit
 # tests).
 try:  # pragma: no cover - exercised indirectly when pyspark is available
-    from dc43.integration import (  # type: ignore[attr-defined]
-        ContractVersionLocator,
-        read_with_contract,
-    )
+    from dc43.integration.spark.io import ContractVersionLocator, read_with_contract
 except ModuleNotFoundError as exc:  # pragma: no cover - safety net for CI
     if exc.name != "pyspark":
         raise

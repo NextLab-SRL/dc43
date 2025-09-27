@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
@@ -44,7 +45,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         self._draft_store = draft_store
         self._credentials: Optional[GovernanceCredentials] = None
         self._status_cache: Dict[tuple[str, str, str, str], DQStatus] = {}
-        self._activity_log: Dict[tuple[str, Optional[str]], list[Mapping[str, Any]]] = {}
+        self._activity_log: Dict[str, Dict[Optional[str], Dict[str, Any]]] = {}
+        self._dataset_links: Dict[tuple[str, Optional[str]], str] = {}
 
     # ------------------------------------------------------------------
     # Authentication lifecycle
@@ -104,7 +106,15 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             contract=contract,
             payload=payload,
         )
-        status = self._status_from_validation(validation)
+        status = self._status_from_validation(validation, operation=operation)
+
+        if status is not None:
+            details = dict(status.details or {})
+            if payload.metrics:
+                details.setdefault("metrics", payload.metrics)
+            if payload.schema:
+                details.setdefault("schema", payload.schema)
+            status.details = details
 
         cache_key = (contract_id, contract_version, dataset_id, dataset_version)
         self._status_cache[cache_key] = status
@@ -251,6 +261,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 contract_id=contract_id,
                 contract_version=contract_version,
             )
+        link_value = f"{contract_id}:{contract_version}"
+        self._dataset_links[(dataset_id, dataset_version)] = link_value
+        if dataset_version is not None:
+            self._dataset_links.setdefault((dataset_id, None), link_value)
 
     def get_linked_contract_version(
         self,
@@ -260,7 +274,17 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
     ) -> Optional[str]:
         resolver = getattr(self._contract_client, "get_linked_contract_version", None)
         if callable(resolver):
-            return resolver(dataset_id=dataset_id, dataset_version=dataset_version)
+            resolved = resolver(dataset_id=dataset_id, dataset_version=dataset_version)
+            if resolved is not None:
+                return resolved
+        if (dataset_id, dataset_version) in self._dataset_links:
+            return self._dataset_links[(dataset_id, dataset_version)]
+        if dataset_version is not None and (dataset_id, None) in self._dataset_links:
+            return self._dataset_links[(dataset_id, None)]
+        for (linked_id, linked_version), value in self._dataset_links.items():
+            if linked_id == dataset_id:
+                if dataset_version is None or linked_version == dataset_version:
+                    return value
         return None
 
     def get_pipeline_activity(
@@ -269,32 +293,104 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         dataset_id: str,
         dataset_version: Optional[str] = None,
     ) -> Sequence[Mapping[str, Any]]:
-        return list(self._activity_log.get((dataset_id, dataset_version), []))
+        dataset_entries = self._activity_log.get(dataset_id)
+        if not dataset_entries:
+            return []
+
+        def _normalise(record: Mapping[str, Any]) -> Dict[str, Any]:
+            entry = {
+                "dataset_id": dataset_id,
+                "dataset_version": record.get("dataset_version"),
+                "contract_id": record.get("contract_id"),
+                "contract_version": record.get("contract_version"),
+                "events": [],
+            }
+            events = record.get("events")
+            if isinstance(events, list):
+                entry["events"] = [
+                    dict(event)
+                    for event in events
+                    if isinstance(event, Mapping)
+                ]
+            return entry
+
+        if dataset_version is not None:
+            record = dataset_entries.get(dataset_version)
+            if isinstance(record, Mapping):
+                return [_normalise(record)]
+            for candidate in dataset_entries.values():
+                if (
+                    isinstance(candidate, Mapping)
+                    and candidate.get("dataset_version") == dataset_version
+                ):
+                    return [_normalise(candidate)]
+            return []
+
+        entries: list[Dict[str, Any]] = []
+        for record in dataset_entries.values():
+            if isinstance(record, Mapping):
+                entries.append(_normalise(record))
+
+        def _sort_key(item: Mapping[str, Any]) -> tuple[int, str]:
+            events = item.get("events")
+            recorded_at = ""
+            if isinstance(events, list) and events:
+                last = events[-1]
+                if isinstance(last, Mapping):
+                    recorded_at = str(last.get("recorded_at", ""))
+            version_value = str(item.get("dataset_version", ""))
+            return (0 if recorded_at else 1, recorded_at or version_value)
+
+        entries.sort(key=_sort_key)
+        return entries
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _status_from_validation(self, validation: ValidationResult) -> DQStatus:
-        if validation.ok:
-            return DQStatus(status="ok", details={"violations": 0})
-        if validation.errors:
+    def _status_from_validation(self, validation: ValidationResult, *, operation: str) -> DQStatus:
+        metrics = validation.metrics or {}
+        violation_total = 0
+        for key, value in metrics.items():
+            if not key.startswith("violations."):
+                continue
+            if isinstance(value, (int, float)) and value > 0:
+                violation_total += int(value)
+
+        if validation.errors or not validation.ok:
+            reason = validation.errors[0] if validation.errors else None
             return DQStatus(
                 status="block",
-                reason=validation.errors[0],
+                reason=reason,
                 details={
                     "errors": list(validation.errors),
                     "warnings": list(validation.warnings),
-                    "violations": len(validation.errors),
+                    "violations": violation_total or len(validation.errors),
                 },
             )
-        return DQStatus(
-            status="warn",
-            reason=validation.warnings[0] if validation.warnings else None,
-            details={
-                "warnings": list(validation.warnings),
-                "violations": len(validation.warnings),
-            },
-        )
+
+        if violation_total > 0:
+            reason = validation.warnings[0] if validation.warnings else "Data-quality violations detected"
+            status_value = "block" if operation == "write" else "warn"
+            return DQStatus(
+                status=status_value,
+                reason=reason,
+                details={
+                    "warnings": list(validation.warnings),
+                    "violations": violation_total,
+                },
+            )
+
+        if validation.warnings:
+            return DQStatus(
+                status="warn",
+                reason=validation.warnings[0],
+                details={
+                    "warnings": list(validation.warnings),
+                    "violations": violation_total,
+                },
+            )
+
+        return DQStatus(status="ok", details={"violations": 0})
 
     def _record_pipeline_activity(
         self,
@@ -321,7 +417,33 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 entry["dq_reason"] = status.reason
             if status.details:
                 entry["dq_details"] = status.details
-        key = (dataset_id, dataset_version)
-        self._activity_log.setdefault(key, []).append(entry)
+        dataset_entries = self._activity_log.setdefault(dataset_id, {})
+        record = dataset_entries.get(dataset_version)
+        if not isinstance(record, dict):
+            record = {
+                "dataset_id": dataset_id,
+                "dataset_version": dataset_version,
+                "contract_id": cid,
+                "contract_version": cver,
+                "events": [],
+            }
+        events = record.get("events")
+        if not isinstance(events, list):
+            events = []
+        event = dict(entry)
+        event.setdefault(
+            "recorded_at",
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+        context_payload = event.get("pipeline_context")
+        if isinstance(context_payload, Mapping):
+            event["pipeline_context"] = dict(context_payload)
+        elif context_payload is None:
+            event["pipeline_context"] = {}
+        events.append(event)
+        record["events"] = events
+        record["contract_id"] = cid
+        record["contract_version"] = cver
+        dataset_entries[dataset_version] = record
 
 __all__ = ["LocalGovernanceServiceBackend"]

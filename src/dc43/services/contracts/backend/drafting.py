@@ -240,72 +240,121 @@ def draft_from_validation_result(
     )
     draft.version = f"{draft.version}-{suffix}"
 
-    if not hasattr(draft, "metadata"):
-        draft.metadata = None  # type: ignore[attr-defined]
-    draft.metadata = draft.metadata or {}
-    draft.metadata.contract = draft.metadata.contract or {}
-    draft.metadata.contract.references = draft.metadata.contract.references or []
-    draft.metadata.contract.references.append({
-        "type": "validation",
-        "id": dataset_id,
-        "version": dataset_version,
-        "collected_at": datetime.now(timezone.utc).isoformat(),
-    })
+    context_payload: Dict[str, Any] = dict(draft_context or {})
+    if dataset_id and "dataset_id" not in context_payload:
+        context_payload["dataset_id"] = dataset_id
+    if dataset_version and "dataset_version" not in context_payload:
+        context_payload["dataset_version"] = dataset_version
 
-    if dq_status or dq_feedback:
-        feedback = dq_feedback or {}
-        feedback = dict(feedback)
-        if dq_status:
-            feedback.setdefault("status", dq_status)
-        draft.metadata.contract.customProperties = draft.metadata.contract.customProperties or []
-        draft.metadata.contract.customProperties.append(
-            CustomProperty(key="dq_feedback", value=feedback)
+    pipeline_token = _pipeline_hint(draft_context)
+    pipeline_value: Optional[str] = None
+    if draft_context:
+        for key in ("pipeline", "job", "project", "module", "function", "qualname", "source"):
+            raw = draft_context.get(key)
+            if raw:
+                pipeline_value = str(raw)
+                break
+
+    change_log: List[Dict[str, Any]] = []
+    change_log = _apply_schema_feedback(
+        draft,
+        schema=schema,
+        metrics=metrics,
+        change_log=change_log,
+    )
+
+    if validation.errors:
+        change_log.append(
+            {
+                "status": "error",
+                "kind": "validation",
+                "messages": list(validation.errors),
+            }
+        )
+    if validation.warnings:
+        change_log.append(
+            {
+                "status": "warning",
+                "kind": "validation",
+                "messages": list(validation.warnings),
+            }
         )
 
-    draft.metadata.contract.customProperties = draft.metadata.contract.customProperties or []
-    draft.metadata.contract.customProperties.append(
+    custom_properties = list(draft.customProperties or [])
+
+    if dq_status or dq_feedback:
+        feedback = dict(dq_feedback or {})
+        if dq_status:
+            feedback.setdefault("status", dq_status)
+        custom_properties.append(CustomProperty(property="dq_feedback", value=feedback))
+
+    custom_properties.append(
         CustomProperty(
-            key="validation_metrics",
+            property="validation_metrics",
             value={"metrics": metrics, "schema": schema},
         )
     )
 
     if data_format:
-        draft.metadata.contract.customProperties.append(
-            CustomProperty(key="data_format", value=data_format)
-        )
+        custom_properties.append(CustomProperty(property="data_format", value=data_format))
 
-    draft.metadata.contract.customProperties.append(
-        CustomProperty(key="base_contract", value={"id": contract_id, "version": version})
+    custom_properties.append(
+        CustomProperty(
+            property="base_contract",
+            value={"id": contract_id, "version": version},
+        )
     )
 
-    draft.metadata.contract.customProperties.append(
-        CustomProperty(key="validation_outcome", value={
-            "errors": validation.errors,
-            "warnings": validation.warnings,
-        })
+    custom_properties.append(
+        CustomProperty(
+            property="validation_outcome",
+            value={"errors": validation.errors, "warnings": validation.warnings},
+        )
     )
 
-    if dataset_id:
-        draft.metadata.contract.customProperties.append(
-            CustomProperty(key="dataset_id", value=dataset_id)
+    if context_payload:
+        if pipeline_value and "module" not in context_payload:
+            module_hint = pipeline_value.rsplit(".", 1)[0]
+            context_payload.setdefault("module", module_hint)
+        custom_properties.append(
+            CustomProperty(property="draft_context", value=context_payload)
         )
+
+    if pipeline_value:
+        custom_properties.append(
+            CustomProperty(property="draft_pipeline", value=pipeline_value)
+        )
+    elif pipeline_token:
+        custom_properties.append(
+            CustomProperty(property="draft_pipeline", value=pipeline_token)
+        )
+
+    provenance: Dict[str, Any] = {}
     if dataset_version:
-        draft.metadata.contract.customProperties.append(
-            CustomProperty(key="dataset_version", value=dataset_version)
+        provenance["dataset_version"] = dataset_version
+    if dataset_id:
+        provenance["dataset_id"] = dataset_id
+    if provenance:
+        custom_properties.append(
+            CustomProperty(property="provenance", value=provenance)
         )
 
-    draft.servers = draft.servers or []
     if dataset_id or dataset_version:
-        draft.servers.append(
-            Server(
-                id=f"dataset::{dataset_id or 'unknown'}::{dataset_version or 'unknown'}",
-                type="dataset",
-                description="Derived from validation observations",
-            )
+        reference = {
+            "dataset_id": dataset_id,
+            "dataset_version": dataset_version,
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+        }
+        custom_properties.append(
+            CustomProperty(property="validation_reference", value=reference)
         )
 
-    _apply_schema_feedback(draft, schema=schema, metrics=metrics)
+    custom_properties.append(
+        CustomProperty(property="draft_change_log", value=change_log)
+    )
+
+    draft.customProperties = custom_properties
+
     return draft
 
 
@@ -319,7 +368,10 @@ def draft_from_observations(
 ) -> OpenDataContractStandard:
     """Return a draft contract using observed schema information only."""
 
-    draft = OpenDataContractStandard.from_dict(base_contract.to_dict())
+    if hasattr(base_contract, "model_copy"):
+        draft = base_contract.model_copy(deep=True)  # type: ignore[attr-defined]
+    else:
+        draft = to_model(as_odcs_dict(base_contract))
     contract_id, version = contract_identity(base_contract)
     bump_version = SemVer.parse(version).bump("patch")
 
@@ -331,19 +383,60 @@ def draft_from_observations(
     draft.version = f"{bump_version}-{suffix}"
     draft.status = "draft"
 
-    if not hasattr(draft, "metadata"):
-        draft.metadata = None  # type: ignore[attr-defined]
-    draft.metadata = draft.metadata or {}
-    draft.metadata.contract = draft.metadata.contract or {}
-    draft.metadata.contract.customProperties = draft.metadata.contract.customProperties or []
-    draft.metadata.contract.customProperties.append(
-        CustomProperty(key="base_contract", value={"id": contract_id, "version": version})
-    )
-    draft.metadata.contract.customProperties.append(
-        CustomProperty(key="observed_schema", value=observations or {})
+    context_payload: Dict[str, Any] = dict(draft_context or {})
+    if dataset_id and "dataset_id" not in context_payload:
+        context_payload["dataset_id"] = dataset_id
+    if dataset_version and "dataset_version" not in context_payload:
+        context_payload["dataset_version"] = dataset_version
+
+    pipeline_token = _pipeline_hint(draft_context)
+    pipeline_value: Optional[str] = None
+    if draft_context:
+        for key in ("pipeline", "job", "project", "module", "function", "qualname", "source"):
+            raw = draft_context.get(key)
+            if raw:
+                pipeline_value = str(raw)
+                break
+
+    change_log = _apply_schema_feedback(
+        draft,
+        schema=observations or {},
+        metrics={},
+        change_log=[],
     )
 
-    _apply_schema_feedback(draft, schema=observations or {}, metrics={})
+    custom_properties = list(draft.customProperties or [])
+    custom_properties.append(
+        CustomProperty(
+            property="base_contract",
+            value={"id": contract_id, "version": version},
+        )
+    )
+    custom_properties.append(
+        CustomProperty(property="observed_schema", value=observations or {})
+    )
+
+    if context_payload:
+        if pipeline_value and "module" not in context_payload:
+            module_hint = pipeline_value.rsplit(".", 1)[0]
+            context_payload.setdefault("module", module_hint)
+        custom_properties.append(
+            CustomProperty(property="draft_context", value=context_payload)
+        )
+    if pipeline_value:
+        custom_properties.append(
+            CustomProperty(property="draft_pipeline", value=pipeline_value)
+        )
+    elif pipeline_token:
+        custom_properties.append(
+            CustomProperty(property="draft_pipeline", value=pipeline_token)
+        )
+    custom_properties.append(
+        CustomProperty(property="draft_change_log", value=change_log)
+    )
+
+    draft.customProperties = custom_properties
+
     return draft
 
 
@@ -352,8 +445,11 @@ def _apply_schema_feedback(
     *,
     schema: Mapping[str, Mapping[str, Any]],
     metrics: Mapping[str, Any],
-) -> None:
+    change_log: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
     """Update ``draft`` schema using observed field metadata."""
+
+    log: List[Dict[str, Any]] = change_log if change_log is not None else []
 
     for obj in draft.schema_ or []:
         for field in obj.properties or []:
@@ -367,17 +463,26 @@ def _apply_schema_feedback(
             )
             if observed_type:
                 field.physicalType = observed_type
+            was_required = bool(field.required)
             if nullable is not None:
                 field.required = not nullable
+            if was_required and not field.required:
+                log.append({
+                    "field": name,
+                    "status": "relaxed",
+                    "constraint": "required",
+                })
             if observed:
                 field.description = field.description or ""
                 field.description = (
                     f"{field.description}\nObserved metadata: {observed}".strip()
                 )
 
-            for dq in field.quality or []:
+            updated_quality: List[DataQuality] = []
+            for dq in list(field.quality or []):
                 result = _quality_rule_key(field, dq)
                 if not result:
+                    updated_quality.append(dq)
                     continue
                 prefix, label = result
                 value = _quality_metric_value(
@@ -385,12 +490,49 @@ def _apply_schema_feedback(
                     rule_prefix=prefix,
                     field_name=name,
                 )
-                if value is None:
+                if prefix == "enum":
+                    extension = _enum_extension(dq=dq, metrics=metrics, field_name=name)
+                    if extension:
+                        updated, additions = extension
+                        dq.mustBe = updated
+                        log.append({
+                            "field": name,
+                            "rule": "enum",
+                            "status": "updated",
+                            "details": {"added_values": additions},
+                        })
+                    else:
+                        log.append({
+                            "field": name,
+                            "rule": "enum",
+                            "status": "kept",
+                        })
+                    updated_quality.append(dq)
                     continue
+
+                if value and value > 0:
+                    log.append({
+                        "field": name,
+                        "rule": label,
+                        "status": "removed",
+                        "details": {"violations": value},
+                    })
+                    continue
+
+                log.append({
+                    "field": name,
+                    "rule": label,
+                    "status": "kept",
+                })
                 dq.description = dq.description or ""
                 dq.description = (
                     f"{dq.description}\nObserved {label}: {value}".strip()
                 )
+                updated_quality.append(dq)
+
+            field.quality = updated_quality or None
+
+    return log
 
 
 __all__ = [

@@ -4,7 +4,7 @@ Write violation strategies let integration adapters choose how to persist data w
 Instead of hard-coding a single behaviour, adapters receive a `WriteViolationStrategy` implementation that can split the input
 DataFrame, surface additional datasets, or keep the legacy pass-through behaviour.
 
-The mechanism lives in `dc43.integration.violation_strategy` and is consumed by `write_with_contract` in the Spark adapter.
+The mechanism lives in `dc43.integration.spark.violation_strategy` and is consumed by `write_with_contract` in the Spark adapter.
 It is runtime-agnostic: other integrations can reuse the protocol to provide the same flexibility in warehouses or streaming engines.
 
 ## Why strategies?

@@ -111,6 +111,13 @@ def merge_draft_context(
         context.update(pipeline_context)
     if base:
         context.update(base)
+    pipeline_name = context.get("pipeline")
+    if isinstance(pipeline_name, str):
+        module, _, function = pipeline_name.rpartition(".")
+        if module:
+            context.setdefault("module", module)
+        if function:
+            context.setdefault("function", function)
     if dataset_id and "dataset_id" not in context:
         context["dataset_id"] = dataset_id
     if dataset_version and "dataset_version" not in context:

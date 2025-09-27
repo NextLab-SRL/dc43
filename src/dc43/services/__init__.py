@@ -1,16 +1,4 @@
-"""Service runtimes and compatibility imports for the dc43 platform.
-
-The package now distinguishes between several layers:
-
-* :mod:`dc43.components` for pure library helpers that can run without any
-  services.
-* :mod:`dc43.integration` for execution-engine adapters.
-* :mod:`dc43.clients` for HTTP or in-process client abstractions.
-* :mod:`dc43.services` for running service backends or local orchestration.
-
-Existing imports continue to work but new code should prefer the dedicated
-sub-packages to make the layering explicit.
-"""
+"""Service backends, local clients, and governance helpers for dc43."""
 
 from .data_quality import ObservationPayload
 

@@ -8,7 +8,7 @@ Translate ODCS DataQuality rules to DLT expectations.
 from typing import Dict
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.integration.data_quality import (
+from .data_quality import (
     expectations_from_contract as _expectations_from_contract,
 )
 

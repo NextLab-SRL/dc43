@@ -21,10 +21,10 @@ from dc43.demo_app.server import (
     set_active_version,
     register_dataset_version,
 )
-from dc43.components.data_quality.governance import DQStatus
-from dc43.integration import attach_failed_expectations
+from dc43.services.governance.backend.dq import DQStatus
+from dc43.integration.spark.data_quality import attach_failed_expectations
 from dc43.services.governance.client import build_local_governance_service
-from dc43.integration.spark_io import (
+from dc43.integration.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
     ReadStatusContext,
@@ -33,7 +33,7 @@ from dc43.integration.spark_io import (
     read_with_contract,
     write_with_contract,
 )
-from dc43.integration.violation_strategy import (
+from dc43.integration.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
     SplitWriteViolationStrategy,
     StrictWriteViolationStrategy,

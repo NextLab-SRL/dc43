@@ -14,7 +14,7 @@ dc43 is a governance-first toolkit that separates the **concepts** of data contr
 
 On top of the conceptual platform, dc43 ships opinionated integrations that you can adopt or replace:
 
-- Spark & DLT pipelines via `dc43.integration.spark_io` with schema/metric helpers from `dc43.services.data_quality.backend` for auto-casting and contract-aware IO.
+- Spark & DLT pipelines via `dc43.integration.spark.io` with schema/metric helpers from `dc43.services.data_quality.backend` for auto-casting and contract-aware IO.
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
 
@@ -30,7 +30,7 @@ dc43 exposes a small set of well-defined components. Swap any of them without re
 | Governance | **Data quality manager interface** | Coordinate with an external DQ governance tool (e.g., Collibra, Unity Catalog) that records dataset↔contract alignment and approval state. |
 | Authoring support | **Contract drafter module** | Generate ODCS drafts from observed data or schema drift events before handing them back to governance. |
 | Runtime services | **Data-quality metrics engine** | Collect contract-driven metrics in execution engines and forward them to the governance tool for status evaluation. |
-| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43.integration`). |
+| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43.integration.spark`). |
 
 Guides for each component live under `docs/`:
 
@@ -133,7 +133,7 @@ contract = OpenDataContractStandard(
 
 ```python
 from dc43.services.contracts.backend.stores import FSContractStore
-from dc43.integration.spark_io import (
+from dc43.integration.spark.io import (
     write_with_contract,
     ContractVersionLocator,
 )
@@ -156,7 +156,7 @@ write_with_contract(
 
 ```python
 import dlt
-from dc43.integration.dlt_helpers import expectations_from_contract
+from dc43.integration.spark.dlt import expectations_from_contract
 
 @dlt.table(name="orders")
 def orders():
@@ -179,7 +179,7 @@ latest = store.latest("sales.orders")
 5) DQ/DO orchestration on read
 
 ```python
-from dc43.integration.spark_io import (
+from dc43.integration.spark.io import (
     read_with_contract,
     ContractVersionLocator,
 )
@@ -201,7 +201,7 @@ print(status.status, status.reason)
 6) Quality status check on write
 
 ```python
-from dc43.integration.spark_io import (
+from dc43.integration.spark.io import (
     write_with_contract,
     ContractVersionLocator,
 )
