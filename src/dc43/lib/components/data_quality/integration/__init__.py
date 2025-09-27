@@ -1,29 +1,11 @@
-"""Execution-engine integration helpers for data-quality observations."""
+"""Compatibility shim for Spark data-quality integration helpers.
 
-from .spark import (
-    SPARK_TYPES,
-    attach_failed_expectations,
-    build_metrics_payload,
-    collect_observations,
-    compute_metrics,
-    evaluate_observations,
-    expectations_from_contract,
-    odcs_type_name_from_spark,
-    schema_snapshot,
-    spark_type_name,
-    validate_dataframe,
-)
+The runtime-specific hooks now live under
+:mod:`dc43.services.data_quality.backend.integration`.  This module re-exports
+those helpers to keep existing imports operational.
+"""
 
-__all__ = [
-    "SPARK_TYPES",
-    "spark_type_name",
-    "odcs_type_name_from_spark",
-    "schema_snapshot",
-    "expectations_from_contract",
-    "compute_metrics",
-    "collect_observations",
-    "evaluate_observations",
-    "validate_dataframe",
-    "build_metrics_payload",
-    "attach_failed_expectations",
-]
+from dc43.services.data_quality.backend import integration as _integration
+from dc43.services.data_quality.backend.integration import *  # noqa: F401,F403
+
+__all__ = list(_integration.__all__)

@@ -11,10 +11,10 @@ Regardless of the backend, a contract manager must be able to:
 3. **List and search metadata** (identifiers, versions, timestamps) to power governance views.
 4. **Expose lifecycle filters** (e.g., `Validated`, `Deprecated`) when the backend tracks status.
 
-dc43 defines the interface in [`src/dc43/lib/components/contract_store/interface.py`](../src/dc43/lib/components/contract_store/interface.py):
+dc43 defines the interface in [`src/dc43/services/contracts/backend/stores/interface.py`](../src/dc43/services/contracts/backend/stores/interface.py):
 
 ```python
-from dc43.lib.components.contract_store.interface import ContractStore
+from dc43.services.contracts.backend.stores.interface import ContractStore
 from open_data_contract_standard.model import OpenDataContractStandard
 
 class MyStore(ContractStore):

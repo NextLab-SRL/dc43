@@ -1,5 +1,5 @@
-"""Governance-facing interfaces for data-quality coordination."""
+"""Compatibility exports for data-quality governance interfaces."""
 
-from .interface import DQClient, DQStatus
+from dc43.services.governance.backend.dq import DQClient, DQStatus
 
 __all__ = ["DQClient", "DQStatus"]

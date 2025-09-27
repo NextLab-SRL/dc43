@@ -2,5 +2,6 @@
 
 from .interface import ContractServiceBackend
 from .local import LocalContractServiceBackend
+from .stores.interface import ContractStore
 
-__all__ = ["ContractServiceBackend", "LocalContractServiceBackend"]
+__all__ = ["ContractServiceBackend", "LocalContractServiceBackend", "ContractStore"]

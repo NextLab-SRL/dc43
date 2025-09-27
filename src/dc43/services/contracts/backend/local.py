@@ -6,7 +6,7 @@ from typing import Optional
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.lib.components.contract_store.interface import ContractStore
+from .stores.interface import ContractStore
 
 from .interface import ContractServiceBackend
 

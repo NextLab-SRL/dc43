@@ -1,18 +1,5 @@
-"""Data-quality specific utilities that are independent from service runtimes."""
+"""Compatibility exports for data-quality observation payloads."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Mapping, Optional
-
-
-@dataclass(slots=True)
-class ObservationPayload:
-    """Container describing cached observations for a dataset evaluation."""
-
-    metrics: Mapping[str, object]
-    schema: Optional[Mapping[str, Mapping[str, object]]] = None
-    reused: bool = False
-
+from dc43.services.data_quality.models import ObservationPayload
 
 __all__ = ["ObservationPayload"]

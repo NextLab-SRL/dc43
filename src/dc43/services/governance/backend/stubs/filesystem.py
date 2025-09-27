@@ -8,12 +8,12 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Mapping
 
-from dc43.lib.components.contract_drafter import draft_from_validation_result
-from dc43.lib.components.contract_validation import (
+from dc43.services.contracts.backend.drafting import draft_from_validation_result
+from dc43.services.data_quality.backend.engine import (
     ValidationResult,
-    evaluate_observations,
+    evaluate_contract,
 )
-from dc43.lib.components.data_quality.governance import DQClient, DQStatus
+from dc43.services.governance.backend.dq import DQClient, DQStatus
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -140,7 +140,7 @@ class StubDQClient(DQClient):
             metric_values = dict(metric_values)
             metric_values.pop("schema", None)
 
-        evaluation = evaluate_observations(
+        evaluation = evaluate_contract(
             contract,
             schema=schema_payload if isinstance(schema_payload, Mapping) else None,
             metrics=metric_values,

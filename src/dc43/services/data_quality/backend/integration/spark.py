@@ -13,13 +13,13 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.lib.components.contract_validation import (
+from dc43.services.data_quality.backend.engine import (
     ExpectationSpec,
     ValidationResult,
-    evaluate_observations as _engine_evaluate_observations,
+    evaluate_contract,
     expectation_specs,
 )
-from dc43.lib.components.data_quality.governance import DQStatus
+from dc43.services.governance.backend.dq import DQStatus
 
 
 # Minimal mapping from ODCS primitive type strings to Spark SQL types.
@@ -227,7 +227,7 @@ def evaluate_observations(
 ) -> ValidationResult:
     """Compatibility alias to the engine-level observation evaluator."""
 
-    return _engine_evaluate_observations(
+    return evaluate_contract(
         contract,
         schema=schema,
         metrics=metrics,

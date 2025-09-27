@@ -10,7 +10,7 @@ Existing imports continue to work but new code should prefer the dedicated
 sub-packages to make the layering explicit.
 """
 
-from dc43.lib.data_quality import ObservationPayload
+from .data_quality import ObservationPayload
 
 from .contracts import (
     ContractServiceBackend,

@@ -6,9 +6,9 @@ from typing import Callable, Mapping, Optional, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.lib.components.contract_validation import ValidationResult
-from dc43.lib.components.data_quality.governance import DQStatus
-from dc43.lib.data_quality import ObservationPayload
+from dc43.services.data_quality.backend.engine import ValidationResult
+from dc43.services.governance.backend.dq import DQStatus
+from dc43.services.data_quality.models import ObservationPayload
 
 from ..models import (
     GovernanceCredentials,

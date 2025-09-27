@@ -1,6 +1,10 @@
 """Backend and client helpers for contract management services."""
 
-from .backend import ContractServiceBackend, LocalContractServiceBackend
+from .backend import (
+    ContractServiceBackend,
+    LocalContractServiceBackend,
+    ContractStore,
+)
 from .client import ContractServiceClient, LocalContractServiceClient
 
 __all__ = [
@@ -8,4 +12,5 @@ __all__ = [
     "LocalContractServiceBackend",
     "ContractServiceClient",
     "LocalContractServiceClient",
+    "ContractStore",
 ]

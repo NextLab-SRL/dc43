@@ -1,10 +1,20 @@
-"""Contract validation primitives decoupled from runtime concerns."""
+"""Compatibility exports for the contract validation engine.
+
+The runtime-agnostic evaluation logic now resides under
+:mod:`dc43.services.data_quality.backend`.  This module re-exports the public
+API so library consumers continue working while migrations happen.
+"""
 
 from typing import Any, Literal, Mapping
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from .core import ExpectationSpec, ValidationResult, evaluate_contract, expectation_specs
+from dc43.services.data_quality.backend.engine import (
+    ExpectationSpec,
+    ValidationResult,
+    evaluate_contract,
+    expectation_specs,
+)
 
 
 def evaluate_observations(
