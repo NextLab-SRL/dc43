@@ -1,15 +1,17 @@
 # Data Quality Governance Component
 
 The governance layer coordinates data-quality (DQ) verdicts and approvals
-alongside contract lifecycle. dc43 exposes a `DQClient` protocol used by
-the **data quality manager** so you can connect authoring and runtime
-workflows with catalog-native quality services. This document explains
-the responsibilities of that interface and points to concrete adapters.
+alongside contract lifecycle. dc43 exposes a `GovernanceServiceClient`
+that orchestrates contract lookups, quality evaluation, draft generation,
+and pipeline activity recording. Integrations now call this service
+directly—passing validation results, metrics, and pipeline context—while
+the service talks to contract/draft managers and the simplified data
+quality manager.
 
 ## What the component does
 
-A DQ client acts as the control plane for schema enforcement outcomes.
-At minimum it must be able to:
+The service acts as the control plane for schema enforcement outcomes. At
+minimum it must be able to:
 
 1. **Track dataset ↔ contract links** so downstream readers know which
    specification governs a dataset version.
@@ -18,19 +20,20 @@ At minimum it must be able to:
    highlight drifts that require action.
 3. **Return a status** (`ok`, `warn`, `block`, or `unknown`) indicating
    whether the dataset version satisfies the contract.
-4. **Receive metrics and schema snapshots** emitted by the DQ engine so
-   it can compute or update the status **and persist the compatibility
-   matrix entry** for the dataset↔contract pair.
+4. **Evaluate observation payloads** by delegating to the data-quality
+   manager and persist the refreshed status (including draft proposals
+   when validation fails).
 
 ```mermaid
 flowchart LR
-    Integration["Runtime integration"] --> DQMgr["Data quality manager"]
-    DQMgr --> Metrics["Observations"]
-    Metrics --> Engine["DQ engine"]
-    DQMgr --> DQClient["DQ governance adapter"]
-    DQClient --> Catalog["Compatibility matrix"]
-    Catalog --> Integration
-    DQClient --> Stewardship["Steward workflows / alerts"]
+    Integration["Runtime integration"] --> Governance["Governance service"]
+    Governance --> Contracts["Contract manager"]
+    Governance --> DQMgr["Data quality manager"]
+    DQMgr --> Engine["DQ engine"]
+    Engine --> Governance
+    Governance --> Drafts["Contract drafter"]
+    Governance --> Stewardship["Steward workflows / alerts"]
+    Governance --> Catalog["Compatibility matrix"]
 ```
 
 The compatibility matrix is the source dc43 queries before serving data.

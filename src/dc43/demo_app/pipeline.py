@@ -21,10 +21,9 @@ from dc43.demo_app.server import (
     set_active_version,
     register_dataset_version,
 )
-from dc43.components.data_quality import DataQualityManager
 from dc43.components.data_quality.governance import DQStatus
 from dc43.components.data_quality.integration import attach_failed_expectations
-from dc43.components.data_quality.governance.stubs import StubDQClient
+from dc43.components.governance_service import build_local_governance_service
 from dc43.components.integration.spark_io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
@@ -355,8 +354,7 @@ def run_pipeline(
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
-    dq_client = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
-    dq = DataQualityManager(dq_client, draft_store=store)
+    governance = build_local_governance_service(store)
 
     run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     base_pipeline_context: dict[str, Any] = {
@@ -413,7 +411,7 @@ def run_pipeline(
         contract_id="orders",
         contract_store=store,
         expected_contract_version="==1.1.0",
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=orders_locator,
         status_strategy=orders_strategy,
         enforce=orders_enforce,
@@ -463,7 +461,7 @@ def run_pipeline(
         contract_id="customers",
         contract_store=store,
         expected_contract_version="==1.0.0",
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=customers_locator,
         status_strategy=customers_strategy,
         enforce=customers_enforce,
@@ -531,7 +529,7 @@ def run_pipeline(
         format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=locator,
         expected_contract_version=expected_version,
         return_status=True,
@@ -692,13 +690,10 @@ def run_pipeline(
     if draft_version:
         output_details.setdefault("draft_contract_version", draft_version)
 
-    try:
-        output_activity = dq.get_pipeline_activity(
-            dataset_id=dataset_name,
-            dataset_version=dataset_version,
-        )
-    except AttributeError:
-        output_activity = []
+    output_activity = governance.get_pipeline_activity(
+        dataset_id=dataset_name,
+        dataset_version=dataset_version,
+    )
     if output_activity:
         output_details.setdefault("pipeline_activity", output_activity)
 

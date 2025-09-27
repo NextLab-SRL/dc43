@@ -29,12 +29,11 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 
 from dc43.components.contract_store.interface import ContractStore
-from dc43.components.data_quality import (
-    DataQualityManager,
-    DQClient,
-    DQStatus,
-    GovernanceHandles,
+from dc43.components.data_quality import DQStatus, ObservationPayload
+from dc43.components.governance_service import (
+    GovernanceServiceClient,
     PipelineContext,
+    normalise_pipeline_context,
 )
 from dc43.components.data_quality.engine import ValidationResult
 from dc43.components.data_quality.integration import (
@@ -55,44 +54,12 @@ from .violation_strategy import (
 )
 
 
-GovernanceProvider = Union[
-    DataQualityManager,
-    DQClient,
-    GovernanceHandles,
-]
-
-
 PipelineContextLike = Union[
     PipelineContext,
     Mapping[str, object],
     Sequence[tuple[str, object]],
     str,
 ]
-
-
-def _normalise_pipeline_context(
-    context: Optional[PipelineContextLike],
-) -> Optional[Dict[str, Any]]:
-    """Return a dictionary representation for ``context`` when possible."""
-
-    if context is None:
-        return None
-    if isinstance(context, PipelineContext):
-        return context.as_dict()
-    if isinstance(context, str):
-        value = context.strip()
-        return {"pipeline": value} if value else None
-    if isinstance(context, Mapping):
-        return dict(context)
-    if isinstance(context, Sequence):
-        payload: Dict[str, Any] = {}
-        for item in context:
-            if not isinstance(item, tuple) or len(item) != 2:
-                continue
-            key, value = item
-            payload[str(key)] = value
-        return payload or None
-    return None
 
 
 def _merge_pipeline_context(
@@ -167,16 +134,12 @@ def _safe_fs_name(value: str) -> str:
 logger = logging.getLogger(__name__)
 
 
-def _as_quality_manager(dq: Optional[GovernanceProvider]) -> Optional[DataQualityManager]:
-    """Return a :class:`DataQualityManager` regardless of input flavour."""
+def _as_governance_service(
+    service: Optional[GovernanceServiceClient],
+) -> Optional[GovernanceServiceClient]:
+    """Return the provided governance service when configured."""
 
-    if dq is None:
-        return None
-    if isinstance(dq, DataQualityManager):
-        return dq
-    if isinstance(dq, GovernanceHandles):
-        return dq.as_manager()
-    return DataQualityManager(dq)
+    return service
 
 
 @dataclass
@@ -849,7 +812,7 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[GovernanceProvider] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -871,7 +834,7 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[GovernanceProvider] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -893,7 +856,7 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[GovernanceProvider] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -915,7 +878,7 @@ def read_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     # Governance / DQ orchestration
-    dq_client: Optional[GovernanceProvider] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -925,9 +888,9 @@ def read_with_contract(
 
     - If ``contract_id`` is provided, the contract is fetched from ``contract_store``
       before validating schema and aligning columns/types.
-    - If ``dq_client`` is provided (either a :class:`DataQualityManager` or a
-      raw :class:`DQClient` implementation), checks dataset status and submits
-      metrics when needed; returns status when ``return_status=True``.
+    - If ``governance_service`` is provided the remote coordinator evaluates
+      metrics, records governance activity, and returns the dataset status when
+      ``return_status=True``.
     """
     locator = dataset_locator or ContractFirstDatasetLocator()
     status_handler = status_strategy or DefaultReadStatusStrategy()
@@ -1014,9 +977,9 @@ def read_with_contract(
         df = apply_contract(df, contract, auto_cast=auto_cast)
 
     # DQ integration
-    quality_manager = _as_quality_manager(dq_client)
+    governance_client = _as_governance_service(governance_service)
     status: Optional[DQStatus] = None
-    if quality_manager and contract and result is not None:
+    if governance_client and contract and result is not None:
         ds_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
         ds_ver = (
             resolution.dataset_version
@@ -1024,11 +987,10 @@ def read_with_contract(
             or "unknown"
         )
 
-        base_pipeline_context = _normalise_pipeline_context(pipeline_context)
-        read_pipeline_context = _merge_pipeline_context(base_pipeline_context, {"io": "read"})
+        base_pipeline_context = normalise_pipeline_context(pipeline_context)
 
-        def _observations() -> tuple[Mapping[str, object], bool]:
-            metrics_payload, _schema_payload, reused = build_metrics_payload(
+        def _observations() -> ObservationPayload:
+            metrics_payload, schema_payload, reused = build_metrics_payload(
                 df,
                 contract,
                 validation=result,
@@ -1038,15 +1000,19 @@ def read_with_contract(
                 logger.info("Using cached validation metrics for %s@%s", ds_id, ds_ver)
             else:
                 logger.info("Computing DQ metrics for %s@%s", ds_id, ds_ver)
-            return metrics_payload, reused
+            return ObservationPayload(
+                metrics=metrics_payload,
+                schema=schema_payload,
+                reused=reused,
+            )
 
-        assessment = quality_manager.evaluate_dataset(
+        assessment = governance_client.evaluate_dataset(
             contract=contract,
             dataset_id=ds_id,
             dataset_version=ds_ver,
             validation=result,
             observations=_observations,
-            pipeline_context=read_pipeline_context,
+            pipeline_context=base_pipeline_context,
             operation="read",
         )
         status = assessment.status
@@ -1083,7 +1049,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[GovernanceProvider] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True],
@@ -1105,7 +1071,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[GovernanceProvider] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[False] = False,
@@ -1126,7 +1092,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[GovernanceProvider] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = False,
@@ -1187,7 +1153,7 @@ def write_with_contract(
             format = c_fmt
 
     out_df = df
-    quality_manager = _as_quality_manager(dq_client)
+    governance_client = _as_governance_service(governance_service)
     result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
     if contract:
         cid, cver = contract_identity(contract)
@@ -1237,10 +1203,7 @@ def write_with_contract(
             schema={},
         )
 
-    base_pipeline_context = _merge_pipeline_context(
-        _normalise_pipeline_context(pipeline_context),
-        {"io": "write"},
-    )
+    base_pipeline_context = normalise_pipeline_context(pipeline_context)
 
     context = WriteStrategyContext(
         df=df,
@@ -1285,7 +1248,7 @@ def write_with_contract(
     for index, request in enumerate(requests):
         status, request_validation = _execute_write_request(
             request,
-            quality_manager=quality_manager,
+            governance_client=governance_client,
             enforce=enforce,
         )
         status_records.append((status, request))
@@ -1382,7 +1345,7 @@ def write_with_contract(
 def _execute_write_request(
     request: WriteRequest,
     *,
-    quality_manager: Optional[DataQualityManager],
+    governance_client: Optional[GovernanceServiceClient],
     enforce: bool,
 ) -> tuple[Optional[DQStatus], Optional[ValidationResult]]:
     writer = request.df.write
@@ -1408,7 +1371,7 @@ def _execute_write_request(
                 validation.warnings.append(message)
     contract = request.contract
     status: Optional[DQStatus] = None
-    if quality_manager and contract and validation is not None:
+    if governance_client and contract and validation is not None:
         dq_dataset_id = request.dataset_id or dataset_id_from_ref(
             table=request.table,
             path=request.path,
@@ -1423,8 +1386,8 @@ def _execute_write_request(
             or "unknown"
         )
 
-        def _post_write_observations() -> tuple[Mapping[str, Any], bool]:
-            metrics, _schema_payload, reused_metrics = build_metrics_payload(
+        def _post_write_observations() -> ObservationPayload:
+            metrics, schema_payload, reused_metrics = build_metrics_payload(
                 request.df,
                 contract,
                 validation=validation,
@@ -1442,9 +1405,13 @@ def _execute_write_request(
                     dq_dataset_id,
                     dq_dataset_version,
                 )
-            return metrics, reused_metrics
+            return ObservationPayload(
+                metrics=metrics,
+                schema=schema_payload,
+                reused=reused_metrics,
+            )
 
-        assessment = quality_manager.evaluate_dataset(
+        assessment = governance_client.evaluate_dataset(
             contract=contract,
             dataset_id=dq_dataset_id,
             dataset_version=dq_dataset_version,
@@ -1474,7 +1441,7 @@ def _execute_write_request(
             request_draft = True
 
         if request_draft:
-            draft_contract = quality_manager.review_validation_outcome(
+            draft_contract = governance_client.review_validation_outcome(
                 validation=validation,
                 base_contract=contract,
                 dataset_id=dq_dataset_id,
@@ -1483,6 +1450,7 @@ def _execute_write_request(
                 dq_status=status,
                 draft_requested=True,
                 pipeline_context=request.pipeline_context,
+                operation="write",
             )
             if draft_contract is not None and status is not None:
                 details = dict(status.details or {})
@@ -1494,5 +1462,12 @@ def _execute_write_request(
                 "DQ governance returned a draft contract for the submitted dataset, "
                 "indicating the provided contract version is out of date",
             )
+
+        governance_client.link_dataset_contract(
+            dataset_id=dq_dataset_id,
+            dataset_version=dq_dataset_version,
+            contract_id=contract.id,
+            contract_version=contract.version,
+        )
 
     return status, validation

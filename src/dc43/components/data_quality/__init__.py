@@ -11,21 +11,12 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle guard
         attach_failed_expectations,
         validate_dataframe,
     )
-    from .manager import (  # noqa: F401
-        DataQualityManager,
-        GovernanceHandles,
-        PipelineContext,
-        QualityAssessment,
-        QualityDraftContext,
-    )
+    from .manager import DataQualityManager, ObservationPayload  # noqa: F401
     from .validation import apply_contract  # noqa: F401
 
 __all__ = [
     "DataQualityManager",
-    "GovernanceHandles",
-    "QualityAssessment",
-    "QualityDraftContext",
-    "PipelineContext",
+    "ObservationPayload",
     "DQClient",
     "DQStatus",
     "apply_contract",
@@ -37,10 +28,7 @@ _EXPORT_MAP = {
     "DQClient": ("governance", "DQClient"),
     "DQStatus": ("governance", "DQStatus"),
     "DataQualityManager": ("manager", "DataQualityManager"),
-    "GovernanceHandles": ("manager", "GovernanceHandles"),
-    "QualityAssessment": ("manager", "QualityAssessment"),
-    "QualityDraftContext": ("manager", "QualityDraftContext"),
-    "PipelineContext": ("manager", "PipelineContext"),
+    "ObservationPayload": ("manager", "ObservationPayload"),
     "apply_contract": ("validation", "apply_contract"),
     "validate_dataframe": ("integration", "validate_dataframe"),
     "attach_failed_expectations": ("integration", "attach_failed_expectations"),

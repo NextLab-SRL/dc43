@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Optional
 
-import json
-
 import pytest
 
 from open_data_contract_standard.model import (
@@ -23,8 +21,7 @@ from dc43.components.integration.spark_io import (
     DatasetResolution,
 )
 from dc43.components.integration.violation_strategy import SplitWriteViolationStrategy
-from dc43.components.data_quality import GovernanceHandles
-from dc43.components.data_quality.governance.stubs import StubDQClient
+from dc43.components.governance_service import build_local_governance_service
 from datetime import datetime
 import logging
 
@@ -76,7 +73,7 @@ def test_dq_integration_warn(spark, tmp_path: Path):
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount", "currency"])
     df.write.mode("overwrite").format("parquet").save(str(data_dir))
 
-    dq = StubDQClient(base_path=str(tmp_path / "dq_state"), block_on_violation=False)
+    governance = build_local_governance_service(store)
     # enforce=False to avoid raising on validation expectation failures
     _, status = read_with_contract(
         spark,
@@ -84,7 +81,7 @@ def test_dq_integration_warn(spark, tmp_path: Path):
         contract_store=store,
         expected_contract_version=f"=={contract.version}",
         enforce=False,
-        dq_client=dq,
+        governance_service=governance,
         return_status=True,
     )
     assert status is not None
@@ -292,7 +289,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
         ["order_id", "customer_id", "order_ts", "amount", "currency"],
     )
 
-    dq = StubDQClient(base_path=str(tmp_path / "dq_state"))
+    governance = build_local_governance_service(store)
     locator = StaticDatasetLocator(dataset_version="dq-out")
     result, status = write_with_contract(
         df=df,
@@ -301,7 +298,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
         expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=locator,
         return_status=True,
     )
@@ -318,7 +315,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
             expected_contract_version=f"=={contract.version}",
             mode="overwrite",
             enforce=True,
-            dq_client=dq,
+            governance_service=governance,
             dataset_locator=locator,
         )
 
@@ -335,9 +332,9 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
         ["order_id", "customer_id", "order_ts", "amount", "currency"],
     )
 
-    dq = StubDQClient(base_path=str(tmp_path / "dq_state_upgrade"))
     store = FSContractStore(str(tmp_path / "upgrade_contracts"))
     store.put(contract_v1)
+    governance = build_local_governance_service(store)
     upgrade_locator = StaticDatasetLocator(
         dataset_version="2024-01-01",
         dataset_id=f"path:{dest_dir}",
@@ -349,7 +346,7 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
         expected_contract_version=f"=={contract_v1.version}",
         mode="overwrite",
         enforce=False,
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=upgrade_locator,
         return_status=True,
     )
@@ -359,35 +356,19 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
 
     dataset_ref = f"path:{dest_dir}"
     assert (
-        dq.get_linked_contract_version(dataset_id=dataset_ref)
+        governance.get_linked_contract_version(dataset_id=dataset_ref)
         == f"{contract_v1.id}:{contract_v1.version}"
     )
     assert (
-        dq.get_linked_contract_version(
+        governance.get_linked_contract_version(
             dataset_id=dataset_ref,
             dataset_version="2024-01-01",
         )
         == f"{contract_v1.id}:{contract_v1.version}"
     )
 
-    def _safe(value: str) -> str:
-        return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in value)
 
-    status_file = (
-        tmp_path
-        / "dq_state_upgrade"
-        / "status"
-        / _safe(dataset_ref)
-        / f"{_safe('2024-01-01')}.json"
-    )
-    payload = json.loads(status_file.read_text())
-    assert payload["contract_id"] == contract_v1.id
-    assert payload["contract_version"] == contract_v1.version
-    assert payload["dataset_version"] == "2024-01-01"
-    assert "recorded_at" in payload
-
-
-def test_governance_handles_persist_draft_context(spark, tmp_path: Path) -> None:
+def test_governance_service_persists_draft_context(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "handles"
     contract = make_contract(str(dest_dir))
     store = persist_contract(tmp_path, contract)
@@ -402,11 +383,7 @@ def test_governance_handles_persist_draft_context(spark, tmp_path: Path) -> None
         ["order_id", "customer_id", "order_ts", "amount"],
     )
 
-    handles = GovernanceHandles(
-        dq_client=StubDQClient(base_path=str(tmp_path / "handles_dq")),
-        contract_store=store,
-    )
-
+    governance = build_local_governance_service(store)
     locator = StaticDatasetLocator(dataset_version="handles-run")
 
     result = write_with_contract(
@@ -416,7 +393,7 @@ def test_governance_handles_persist_draft_context(spark, tmp_path: Path) -> None
         expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
-        dq_client=handles,
+        governance_service=governance,
         dataset_locator=locator,
         pipeline_context={"job": "governance-bundle"},
     )

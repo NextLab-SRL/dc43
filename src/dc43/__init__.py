@@ -5,18 +5,18 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .components.data_quality import (
-    DataQualityManager,
-    DQClient,
-    DQStatus,
-    QualityAssessment,
-    QualityDraftContext,
-)
+from .components.data_quality import DataQualityManager, DQClient, DQStatus, ObservationPayload
 from .components.data_quality.engine import (
     ExpectationSpec,
     ValidationResult,
     evaluate_contract,
     expectation_specs,
+)
+from .components.governance_service import (
+    GovernanceServiceClient,
+    QualityAssessment,
+    QualityDraftContext,
+    build_local_governance_service,
 )
 from .components.data_quality.integration import (
     SPARK_TYPES,
@@ -51,8 +51,10 @@ except Exception:  # pragma: no cover
 __all__ = [
     "SemVer",
     "DataQualityManager",
+    "ObservationPayload",
     "QualityAssessment",
     "QualityDraftContext",
+    "GovernanceServiceClient",
     "ValidationResult",
     "ExpectationSpec",
     "expectation_specs",
@@ -67,6 +69,7 @@ __all__ = [
     "collect_observations",
     "compute_metrics",
     "build_metrics_payload",
+    "build_local_governance_service",
     "draft_from_observations",
     "draft_from_validation_result",
     "BITOL_SCHEMA_URL",

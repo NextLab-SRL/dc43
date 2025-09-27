@@ -183,15 +183,15 @@ from dc43.components.integration.spark_io import (
     read_with_contract,
     ContractVersionLocator,
 )
-from dc43.components.data_quality.governance.stubs import StubDQClient
+from dc43.components.governance_service import build_local_governance_service
 
-dq = StubDQClient(base_path="/mnt/dq_state")
+governance = build_local_governance_service(store)
 df, status = read_with_contract(
     spark,
     contract_id="sales.orders",
     contract_store=store,
     expected_contract_version="==0.1.0",
-    dq_client=dq,
+    governance_service=governance,
     dataset_locator=ContractVersionLocator(dataset_version="latest"),
     return_status=True,
 )
@@ -214,7 +214,7 @@ vr, status = write_with_contract(
     dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",
     enforce=False,                 # continue writing
-    dq_client=dq,
+    governance_service=governance,
     return_status=True,
 )
 if status and status.status == "block":

@@ -1,7 +1,7 @@
 # Spark Data-Quality Integration
 
 The Spark integration captures schema snapshots and expectation metrics inside
-Spark jobs before forwarding them to the **data quality manager**. Runtime
+Spark jobs before forwarding them to the **governance service**. Runtime
 helpers live in `dc43.components.data_quality.integration` while the
 runtime-agnostic evaluation logic stays inside
 `dc43.components.data_quality.engine`. Use
@@ -15,7 +15,7 @@ The Spark integration exposes the following building blocks:
 * `schema_snapshot(df)` – capture the observed fields as `backend_type`,
   canonical `odcs_type`, and `nullable` flags.
 * `collect_observations(df, contract)` – return `(schema, metrics)` tuples ready
-  to send to the governance interface.
+  to hand to the governance service via an `ObservationPayload`.
 * `validate_dataframe(df, contract)` – optional helper that runs the collected
   observations through the engine locally to produce a `ValidationResult` with
   cached schema and metrics.
@@ -29,28 +29,28 @@ The Spark integration exposes the following building blocks:
   writes (via `dc43.components.data_quality.validation`).
 
 ```python
-from dc43.components.data_quality.integration import (
-    build_metrics_payload,
-    collect_observations,
-    schema_snapshot,
-)
-from dc43.components.data_quality.manager import DataQualityManager
-from dc43.components.data_quality.governance import DQClient
+from dc43.components.data_quality import ObservationPayload
+from dc43.components.data_quality.integration import build_metrics_payload
+from dc43.components.governance_service import build_local_governance_service
 
-schema, metrics = collect_observations(df, contract)
-metrics_payload, _, _ = build_metrics_payload(
+metrics_payload, schema_payload, reused = build_metrics_payload(
     df,
     contract,
     validation=None,
     include_schema=True,
 )
-quality = DataQualityManager(dq_client)
-status = quality.submit_metrics(
+payload = ObservationPayload(metrics=metrics_payload, schema=schema_payload, reused=reused)
+governance = build_local_governance_service(contract_store)
+assessment = governance.evaluate_dataset(
     contract=contract,
     dataset_id="table:catalog.schema.orders",
     dataset_version="2024-05-30",
-    metrics=metrics_payload,
+    validation=None,
+    observations=lambda: payload,
+    operation="write",
+    draft_on_violation=True,
 )
+status = assessment.status
 ```
 
 `validate_dataframe` treats schema violations (missing columns, type drift,
@@ -59,18 +59,18 @@ warnings by default so pipelines can continue running while governance decides
 whether to block.  Pass `expectation_severity="error"` to fail locally on those
 violations or `"ignore"` to silence them entirely.
 
-`submit_metrics` delegates the final compatibility verdict to whichever
-data-quality governance adapter you configure (filesystem stub, Collibra,
-bespoke service). The data quality manager wraps that adapter, refreshing
-statuses when they are unknown and orchestrating draft proposals when
-metrics surface schema drift.
+`evaluate_dataset` delegates the final compatibility verdict to whichever
+governance backend you configure (filesystem stub, Collibra, bespoke
+service). The governance service links datasets to contracts, records
+pipeline activity, and generates draft proposals when metrics surface
+schema drift.
 
 ## Extending the Spark integration
 
 * **Domain-specific metrics** – append calculated KPIs to the metric payload
   before handing it to the governance layer.
 * **Observability sinks** – forward schema/metric snapshots to monitoring
-  platforms before invoking `DQClient.submit_metrics`.
+  platforms before invoking `GovernanceServiceClient.evaluate_dataset`.
 * **Streaming support** – run the helpers inside Structured Streaming
   micro-batches to keep governance dashboards up to date.
 
