@@ -244,7 +244,7 @@ def validate_dataframe(
     strict_types: bool = True,
     allow_extra_columns: bool = True,
     collect_metrics: bool = True,
-    expectation_severity: Literal["error", "warning", "ignore"] = "warning",
+    expectation_severity: Literal["error", "warning", "ignore"] = "error",
 ) -> ValidationResult:
     """Validate ``df`` against ``contract`` using Spark-collected observations."""
 

@@ -66,7 +66,7 @@ def persist_contract(tmp_path: Path, contract: OpenDataContractStandard) -> FSCo
     return store
 
 
-def test_dq_integration_warn(spark, tmp_path: Path):
+def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
     data_dir = tmp_path / "parquet"
     contract = make_contract(str(data_dir))
     store = persist_contract(tmp_path, contract)
@@ -90,10 +90,14 @@ def test_dq_integration_warn(spark, tmp_path: Path):
         return_status=True,
     )
     assert status is not None
-    assert status.status in ("warn", "ok")
+    assert status.status == "block"
+    details = status.details or {}
+    errors = details.get("errors") or []
+    assert errors
+    assert any("currency" in str(message) for message in errors)
 
 
-def test_write_violation_downgraded_to_warning(spark, tmp_path: Path):
+def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "dq"
     contract = make_contract(str(dest_dir))
     store = persist_contract(tmp_path, contract)
@@ -116,12 +120,12 @@ def test_write_violation_downgraded_to_warning(spark, tmp_path: Path):
         return_status=True,
     )
     assert status is not None
-    assert status.status == "warn"
+    assert status.status == "block"
     details = status.details or {}
-    assert details.get("status_before_override") == "block"
-    overrides = details.get("overrides") or []
-    assert any("downgraded" in note for note in overrides)
-    assert not result.ok or result.warnings  # violations tracked in status
+    errors = details.get("errors") or []
+    assert errors
+    assert any("amount" in str(message) for message in errors)
+    assert not result.ok  # violations surface as blocking failures
 
 
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
@@ -156,6 +160,7 @@ def test_inferred_contract_id_simple(spark, tmp_path: Path):
         enforce=False,
     )
     assert result.ok
+    assert not result.errors
 
 
 def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
@@ -292,10 +297,10 @@ def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
         violation_strategy=strategy,
     )
 
-    assert result.ok
+    assert not result.ok
+    assert any("outside enum" in error for error in result.errors)
     assert any("Valid subset written" in warning for warning in result.warnings)
     assert any("Rejected subset written" in warning for warning in result.warnings)
-    assert any("outside enum" in warning for warning in result.warnings)
 
     valid_path = base_dir / strategy.valid_suffix
     reject_path = base_dir / strategy.reject_suffix
@@ -339,7 +344,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
         return_status=True,
     )
 
-    assert result.ok
+    assert not result.ok
     assert status is not None
     assert status.status == "block"
     assert status.details and status.details.get("violations", 0) > 0

@@ -378,17 +378,15 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 "warnings": list(validation.warnings),
                 "violations": violation_total,
             }
-            status_value = "warn"
             if operation == "write":
-                overrides = list(details.get("overrides", []))
-                overrides.append(
-                    "Write violations downgraded to warning for governance assessment",
-                )
-                details["overrides"] = overrides
-                details.setdefault("status_before_override", "block")
                 details.setdefault("operation", operation)
+                return DQStatus(
+                    status="block",
+                    reason=reason,
+                    details=details,
+                )
             return DQStatus(
-                status=status_value,
+                status="warn",
                 reason=reason,
                 details=details,
             )

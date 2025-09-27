@@ -19,7 +19,7 @@ class DataQualityManager:
         *,
         strict_types: bool = True,
         allow_extra_columns: bool = True,
-        expectation_severity: str = "warning",
+        expectation_severity: str = "error",
     ) -> None:
         self._strict_types = strict_types
         self._allow_extra_columns = allow_extra_columns

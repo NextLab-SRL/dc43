@@ -54,10 +54,9 @@ status = assessment.status
 ```
 
 `validate_dataframe` treats schema violations (missing columns, type drift,
-required nulls) as blocking failures.  Expectation metrics are downgraded to
-warnings by default so pipelines can continue running while governance decides
-whether to block.  Pass `expectation_severity="error"` to fail locally on those
-violations or `"ignore"` to silence them entirely.
+required nulls) and expectation breaches as blocking failures by default.
+Pass `expectation_severity="warning"` to downgrade expectation metrics when you
+want to keep jobs running, or `"ignore"` to silence them entirely.
 
 `evaluate_dataset` delegates the final compatibility verdict to whichever
 governance backend you configure (filesystem stub, Collibra, bespoke
