@@ -502,6 +502,7 @@ class DatasetRecord:
     run_type: str = "infer"
     violations: int = 0
     draft_contract_version: str | None = None
+    scenario_key: str | None = None
 
 
 _STATUS_BADGES: Dict[str, str] = {
@@ -1273,18 +1274,55 @@ def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
 def scenario_run_rows(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
     """Return scenario metadata enriched with the latest recorded run."""
 
-    grouped: Dict[str, List[DatasetRecord]] = {}
+    by_dataset: Dict[str, List[DatasetRecord]] = {}
+    by_scenario: Dict[str, List[DatasetRecord]] = {}
     for record in records:
-        grouped.setdefault(record.dataset_name, []).append(record)
+        if record.dataset_name:
+            by_dataset.setdefault(record.dataset_name, []).append(record)
+        if record.scenario_key:
+            by_scenario.setdefault(record.scenario_key, []).append(record)
 
-    for entries in grouped.values():
+    for entries in by_dataset.values():
+        entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+    for entries in by_scenario.values():
         entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
 
     rows: List[Dict[str, Any]] = []
     for key, cfg in SCENARIOS.items():
         params: Mapping[str, Any] = cfg.get("params", {})
         dataset_name = _scenario_dataset_name(params)
-        dataset_records = grouped.get(dataset_name, [])
+        dataset_records: List[DatasetRecord] = list(by_scenario.get(key, []))
+
+        if not dataset_records:
+            candidate_records = by_dataset.get(dataset_name, [])
+            if candidate_records:
+                contract_id = params.get("contract_id")
+                contract_version = params.get("contract_version")
+                run_type = params.get("run_type")
+                filtered: List[DatasetRecord] = []
+                for record in candidate_records:
+                    if record.scenario_key:
+                        continue
+                    if contract_id and record.contract_id and record.contract_id != contract_id:
+                        continue
+                    if (
+                        contract_version
+                        and record.contract_version
+                        and record.contract_version != contract_version
+                    ):
+                        continue
+                    if run_type and record.run_type and record.run_type != run_type:
+                        continue
+                    filtered.append(record)
+                if filtered:
+                    dataset_records = filtered
+                else:
+                    dataset_records = [rec for rec in candidate_records if not rec.scenario_key]
+                    if not dataset_records:
+                        dataset_records = list(candidate_records)
+
+        dataset_records = list(dataset_records)
+        dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
         latest_record = dataset_records[-1] if dataset_records else None
 
         rows.append(
@@ -1834,6 +1872,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("violation_strategy"),
             p.get("inputs"),
             p.get("output_adjustment"),
+            scenario_key=scenario,
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")

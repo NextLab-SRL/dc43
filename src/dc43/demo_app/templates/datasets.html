@@ -95,7 +95,7 @@
           </div>
         {% endif %}
       </td>
-      <td>
+      <td data-status-cell aria-live="polite">
         {% if record %}
           <div>
             {{ record.status }}
@@ -113,7 +113,7 @@
           <span class="text-muted">No runs yet</span>
         {% endif %}
       </td>
-      <td>
+      <td data-violations-cell>
         {% if record %}
           {% if output_details.get('violation_strategy') %}
             <div>Strategy: {{ output_details.get('violation_strategy') }}</div>
@@ -148,7 +148,11 @@
             </div>
           {% endif %}
           {% if not fails and not schema_errors %}
-            {{ record.violations }}
+            {% if record.violations %}
+              {{ record.violations }}
+            {% else %}
+              <span class="text-muted">No violations</span>
+            {% endif %}
           {% endif %}
         {% else %}
           <span class="text-muted">—</span>
@@ -282,6 +286,43 @@
           window.mermaid.run({ nodes: document.querySelectorAll('.popover .mermaid') });
         } else if (window.mermaid && typeof window.mermaid.init === 'function') {
           window.mermaid.init(undefined, document.querySelectorAll('.popover .mermaid'));
+        }
+      });
+    });
+
+    const forms = document.querySelectorAll('#scenario-table form');
+    forms.forEach((form) => {
+      form.addEventListener('submit', () => {
+        if (form.dataset.submitting === 'true') {
+          return;
+        }
+        form.dataset.submitting = 'true';
+
+        const button = form.querySelector('button[type="submit"]');
+        if (button) {
+          button.disabled = true;
+          button.innerHTML = '';
+          const spinner = document.createElement('span');
+          spinner.className = 'spinner-border spinner-border-sm me-2';
+          spinner.setAttribute('role', 'status');
+          spinner.setAttribute('aria-hidden', 'true');
+          button.appendChild(spinner);
+          const label = document.createElement('span');
+          label.textContent = 'Running…';
+          button.appendChild(label);
+        }
+
+        const row = form.closest('tr');
+        if (!row) {
+          return;
+        }
+        const statusCell = row.querySelector('[data-status-cell]');
+        if (statusCell) {
+          statusCell.innerHTML = '<span class="text-muted">Running…</span>';
+        }
+        const violationsCell = row.querySelector('[data-violations-cell]');
+        if (violationsCell) {
+          violationsCell.innerHTML = '<span class="text-muted">—</span>';
         }
       });
     });

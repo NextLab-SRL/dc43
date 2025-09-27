@@ -147,6 +147,7 @@ def test_scenario_rows_tracks_latest_record():
             dq_details={"output": {"violations": 0}},
             run_type="enforce",
             violations=0,
+            scenario_key="ok",
         ),
         DatasetRecord(
             contract_id="orders_enriched",
@@ -157,6 +158,7 @@ def test_scenario_rows_tracks_latest_record():
             dq_details={"output": {"violations": 1}},
             run_type="enforce",
             violations=1,
+            scenario_key="ok",
         ),
     ]
     try:
@@ -164,11 +166,59 @@ def test_scenario_rows_tracks_latest_record():
         rows = scenario_run_rows(load_records())
         row_map = {row["key"]: row for row in rows}
         ok_row = row_map["ok"]
-        base_runs = len([rec for rec in original if rec.dataset_name == "orders_enriched"])
+        base_runs = len([rec for rec in original if rec.scenario_key == "ok"])
         assert ok_row["run_count"] == base_runs + len(extra_records)
         assert ok_row["latest"] is not None
         assert ok_row["latest"]["dataset_version"] == "2024-12-02T00:00:00Z"
         assert ok_row["latest"]["status"] == "warning"
+    finally:
+        save_records(original)
+
+
+def test_scenario_rows_isolate_runs_per_scenario():
+    original = load_records()
+    scenario_records = [
+        DatasetRecord(
+            contract_id="orders_enriched",
+            contract_version="1.1.0",
+            dataset_name="orders_enriched",
+            dataset_version="2025-01-01T00:00:00Z",
+            status="ok",
+            dq_details={"output": {"violations": 0}},
+            run_type="observe",
+            violations=0,
+            scenario_key="split-lenient",
+        ),
+        DatasetRecord(
+            contract_id="orders_enriched",
+            contract_version="1.1.0",
+            dataset_name="orders_enriched",
+            dataset_version="2025-01-02T00:00:00Z",
+            status="ok",
+            dq_details={"output": {"violations": 0}},
+            run_type="enforce",
+            violations=0,
+            scenario_key="ok",
+        ),
+    ]
+    try:
+        save_records([*original, *scenario_records])
+        rows = scenario_run_rows(load_records())
+        row_map = {row["key"]: row for row in rows}
+        split_row = row_map["split-lenient"]
+        ok_row = row_map["ok"]
+
+        existing_split = len([rec for rec in original if rec.scenario_key == "split-lenient"])
+        existing_ok = len([rec for rec in original if rec.scenario_key == "ok"])
+
+        assert split_row["run_count"] == existing_split + 1
+        assert ok_row["run_count"] == existing_ok + 1
+        assert split_row["latest"]
+        assert ok_row["latest"]
+        assert split_row["latest"]["scenario_key"] == "split-lenient"
+        assert ok_row["latest"]["scenario_key"] == "ok"
+        assert split_row["latest"]["dataset_version"] == "2025-01-01T00:00:00Z"
+        assert ok_row["latest"]["dataset_version"] == "2025-01-02T00:00:00Z"
     finally:
         save_records(original)
 

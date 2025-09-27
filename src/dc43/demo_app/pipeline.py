@@ -339,6 +339,8 @@ def run_pipeline(
     violation_strategy: StrategySpec = None,
     inputs: Mapping[str, Mapping[str, Any]] | None = None,
     output_adjustment: str | None = None,
+    *,
+    scenario_key: str | None = None,
 ) -> tuple[str, str]:
     """Run an example pipeline using the stored contract.
 
@@ -349,8 +351,9 @@ def run_pipeline(
     flags, and read-status strategies for each source (``"orders"`` and
     ``"customers"``) so demo scenarios can highlight how mixed-validity inputs
     are handled.  ``output_adjustment`` optionally tweaks the joined dataframe
-    (for example to deliberately surface violations). Returns the dataset name
-    used along with the materialized version.
+    (for example to deliberately surface violations). ``scenario_key`` tags the
+    recorded run so the UI can distinguish scenarios that share the same output
+    dataset.  Returns the dataset name used along with the materialized version.
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
@@ -362,6 +365,8 @@ def run_pipeline(
         "run_id": run_timestamp,
         "run_type": run_type,
     }
+    if scenario_key:
+        base_pipeline_context["scenario_key"] = scenario_key
     if contract_id:
         base_pipeline_context["target_contract_id"] = contract_id
     if contract_version:
@@ -804,6 +809,7 @@ def run_pipeline(
             run_type,
             total_violations,
             draft_contract_version=draft_version,
+            scenario_key=scenario_key,
         )
     )
     save_records(records)
