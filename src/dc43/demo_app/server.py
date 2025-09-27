@@ -1318,8 +1318,6 @@ def scenario_run_rows(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
                     dataset_records = filtered
                 else:
                     dataset_records = [rec for rec in candidate_records if not rec.scenario_key]
-                    if not dataset_records:
-                        dataset_records = list(candidate_records)
 
         dataset_records = list(dataset_records)
         dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))

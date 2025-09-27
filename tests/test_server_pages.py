@@ -223,6 +223,30 @@ def test_scenario_rows_isolate_runs_per_scenario():
         save_records(original)
 
 
+def test_scenario_rows_ignore_mismatched_scenario_runs():
+    records = [
+        DatasetRecord(
+            contract_id="orders_enriched",
+            contract_version="1.0.0",
+            dataset_name="orders_enriched",
+            dataset_version="2025-05-01T00:00:00Z",
+            status="ok",
+            dq_details={"output": {"violations": 0}},
+            run_type="enforce",
+            violations=0,
+            scenario_key="ok",
+        )
+    ]
+
+    rows = scenario_run_rows(records)
+    row_map = {row["key"]: row for row in rows}
+
+    assert row_map["ok"]["latest"] is not None
+    assert row_map["ok"]["latest"]["dataset_version"] == "2025-05-01T00:00:00Z"
+    assert row_map["dq"]["latest"] is None
+    assert row_map["schema-dq"]["latest"] is None
+
+
 @pytest.mark.skipif(not PYSPARK_AVAILABLE, reason="pyspark required for preview API")
 def test_contract_preview_api():
     rec = load_records()[0]
