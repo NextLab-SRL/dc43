@@ -14,7 +14,7 @@ Regardless of the backend, a contract manager must be able to:
 dc43 defines the interface in [`src/dc43/components/contract_store/interface.py`](../src/dc43/components/contract_store/interface.py):
 
 ```python
-from dc43.components.contract_store.interface import ContractStore
+from dc43.lib.components.contract_store.interface import ContractStore
 from open_data_contract_standard.model import OpenDataContractStandard
 
 class MyStore(ContractStore):

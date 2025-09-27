@@ -31,8 +31,8 @@ adapter configuration so dc43 can route writes and reads consistently.
 ## Configuration example
 
 ```python
-from dc43.components.contract_store import HttpCollibraContractAdapter
-from dc43.components.contract_store.impl.collibra import CollibraContractStore
+from dc43.lib.components.contract_store import HttpCollibraContractAdapter
+from dc43.lib.components.contract_store.impl.collibra import CollibraContractStore
 
 adapter = HttpCollibraContractAdapter(
     base_url="https://collibra/api",

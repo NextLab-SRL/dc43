@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.contract_validation import (
+from dc43.lib.components.contract_validation import (
     ValidationResult,
     evaluate_observations,
 )

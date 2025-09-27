@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Mapping
 
 from ..interface import DQClient, DQStatus
-from dc43.components.contract_drafter import draft_from_validation_result
-from dc43.components.contract_validation import (
+from dc43.lib.components.contract_drafter import draft_from_validation_result
+from dc43.lib.components.contract_validation import (
     ValidationResult,
     evaluate_observations,
 )

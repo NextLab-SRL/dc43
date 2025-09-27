@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
-from dc43.components.data_quality.governance import DQStatus
+from dc43.lib.components.data_quality.governance import DQStatus
 
 PipelineContextSpec = Union[
     "PipelineContext",

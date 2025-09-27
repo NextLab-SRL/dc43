@@ -14,7 +14,7 @@ dc43 is a governance-first toolkit that separates the **concepts** of data contr
 
 On top of the conceptual platform, dc43 ships opinionated integrations that you can adopt or replace:
 
-- Spark & DLT pipelines via `dc43.integration.spark_io` with schema/metric helpers from `dc43.components.data_quality` for auto-casting and contract-aware IO.
+- Spark & DLT pipelines via `dc43.integration.spark_io` with schema/metric helpers from `dc43.lib.components.data_quality` for auto-casting and contract-aware IO.
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
 
@@ -132,7 +132,7 @@ contract = OpenDataContractStandard(
 2) Validate and write with Spark
 
 ```python
-from dc43.components.contract_store.impl.filesystem import FSContractStore
+from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
 from dc43.integration.spark_io import (
     write_with_contract,
     ContractVersionLocator,
@@ -169,7 +169,7 @@ def orders():
 4) Store and resolve contracts
 
 ```python
-from dc43.components.contract_store.impl.filesystem import FSContractStore
+from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
 
 store = FSContractStore(base_path="/mnt/contracts")
 store.put(contract)

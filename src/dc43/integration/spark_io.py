@@ -28,18 +28,18 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.components.contract_store.interface import ContractStore
-from dc43.components.data_quality import DQStatus
+from dc43.lib.components.contract_store.interface import ContractStore
+from dc43.lib.components.data_quality import DQStatus
 from dc43.lib import ObservationPayload
 from dc43.services.governance.client import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
-from dc43.components.contract_validation import ValidationResult
-from dc43.components.data_quality.integration import (
+from dc43.lib.components.contract_validation import ValidationResult
+from dc43.lib.components.data_quality.integration import (
     build_metrics_payload,
     expectations_from_contract,
     validate_dataframe,
 )
-from dc43.components.data_quality.validation import apply_contract
+from dc43.lib.components.data_quality.validation import apply_contract
 from dc43.odcs import contract_identity, ensure_version
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore

@@ -6,10 +6,10 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.contract_drafter import draft_from_validation_result
-from dc43.components.contract_store.interface import ContractStore
-from dc43.components.contract_validation import ValidationResult
-from dc43.components.data_quality.governance import DQStatus
+from dc43.lib.components.contract_drafter import draft_from_validation_result
+from dc43.lib.components.contract_store.interface import ContractStore
+from dc43.lib.components.contract_validation import ValidationResult
+from dc43.lib.components.data_quality.governance import DQStatus
 from dc43.odcs import contract_identity
 from dc43.services.contracts.backend import ContractServiceBackend
 from dc43.services.contracts.client import ContractServiceClient

@@ -13,13 +13,13 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.contract_validation import (
+from dc43.lib.components.contract_validation import (
     ExpectationSpec,
     ValidationResult,
     evaluate_observations as _engine_evaluate_observations,
     expectation_specs,
 )
-from dc43.components.data_quality.governance import DQStatus
+from dc43.lib.components.data_quality.governance import DQStatus
 
 
 # Minimal mapping from ODCS primitive type strings to Spark SQL types.

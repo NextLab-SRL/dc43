@@ -5,7 +5,7 @@ from __future__ import annotations
 This application provides a small Bootstrap-powered UI to manage data
 contracts and run an example Spark pipeline that records dataset versions
 with their validation status. Contracts are stored on the local
-filesystem using :class:`~dc43.components.contract_store.impl.filesystem.FSContractStore` and dataset
+filesystem using :class:`~dc43.lib.components.contract_store.impl.filesystem.FSContractStore` and dataset
 metadata lives in a JSON file.
 
 Run the application with::
@@ -36,8 +36,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
 
-from dc43.components.contract_store.impl.filesystem import FSContractStore
-from dc43.components.data_quality.integration import expectations_from_contract
+from dc43.lib.components.contract_store.impl.filesystem import FSContractStore
+from dc43.lib.components.data_quality.integration import expectations_from_contract
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
     OpenDataContractStandard,

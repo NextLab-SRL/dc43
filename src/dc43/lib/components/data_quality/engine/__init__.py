@@ -1,6 +1,6 @@
-"""Backwards compatible shim to :mod:`dc43.components.contract_validation`."""
+"""Backwards compatible shim to :mod:`dc43.lib.components.contract_validation`."""
 
-from dc43.components.contract_validation import (
+from dc43.lib.components.contract_validation import (
     ExpectationSpec,
     ValidationResult,
     evaluate_contract,

@@ -7,7 +7,7 @@ from typing import Any, Dict, Mapping, Optional, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.components.contract_validation import ValidationResult
+from dc43.lib.components.contract_validation import ValidationResult
 
 
 @dataclass

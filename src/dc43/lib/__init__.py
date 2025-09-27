@@ -5,11 +5,11 @@ that callers can embed the data-quality engine, contract drafting helpers, and
 Open Data Contract Standard utilities directly within their applications.
 """
 
-from dc43.components.contract_drafter import (
+from dc43.lib.components.contract_drafter import (
     draft_from_observations,
     draft_from_validation_result,
 )
-from dc43.components.data_quality import (
+from dc43.lib.components.data_quality import (
     DataQualityManager,
     DQClient,
     DQStatus,
@@ -17,13 +17,13 @@ from dc43.components.data_quality import (
     attach_failed_expectations,
     validate_dataframe,
 )
-from dc43.components.contract_validation import (
+from dc43.lib.components.contract_validation import (
     ExpectationSpec,
     ValidationResult,
     evaluate_contract,
     expectation_specs,
 )
-from dc43.components.data_quality.integration import (
+from dc43.lib.components.data_quality.integration import (
     SPARK_TYPES,
     build_metrics_payload,
     collect_observations,
