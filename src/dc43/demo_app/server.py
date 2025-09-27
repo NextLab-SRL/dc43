@@ -54,7 +54,7 @@ from packaging.version import Version
 # still load when pyspark is not installed (for example when running fast unit
 # tests).
 try:  # pragma: no cover - exercised indirectly when pyspark is available
-    from dc43.components.integration import (  # type: ignore[attr-defined]
+    from dc43.integration import (  # type: ignore[attr-defined]
         ContractVersionLocator,
         read_with_contract,
     )

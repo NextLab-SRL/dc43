@@ -137,7 +137,7 @@ contract = OpenDataContractStandard(
     spark,
     contract_id="orders",
     contract_store=store,
-    dq_client=dq,
+    governance_service=governance,
     dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
     </section>
@@ -181,7 +181,7 @@ if errors:
     enriched,
     contract_id="orders",
     contract_store=store,
-    dq_client=dq,
+    governance_service=governance,
     dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
     </section>
