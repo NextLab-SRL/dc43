@@ -1340,6 +1340,10 @@ def write_with_contract(
             if primary_status is not None:
                 primary_details = dict(primary_status.details or {})
                 primary_details.setdefault("auxiliary_statuses", aggregated_entries)
+                primary_entry = next(
+                    (entry for entry in aggregated_entries if entry.get("role") == "primary"),
+                    None,
+                )
                 if aggregated_violations:
                     primary_details["violations"] = aggregated_violations
                 if aggregated_draft and not primary_details.get("draft_contract_version"):
@@ -1385,6 +1389,17 @@ def write_with_contract(
                     primary_details["overrides"] = overrides
                     if original_status:
                         primary_details.setdefault("status_before_override", original_status)
+                    if primary_entry is not None:
+                        entry_details = dict(primary_entry.get("details", {}) or {})
+                        entry_overrides = list(entry_details.get("overrides", []) or [])
+                        if override_note not in entry_overrides:
+                            entry_overrides.append(override_note)
+                        if original_status:
+                            entry_details.setdefault("status_before_override", original_status)
+                        if entry_overrides:
+                            entry_details["overrides"] = entry_overrides
+                        primary_entry["details"] = entry_details
+                        primary_entry["status"] = primary_status.status
 
                 primary_status.details = primary_details
 

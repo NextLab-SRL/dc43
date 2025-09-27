@@ -196,8 +196,20 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
         dq_aux = output.get("dq_auxiliary_statuses", [])
         assert dq_aux
         status_map = {entry["dataset_id"]: entry for entry in dq_aux}
+        assert "orders_enriched" in status_map
         assert "orders_enriched::valid" in status_map
         assert "orders_enriched::reject" in status_map
+        primary_entry = status_map["orders_enriched"]
+        assert primary_entry.get("status") == "warn"
+        primary_details = (
+            primary_entry.get("details") if isinstance(primary_entry.get("details"), dict) else {}
+        )
+        assert primary_details.get("status_before_override") == "block"
+        overrides = primary_details.get("overrides", []) or []
+        assert any(
+            "Primary DQ status downgraded" in str(note)
+            for note in overrides
+        )
         assert (
             status_map["orders_enriched::reject"].get("details", {}).get("violations")
             >= 1
