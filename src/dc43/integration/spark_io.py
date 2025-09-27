@@ -30,7 +30,7 @@ from pyspark.sql import DataFrame, SparkSession
 
 from dc43.components.contract_store.interface import ContractStore
 from dc43.components.data_quality import DQStatus
-from dc43.services.data_quality import ObservationPayload
+from dc43.lib import ObservationPayload
 from dc43.services.governance.client import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
 from dc43.components.data_quality.engine import ValidationResult

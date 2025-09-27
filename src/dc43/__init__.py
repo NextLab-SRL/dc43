@@ -1,86 +1,38 @@
-"""Public API for dc43.
+"""Top-level package for the dc43 platform.
 
-Exports minimal runtime helpers: versioning (SemVer), ODCS helpers,
-validation utilities, and DQ protocol types.
+The project is now organised into dedicated sub-packages that make the layering
+explicit:
+
+* :mod:`dc43.lib` provides the pure Python building blocks that can be embedded
+  without any running services.
+* :mod:`dc43.clients` exposes the thin client abstractions used to talk to
+  remote or in-process services.
+* :mod:`dc43.services` contains service runtime helpers and local
+  implementations.
+
+The symbols continue to be re-exported here for backwards compatibility so
+existing imports remain valid.
 """
 
-from .versioning import SemVer
-from .components.data_quality import DataQualityManager, DQClient, DQStatus
-from .services.data_quality import ObservationPayload
-from .components.data_quality.engine import (
-    ExpectationSpec,
-    ValidationResult,
-    evaluate_contract,
-    expectation_specs,
-)
-from .services.governance.client import GovernanceServiceClient
-from .services.governance.local import build_local_governance_service
-from .services.governance.models import QualityAssessment, QualityDraftContext
-from .components.data_quality.integration import (
-    SPARK_TYPES,
-    attach_failed_expectations,
-    build_metrics_payload,
-    collect_observations,
-    compute_metrics,
-    odcs_type_name_from_spark,
-    schema_snapshot,
-    spark_type_name,
-    validate_dataframe,
-)
-from .components.data_quality.validation import apply_contract
-from .components.contract_drafter import draft_from_observations, draft_from_validation_result
-from .odcs import (
-    BITOL_SCHEMA_URL,
-    as_odcs_dict,
-    ensure_version,
-    contract_identity,
-    list_properties,
-    fingerprint,
-    build_odcs,
-    to_model,
-)
-try:
-    # Convenience re-export of the official ODCS model
-    from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
-except Exception:  # pragma: no cover
-    OpenDataContractStandard = None  # type: ignore
+from __future__ import annotations
 
+from typing import Set
 
-__all__ = [
-    "SemVer",
-    "DataQualityManager",
-    "ObservationPayload",
-    "QualityAssessment",
-    "QualityDraftContext",
-    "GovernanceServiceClient",
-    "ValidationResult",
-    "ExpectationSpec",
-    "expectation_specs",
-    "evaluate_contract",
-    "validate_dataframe",
-    "schema_snapshot",
-    "spark_type_name",
-    "odcs_type_name_from_spark",
-    "apply_contract",
-    "SPARK_TYPES",
-    "attach_failed_expectations",
-    "collect_observations",
-    "compute_metrics",
-    "build_metrics_payload",
-    "build_local_governance_service",
-    "draft_from_observations",
-    "draft_from_validation_result",
-    "BITOL_SCHEMA_URL",
-    "as_odcs_dict",
-    "ensure_version",
-    "contract_identity",
-    "list_properties",
-    "fingerprint",
-    "build_odcs",
-    "to_model",
-    "OpenDataContractStandard",
-    "DQClient",
-    "DQStatus",
-]
+from . import clients, lib, services
+
+# Re-export the public API of the dedicated sub-packages.
+from .clients import *  # noqa: F401,F403
+from .lib import *  # noqa: F401,F403
+from .services import *  # noqa: F401,F403
 
 __version__ = "0.1.0"
+
+
+def _collect_public_symbols() -> Set[str]:
+    exported: Set[str] = set()
+    for module in (lib, clients, services):
+        exported.update(getattr(module, "__all__", ()))
+    return exported
+
+
+__all__ = sorted(_collect_public_symbols())

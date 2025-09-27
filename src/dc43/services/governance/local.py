@@ -14,7 +14,7 @@ from dc43.odcs import contract_identity
 from dc43.services.contracts import ContractServiceClient
 from dc43.services.contracts.local import LocalContractServiceClient
 from dc43.services.data_quality import DataQualityServiceClient, LocalDataQualityServiceClient
-from dc43.services.data_quality.models import ObservationPayload
+from dc43.lib.data_quality import ObservationPayload
 
 from .client import GovernanceServiceClient
 from .models import (

@@ -38,7 +38,7 @@ governance workflows.
 - `evaluate` accepts an `ObservationPayload` (metrics, optional schema,
   reused flag) and an Open Data Contract. It returns a `ValidationResult`
   that downstream services can interpret as `ok`, `warn`, or `block`.
-- `ObservationPayload` (from `dc43.services.data_quality`) is the
+- `ObservationPayload` (from `dc43.lib`) is the
   convenience dataclass used by integrations and governance services to
   package cached observations in a structured way.
 

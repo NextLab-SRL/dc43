@@ -29,7 +29,7 @@ The Spark integration exposes the following building blocks:
   writes (via `dc43.components.data_quality.validation`).
 
 ```python
-from dc43.services.data_quality import ObservationPayload
+from dc43.lib import ObservationPayload
 from dc43.components.data_quality.integration import build_metrics_payload
 from dc43.services.governance.local import build_local_governance_service
 
