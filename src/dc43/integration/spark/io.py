@@ -446,10 +446,33 @@ class ContractVersionLocator:
 
         selected: List[tuple[str, str]] = []
         if lower == "latest":
+            alias_key = None
+            alias_path = base_dir / dataset_version_normalised
+            if alias_path.exists():
+                try:
+                    resolved_alias = alias_path.resolve()
+                except OSError:
+                    resolved_alias = alias_path
+                if resolved_alias.is_dir():
+                    alias_display = cls._folder_version_value(resolved_alias)
+                    alias_key = cls._version_key(alias_display)
+
             if include_prior:
-                selected = entries
+                if alias_key is not None:
+                    selected = [
+                        entry for entry in entries if cls._version_key(entry[0]) <= alias_key
+                    ]
+                else:
+                    selected = entries
             elif entries:
-                selected = [entries[-1]]
+                if alias_key is not None:
+                    selected = [
+                        entry for entry in entries if cls._version_key(entry[0]) == alias_key
+                    ]
+                    if not selected and entries:
+                        selected = [entries[-1]]
+                else:
+                    selected = [entries[-1]]
         else:
             target_key = cls._version_key(dataset_version_normalised)
             eligible = [entry for entry in entries if cls._version_key(entry[0]) <= target_key]

@@ -616,3 +616,48 @@ def test_contract_version_locator_snapshot_paths(tmp_path: Path) -> None:
         table=None,
     )
     assert merged.load_paths == [str(base_dir / "2024-02-01" / "customers.json")]
+
+
+def test_contract_version_locator_latest_respects_active_alias(tmp_path: Path) -> None:
+    base_dir = tmp_path / "orders"
+    versions = ["2023-12-31", "2024-01-01", "2025-09-28"]
+    for version in versions:
+        folder = base_dir / version
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "orders.json").write_text("[]", encoding="utf-8")
+        (folder / ".dc43_version").write_text(version, encoding="utf-8")
+
+    latest_target = base_dir / "2024-01-01"
+    latest_link = base_dir / "latest"
+    latest_link.symlink_to(latest_target)
+
+    resolution = DatasetResolution(
+        path=str(base_dir),
+        table=None,
+        format="json",
+        dataset_id="orders",
+        dataset_version=None,
+        custom_properties={
+            "dc43.versioning": {
+                "mode": "delta",
+                "includePriorVersions": True,
+                "subfolder": "{version}",
+                "filePattern": "orders.json",
+            }
+        },
+    )
+
+    locator = ContractVersionLocator(dataset_version="latest", base=_DummyLocator(resolution))
+    merged = locator.for_read(
+        contract=None,
+        spark=None,
+        format="json",
+        path=str(base_dir),
+        table=None,
+    )
+
+    assert merged.load_paths
+    assert set(merged.load_paths) == {
+        str(base_dir / "2023-12-31" / "orders.json"),
+        str(base_dir / "2024-01-01" / "orders.json"),
+    }
