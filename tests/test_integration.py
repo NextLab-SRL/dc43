@@ -41,7 +41,12 @@ def make_contract(base_path: str, fmt: str = "parquet") -> OpenDataContractStand
                     SchemaProperty(name="order_id", physicalType="bigint", required=True),
                     SchemaProperty(name="customer_id", physicalType="bigint", required=True),
                     SchemaProperty(name="order_ts", physicalType="timestamp", required=True),
-                    SchemaProperty(name="amount", physicalType="double", required=True),
+                    SchemaProperty(
+                        name="amount",
+                        physicalType="double",
+                        required=True,
+                        quality=[DataQuality(mustBeGreaterThan=0.0)],
+                    ),
                     SchemaProperty(
                         name="currency",
                         physicalType="string",
@@ -86,6 +91,37 @@ def test_dq_integration_warn(spark, tmp_path: Path):
     )
     assert status is not None
     assert status.status in ("warn", "ok")
+
+
+def test_write_violation_downgraded_to_warning(spark, tmp_path: Path):
+    dest_dir = tmp_path / "dq"
+    contract = make_contract(str(dest_dir))
+    store = persist_contract(tmp_path, contract)
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+            (2, 102, datetime(2024, 1, 2, 10, 0, 0), -5.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    governance = build_local_governance_service(store)
+    result, status = write_with_contract(
+        df=df,
+        contract_id=contract.id,
+        contract_store=store,
+        expected_contract_version=f"=={contract.version}",
+        mode="overwrite",
+        enforce=False,
+        governance_service=governance,
+        return_status=True,
+    )
+    assert status is not None
+    assert status.status == "warn"
+    details = status.details or {}
+    assert details.get("status_before_override") == "block"
+    overrides = details.get("overrides") or []
+    assert any("downgraded" in note for note in overrides)
+    assert not result.ok or result.warnings  # violations tracked in status
 
 
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):

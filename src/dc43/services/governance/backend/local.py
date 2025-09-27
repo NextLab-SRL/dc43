@@ -369,15 +369,28 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             )
 
         if violation_total > 0:
-            reason = validation.warnings[0] if validation.warnings else "Data-quality violations detected"
-            status_value = "block" if operation == "write" else "warn"
+            reason = (
+                validation.warnings[0]
+                if validation.warnings
+                else "Data-quality violations detected"
+            )
+            details: Dict[str, Any] = {
+                "warnings": list(validation.warnings),
+                "violations": violation_total,
+            }
+            status_value = "warn"
+            if operation == "write":
+                overrides = list(details.get("overrides", []))
+                overrides.append(
+                    "Write violations downgraded to warning for governance assessment",
+                )
+                details["overrides"] = overrides
+                details.setdefault("status_before_override", "block")
+                details.setdefault("operation", operation)
             return DQStatus(
                 status=status_value,
                 reason=reason,
-                details={
-                    "warnings": list(validation.warnings),
-                    "violations": violation_total,
-                },
+                details=details,
             )
 
         if validation.warnings:
