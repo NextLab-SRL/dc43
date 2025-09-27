@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from uuid import uuid4
 
 from open_data_contract_standard.model import (  # type: ignore
     CustomProperty,
@@ -16,6 +19,61 @@ from open_data_contract_standard.model import (  # type: ignore
 from dc43.components.data_quality.engine import ValidationResult
 from dc43.odcs import contract_identity
 from dc43.versioning import SemVer
+
+
+_INVALID_IDENTIFIER = re.compile(r"[^0-9A-Za-z-]+")
+
+
+def _normalise_identifier(value: str | None) -> Optional[str]:
+    """Return a semver-friendly identifier derived from ``value``."""
+
+    if value is None:
+        return None
+    token = _INVALID_IDENTIFIER.sub("-", str(value)).strip("-")
+    return token or None
+
+
+def _pipeline_hint(context: Mapping[str, Any] | None) -> Optional[str]:
+    """Return a reviewer friendly label describing the draft origin."""
+
+    if not context:
+        return None
+
+    for key in ("pipeline", "job", "project", "module", "function", "qualname", "source"):
+        value = context.get(key)
+        if value:
+            token = _normalise_identifier(str(value))
+            if token:
+                return token
+    return None
+
+
+def _draft_version_suffix(
+    *,
+    dataset_id: Optional[str],
+    dataset_version: Optional[str],
+    draft_context: Optional[Mapping[str, Any]],
+) -> str:
+    """Return the pre-release suffix used to guarantee draft version uniqueness."""
+
+    tokens: List[str] = ["draft"]
+
+    for candidate in (dataset_version, dataset_id):
+        token = _normalise_identifier(candidate)
+        if token:
+            tokens.append(token)
+
+    pipeline_token = _pipeline_hint(draft_context)
+    if pipeline_token:
+        tokens.append(pipeline_token)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    tokens.append(timestamp)
+
+    entropy = uuid4().hex[:8]
+    tokens.append(entropy)
+
+    return "-".join(tokens)
 
 
 def _resolve_observed_type(
@@ -400,6 +458,7 @@ def draft_from_observations(
     dataset_version: Optional[str] = None,
     data_format: Optional[str] = None,
     dq_feedback: Optional[Dict[str, Any]] = None,
+    draft_context: Optional[Mapping[str, Any]] = None,
 ) -> OpenDataContractStandard:
     """Create a draft ODCS document using schema & metric observations."""
 
@@ -470,7 +529,14 @@ def draft_from_observations(
     contract_id, current_version = contract_identity(base_contract)
     semver = SemVer.parse(current_version)
     target_bump = "minor" if bump not in ("major", "patch") else bump
-    new_version = str(semver.bump(target_bump))
+    bumped = semver.bump(target_bump)
+    suffix = _draft_version_suffix(
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        draft_context=draft_context,
+    )
+    base_version = str(bumped)
+    new_version = f"{base_version}-{suffix}" if suffix else base_version
 
     custom_props = list(base_contract.customProperties or [])
     custom_props.append(CustomProperty(property="draft", value=True))
@@ -481,6 +547,18 @@ def draft_from_observations(
             value={"dataset_id": dataset_id, "dataset_version": dataset_version},
         )
     )
+    pipeline_label: Optional[str] = None
+    if draft_context:
+        custom_props.append(
+            CustomProperty(property="draft_context", value=dict(draft_context))
+        )
+        pipeline_label = draft_context.get("pipeline") or draft_context.get("job")
+        if not pipeline_label:
+            pipeline_label = draft_context.get("project") or draft_context.get("module")
+    if pipeline_label:
+        custom_props.append(
+            CustomProperty(property="draft_pipeline", value=pipeline_label)
+        )
     if dq_feedback:
         custom_props.append(CustomProperty(property="dq_feedback", value=dq_feedback))
     if metrics:
@@ -535,11 +613,20 @@ def draft_from_validation_result(
     dataset_version: Optional[str] = None,
     data_format: Optional[str] = None,
     dq_feedback: Optional[Mapping[str, Any]] = None,
+    draft_context: Optional[Mapping[str, Any]] = None,
 ) -> OpenDataContractStandard:
     """Create a draft contract document from an engine validation result."""
 
     schema_payload: Mapping[str, Mapping[str, Any]] | None = validation.schema or None
     metrics_payload: Mapping[str, Any] | None = validation.metrics or None
+    context_payload: Dict[str, Any] = dict(draft_context or {})
+    if dataset_id and "dataset_id" not in context_payload:
+        context_payload["dataset_id"] = dataset_id
+    if dataset_version and "dataset_version" not in context_payload:
+        context_payload["dataset_version"] = dataset_version
+    if data_format and "data_format" not in context_payload:
+        context_payload["data_format"] = data_format
+
     draft = draft_from_observations(
         schema=schema_payload or {},
         metrics=metrics_payload or None,
@@ -549,6 +636,7 @@ def draft_from_validation_result(
         dataset_version=dataset_version,
         data_format=data_format,
         dq_feedback=dict(dq_feedback) if dq_feedback else None,
+        draft_context=context_payload or None,
     )
 
     _append_validation_feedback(draft, validation)

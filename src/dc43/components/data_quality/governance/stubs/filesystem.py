@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Mapping
+from typing import Any, Dict, List, Optional, Mapping
 
 from ..interface import DQClient, DQStatus
 from dc43.components.contract_drafter import draft_from_validation_result
@@ -75,6 +75,31 @@ class StubDQClient(DQClient):
         d = os.path.join(self.base_path, "status", self._safe(dataset_id))
         os.makedirs(d, exist_ok=True)
         return os.path.join(d, f"{self._safe(str(dataset_version))}.json")
+
+    def _activity_dir(self) -> str:
+        d = os.path.join(self.base_path, "pipeline_activity")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _activity_path(self, dataset_id: str) -> str:
+        return os.path.join(self._activity_dir(), f"{self._safe(dataset_id)}.json")
+
+    def _load_activity(self, dataset_id: str) -> Dict[str, Any]:
+        path = self._activity_path(dataset_id)
+        if not os.path.exists(path):
+            return {"dataset_id": dataset_id, "versions": {}}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return {"dataset_id": dataset_id, "versions": {}}
+
+        if not isinstance(payload, dict):
+            return {"dataset_id": dataset_id, "versions": {}}
+        versions = payload.get("versions")
+        if not isinstance(versions, dict):
+            payload["versions"] = {}
+        return payload
 
     def get_status(
         self,
@@ -163,6 +188,102 @@ class StubDQClient(DQClient):
         )
         return DQStatus(status=status, details=details)
 
+    def record_pipeline_activity(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        contract_id: Optional[str],
+        contract_version: Optional[str],
+        activity: Mapping[str, Any],
+    ) -> None:
+        payload = self._load_activity(dataset_id)
+        versions = payload.setdefault("versions", {})
+        entry = versions.get(dataset_version)
+        if not isinstance(entry, dict):
+            entry = {"dataset_version": dataset_version, "events": []}
+
+        events: List[Dict[str, Any]]
+        raw_events = entry.get("events")
+        if isinstance(raw_events, list):
+            events = [event for event in raw_events if isinstance(event, dict)]
+        else:
+            events = []
+
+        event = dict(activity)
+        event.setdefault("recorded_at", datetime.now(timezone.utc).isoformat())
+        context_payload = event.get("pipeline_context")
+        if isinstance(context_payload, Mapping):
+            event["pipeline_context"] = dict(context_payload)
+        elif context_payload is None:
+            event["pipeline_context"] = {}
+
+        events.append(event)
+
+        entry["dataset_version"] = dataset_version
+        entry["contract_id"] = contract_id
+        entry["contract_version"] = contract_version
+        entry["events"] = events
+        versions[dataset_version] = entry
+        payload["dataset_id"] = dataset_id
+        payload["latest"] = entry
+
+        path = self._activity_path(dataset_id)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+    def get_pipeline_activity(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        payload = self._load_activity(dataset_id)
+        versions = payload.get("versions")
+        if not isinstance(versions, Mapping):
+            return []
+
+        def _normalise_entry(key: str, value: Mapping[str, Any]) -> Dict[str, Any]:
+            record = dict(value)
+            record.setdefault("dataset_version", key)
+            events = record.get("events")
+            if not isinstance(events, list):
+                record["events"] = []
+            else:
+                record["events"] = [event for event in events if isinstance(event, dict)]
+            return record
+
+        if dataset_version is not None:
+            entry = versions.get(dataset_version)
+            if isinstance(entry, Mapping):
+                return [_normalise_entry(dataset_version, entry)]
+            # Attempt to match unsanitised versions stored as values
+            for candidate_version, candidate in versions.items():
+                if (
+                    isinstance(candidate, Mapping)
+                    and candidate.get("dataset_version") == dataset_version
+                ):
+                    return [_normalise_entry(candidate_version, candidate)]
+            return []
+
+        records: List[Dict[str, Any]] = []
+        for key, value in versions.items():
+            if isinstance(value, Mapping):
+                records.append(_normalise_entry(str(key), value))
+
+        def _sort_key(entry: Mapping[str, Any]) -> tuple[int, str]:
+            version_value = str(entry.get("dataset_version", ""))
+            recorded_at = ""
+            events = entry.get("events")
+            if isinstance(events, list) and events:
+                last = events[-1]
+                if isinstance(last, Mapping):
+                    recorded_at = str(last.get("recorded_at", ""))
+            return (0 if recorded_at else 1, recorded_at or version_value)
+
+        records.sort(key=_sort_key)
+        return records
+
     def propose_draft(
         self,
         *,
@@ -173,6 +294,7 @@ class StubDQClient(DQClient):
         dataset_version: Optional[str] = None,
         data_format: Optional[str] = None,
         dq_feedback: Optional[Mapping[str, Any]] = None,
+        draft_context: Optional[Mapping[str, Any]] = None,
     ) -> Optional[OpenDataContractStandard]:
         """Produce a draft contract using the engine helper."""
 
@@ -184,6 +306,7 @@ class StubDQClient(DQClient):
             dataset_version=dataset_version,
             data_format=data_format,
             dq_feedback=dq_feedback,
+            draft_context=draft_context,
         )
 
     def link_dataset_contract(

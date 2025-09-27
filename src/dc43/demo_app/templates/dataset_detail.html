@@ -75,6 +75,55 @@
   </ul>
 </div>
 {% endif %}
+{% set pipeline_activity = output_details.get('pipeline_activity', []) %}
+{% if pipeline_activity %}
+<h2>Pipeline activity</h2>
+{% for entry in pipeline_activity %}
+  <div class="card mb-3">
+    <div class="card-header">
+      <strong>Dataset version:</strong> {{ entry.dataset_version or 'unknown' }}
+      {% if entry.contract_id and entry.contract_version %}
+        <span class="ms-2 text-muted">Contract {{ entry.contract_id }}:{{ entry.contract_version }}</span>
+      {% endif %}
+    </div>
+    <div class="card-body p-0">
+      {% set events = entry.events or [] %}
+      {% if events %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th scope="col">Recorded at</th>
+              <th scope="col">Operation</th>
+              <th scope="col">DQ Status</th>
+              <th scope="col">Context</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in events %}
+            <tr>
+              <td><code>{{ event.recorded_at or 'n/a' }}</code></td>
+              <td>{{ event.operation or 'unknown' }}</td>
+              <td>
+                {% if event.dq_status %}
+                  <span class="badge bg-secondary text-uppercase">{{ event.dq_status }}</span>
+                {% else %}
+                  <span class="text-muted">n/a</span>
+                {% endif %}
+              </td>
+              <td><pre class="small mb-0">{{ event.pipeline_context or {} | tojson(indent=2) }}</pre></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <p class="m-3 text-muted">No activity recorded.</p>
+      {% endif %}
+    </div>
+  </div>
+{% endfor %}
+{% endif %}
 <h2>Details</h2>
 <pre class="small">{{ output_details | tojson(indent=2) }}</pre>
 {% if data_preview %}

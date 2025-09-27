@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Protocol
+from typing import Any, Dict, Mapping, Optional, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -52,6 +52,7 @@ class DQClient(Protocol):
         dataset_version: Optional[str] = None,
         data_format: Optional[str] = None,
         dq_feedback: Optional[Mapping[str, Any]] = None,
+        draft_context: Optional[Mapping[str, Any]] = None,
     ) -> Optional[OpenDataContractStandard]:
         """Return a draft contract proposal based on a validation outcome."""
         ...
@@ -73,6 +74,27 @@ class DQClient(Protocol):
         dataset_version: Optional[str] = None,
     ) -> Optional[str]:
         """Return contract version associated to dataset if tracked (format: "<contract_id>:<version>")."""
+        ...
+
+    def record_pipeline_activity(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        contract_id: Optional[str],
+        contract_version: Optional[str],
+        activity: Mapping[str, Any],
+    ) -> None:
+        """Persist pipeline activity metadata for governance insights."""
+        ...
+
+    def get_pipeline_activity(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, Any]]:
+        """Return recorded pipeline metadata for the supplied dataset."""
         ...
 
 

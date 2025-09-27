@@ -15,8 +15,10 @@ from typing import (
     Mapping,
     Optional,
     Protocol,
+    Sequence,
     Tuple,
     Literal,
+    Union,
     overload,
 )
 import logging
@@ -27,7 +29,13 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 
 from dc43.components.contract_store.interface import ContractStore
-from dc43.components.data_quality import DataQualityManager, DQClient, DQStatus
+from dc43.components.data_quality import (
+    DataQualityManager,
+    DQClient,
+    DQStatus,
+    GovernanceHandles,
+    PipelineContext,
+)
 from dc43.components.data_quality.engine import ValidationResult
 from dc43.components.data_quality.integration import (
     build_metrics_payload,
@@ -45,6 +53,60 @@ from .violation_strategy import (
     WriteStrategyContext,
     WriteViolationStrategy,
 )
+
+
+GovernanceProvider = Union[
+    DataQualityManager,
+    DQClient,
+    GovernanceHandles,
+]
+
+
+PipelineContextLike = Union[
+    PipelineContext,
+    Mapping[str, object],
+    Sequence[tuple[str, object]],
+    str,
+]
+
+
+def _normalise_pipeline_context(
+    context: Optional[PipelineContextLike],
+) -> Optional[Dict[str, Any]]:
+    """Return a dictionary representation for ``context`` when possible."""
+
+    if context is None:
+        return None
+    if isinstance(context, PipelineContext):
+        return context.as_dict()
+    if isinstance(context, str):
+        value = context.strip()
+        return {"pipeline": value} if value else None
+    if isinstance(context, Mapping):
+        return dict(context)
+    if isinstance(context, Sequence):
+        payload: Dict[str, Any] = {}
+        for item in context:
+            if not isinstance(item, tuple) or len(item) != 2:
+                continue
+            key, value = item
+            payload[str(key)] = value
+        return payload or None
+    return None
+
+
+def _merge_pipeline_context(
+    base: Optional[Mapping[str, Any]],
+    extra: Optional[Mapping[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Combine two pipeline context mappings."""
+
+    combined: Dict[str, Any] = {}
+    if base:
+        combined.update(base)
+    if extra:
+        combined.update(extra)
+    return combined or None
 
 
 def get_delta_version(
@@ -105,13 +167,15 @@ def _safe_fs_name(value: str) -> str:
 logger = logging.getLogger(__name__)
 
 
-def _as_quality_manager(dq: Optional[DataQualityManager | DQClient]) -> Optional[DataQualityManager]:
+def _as_quality_manager(dq: Optional[GovernanceProvider]) -> Optional[DataQualityManager]:
     """Return a :class:`DataQualityManager` regardless of input flavour."""
 
     if dq is None:
         return None
     if isinstance(dq, DataQualityManager):
         return dq
+    if isinstance(dq, GovernanceHandles):
+        return dq.as_manager()
     return DataQualityManager(dq)
 
 
@@ -540,13 +604,15 @@ class ContractVersionLocator:
         read_options = dict(resolution.read_options or {})
         write_options = dict(resolution.write_options or {})
         load_paths = list(resolution.load_paths or [])
+        base_path_hint = resolution.path
         version_paths, extra_read_options = self._expand_versioning_paths(
             resolution,
-            base_path=resolved_path or resolution.path,
+            base_path=base_path_hint,
             dataset_version=self.dataset_version,
         )
         if version_paths:
             load_paths = version_paths
+            resolved_path = base_path_hint or resolved_path
         if extra_read_options:
             read_options.update(extra_read_options)
         if (resolution.format or "").lower() == "delta":
@@ -783,9 +849,10 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DataQualityManager | DQClient] = None,
+    dq_client: Optional[GovernanceProvider] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True] = True,
 ) -> tuple[DataFrame, Optional[DQStatus]]:
     ...
@@ -804,9 +871,10 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DataQualityManager | DQClient] = None,
+    dq_client: Optional[GovernanceProvider] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[False],
 ) -> DataFrame:
     ...
@@ -825,9 +893,10 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DataQualityManager | DQClient] = None,
+    dq_client: Optional[GovernanceProvider] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | tuple[DataFrame, Optional[DQStatus]]:
     ...
@@ -846,9 +915,10 @@ def read_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     # Governance / DQ orchestration
-    dq_client: Optional[DataQualityManager | DQClient] = None,
+    dq_client: Optional[GovernanceProvider] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | Tuple[DataFrame, Optional[DQStatus]]:
     """Read a DataFrame and validate/enforce an ODCS contract.
@@ -954,6 +1024,9 @@ def read_with_contract(
             or "unknown"
         )
 
+        base_pipeline_context = _normalise_pipeline_context(pipeline_context)
+        read_pipeline_context = _merge_pipeline_context(base_pipeline_context, {"io": "read"})
+
         def _observations() -> tuple[Mapping[str, object], bool]:
             metrics_payload, _schema_payload, reused = build_metrics_payload(
                 df,
@@ -973,6 +1046,8 @@ def read_with_contract(
             dataset_version=ds_ver,
             validation=result,
             observations=_observations,
+            pipeline_context=read_pipeline_context,
+            operation="read",
         )
         status = assessment.status
         if status:
@@ -1008,8 +1083,9 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DataQualityManager | DQClient] = None,
+    dq_client: Optional[GovernanceProvider] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True],
 ) -> tuple[ValidationResult, Optional[DQStatus]]:
     ...
@@ -1029,8 +1105,9 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DataQualityManager | DQClient] = None,
+    dq_client: Optional[GovernanceProvider] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[False] = False,
 ) -> ValidationResult:
     ...
@@ -1049,8 +1126,9 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
-    dq_client: Optional[DataQualityManager | DQClient] = None,
+    dq_client: Optional[GovernanceProvider] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
 ) -> Any:
@@ -1159,6 +1237,11 @@ def write_with_contract(
             schema={},
         )
 
+    base_pipeline_context = _merge_pipeline_context(
+        _normalise_pipeline_context(pipeline_context),
+        {"io": "write"},
+    )
+
     context = WriteStrategyContext(
         df=df,
         aligned_df=out_df,
@@ -1173,6 +1256,7 @@ def write_with_contract(
         dataset_version=resolution.dataset_version,
         revalidate=revalidator,
         expectation_predicates=expectation_map,
+        pipeline_context=base_pipeline_context,
     )
     plan = strategy.plan(context)
 
@@ -1185,6 +1269,12 @@ def write_with_contract(
         requests.append(plan.primary)
 
     requests.extend(list(plan.additional))
+
+    for req in requests:
+        req.pipeline_context = _merge_pipeline_context(
+            base_pipeline_context,
+            req.pipeline_context,
+        )
 
     if not requests:
         final_result = plan.result_factory() if plan.result_factory else result
@@ -1360,6 +1450,8 @@ def _execute_write_request(
             dataset_version=dq_dataset_version,
             validation=validation,
             observations=_post_write_observations,
+            pipeline_context=request.pipeline_context,
+            operation="write",
         )
         status = assessment.status
         if status:
@@ -1390,6 +1482,7 @@ def _execute_write_request(
                 data_format=request.format,
                 dq_status=status,
                 draft_requested=True,
+                pipeline_context=request.pipeline_context,
             )
             if draft_contract is not None and status is not None:
                 details = dict(status.details or {})
