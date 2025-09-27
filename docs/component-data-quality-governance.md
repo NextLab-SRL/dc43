@@ -5,8 +5,13 @@ alongside contract lifecycle. dc43 exposes a `GovernanceServiceClient`
 that orchestrates contract lookups, quality evaluation, draft generation,
 and pipeline activity recording. Integrations now call this service
 directly—passing validation results, metrics, and pipeline context—while
-the service talks to contract/draft managers and the simplified data
-quality manager.
+the service talks to contract/draft managers and a dedicated
+`DataQualityServiceClient`.
+
+The separation keeps the orchestration logic thin in pipelines. dc43 ships
+local stubs (`LocalContractServiceClient`, `LocalDataQualityServiceClient`)
+that fulfil the service contracts in-process while mirroring the remote
+APIs that production deployments implement over HTTP or RPC.
 
 ## What the component does
 

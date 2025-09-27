@@ -1,16 +1,17 @@
-"""Governance service orchestrating contract and quality managers."""
+"""Backwards-compatible exports for the governance orchestration service."""
 
-from .service import (
-    ContractManagerClient,
+from dc43.services.contracts import ContractServiceClient as ContractManagerClient
+from dc43.services.contracts import LocalContractServiceClient as LocalContractManager
+from dc43.services.governance.client import GovernanceServiceClient
+from dc43.services.governance.local import build_local_governance_service
+from dc43.services.governance.models import (
     GovernanceCredentials,
-    GovernanceServiceClient,
     PipelineContext,
     PipelineContextSpec,
     QualityAssessment,
     QualityDraftContext,
     normalise_pipeline_context,
 )
-from .stubs import LocalContractManager, build_local_governance_service
 
 __all__ = [
     "ContractManagerClient",

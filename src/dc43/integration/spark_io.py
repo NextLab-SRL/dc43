@@ -29,12 +29,10 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 
 from dc43.components.contract_store.interface import ContractStore
-from dc43.components.data_quality import DQStatus, ObservationPayload
-from dc43.components.governance_service import (
-    GovernanceServiceClient,
-    PipelineContext,
-    normalise_pipeline_context,
-)
+from dc43.components.data_quality import DQStatus
+from dc43.services.data_quality import ObservationPayload
+from dc43.services.governance.client import GovernanceServiceClient
+from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
 from dc43.components.data_quality.engine import ValidationResult
 from dc43.components.data_quality.integration import (
     build_metrics_payload,
@@ -1007,7 +1005,8 @@ def read_with_contract(
             )
 
         assessment = governance_client.evaluate_dataset(
-            contract=contract,
+            contract_id=cid,
+            contract_version=cver,
             dataset_id=ds_id,
             dataset_version=ds_ver,
             validation=result,
@@ -1411,8 +1410,11 @@ def _execute_write_request(
                 reused=reused_metrics,
             )
 
+        cid, cver = contract_identity(contract)
+
         assessment = governance_client.evaluate_dataset(
-            contract=contract,
+            contract_id=cid,
+            contract_version=cver,
             dataset_id=dq_dataset_id,
             dataset_version=dq_dataset_version,
             validation=validation,

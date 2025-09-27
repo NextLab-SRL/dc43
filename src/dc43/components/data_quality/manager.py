@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Mapping, Optional
-
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+from dc43.services.data_quality.models import ObservationPayload
+
 from .engine import ValidationResult, evaluate_observations
-
-
-@dataclass(slots=True)
-class ObservationPayload:
-    """Container describing cached observations for a dataset evaluation."""
-
-    metrics: Mapping[str, object]
-    schema: Optional[Mapping[str, Mapping[str, object]]] = None
-    reused: bool = False
 
 
 class DataQualityManager:

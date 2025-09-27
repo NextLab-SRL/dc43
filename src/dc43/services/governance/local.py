@@ -1,9 +1,8 @@
-"""Remote governance service coordinating contract and quality managers."""
+"""Local orchestration service coordinating contract and quality clients."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, Protocol, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -11,99 +10,36 @@ from dc43.components.contract_drafter import draft_from_validation_result
 from dc43.components.contract_store.interface import ContractStore
 from dc43.components.data_quality.engine import ValidationResult
 from dc43.components.data_quality.governance import DQStatus
-from dc43.components.data_quality.manager import DataQualityManager, ObservationPayload
 from dc43.odcs import contract_identity
+from dc43.services.contracts import ContractServiceClient
+from dc43.services.contracts.local import LocalContractServiceClient
+from dc43.services.data_quality import DataQualityServiceClient, LocalDataQualityServiceClient
+from dc43.services.data_quality.models import ObservationPayload
+
+from .client import GovernanceServiceClient
+from .models import (
+    GovernanceCredentials,
+    PipelineContextSpec,
+    QualityAssessment,
+    QualityDraftContext,
+    build_quality_context,
+    derive_feedback,
+    merge_pipeline_context,
+)
 
 
-class ContractManagerClient(Protocol):
-    """Protocol for remote data-contract manager clients."""
-
-    def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
-        ...
-
-    def link_dataset_contract(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: str,
-        contract_id: str,
-        contract_version: str,
-    ) -> None:
-        ...
-
-    def get_linked_contract_version(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: Optional[str] = None,
-    ) -> Optional[str]:
-        ...
-
-
-@dataclass
-class GovernanceCredentials:
-    """Authentication payload cached by the governance service."""
-
-    token: Optional[str] = None
-    headers: Optional[Mapping[str, str]] = None
-    extra: Optional[Mapping[str, object]] = None
-
-
-@dataclass
-class PipelineContext:
-    """Descriptor describing the pipeline triggering a governance interaction."""
-
-    pipeline: Optional[str] = None
-    label: Optional[str] = None
-    metadata: Optional[Mapping[str, object]] = None
-
-    def as_dict(self) -> Dict[str, object]:
-        payload: Dict[str, object] = {}
-        if self.metadata:
-            payload.update(self.metadata)
-        if self.label:
-            payload.setdefault("label", self.label)
-        if self.pipeline:
-            payload.setdefault("pipeline", self.pipeline)
-        return payload
-
-
-PipelineContextSpec = Union[PipelineContext, Mapping[str, object], Sequence[tuple[str, object]], str]
-
-
-@dataclass
-class QualityDraftContext:
-    """Context forwarded when proposing a draft to governance."""
-
-    dataset_id: Optional[str]
-    dataset_version: Optional[str]
-    data_format: Optional[str]
-    dq_feedback: Optional[Mapping[str, object]]
-    draft_context: Optional[Mapping[str, object]] = None
-    pipeline_context: Optional[Mapping[str, object]] = None
-
-
-@dataclass
-class QualityAssessment:
-    """Outcome returned after consulting the governance service."""
-
-    status: Optional[DQStatus]
-    draft: Optional[OpenDataContractStandard] = None
-    observations_reused: bool = False
-
-
-class GovernanceServiceClient:
-    """Client facade delegating governance calls to a remote service transport."""
+class LocalGovernanceService(GovernanceServiceClient):
+    """In-process orchestration across contract and data-quality services."""
 
     def __init__(
         self,
         *,
-        contract_client: ContractManagerClient,
-        dq_manager: DataQualityManager,
+        contract_client: ContractServiceClient,
+        dq_client: DataQualityServiceClient,
         draft_store: ContractStore | None = None,
     ) -> None:
         self._contract_client = contract_client
-        self._dq_manager = dq_manager
+        self._dq_client = dq_client
         self._draft_store = draft_store
         self._credentials: Optional[GovernanceCredentials] = None
         self._status_cache: Dict[tuple[str, str, str, str], DQStatus] = {}
@@ -116,8 +52,6 @@ class GovernanceServiceClient:
         self,
         credentials: GovernanceCredentials | Mapping[str, object] | str | None,
     ) -> None:
-        """Cache the credentials used to contact the governance service."""
-
         if credentials is None:
             self._credentials = None
             return
@@ -150,7 +84,8 @@ class GovernanceServiceClient:
     def evaluate_dataset(
         self,
         *,
-        contract: Optional[OpenDataContractStandard],
+        contract_id: str,
+        contract_version: str,
         dataset_id: str,
         dataset_version: str,
         validation: ValidationResult | None,
@@ -161,20 +96,19 @@ class GovernanceServiceClient:
         operation: str = "read",
         draft_on_violation: bool = False,
     ) -> QualityAssessment:
-        """Evaluate dataset metrics and optionally request a draft proposal."""
-
-        if contract is None:
-            raise ValueError("contract is required when evaluating a dataset")
+        contract = self._contract_client.get(contract_id, contract_version)
 
         payload = observations()
-        validation = validation or self._dq_manager.evaluate(contract, payload)
+        validation = validation or self._dq_client.evaluate(
+            contract=contract,
+            payload=payload,
+        )
         status = self._status_from_validation(validation)
 
-        cid, cver = contract_identity(contract)
-        cache_key = (cid or "unknown", cver or "unknown", dataset_id, dataset_version)
+        cache_key = (contract_id, contract_version, dataset_id, dataset_version)
         self._status_cache[cache_key] = status
 
-        effective_pipeline = _merge_pipeline_context(
+        effective_pipeline = merge_pipeline_context(
             context.pipeline_context if context else None,
             pipeline_context,
             {"io": operation},
@@ -229,18 +163,16 @@ class GovernanceServiceClient:
         draft_requested: bool = False,
         operation: str | None = None,
     ) -> Optional[OpenDataContractStandard]:
-        """Return a draft proposal when a validation mismatch requires it."""
-
         if not draft_requested:
             return None
 
-        effective_context = _build_quality_context(
+        effective_context = build_quality_context(
             context,
             dataset_id=dataset_id,
             dataset_version=dataset_version,
             data_format=data_format,
-            dq_feedback=_derive_feedback(dq_status, dq_feedback),
-            pipeline_context=_merge_pipeline_context(
+            dq_feedback=derive_feedback(dq_status, dq_feedback),
+            pipeline_context=merge_pipeline_context(
                 context.pipeline_context if context else None,
                 pipeline_context,
                 {"io": operation} if operation else None,
@@ -269,9 +201,7 @@ class GovernanceServiceClient:
         context: QualityDraftContext | None = None,
         pipeline_context: PipelineContextSpec | None = None,
     ) -> OpenDataContractStandard:
-        """Generate a draft proposal for the supplied validation result."""
-
-        effective_context = _build_quality_context(
+        effective_context = build_quality_context(
             context,
             dataset_id=context.dataset_id if context else None,
             dataset_version=context.dataset_version if context else None,
@@ -394,122 +324,18 @@ class GovernanceServiceClient:
         self._activity_log.setdefault(key, []).append(entry)
 
 
-def normalise_pipeline_context(
-    context: PipelineContextSpec | Mapping[str, object] | None,
-) -> Optional[Dict[str, Any]]:
-    if context is None:
-        return None
-    if isinstance(context, PipelineContext):
-        return context.as_dict()
-    if isinstance(context, str):
-        value = context.strip()
-        return {"pipeline": value} if value else None
-    if isinstance(context, Mapping):
-        return dict(context)
-    if isinstance(context, Sequence):
-        payload: Dict[str, Any] = {}
-        for item in context:
-            if isinstance(item, tuple) and len(item) == 2:
-                key, value = item
-                payload[str(key)] = value
-        return payload or None
-    return None
+def build_local_governance_service(
+    store: ContractStore,
+) -> LocalGovernanceService:
+    """Construct a governance service wired against local stubs."""
 
-
-def _derive_feedback(
-    status: DQStatus | None,
-    override: Mapping[str, object] | None,
-) -> Optional[Mapping[str, object]]:
-    if override is not None:
-        return override
-    if status is None:
-        return None
-    payload: Dict[str, object] = dict(status.details or {})
-    payload.setdefault("status", status.status)
-    if status.reason:
-        payload.setdefault("reason", status.reason)
-    return payload or None
-
-
-def _merge_pipeline_context(
-    *candidates: PipelineContextSpec | Mapping[str, object] | None,
-) -> Optional[Dict[str, Any]]:
-    merged: Dict[str, Any] = {}
-    for candidate in candidates:
-        resolved = normalise_pipeline_context(candidate)
-        if resolved:
-            merged.update(resolved)
-    return merged or None
-
-
-def _merge_draft_context(
-    base: Optional[Mapping[str, Any]],
-    *,
-    dataset_id: Optional[str],
-    dataset_version: Optional[str],
-    data_format: Optional[str],
-    pipeline_context: Optional[Mapping[str, Any]],
-) -> Optional[Dict[str, Any]]:
-    context: Dict[str, Any] = {}
-    if pipeline_context:
-        context.update(pipeline_context)
-    if base:
-        context.update(base)
-    if dataset_id and "dataset_id" not in context:
-        context["dataset_id"] = dataset_id
-    if dataset_version and "dataset_version" not in context:
-        context["dataset_version"] = dataset_version
-    if data_format and "data_format" not in context:
-        context["data_format"] = data_format
-    return context or None
-
-
-def _build_quality_context(
-    context: QualityDraftContext | None,
-    *,
-    dataset_id: Optional[str],
-    dataset_version: Optional[str],
-    data_format: Optional[str],
-    dq_feedback: Optional[Mapping[str, object]],
-    pipeline_context: Optional[PipelineContextSpec] = None,
-) -> QualityDraftContext:
-    resolved_dataset_id = context.dataset_id if context and context.dataset_id else dataset_id
-    resolved_dataset_version = (
-        context.dataset_version if context and context.dataset_version else dataset_version
-    )
-    resolved_data_format = context.data_format if context and context.data_format else data_format
-    resolved_feedback = context.dq_feedback if context and context.dq_feedback else dq_feedback
-
-    pipeline_metadata = _merge_pipeline_context(
-        context.pipeline_context if context else None,
-        pipeline_context,
-    )
-
-    merged_context = _merge_draft_context(
-        context.draft_context if context else None,
-        dataset_id=resolved_dataset_id,
-        dataset_version=resolved_dataset_version,
-        data_format=resolved_data_format,
-        pipeline_context=pipeline_metadata,
-    )
-
-    return QualityDraftContext(
-        dataset_id=resolved_dataset_id,
-        dataset_version=resolved_dataset_version,
-        data_format=resolved_data_format,
-        dq_feedback=resolved_feedback,
-        draft_context=merged_context,
-        pipeline_context=pipeline_metadata,
+    contract_client = LocalContractServiceClient(store)
+    dq_client = LocalDataQualityServiceClient()
+    return LocalGovernanceService(
+        contract_client=contract_client,
+        dq_client=dq_client,
+        draft_store=store,
     )
 
 
-__all__ = [
-    "ContractManagerClient",
-    "GovernanceCredentials",
-    "GovernanceServiceClient",
-    "PipelineContext",
-    "PipelineContextSpec",
-    "QualityAssessment",
-    "QualityDraftContext",
-    "normalise_pipeline_context",
-]
+__all__ = ["LocalGovernanceService", "build_local_governance_service"]

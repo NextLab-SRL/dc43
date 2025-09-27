@@ -13,15 +13,15 @@ from open_data_contract_standard.model import (
 )
 
 from dc43.components.contract_store.impl.filesystem import FSContractStore
-from dc43.components.integration.spark_io import (
+from dc43.integration.spark_io import (
     read_with_contract,
     write_with_contract,
     StaticDatasetLocator,
     ContractVersionLocator,
     DatasetResolution,
 )
-from dc43.components.integration.violation_strategy import SplitWriteViolationStrategy
-from dc43.components.governance_service import build_local_governance_service
+from dc43.integration.violation_strategy import SplitWriteViolationStrategy
+from dc43.services.governance.local import build_local_governance_service
 from datetime import datetime
 import logging
 

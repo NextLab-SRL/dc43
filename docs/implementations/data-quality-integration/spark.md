@@ -29,9 +29,9 @@ The Spark integration exposes the following building blocks:
   writes (via `dc43.components.data_quality.validation`).
 
 ```python
-from dc43.components.data_quality import ObservationPayload
+from dc43.services.data_quality import ObservationPayload
 from dc43.components.data_quality.integration import build_metrics_payload
-from dc43.components.governance_service import build_local_governance_service
+from dc43.services.governance.local import build_local_governance_service
 
 metrics_payload, schema_payload, reused = build_metrics_payload(
     df,
@@ -42,7 +42,8 @@ metrics_payload, schema_payload, reused = build_metrics_payload(
 payload = ObservationPayload(metrics=metrics_payload, schema=schema_payload, reused=reused)
 governance = build_local_governance_service(contract_store)
 assessment = governance.evaluate_dataset(
-    contract=contract,
+    contract_id=contract.id,
+    contract_version=contract.version,
     dataset_id="table:catalog.schema.orders",
     dataset_version="2024-05-30",
     validation=None,

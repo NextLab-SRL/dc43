@@ -5,19 +5,17 @@ validation utilities, and DQ protocol types.
 """
 
 from .versioning import SemVer
-from .components.data_quality import DataQualityManager, DQClient, DQStatus, ObservationPayload
+from .components.data_quality import DataQualityManager, DQClient, DQStatus
+from .services.data_quality import ObservationPayload
 from .components.data_quality.engine import (
     ExpectationSpec,
     ValidationResult,
     evaluate_contract,
     expectation_specs,
 )
-from .components.governance_service import (
-    GovernanceServiceClient,
-    QualityAssessment,
-    QualityDraftContext,
-    build_local_governance_service,
-)
+from .services.governance.client import GovernanceServiceClient
+from .services.governance.local import build_local_governance_service
+from .services.governance.models import QualityAssessment, QualityDraftContext
 from .components.data_quality.integration import (
     SPARK_TYPES,
     attach_failed_expectations,
