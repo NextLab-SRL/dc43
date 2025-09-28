@@ -5,13 +5,13 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 ## Responsibilities
 
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
-2. **Validate and coerce data** using helpers from `dc43.components.data_quality.integration` while respecting enforcement flags.
+2. **Validate and coerce data** using helpers from `dc43.integration.spark.data_quality` while respecting enforcement flags.
 3. **Bridge runtime metrics** to the governance service so it can evaluate observations, record activity, and propose drafts when mismatches occur.
 4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`, `expectations_from_contract`).
 
 ```mermaid
 flowchart TD
-    ContractStore["Contract store"] --> IO["dc43.integration.spark_io"]
+    ContractStore["Contract store"] --> IO["dc43.integration.spark.io"]
     IO --> Spark["Spark Jobs / DLT"]
     IO --> ContractMgr["Data contract manager"]
     IO --> Governance["Governance service"]
@@ -23,17 +23,17 @@ flowchart TD
 
 ## Spark & Delta Helpers
 
-The canonical implementation lives in [`src/dc43/integration`](../../src/dc43/integration):
+The canonical implementation lives in [`src/dc43/integration/spark`](../../src/dc43/integration/spark):
 
-* `spark_io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
-* `dlt_helpers.py` — Functions to translate ODCS expectations into Delta Live Tables expectations.
-* [`dc43.components.data_quality.integration`](../../src/dc43/components/data_quality/integration/__init__.py) — Schema snapshots, expectation predicates, and metric builders used by adapters.
+* `io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
+* `dlt.py` — Functions to translate ODCS expectations into Delta Live Tables expectations.
+* [`dc43.integration.spark.data_quality`](../../src/dc43/integration/spark/data_quality.py) — Schema snapshots, expectation predicates, and metric builders used by adapters.
 * [`dc43.services.governance`](../../src/dc43/services/governance) — Coordination service that links contracts, evaluates observations, and persists drafts.
 
 Pipelines typically import these helpers directly:
 
 ```python
-from dc43.integration.spark_io import (
+from dc43.integration.spark.io import (
     read_with_contract,
     write_with_contract,
     ContractVersionLocator,

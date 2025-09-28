@@ -2,10 +2,9 @@
 
 The Spark integration captures schema snapshots and expectation metrics inside
 Spark jobs before forwarding them to the **governance service**. Runtime
-helpers live in `dc43.components.data_quality.integration` while the
-runtime-agnostic evaluation logic stays inside
-`dc43.components.data_quality.engine`. Use
-`dc43.components.data_quality.validation.apply_contract` to align Spark IO with
+helpers live in `dc43.integration.spark.data_quality` while the runtime-agnostic
+evaluation logic stays inside `dc43.services.data_quality.backend.engine`. Use
+`dc43.integration.spark.validation.apply_contract` to align Spark IO with
 an approved contract when reading or writing datasets.
 
 ## Helpers
@@ -26,12 +25,12 @@ The Spark integration exposes the following building blocks:
 * `attach_failed_expectations(contract, status)` – enrich a governance
   `DQStatus` with failing expressions and violation counts after a submission.
 * `apply_contract(df, contract)` – align column order and types before reads and
-  writes (via `dc43.components.data_quality.validation`).
+  writes (via `dc43.services.data_quality.backend.validation`).
 
 ```python
-from dc43.services.data_quality import ObservationPayload
-from dc43.components.data_quality.integration import build_metrics_payload
-from dc43.services.governance.local import build_local_governance_service
+from dc43.integration.spark.data_quality import build_metrics_payload
+from dc43.services.data_quality.models import ObservationPayload
+from dc43.services.governance.client import build_local_governance_service
 
 metrics_payload, schema_payload, reused = build_metrics_payload(
     df,
@@ -55,10 +54,9 @@ status = assessment.status
 ```
 
 `validate_dataframe` treats schema violations (missing columns, type drift,
-required nulls) as blocking failures.  Expectation metrics are downgraded to
-warnings by default so pipelines can continue running while governance decides
-whether to block.  Pass `expectation_severity="error"` to fail locally on those
-violations or `"ignore"` to silence them entirely.
+required nulls) and expectation breaches as blocking failures by default.
+Pass `expectation_severity="warning"` to downgrade expectation metrics when you
+want to keep jobs running, or `"ignore"` to silence them entirely.
 
 `evaluate_dataset` delegates the final compatibility verdict to whichever
 governance backend you configure (filesystem stub, Collibra, bespoke

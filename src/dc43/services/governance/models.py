@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
-from dc43.components.data_quality.governance import DQStatus
+from dc43.services.governance.backend.dq import DQStatus
 
 PipelineContextSpec = Union[
     "PipelineContext",
@@ -111,6 +111,13 @@ def merge_draft_context(
         context.update(pipeline_context)
     if base:
         context.update(base)
+    pipeline_name = context.get("pipeline")
+    if isinstance(pipeline_name, str):
+        module, _, function = pipeline_name.rpartition(".")
+        if module:
+            context.setdefault("module", module)
+        if function:
+            context.setdefault("function", function)
     if dataset_id and "dataset_id" not in context:
         context["dataset_id"] = dataset_id
     if dataset_version and "dataset_version" not in context:
