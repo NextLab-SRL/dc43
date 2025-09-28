@@ -9,8 +9,7 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 
 from dc43.services.contracts.backend.drafting import draft_from_validation_result
 from dc43.services.contracts.backend.stores.interface import ContractStore
-from dc43.services.data_quality.backend.engine import ValidationResult
-from dc43.services.governance.backend.dq import DQStatus
+from dc43.services.data_quality.models import ValidationResult
 from dc43.odcs import contract_identity
 from dc43.services.contracts.backend import ContractServiceBackend
 from dc43.services.contracts.client import ContractServiceClient
@@ -44,7 +43,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         self._dq_client = dq_client
         self._draft_store = draft_store
         self._credentials: Optional[GovernanceCredentials] = None
-        self._status_cache: Dict[tuple[str, str, str, str], DQStatus] = {}
+        self._status_cache: Dict[tuple[str, str, str, str], ValidationResult] = {}
         self._activity_log: Dict[str, Dict[Optional[str], Dict[str, Any]]] = {}
         self._dataset_links: Dict[tuple[str, Optional[str]], str] = {}
 
@@ -109,11 +108,15 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         status = self._status_from_validation(validation, operation=operation)
 
         if status is not None:
-            details = dict(status.details or {})
+            details = dict(status.details)
             if payload.metrics:
-                details.setdefault("metrics", payload.metrics)
+                if not details.get("metrics"):
+                    details["metrics"] = payload.metrics
+                status.metrics = dict(payload.metrics)
             if payload.schema:
-                details.setdefault("schema", payload.schema)
+                if not details.get("schema"):
+                    details["schema"] = payload.schema
+                status.schema = dict(payload.schema)
             status.details = details
 
         cache_key = (contract_id, contract_version, dataset_id, dataset_version)
@@ -142,7 +145,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 operation=operation,
             )
             if draft is not None and status is not None:
-                details = dict(status.details or {})
+                details = dict(status.details)
                 details.setdefault("draft_contract_version", draft.version)
                 status.details = details
 
@@ -167,7 +170,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         dataset_id: str | None = None,
         dataset_version: str | None = None,
         data_format: str | None = None,
-        dq_status: DQStatus | None = None,
+        dq_status: ValidationResult | None = None,
         dq_feedback: Mapping[str, object] | None = None,
         context: QualityDraftContext | None = None,
         pipeline_context: PipelineContextSpec | None = None,
@@ -242,7 +245,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         contract_version: str,
         dataset_id: str,
         dataset_version: str,
-    ) -> Optional[DQStatus]:
+    ) -> Optional[ValidationResult]:
         return self._status_cache.get((contract_id, contract_version, dataset_id, dataset_version))
 
     def link_dataset_contract(
@@ -347,7 +350,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _status_from_validation(self, validation: ValidationResult, *, operation: str) -> DQStatus:
+    def _status_from_validation(self, validation: ValidationResult, *, operation: str) -> ValidationResult:
         metrics = validation.metrics or {}
         violation_total = 0
         for key, value in metrics.items():
@@ -358,7 +361,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
 
         if validation.errors or not validation.ok:
             reason = validation.errors[0] if validation.errors else None
-            return DQStatus(
+            return ValidationResult(
                 status="block",
                 reason=reason,
                 details={
@@ -380,19 +383,19 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             }
             if operation == "write":
                 details.setdefault("operation", operation)
-                return DQStatus(
+                return ValidationResult(
                     status="block",
                     reason=reason,
                     details=details,
                 )
-            return DQStatus(
+            return ValidationResult(
                 status="warn",
                 reason=reason,
                 details=details,
             )
 
         if validation.warnings:
-            return DQStatus(
+            return ValidationResult(
                 status="warn",
                 reason=validation.warnings[0],
                 details={
@@ -401,7 +404,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 },
             )
 
-        return DQStatus(status="ok", details={"violations": 0})
+        return ValidationResult(status="ok", details={"violations": 0})
 
     def _record_pipeline_activity(
         self,
@@ -411,7 +414,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         dataset_version: str,
         operation: str,
         pipeline_context: Optional[Mapping[str, Any]],
-        status: Optional[DQStatus],
+        status: Optional[ValidationResult],
         observations_reused: bool,
     ) -> None:
         cid, cver = contract_identity(contract)

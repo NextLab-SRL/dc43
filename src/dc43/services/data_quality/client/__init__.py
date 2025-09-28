@@ -3,4 +3,7 @@
 from .interface import DataQualityServiceClient
 from .local import LocalDataQualityServiceClient
 
-__all__ = ["DataQualityServiceClient", "LocalDataQualityServiceClient"]
+__all__ = [
+    "DataQualityServiceClient",
+    "LocalDataQualityServiceClient",
+]

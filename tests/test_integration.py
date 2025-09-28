@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import pytest
 
@@ -13,6 +13,7 @@ from open_data_contract_standard.model import (
 )
 
 from dc43.services.contracts.backend.stores import FSContractStore
+from dc43.services.contracts.client import LocalContractServiceClient
 from dc43.integration.spark.io import (
     read_with_contract,
     write_with_contract,
@@ -21,6 +22,7 @@ from dc43.integration.spark.io import (
     DatasetResolution,
 )
 from dc43.integration.spark.violation_strategy import SplitWriteViolationStrategy
+from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
 from dc43.services.governance.client import build_local_governance_service
 from datetime import datetime
 import logging
@@ -60,16 +62,18 @@ def make_contract(base_path: str, fmt: str = "parquet") -> OpenDataContractStand
     )
 
 
-def persist_contract(tmp_path: Path, contract: OpenDataContractStandard) -> FSContractStore:
+def persist_contract(
+    tmp_path: Path, contract: OpenDataContractStandard
+) -> Tuple[FSContractStore, LocalContractServiceClient, LocalDataQualityServiceClient]:
     store = FSContractStore(str(tmp_path / "contracts"))
     store.put(contract)
-    return store
+    return store, LocalContractServiceClient(store), LocalDataQualityServiceClient()
 
 
 def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
     data_dir = tmp_path / "parquet"
     contract = make_contract(str(data_dir))
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     # Prepare data with one enum violation for currency
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -83,9 +87,10 @@ def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
     _, status = read_with_contract(
         spark,
         contract_id=contract.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract.version}",
         enforce=False,
+        data_quality_service=dq_service,
         governance_service=governance,
         return_status=True,
     )
@@ -100,7 +105,7 @@ def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
 def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "dq"
     contract = make_contract(str(dest_dir))
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     df = spark.createDataFrame(
         [
             (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -112,10 +117,11 @@ def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
     result, status = write_with_contract(
         df=df,
         contract_id=contract.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service,
         governance_service=governance,
         return_status=True,
     )
@@ -131,17 +137,18 @@ def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
     dest_dir = tmp_path / "out"
     contract = make_contract(str(dest_dir))
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     # Missing required column 'currency' to trigger validation error
     data = [(1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0)]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount"])
     result = write_with_contract(
         df=df,
         contract_id=contract.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,  # continue writing despite mismatch
+        data_quality_service=dq_service,
     )
     assert not result.ok
     assert result.errors
@@ -167,7 +174,7 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     expected_dir = tmp_path / "expected"
     actual_dir = tmp_path / "actual"
     contract = make_contract(str(expected_dir))
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -178,11 +185,12 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     result = write_with_contract(
         df=df,
         contract_id=contract.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract.version}",
         path=str(actual_dir),
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service,
     )
     assert any("does not match" in w for w in result.warnings)
 
@@ -191,7 +199,7 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
     base_dir = tmp_path / "data"
     contract_path = base_dir / "orders_enriched.parquet"
     contract = make_contract(str(contract_path))
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -204,11 +212,12 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
         result = write_with_contract(
             df=df,
             contract_id=contract.id,
-            contract_store=store,
+            contract_service=contract_service,
             expected_contract_version=f"=={contract.version}",
             path=str(target),
             mode="overwrite",
             enforce=False,
+            data_quality_service=dq_service,
         )
     assert not any("does not match contract server path" in msg for msg in caplog.messages)
     assert not any("does not match" in w for w in result.warnings)
@@ -217,7 +226,7 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
 def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     data_dir = tmp_path / "json"
     contract = make_contract(str(data_dir), fmt="parquet")
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -230,10 +239,11 @@ def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
         read_with_contract(
             spark,
             contract_id=contract.id,
-            contract_store=store,
+            contract_service=contract_service,
             expected_contract_version=f"=={contract.version}",
             format="json",
             enforce=False,
+            data_quality_service=dq_service,
         )
     assert any(
         "format json does not match contract server format parquet" in m
@@ -244,7 +254,7 @@ def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
 def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     dest_dir = tmp_path / "out"
     contract = make_contract(str(dest_dir), fmt="parquet")
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
     ]
@@ -256,12 +266,13 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
         result = write_with_contract(
             df=df,
             contract_id=contract.id,
-            contract_store=store,
+            contract_service=contract_service,
             expected_contract_version=f"=={contract.version}",
             path=str(dest_dir),
             format="json",
             mode="overwrite",
             enforce=False,
+            data_quality_service=dq_service,
         )
     assert any(
         "Format json does not match contract server format parquet" in w
@@ -276,7 +287,7 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
 def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
     base_dir = tmp_path / "split"
     contract = make_contract(str(base_dir))
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
         (2, 102, datetime(2024, 1, 2, 10, 0, 0), 15.5, "INR"),
@@ -290,10 +301,11 @@ def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
     result = write_with_contract(
         df=df,
         contract_id=contract.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service,
         violation_strategy=strategy,
     )
 
@@ -319,7 +331,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
     contract = make_contract(str(dest_dir))
     # Tighten quality rule to trigger a violation for the sample data below.
     contract.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=100)]
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
 
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 50.0, "EUR"),
@@ -335,10 +347,11 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
     result, status = write_with_contract(
         df=df,
         contract_id=contract.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service,
         governance_service=governance,
         dataset_locator=locator,
         return_status=True,
@@ -352,10 +365,11 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
         write_with_contract(
             df=df,
             contract_id=contract.id,
-            contract_store=store,
+            contract_service=contract_service,
             expected_contract_version=f"=={contract.version}",
             mode="overwrite",
             enforce=True,
+            data_quality_service=dq_service,
             governance_service=governance,
             dataset_locator=locator,
         )
@@ -375,6 +389,8 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
 
     store = FSContractStore(str(tmp_path / "upgrade_contracts"))
     store.put(contract_v1)
+    contract_service = LocalContractServiceClient(store)
+    dq_service = LocalDataQualityServiceClient()
     governance = build_local_governance_service(store)
     upgrade_locator = StaticDatasetLocator(
         dataset_version="2024-01-01",
@@ -383,10 +399,11 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     _, status_ok = write_with_contract(
         df=df_ok,
         contract_id=contract_v1.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract_v1.version}",
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service,
         governance_service=governance,
         dataset_locator=upgrade_locator,
         return_status=True,
@@ -412,7 +429,7 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
 def test_governance_service_persists_draft_context(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "handles"
     contract = make_contract(str(dest_dir))
-    store = persist_contract(tmp_path, contract)
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
 
     # Missing the 'currency' column to trigger a draft proposal.
     data = [
@@ -430,10 +447,11 @@ def test_governance_service_persists_draft_context(spark, tmp_path: Path) -> Non
     result = write_with_contract(
         df=df,
         contract_id=contract.id,
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version=f"=={contract.version}",
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service,
         governance_service=governance,
         dataset_locator=locator,
         pipeline_context={"job": "governance-bundle"},

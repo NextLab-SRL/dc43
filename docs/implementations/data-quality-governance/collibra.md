@@ -1,6 +1,6 @@
 # Collibra Data-Quality Governance Adapter
 
-This guide explains how to wire dc43's data-quality (`DQClient`) interface to
+This guide explains how to wire dc43's data-quality governance helpers to
 [Collibra Data Products](https://productresources.collibra.com/docs/collibra/latest/Content/Assets/DataProducts/co_data-product.htm)
 so Collibra becomes the system of record for dataset↔contract compatibility.
 It focuses exclusively on quality orchestration—contract storage and draft
@@ -14,7 +14,7 @@ into native Collibra artefacts:
 | DQ concern | Collibra capability | Implementation notes |
 | --- | --- | --- |
 | Compatibility matrix | Custom asset types or relations linking Data Product ports and contract versions | Persist one asset per dataset version so stewards can audit approvals. |
-| Status evaluation | Workflow states (`Draft`, `In Review`, `Validated`, `Blocked`, …) | Map dc43's `DQStatus` (`ok`, `warn`, `block`, `unknown`) to Collibra workflow transitions. |
+| Status evaluation | Workflow states (`Draft`, `In Review`, `Validated`, `Blocked`, …) | Map dc43's validation statuses (`ok`, `warn`, `block`, `unknown`) to Collibra workflow transitions. |
 | Metrics history | Attachments, custom attributes, or linked assets | Store aggregated metrics or upload raw JSON as an attachment for steward review. |
 | Steward engagement | Tasks, responsibilities, and notifications | Trigger stewards when new metrics arrive or a dataset moves into a blocking state. |
 | Runtime queries | REST APIs exposed for Data Products and custom assets | Allow `get_status` to fetch the latest verdict before dc43 serves data. |
@@ -51,27 +51,27 @@ of truth:
   contract version. Store attributes like dataset version identifier, last
   metric snapshot, steward owner, and expiry.
 * **Status fields** – reuse Collibra workflow states (`Draft`, `In Review`,
-  `Validated`, `Blocked`) or custom enumerations to mirror dc43's `DQStatus`
-  values. The adapter should map `ok/warn/block/unknown` to the same state
-  machine.
+  `Validated`, `Blocked`) or custom enumerations to mirror dc43's
+  `ValidationResult` values. The adapter should map `ok/warn/block/unknown`
+  to the same state machine.
 * **Metric storage** – persist the raw metrics JSON or an aggregated digest so
   stewards can inspect failure counts. For large payloads, upload documents to a
   Collibra attachment and store the link on the compatibility asset.
 * **Audit trail** – enable workflow history and comments to document why a
   dataset version was approved or rejected. dc43 can surface this context back
-  to pipelines via the `details` field on `DQStatus`.
+  to pipelines via the `details` field on the `ValidationResult`.
 
 Document the asset identifiers, relationship types, and state mappings in your
 adapter configuration so new datasets automatically follow the same conventions.
 
 ## Adapter implementation
 
-A Collibra-backed `DQClient` typically combines the existing Collibra adapter
-used for contract resolution with calls that manage compatibility assets:
+A Collibra-backed client typically combines the existing Collibra adapter used
+for contract resolution with calls that manage compatibility assets:
 
 ```python
 from dc43.services.contracts.backend.stores import HttpCollibraContractAdapter
-from dc43.services.governance.backend.dq import DQStatus
+from dc43.services.data_quality.models import ValidationResult
 
 class CollibraDQClient:
     def __init__(self, adapter: HttpCollibraContractAdapter, asset_type: str):
@@ -85,9 +85,9 @@ class CollibraDQClient:
         # 4. Optionally transition the workflow when automatic rules apply
         ...
 
-    def get_status(self, dataset_id: str) -> DQStatus:
+    def get_status(self, dataset_id: str) -> ValidationResult:
         # Fetch the compatibility asset for the latest dataset version and map
-        # Collibra's workflow state back to a dc43 DQStatus value
+        # Collibra's workflow state back to a dc43 ValidationResult value
         ...
 ```
 
@@ -99,8 +99,8 @@ Key capabilities the adapter must offer:
   repeated submissions update the correct record.
 * **Workflow transitions** – call the Collibra workflow API to move an asset to
   `Validated`, `Blocked`, or similar states when stewards approve the dataset.
-* **Status mapping** – normalise Collibra's response into dc43's `DQStatus`
-  model so runtimes can act consistently.
+* **Status mapping** – normalise Collibra's response into dc43's
+  `ValidationResult` model so runtimes can act consistently.
 
 ## Notifications and automation
 

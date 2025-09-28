@@ -136,7 +136,7 @@ contract = OpenDataContractStandard(
       <pre><code class="language-python">orders_df, status = read_with_contract(
     spark,
     contract_id="orders",
-    contract_store=store,
+    contract_service=LocalContractServiceClient(store),
     governance_service=governance,
     dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
@@ -180,7 +180,7 @@ if errors:
       <pre><code class="language-python">result, status = write_with_contract(
     enriched,
     contract_id="orders",
-    contract_store=store,
+    contract_service=LocalContractServiceClient(store),
     governance_service=governance,
     dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>

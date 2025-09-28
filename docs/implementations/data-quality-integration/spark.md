@@ -14,16 +14,15 @@ The Spark integration exposes the following building blocks:
 * `schema_snapshot(df)` – capture the observed fields as `backend_type`,
   canonical `odcs_type`, and `nullable` flags.
 * `collect_observations(df, contract)` – return `(schema, metrics)` tuples ready
-  to hand to the governance service via an `ObservationPayload`.
-* `validate_dataframe(df, contract)` – optional helper that runs the collected
-  observations through the engine locally to produce a `ValidationResult` with
-  cached schema and metrics.
+  to hand to your configured data-quality service via an `ObservationPayload`.
 * `build_metrics_payload(df, contract, validation=...)` – reuse cached metrics or
   compute fresh ones before submitting them to a governance adapter.
 * `expectations_from_contract(contract)` – expose Spark SQL predicates matching
   the contract expectations (useful for DLT pipelines).
-* `attach_failed_expectations(contract, status)` – enrich a governance
-  `DQStatus` with failing expressions and violation counts after a submission.
+* `attach_failed_expectations(contract, status, metrics=...)` – enrich a
+  governance `ValidationResult` with failing expressions and violation counts
+  after a submission, optionally providing supplemental metrics captured during
+  the write.
 * `apply_contract(df, contract)` – align column order and types before reads and
   writes (via `dc43.services.data_quality.backend.validation`).
 
@@ -53,10 +52,10 @@ assessment = governance.evaluate_dataset(
 status = assessment.status
 ```
 
-`validate_dataframe` treats schema violations (missing columns, type drift,
-required nulls) and expectation breaches as blocking failures by default.
-Pass `expectation_severity="warning"` to downgrade expectation metrics when you
-want to keep jobs running, or `"ignore"` to silence them entirely.
+When calling `DataQualityServiceClient.evaluate`, include the schema/metric
+observations gathered earlier so the service can determine status and surface
+violations. Services decide how to treat expectation breaches (error, warn,
+ignore) based on their own configuration.
 
 `evaluate_dataset` delegates the final compatibility verdict to whichever
 governance backend you configure (filesystem stub, Collibra, bespoke

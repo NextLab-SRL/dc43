@@ -61,8 +61,8 @@ The drafter is deliberately small so you can augment it with additional signals:
   Structured Streaming hints are available.
 * **Batch file introspection** – inspect Parquet/CSV statistics to derive
   nullability or distribution changes when data is loaded from files.
-* **Quality feedback** – integrate with the `DQClient` so the drafter can
-  summarise outstanding violations inside the draft payload.
+* **Quality feedback** – integrate with the governance service so the drafter
+  can summarise outstanding violations inside the draft payload.
 
 When a different runtime platform is responsible for draft generation, implement
 the same protocol in a new document under

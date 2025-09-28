@@ -21,16 +21,14 @@ from dc43.demo_app.server import (
     set_active_version,
     register_dataset_version,
 )
-from dc43.services.data_quality.backend.engine import (
+from dc43.services.data_quality.engine import (
     ExpectationSpec,
     expectation_specs,
 )
-from dc43.services.governance.backend.dq import DQStatus
-from dc43.integration.spark.data_quality import (
-    attach_failed_expectations,
-    validate_dataframe,
-)
-from dc43.services.governance.client import build_local_governance_service
+from dc43.services.data_quality.models import ValidationResult
+from dc43.integration.spark.data_quality import attach_failed_expectations
+from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
+from dc43.services.governance.client.local import build_local_governance_service
 from dc43.integration.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
@@ -49,6 +47,10 @@ from dc43.integration.spark.violation_strategy import (
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, when
+from dc43.services.contracts.client.local import LocalContractServiceClient
+
+contract_service = LocalContractServiceClient(store)
+dq_service = LocalDataQualityServiceClient()
 
 
 def _next_version(existing: list[str]) -> str:
@@ -121,17 +123,17 @@ class _DowngradeBlockingReadStrategy:
         self,
         *,
         dataframe: DataFrame,
-        status: DQStatus | None,
+        status: ValidationResult | None,
         enforce: bool,
         context: ReadStatusContext,
-    ) -> tuple[DataFrame, DQStatus | None]:
+    ) -> tuple[DataFrame, ValidationResult | None]:
         if status and status.status == "block":
-            details = dict(status.details or {})
+            details = dict(status.details)
             notes = list(details.get("overrides", []))
             notes.append(self.note)
             details["overrides"] = notes
             details.setdefault("status_before_override", status.status)
-            return dataframe, DQStatus(
+            return dataframe, ValidationResult(
                 status=self.target_status,
                 reason=status.reason,
                 details=details,
@@ -382,7 +384,7 @@ def _expectation_error_messages(
     return messages
 
 
-def _status_payload(status: DQStatus | None) -> dict[str, Any] | None:
+def _status_payload(status: ValidationResult | None) -> dict[str, Any] | None:
     """Return a JSON-serialisable payload summarising ``status``."""
 
     if status is None:
@@ -410,7 +412,7 @@ def _resolve_dataset_name_hint(
         return dataset_name
     if contract_id and contract_version:
         try:
-            contract = store.get(contract_id, contract_version)
+            contract = contract_service.get(contract_id, contract_version)
         except FileNotFoundError:
             return contract_id
         dataset_id = getattr(contract, "id", None)
@@ -428,8 +430,8 @@ def _record_blocked_read_failure(
     dataset_name_hint: str,
     run_type: str,
     scenario_key: str | None,
-    orders_status: DQStatus | None,
-    customers_status: DQStatus | None,
+    orders_status: ValidationResult | None,
+    customers_status: ValidationResult | None,
 ) -> None:
     """Persist a dataset record describing a blocked input read."""
 
@@ -560,9 +562,10 @@ def run_pipeline(
     orders_df, orders_status = read_with_contract(
         spark,
         contract_id="orders",
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version="==1.1.0",
         governance_service=governance,
+        data_quality_service=dq_service,
         dataset_locator=orders_locator,
         status_strategy=orders_strategy,
         enforce=orders_enforce,
@@ -621,9 +624,10 @@ def run_pipeline(
     customers_df, customers_status = read_with_contract(
         spark,
         contract_id="customers",
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version="==1.0.0",
         governance_service=governance,
+        data_quality_service=dq_service,
         dataset_locator=customers_locator,
         status_strategy=customers_strategy,
         enforce=customers_enforce,
@@ -694,25 +698,15 @@ def run_pipeline(
         )
     contract_id_ref = getattr(output_contract, "id", None)
     expected_version = f"=={output_contract.version}" if output_contract else None
-    prewrite_schema_errors: list[str] = []
-    if output_contract:
-        prewrite_schema_errors = list(
-            validate_dataframe(
-                df,
-                output_contract,
-                collect_metrics=False,
-            ).errors
-            or []
-        )
-
     result, output_status = write_with_contract(
         df=df,
         contract_id=contract_id_ref,
-        contract_store=store if contract_id_ref else None,
+        contract_service=contract_service if contract_id_ref else None,
         path=None if contract_id_ref else str(output_path),
         format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service if contract_id_ref else None,
         governance_service=governance,
         dataset_locator=locator,
         expected_contract_version=expected_version,
@@ -729,7 +723,11 @@ def run_pipeline(
     )
 
     if output_status and output_contract:
-        output_status = attach_failed_expectations(output_contract, output_status)
+        output_status = attach_failed_expectations(
+            output_contract,
+            output_status,
+            metrics=result.metrics,
+        )
 
     expectation_messages: set[str] = set()
     if output_contract:
@@ -740,12 +738,7 @@ def run_pipeline(
 
     schema_errors: list[str] = []
     seen_schema_errors: set[str] = set()
-    for message in prewrite_schema_errors:
-        if message in seen_schema_errors:
-            continue
-        seen_schema_errors.add(message)
-        schema_errors.append(message)
-
+    original_errors = list(result.errors)
     if result.errors:
         filtered_errors: list[str] = []
         for message in result.errors:
@@ -758,6 +751,21 @@ def run_pipeline(
         if filtered_errors != result.errors:
             result.errors[:] = filtered_errors
         schema_errors.extend(filtered_errors)
+    if not schema_errors:
+        residual = [msg for msg in original_errors if msg not in expectation_messages]
+        schema_errors.extend(residual)
+    if output_contract:
+        expected_columns = {
+            prop.name
+            for obj in output_contract.schema_ or []
+            for prop in obj.properties or []
+            if prop.name
+        }
+        missing = sorted(name for name in expected_columns if name not in set(df.columns))
+        for name in missing:
+            message = f"missing required column: {name}"
+            if message not in schema_errors:
+                schema_errors.append(message)
 
     handled_split_override = False
     if isinstance(strategy, SplitWriteViolationStrategy) and output_status:
@@ -1003,6 +1011,15 @@ def run_pipeline(
         severity = 2
     elif warnings_present:
         severity = max(severity, 1)
+
+    if (
+        handled_split_override
+        and severity > 1
+        and not schema_errors
+        and not result.errors
+        and error is None
+    ):
+        severity = 1
 
     status_value = "ok"
     if severity == 1:

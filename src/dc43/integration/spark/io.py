@@ -28,19 +28,18 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.services.contracts.backend.stores.interface import ContractStore
-from dc43.services.data_quality.backend.engine import ValidationResult
-from dc43.services.data_quality.models import ObservationPayload
-from dc43.services.governance.backend.dq import DQStatus
-from dc43.services.governance.client import GovernanceServiceClient
+from dc43.services.contracts.client.interface import ContractServiceClient
+from dc43.services.data_quality.client.interface import DataQualityServiceClient
+from dc43.services.data_quality.models import ObservationPayload, ValidationResult
+from dc43.services.governance.client.interface import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
 from .data_quality import (
     build_metrics_payload,
+    collect_observations,
     expectations_from_contract as dq_expectations_from_contract,
-    validate_dataframe,
 )
 from .validation import apply_contract
-from dc43.odcs import contract_identity, ensure_version
+from dc43.odcs import contract_identity, custom_properties_dict, ensure_version
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
 
@@ -58,6 +57,29 @@ PipelineContextLike = Union[
     Sequence[tuple[str, object]],
     str,
 ]
+
+
+def _evaluate_with_service(
+    *,
+    contract: OpenDataContractStandard,
+    service: DataQualityServiceClient,
+    schema: Mapping[str, Mapping[str, Any]] | None = None,
+    metrics: Mapping[str, Any] | None = None,
+    reused: bool = False,
+) -> ValidationResult:
+    """Evaluate ``contract`` observations through ``service``."""
+
+    payload = ObservationPayload(
+        metrics=dict(metrics or {}),
+        schema=dict(schema) if schema else None,
+        reused=reused,
+    )
+    result = service.evaluate(contract=contract, payload=payload)
+    if schema and not result.schema:
+        result.schema = dict(schema)
+    if metrics and not result.metrics:
+        result.metrics = dict(metrics)
+    return result
 
 
 def _merge_pipeline_context(
@@ -138,8 +160,6 @@ def _as_governance_service(
     """Return the provided governance service when configured."""
 
     return service
-
-
 @dataclass
 class DatasetResolution:
     """Resolved location and governance identifiers for a dataset."""
@@ -227,22 +247,37 @@ class ContractFirstDatasetLocator:
         dataset_id = contract.id if contract else dataset_id_from_ref(table=table, path=path)
         dataset_version = self.clock() if include_timestamp else None
         server_props: Optional[Dict[str, Any]] = None
+        read_options: Optional[Dict[str, str]] = None
+        write_options: Optional[Dict[str, str]] = None
         if contract and contract.servers:
             first = contract.servers[0]
-            props: Dict[str, Any] = {}
-            for item in getattr(first, "customProperties", []) or []:
-                if getattr(item, "property", None):
-                    props[item.property] = item.value
+            props = custom_properties_dict(first)
             if props:
                 server_props = props
+                versioning = props.get(ContractVersionLocator.VERSIONING_PROPERTY)
+                if isinstance(versioning, Mapping):
+                    read_map = versioning.get("readOptions")
+                    if isinstance(read_map, Mapping):
+                        read_options = {
+                            str(k): str(v)
+                            for k, v in read_map.items()
+                            if v is not None
+                        }
+                    write_map = versioning.get("writeOptions")
+                    if isinstance(write_map, Mapping):
+                        write_options = {
+                            str(k): str(v)
+                            for k, v in write_map.items()
+                            if v is not None
+                        }
         return DatasetResolution(
             path=path,
             table=table,
             format=format,
             dataset_id=dataset_id,
             dataset_version=dataset_version,
-            read_options=None,
-            write_options=None,
+            read_options=read_options,
+            write_options=write_options,
             custom_properties=server_props,
             load_paths=None,
         )
@@ -670,10 +705,10 @@ class ReadStatusStrategy(Protocol):
         self,
         *,
         dataframe: DataFrame,
-        status: Optional[DQStatus],
+        status: Optional[ValidationResult],
         enforce: bool,
         context: ReadStatusContext,
-    ) -> tuple[DataFrame, Optional[DQStatus]]:
+    ) -> tuple[DataFrame, Optional[ValidationResult]]:
         ...
 
 
@@ -685,10 +720,10 @@ class DefaultReadStatusStrategy:
         self,
         *,
         dataframe: DataFrame,
-        status: Optional[DQStatus],
+        status: Optional[ValidationResult],
         enforce: bool,
         context: ReadStatusContext,
-    ) -> tuple[DataFrame, Optional[DQStatus]]:  # noqa: D401 - short docstring
+    ) -> tuple[DataFrame, Optional[ValidationResult]]:  # noqa: D401 - short docstring
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
         return dataframe, status
@@ -795,29 +830,29 @@ def _resolve_contract(
     *,
     contract_id: str,
     expected_version: Optional[str],
-    store: ContractStore,
+    service: ContractServiceClient,
 ) -> OpenDataContractStandard:
-    """Fetch a contract from ``store`` honouring the expected version constraint."""
+    """Fetch a contract from the configured service respecting version hints."""
 
-    if store is None:
-        raise ValueError("contract_store is required when contract_id is provided")
+    if service is None:
+        raise ValueError("contract_service is required when contract_id is provided")
 
     if not expected_version:
-        contract = store.latest(contract_id)
+        contract = service.latest(contract_id)
         if contract is None:
             raise ValueError(f"No versions available for contract {contract_id}")
         return contract
 
     if expected_version.startswith("=="):
         version = expected_version[2:]
-        return store.get(contract_id, version)
+        return service.get(contract_id, version)
 
     if expected_version.startswith(">="):
         base = expected_version[2:]
-        version = _select_version(store.list_versions(contract_id), base)
-        return store.get(contract_id, version)
+        version = _select_version(list(service.list_versions(contract_id)), base)
+        return service.get(contract_id, version)
 
-    return store.get(contract_id, expected_version)
+    return service.get(contract_id, expected_version)
 
 
 # Overloads help type checkers infer the return type based on ``return_status``
@@ -827,7 +862,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -835,12 +870,13 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True] = True,
-) -> tuple[DataFrame, Optional[DQStatus]]:
+) -> tuple[DataFrame, Optional[ValidationResult]]:
     ...
 
 
@@ -849,7 +885,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -857,6 +893,7 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
@@ -871,7 +908,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -879,12 +916,13 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
-) -> DataFrame | tuple[DataFrame, Optional[DQStatus]]:
+) -> DataFrame | tuple[DataFrame, Optional[ValidationResult]]:
     ...
 
 
@@ -892,7 +930,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -901,16 +939,17 @@ def read_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     # Governance / DQ orchestration
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
-) -> DataFrame | Tuple[DataFrame, Optional[DQStatus]]:
+) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
     """Read a DataFrame and validate/enforce an ODCS contract.
 
-    - If ``contract_id`` is provided, the contract is fetched from ``contract_store``
-      before validating schema and aligning columns/types.
+    - If ``contract_id`` is provided, the contract is fetched from
+      ``contract_service`` before validating schema and aligning columns/types.
     - If ``governance_service`` is provided the remote coordinator evaluates
       metrics, records governance activity, and returns the dataset status when
       ``return_status=True``.
@@ -923,7 +962,7 @@ def read_with_contract(
         contract = _resolve_contract(
             contract_id=contract_id,
             expected_version=expected_contract_version,
-            store=contract_store,
+            service=contract_service,
         )
         ensure_version(contract)
         _check_contract_version(expected_contract_version, contract.version)
@@ -983,12 +1022,24 @@ def read_with_contract(
     target = resolution.load_paths or path
     df = reader.table(table) if table else reader.load(target)
     result: Optional[ValidationResult] = None
+    observed_schema: Optional[Dict[str, Dict[str, Any]]] = None
+    observed_metrics: Optional[Dict[str, Any]] = None
     cid: Optional[str] = None
     cver: Optional[str] = None
     if contract:
+        if data_quality_service is None:
+            raise ValueError(
+                "data_quality_service is required when validating against a contract"
+            )
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
-        result = validate_dataframe(df, contract)
+        observed_schema, observed_metrics = collect_observations(df, contract)
+        result = _evaluate_with_service(
+            contract=contract,
+            service=data_quality_service,
+            schema=observed_schema,
+            metrics=observed_metrics,
+        )
         logger.info(
             "Read validation: ok=%s errors=%s warnings=%s",
             result.ok,
@@ -1001,7 +1052,7 @@ def read_with_contract(
 
     # DQ integration
     governance_client = _as_governance_service(governance_service)
-    status: Optional[DQStatus] = None
+    status: Optional[ValidationResult] = None
     if governance_client and contract and result is not None:
         ds_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
         ds_ver = (
@@ -1064,7 +1115,7 @@ def write_with_contract(
     *,
     df: DataFrame,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
@@ -1073,11 +1124,12 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True],
-) -> tuple[ValidationResult, Optional[DQStatus]]:
+) -> tuple[ValidationResult, Optional[ValidationResult]]:
     ...
 
 
@@ -1086,7 +1138,7 @@ def write_with_contract(
     *,
     df: DataFrame,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
@@ -1095,6 +1147,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1107,7 +1160,7 @@ def write_with_contract(
     *,
     df: DataFrame,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
@@ -1116,6 +1169,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1135,7 +1189,7 @@ def write_with_contract(
         contract = _resolve_contract(
             contract_id=contract_id,
             expected_version=expected_contract_version,
-            store=contract_store,
+            service=contract_service,
         )
         ensure_version(contract)
         _check_contract_version(expected_contract_version, contract.version)
@@ -1179,11 +1233,23 @@ def write_with_contract(
     out_df = df
     governance_client = _as_governance_service(governance_service)
     result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
+    observed_schema: Optional[Dict[str, Dict[str, Any]]] = None
+    observed_metrics: Optional[Dict[str, Any]] = None
     if contract:
+        if data_quality_service is None:
+            raise ValueError(
+                "data_quality_service is required when validating against a contract"
+            )
         cid, cver = contract_identity(contract)
         logger.info("Writing with contract %s:%s", cid, cver)
         # validate before write and always align schema for downstream metrics
-        result = validate_dataframe(df, contract)
+        observed_schema, observed_metrics = collect_observations(df, contract)
+        result = _evaluate_with_service(
+            contract=contract,
+            service=data_quality_service,
+            schema=observed_schema,
+            metrics=observed_metrics,
+        )
         if pre_validation_warnings:
             for warning in pre_validation_warnings:
                 if warning not in result.warnings:
@@ -1219,7 +1285,14 @@ def write_with_contract(
     strategy = violation_strategy or NoOpWriteViolationStrategy()
     revalidator: Callable[[DataFrame], ValidationResult]
     if contract:
-        revalidator = lambda new_df: validate_dataframe(new_df, contract)  # type: ignore[misc]
+        def revalidator(new_df: DataFrame) -> ValidationResult:  # type: ignore[misc]
+            schema, metrics = collect_observations(new_df, contract)
+            return _evaluate_with_service(
+                contract=contract,
+                service=data_quality_service,
+                schema=schema,
+                metrics=metrics,
+            )
     else:
         revalidator = lambda new_df: ValidationResult(  # type: ignore[return-value]
             ok=True,
@@ -1250,9 +1323,9 @@ def write_with_contract(
     plan = strategy.plan(context)
 
     requests: list[WriteRequest] = []
-    primary_status: Optional[DQStatus] = None
+    primary_status: Optional[ValidationResult] = None
     validations: list[ValidationResult] = []
-    status_records: list[tuple[Optional[DQStatus], WriteRequest]] = []
+    status_records: list[tuple[Optional[ValidationResult], WriteRequest]] = []
 
     if plan.primary is not None:
         requests.append(plan.primary)
@@ -1413,7 +1486,7 @@ def _execute_write_request(
     *,
     governance_client: Optional[GovernanceServiceClient],
     enforce: bool,
-) -> tuple[Optional[DQStatus], Optional[ValidationResult]]:
+) -> tuple[Optional[ValidationResult], Optional[ValidationResult]]:
     writer = request.df.write
     if request.format:
         writer = writer.format(request.format)
@@ -1436,7 +1509,7 @@ def _execute_write_request(
             if message not in validation.warnings:
                 validation.warnings.append(message)
     contract = request.contract
-    status: Optional[DQStatus] = None
+    status: Optional[ValidationResult] = None
     if governance_client and contract and validation is not None:
         dq_dataset_id = request.dataset_id or dataset_id_from_ref(
             table=request.table,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Optional, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -11,6 +11,12 @@ class ContractServiceBackend(Protocol):
     """Operations exposed by a contract management service runtime."""
 
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
+        ...
+
+    def latest(self, contract_id: str) -> Optional[OpenDataContractStandard]:
+        ...
+
+    def list_versions(self, contract_id: str) -> Sequence[str]:
         ...
 
     def link_dataset_contract(

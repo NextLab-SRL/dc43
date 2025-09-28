@@ -1,11 +1,6 @@
 """Governance orchestration service abstractions and local stubs."""
 
-from .backend import (
-    DQClient,
-    DQStatus,
-    GovernanceServiceBackend,
-    LocalGovernanceServiceBackend,
-)
+from .backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
 from .client import (
     GovernanceServiceClient,
     LocalGovernanceServiceClient,
@@ -35,6 +30,4 @@ __all__ = [
     "LocalGovernanceServiceClient",
     "LocalGovernanceService",
     "build_local_governance_service",
-    "DQClient",
-    "DQStatus",
 ]

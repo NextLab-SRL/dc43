@@ -9,7 +9,9 @@ from open_data_contract_standard.model import (
 )
 
 from dc43.integration.spark.validation import apply_contract
-from dc43.integration.spark.data_quality import validate_dataframe
+from dc43.integration.spark.data_quality import collect_observations
+from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
+from dc43.services.data_quality.models import ObservationPayload
 from datetime import datetime
 from pyspark.sql.types import (
     StructType,
@@ -56,7 +58,12 @@ def test_validate_ok(spark):
         (2, 102, datetime(2024, 1, 2, 10, 0, 0), 20.5, "USD"),
     ]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount", "currency"])
-    res = validate_dataframe(df, contract)
+    schema, metrics = collect_observations(df, contract)
+    client = LocalDataQualityServiceClient()
+    res = client.evaluate(
+        contract=contract,
+        payload=ObservationPayload(metrics=metrics, schema=schema),
+    )
     assert res.ok
     assert not res.errors
     assert res.metrics["row_count"] == 2
@@ -70,7 +77,12 @@ def test_validate_type_mismatch(spark):
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), "not-a-double", "EUR"),
     ]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount", "currency"])
-    res = validate_dataframe(df, contract)
+    schema, metrics = collect_observations(df, contract)
+    client = LocalDataQualityServiceClient()
+    res = client.evaluate(
+        contract=contract,
+        payload=ObservationPayload(metrics=metrics, schema=schema),
+    )
     # amount is string but expected double, should report mismatch
     assert not res.ok
     assert any("type mismatch" in e for e in res.errors)
@@ -92,7 +104,12 @@ def test_validate_required_nulls(spark):
         ]
     )
     df = spark.createDataFrame(data, schema=schema)
-    res = validate_dataframe(df, contract)
+    schema_obs, metrics = collect_observations(df, contract)
+    client = LocalDataQualityServiceClient()
+    res = client.evaluate(
+        contract=contract,
+        payload=ObservationPayload(metrics=metrics, schema=schema_obs),
+    )
     assert not res.ok
     assert any("contains" in e and "null" in e for e in res.errors)
     assert res.schema["customer_id"]["nullable"]

@@ -6,10 +6,7 @@ from typing import Callable, Mapping, Optional, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.services.data_quality.backend.engine import ValidationResult
-from dc43.services.governance.backend.dq import DQStatus
-from dc43.services.data_quality.models import ObservationPayload
-
+from dc43.services.data_quality.models import ObservationPayload, ValidationResult
 from ..models import (
     GovernanceCredentials,
     PipelineContextSpec,
@@ -53,7 +50,7 @@ class GovernanceServiceBackend(Protocol):
         dataset_id: str | None = None,
         dataset_version: str | None = None,
         data_format: str | None = None,
-        dq_status: DQStatus | None = None,
+        dq_status: ValidationResult | None = None,
         dq_feedback: Mapping[str, object] | None = None,
         context: QualityDraftContext | None = None,
         pipeline_context: PipelineContextSpec | None = None,
@@ -80,7 +77,7 @@ class GovernanceServiceBackend(Protocol):
         contract_version: str,
         dataset_id: str,
         dataset_version: str,
-    ) -> Optional[DQStatus]:
+    ) -> Optional[ValidationResult]:
         ...
 
     def link_dataset_contract(

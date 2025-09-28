@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Mapping, Tuple
+from typing import Any, Dict, Literal, Tuple
 
 try:  # pragma: no cover - optional dependency
     from pyspark.sql import DataFrame
@@ -13,13 +13,11 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.services.data_quality.backend.engine import (
+from dc43.services.data_quality.engine import (
     ExpectationSpec,
-    ValidationResult,
-    evaluate_contract,
     expectation_specs,
 )
-from dc43.services.governance.backend.dq import DQStatus
+from dc43.services.data_quality.models import ValidationResult
 
 
 # Minimal mapping from ODCS primitive type strings to Spark SQL types.
@@ -216,49 +214,6 @@ def collect_observations(
     return schema, metrics
 
 
-def evaluate_observations(
-    contract: OpenDataContractStandard,
-    *,
-    schema: Mapping[str, Mapping[str, Any]] | None,
-    metrics: Mapping[str, Any] | None,
-    strict_types: bool = True,
-    allow_extra_columns: bool = True,
-    expectation_severity: Literal["error", "warning", "ignore"] = "error",
-) -> ValidationResult:
-    """Compatibility alias to the engine-level observation evaluator."""
-
-    return evaluate_contract(
-        contract,
-        schema=schema,
-        metrics=metrics,
-        strict_types=strict_types,
-        allow_extra_columns=allow_extra_columns,
-        expectation_severity=expectation_severity,
-    )
-
-
-def validate_dataframe(
-    df: DataFrame,
-    contract: OpenDataContractStandard,
-    *,
-    strict_types: bool = True,
-    allow_extra_columns: bool = True,
-    collect_metrics: bool = True,
-    expectation_severity: Literal["error", "warning", "ignore"] = "error",
-) -> ValidationResult:
-    """Validate ``df`` against ``contract`` using Spark-collected observations."""
-
-    schema, metrics = collect_observations(df, contract, collect_metrics=collect_metrics)
-    return evaluate_observations(
-        contract,
-        schema=schema,
-        metrics=metrics,
-        strict_types=strict_types,
-        allow_extra_columns=allow_extra_columns,
-        expectation_severity=expectation_severity,
-    )
-
-
 def build_metrics_payload(
     df: DataFrame,
     contract: OpenDataContractStandard,
@@ -285,11 +240,19 @@ def build_metrics_payload(
 
 def attach_failed_expectations(
     contract: OpenDataContractStandard,
-    status: DQStatus,
-) -> DQStatus:
+    status: ValidationResult,
+    *,
+    metrics: Mapping[str, Any] | None = None,
+) -> ValidationResult:
     """Augment ``status`` with failed expectations derived from engine metrics."""
 
-    metrics_map = status.details.get("metrics", {}) if status.details else {}
+    metrics_map: Dict[str, Any] = {}
+    if metrics:
+        metrics_map.update(dict(metrics))
+    if status.metrics:
+        metrics_map.update(status.metrics)
+    if status.details:
+        metrics_map.update(status.details.get("metrics", {}))
     specs = expectation_specs(contract)
     failures: Dict[str, Dict[str, Any]] = {}
     for spec in specs:
@@ -307,9 +270,7 @@ def attach_failed_expectations(
             info["column"] = spec.column
         failures[spec.key] = info
     if failures:
-        if not status.details:
-            status.details = {}
-        status.details["failed_expectations"] = failures
+        status.merge_details({"failed_expectations": failures})
     return status
 
 
@@ -321,8 +282,6 @@ __all__ = [
     "expectations_from_contract",
     "compute_metrics",
     "collect_observations",
-    "evaluate_observations",
-    "validate_dataframe",
     "build_metrics_payload",
     "attach_failed_expectations",
 ]
