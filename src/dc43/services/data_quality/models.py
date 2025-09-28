@@ -47,10 +47,7 @@ class ValidationResult:
         elif self.status in {"ok", "warn"} and not self.errors:
             self.ok = True
 
-    @property
-    def details(self) -> Dict[str, Any]:
-        """Structured representation combining validation observations."""
-
+    def _build_details_payload(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "errors": list(self.errors),
             "warnings": list(self.warnings),
@@ -64,8 +61,12 @@ class ValidationResult:
             payload.update(self._details)
         return payload
 
-    @details.setter
-    def details(self, value: object) -> None:
+    def _get_details(self) -> Dict[str, Any]:
+        """Structured representation combining validation observations."""
+
+        return self._build_details_payload()
+
+    def _set_details(self, value: object) -> None:
         self._details = coerce_details(value)
 
     @classmethod
@@ -121,6 +122,13 @@ def coerce_details(raw: object) -> Dict[str, Any]:
             return {}
 
     return {}
+
+
+ValidationResult.details = property(  # type: ignore[attr-defined]
+    ValidationResult._get_details,
+    ValidationResult._set_details,
+    doc="Structured representation combining validation observations.",
+)
 
 
 __all__ = ["ObservationPayload", "ValidationResult", "coerce_details"]
