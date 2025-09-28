@@ -39,7 +39,7 @@ class ValidationResult:
         if self.status not in _KNOWN_STATUSES:
             self.status = "unknown"
         if details is not None:
-            self._details = _coerce_details(details)
+            self._details = coerce_details(details)
         if self.errors and self.ok:
             self.ok = False
         if self.status == "block":
@@ -66,7 +66,7 @@ class ValidationResult:
 
     @details.setter
     def details(self, value: object) -> None:
-        self._details = _coerce_details(value)
+        self._details = coerce_details(value)
 
     @classmethod
     def from_status(
@@ -92,10 +92,10 @@ class ValidationResult:
             return
         merged: Dict[str, Any] = dict(self._details)
         merged.update(extra)
-        self._details = _coerce_details(merged)
+        self._details = coerce_details(merged)
 
 
-def _coerce_details(raw: object) -> Dict[str, Any]:
+def coerce_details(raw: object) -> Dict[str, Any]:
     """Normalise arbitrary detail payloads into a dictionary."""
 
     if raw is None:
@@ -123,4 +123,4 @@ def _coerce_details(raw: object) -> Dict[str, Any]:
     return {}
 
 
-__all__ = ["ObservationPayload", "ValidationResult"]
+__all__ = ["ObservationPayload", "ValidationResult", "coerce_details"]

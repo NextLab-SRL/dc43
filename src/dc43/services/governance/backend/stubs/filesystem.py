@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Mapping
 
 from dc43.services.contracts.backend.drafting import draft_from_validation_result
 from dc43.services.data_quality.engine import evaluate_contract
-from dc43.services.data_quality.models import ValidationResult
+from dc43.services.data_quality.models import ValidationResult, coerce_details
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -160,8 +160,14 @@ class StubDQClient:
         else:
             status = "ok"
 
-        details = evaluation.details
-        details = dict(details)
+        details = coerce_details(evaluation.details)
+        if not details:
+            details = {
+                "errors": list(evaluation.errors),
+                "warnings": list(evaluation.warnings),
+                "metrics": dict(evaluation.metrics),
+                "schema": dict(evaluation.schema),
+            }
         details["violations"] = violations
 
         path = self._status_path(dataset_id, dataset_version)
