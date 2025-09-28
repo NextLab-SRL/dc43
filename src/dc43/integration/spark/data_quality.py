@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Mapping, Tuple
+from typing import Any, Dict, Literal, Tuple
 
 try:  # pragma: no cover - optional dependency
     from pyspark.sql import DataFrame
@@ -13,12 +13,11 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.services.data_quality.client.interface import DataQualityServiceClient
 from dc43.services.data_quality.engine import (
     ExpectationSpec,
     expectation_specs,
 )
-from dc43.services.data_quality.models import ObservationPayload, ValidationResult
+from dc43.services.data_quality.models import ValidationResult
 
 
 # Minimal mapping from ODCS primitive type strings to Spark SQL types.
@@ -215,47 +214,6 @@ def collect_observations(
     return schema, metrics
 
 
-def evaluate_with_observations(
-    contract: OpenDataContractStandard,
-    *,
-    data_quality_service: DataQualityServiceClient,
-    schema: Mapping[str, Mapping[str, Any]] | None,
-    metrics: Mapping[str, Any] | None,
-    reused: bool = False,
-) -> ValidationResult:
-    """Evaluate observations for ``contract`` using the provided DQ service."""
-
-    payload = ObservationPayload(
-        metrics=dict(metrics or {}),
-        schema=dict(schema) if schema else None,
-        reused=reused,
-    )
-    result = data_quality_service.evaluate(contract=contract, payload=payload)
-    if schema and not result.schema:
-        result.schema = dict(schema)
-    if metrics and not result.metrics:
-        result.metrics = dict(metrics)
-    return result
-
-
-def validate_dataframe(
-    df: DataFrame,
-    contract: OpenDataContractStandard,
-    *,
-    data_quality_service: DataQualityServiceClient,
-    collect_metrics: bool = True,
-) -> ValidationResult:
-    """Validate ``df`` against ``contract`` using a data-quality service."""
-
-    schema, metrics = collect_observations(df, contract, collect_metrics=collect_metrics)
-    return evaluate_with_observations(
-        contract,
-        data_quality_service=data_quality_service,
-        schema=schema,
-        metrics=metrics,
-    )
-
-
 def build_metrics_payload(
     df: DataFrame,
     contract: OpenDataContractStandard,
@@ -324,8 +282,6 @@ __all__ = [
     "expectations_from_contract",
     "compute_metrics",
     "collect_observations",
-    "evaluate_with_observations",
-    "validate_dataframe",
     "build_metrics_payload",
     "attach_failed_expectations",
 ]

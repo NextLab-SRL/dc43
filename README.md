@@ -259,9 +259,10 @@ flowchart LR
       U[User code / Notebook] --> RWC{read_with_contract}
       RWC --> SR["spark.read.format(...).load"]
       RWC --> EV["ensure_version(contract)"]
-      EV --> VAL[validate_dataframe]
-      VAL -->|ok| AC["apply_contract (cast/order)"]
-      VAL -->|errors & enforce| E1[Raise]
+      EV --> OBS[collect_observations]
+      OBS --> DQS["dq_service.evaluate"]
+      DQS -->|ok| AC["apply_contract (cast/order)"]
+      DQS -->|errors & enforce| E1[Raise]
       AC --> DF[DataFrame ready]
       RWC --> DQ{dq_client?}
       DQ -->|yes| GS["get_status(dataset@version, contract@version)"]
@@ -276,10 +277,11 @@ flowchart LR
 
     subgraph Write
       T --> WWC{write_with_contract}
-      WWC --> V2[validate_dataframe]
-      V2 -->|ok| AC2[apply_contract]
-      V2 -->|errors & enforce| E3[Raise]
-      V2 -->|errors & !enforce| AC2
+      WWC --> OBS2[collect_observations]
+      OBS2 --> DQS2["dq_service.evaluate"]
+      DQS2 -->|ok| AC2[apply_contract]
+      DQS2 -->|errors & enforce| E3[Raise]
+      DQS2 -->|errors & !enforce| AC2
       AC2 --> SW["spark.write.(format, options).mode.save"]
       SW --> DELTA[Delta table / UC]
       DELTA --> DQ2{dq_client?}

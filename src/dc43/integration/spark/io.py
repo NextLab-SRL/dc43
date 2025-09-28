@@ -36,9 +36,7 @@ from dc43.services.governance.models import PipelineContext, normalise_pipeline_
 from .data_quality import (
     build_metrics_payload,
     collect_observations,
-    evaluate_with_observations,
     expectations_from_contract as dq_expectations_from_contract,
-    validate_dataframe,
 )
 from .validation import apply_contract
 from dc43.odcs import contract_identity, custom_properties_dict, ensure_version
@@ -59,6 +57,29 @@ PipelineContextLike = Union[
     Sequence[tuple[str, object]],
     str,
 ]
+
+
+def _evaluate_with_service(
+    *,
+    contract: OpenDataContractStandard,
+    service: DataQualityServiceClient,
+    schema: Mapping[str, Mapping[str, Any]] | None = None,
+    metrics: Mapping[str, Any] | None = None,
+    reused: bool = False,
+) -> ValidationResult:
+    """Evaluate ``contract`` observations through ``service``."""
+
+    payload = ObservationPayload(
+        metrics=dict(metrics or {}),
+        schema=dict(schema) if schema else None,
+        reused=reused,
+    )
+    result = service.evaluate(contract=contract, payload=payload)
+    if schema and not result.schema:
+        result.schema = dict(schema)
+    if metrics and not result.metrics:
+        result.metrics = dict(metrics)
+    return result
 
 
 def _merge_pipeline_context(
@@ -1013,9 +1034,9 @@ def read_with_contract(
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
         observed_schema, observed_metrics = collect_observations(df, contract)
-        result = evaluate_with_observations(
-            contract,
-            data_quality_service=data_quality_service,
+        result = _evaluate_with_service(
+            contract=contract,
+            service=data_quality_service,
             schema=observed_schema,
             metrics=observed_metrics,
         )
@@ -1223,9 +1244,9 @@ def write_with_contract(
         logger.info("Writing with contract %s:%s", cid, cver)
         # validate before write and always align schema for downstream metrics
         observed_schema, observed_metrics = collect_observations(df, contract)
-        result = evaluate_with_observations(
-            contract,
-            data_quality_service=data_quality_service,
+        result = _evaluate_with_service(
+            contract=contract,
+            service=data_quality_service,
             schema=observed_schema,
             metrics=observed_metrics,
         )
@@ -1264,11 +1285,14 @@ def write_with_contract(
     strategy = violation_strategy or NoOpWriteViolationStrategy()
     revalidator: Callable[[DataFrame], ValidationResult]
     if contract:
-        revalidator = lambda new_df: validate_dataframe(  # type: ignore[misc]
-            new_df,
-            contract,
-            data_quality_service=data_quality_service,
-        )
+        def revalidator(new_df: DataFrame) -> ValidationResult:  # type: ignore[misc]
+            schema, metrics = collect_observations(new_df, contract)
+            return _evaluate_with_service(
+                contract=contract,
+                service=data_quality_service,
+                schema=schema,
+                metrics=metrics,
+            )
     else:
         revalidator = lambda new_df: ValidationResult(  # type: ignore[return-value]
             ok=True,
