@@ -19,7 +19,7 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
     existing_versions = set(pipeline.store.list_versions("orders_enriched"))
 
     try:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError) as excinfo:
             pipeline.run_pipeline(
                 contract_id="orders_enriched",
                 contract_version="1.1.0",
@@ -29,6 +29,10 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
                 collect_examples=True,
                 examples_limit=2,
             )
+
+        message = str(excinfo.value)
+        assert "DQ violation" in message
+        assert "Schema validation failed" not in message
 
         updated = pipeline.load_records()
         last = updated[-1]
@@ -174,7 +178,7 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
                 "name": "split",
                 "include_valid": True,
                 "include_reject": True,
-                "write_primary_on_violation": False,
+                "write_primary_on_violation": True,
             },
         )
 
@@ -196,8 +200,20 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
         dq_aux = output.get("dq_auxiliary_statuses", [])
         assert dq_aux
         status_map = {entry["dataset_id"]: entry for entry in dq_aux}
+        assert "orders_enriched" in status_map
         assert "orders_enriched::valid" in status_map
         assert "orders_enriched::reject" in status_map
+        primary_entry = status_map["orders_enriched"]
+        assert primary_entry.get("status") == "warn"
+        primary_details = (
+            primary_entry.get("details") if isinstance(primary_entry.get("details"), dict) else {}
+        )
+        assert primary_details.get("status_before_override") == "block"
+        overrides = primary_details.get("overrides", []) or []
+        assert any(
+            "Primary DQ status downgraded" in str(note)
+            for note in overrides
+        )
         assert (
             status_map["orders_enriched::reject"].get("details", {}).get("violations")
             >= 1
@@ -391,7 +407,7 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
         updated = pipeline.load_records()
         last = updated[-1]
         assert last.dataset_version == dataset_version
-        assert last.status == "error"
+        assert last.status == "ok"
         orders_details = last.dq_details.get("orders", {})
         metrics = orders_details.get("metrics", {})
         assert metrics.get("row_count", 0) >= 1

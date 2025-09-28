@@ -1,91 +1,120 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Pipeline Runs</h1>
+<h1>Pipeline Scenarios</h1>
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-<form class="row g-3 mb-4" method="post" action="/pipeline/run" id="run-form">
-  <div class="col-md-4">
-    <label class="form-label">Scenario</label>
-    <select class="form-select" name="scenario" id="scenario">
-      <option value="">Select a scenario</option>
-      {% for key, sc in scenarios.items() %}
-      <option value="{{ key }}">{{ sc.label }}</option>
-      {% endfor %}
-    </select>
-    <div class="form-text" id="scenario-desc"></div>
-  </div>
-  <div class="col-md-2 align-self-end">
-    <button class="btn btn-primary w-100" type="submit" id="run-btn">Run Pipeline</button>
-  </div>
-</form>
-  <table class="table table-striped">
-    <thead>
-      <tr>
-        <th>Contract ID</th>
-        <th>Contract Version</th>
-        <th>Draft Version</th>
-        <th>Dataset</th>
-        <th>Version</th>
-        <th>Run Type</th>
-        <th>Status</th>
-        <th>Violations</th>
-        <th>DQ Details</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for r in records %}
-      <tr>
-        <td>
-          {% if r.contract_id %}
-            <a href="/contracts/{{ r.contract_id }}">{{ r.contract_id }}</a>
+<table class="table table-striped align-middle" id="scenario-table">
+  <thead>
+    <tr>
+      <th scope="col">Scenario</th>
+      <th scope="col">Latest run</th>
+      <th scope="col">Status</th>
+      <th scope="col">Violations</th>
+      <th scope="col">DQ details</th>
+      <th scope="col" class="text-center">Runs</th>
+      <th scope="col" class="text-end">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for scenario in scenario_rows %}
+    {% set record = scenario.latest %}
+    {% set output_details = record.dq_details.get('output', {}) if record else {} %}
+    {% set fails = output_details.get('failed_expectations', {}) if output_details else {} %}
+    {% set schema_errors = output_details.get('errors', []) if output_details else [] %}
+    {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) if output_details else [] %}
+    <tr>
+      <th scope="row" class="w-25">
+        <div class="d-flex align-items-start gap-2">
+          <div>
+            <div class="fw-semibold">{{ scenario.label }}</div>
+            <div class="text-muted small">{{ scenario.key }}</div>
+          </div>
+          {% if scenario.description or scenario.diagram %}
+          <button type="button" class="btn btn-outline-secondary btn-sm scenario-info" data-scenario-popover="scenario-popover-{{ scenario.key }}" data-popover-title="{{ scenario.label }}">
+            Details
+          </button>
+          {% endif %}
+        </div>
+        {% if scenario.description or scenario.diagram %}
+        <div id="scenario-popover-{{ scenario.key }}" class="d-none">
+          {% if scenario.description %}
+          <div class="mb-2">{{ scenario.description | safe }}</div>
+          {% endif %}
+          {% if scenario.diagram %}
+          {{ scenario.diagram | safe }}
+          {% endif %}
+        </div>
+        {% endif %}
+      </th>
+      <td class="w-25">
+        <div class="small text-muted">Contract</div>
+        {% if record and record.contract_id %}
+          <div>
+            <a href="/contracts/{{ record.contract_id }}">{{ record.contract_id }}</a>
+            {% if record.contract_version %}
+              <span class="text-muted">/</span>
+              <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_version }}</a>
+            {% endif %}
+          </div>
+        {% elif scenario.contract_id %}
+          <div>
+            <a href="/contracts/{{ scenario.contract_id }}">{{ scenario.contract_id }}</a>
+            {% if scenario.contract_version %}
+              <span class="text-muted">/</span>
+              <a href="/contracts/{{ scenario.contract_id }}/{{ scenario.contract_version }}">{{ scenario.contract_version }}</a>
+            {% endif %}
+          </div>
+        {% else %}
+          <div><span class="text-muted">No contract</span></div>
+        {% endif %}
+        <div class="small text-muted mt-2">Dataset</div>
+        {% if scenario.dataset_name %}
+          {% if record and record.dataset_version %}
+            <div>
+              <a href="/datasets/{{ scenario.dataset_name }}/{{ record.dataset_version }}">{{ scenario.dataset_name }}</a>
+              <span class="text-muted">/</span>
+              {{ record.dataset_version }}
+            </div>
           {% else %}
-            <span class="text-muted">No contract</span>
+            <div><a href="/datasets/{{ scenario.dataset_name }}">{{ scenario.dataset_name }}</a></div>
           {% endif %}
-        </td>
-        <td>
-          {% if r.contract_id and r.contract_version %}
-            <a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a>
-          {% elif r.contract_id %}
-            <span class="text-muted">No version</span>
-          {% else %}
-            <span class="text-muted">—</span>
+        {% elif record and record.dataset_version %}
+          <div>{{ record.dataset_version }}</div>
+        {% else %}
+          <div><span class="text-muted">Not recorded</span></div>
+        {% endif %}
+        <div class="small text-muted mt-2">Run type</div>
+        <div>{{ record.run_type if record else scenario.run_type }}</div>
+        {% if record and record.draft_contract_version %}
+          <div class="small text-muted mt-2">Draft
+            {% if record.contract_id %}
+              <a href="/contracts/{{ record.contract_id }}/{{ record.draft_contract_version }}">{{ record.draft_contract_version }}</a>
+            {% else %}
+              {{ record.draft_contract_version }}
+            {% endif %}
+          </div>
+        {% endif %}
+      </td>
+      <td data-status-cell aria-live="polite">
+        {% if record %}
+          <div>
+            {{ record.status }}
+            {% if output_details.get('warnings') %}
+              <span class="text-warning ms-1" title="Validation warnings">&#9888;</span>
+            {% endif %}
+            {% if output_details.get('errors') %}
+              <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
+            {% endif %}
+          </div>
+          {% if record.reason %}
+            <div class="small text-muted">{{ record.reason }}</div>
           {% endif %}
-        </td>
-        <td>
-          {% if r.contract_id and r.draft_contract_version %}
-            <a href="/contracts/{{ r.contract_id }}/{{ r.draft_contract_version }}">{{ r.draft_contract_version }}</a>
-          {% elif r.draft_contract_version %}
-            <span class="text-muted">{{ r.draft_contract_version }}</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if r.dataset_name %}
-            <a href="/datasets/{{ r.dataset_name }}">{{ r.dataset_name }}</a>
-          {% else %}
-            <span class="text-muted">Unnamed</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if r.dataset_name %}
-            <a href="/datasets/{{ r.dataset_name }}/{{ r.dataset_version }}">{{ r.dataset_version }}</a>
-          {% else %}
-            {{ r.dataset_version }}
-          {% endif %}
-        </td>
-        <td>{{ r.run_type }}</td>
-        {% set output_details = r.dq_details.get('output', {}) %}
-        <td>
-          {{ r.status }}
-          {% if output_details.get('warnings') %}
-            <span class="text-warning ms-1" title="Validation warnings">&#9888;</span>
-          {% endif %}
-          {% if output_details.get('errors') %}
-            <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
-          {% endif %}
-        </td>
-        <td>
-          {% set fails = output_details.get('failed_expectations', {}) %}
-          {% set schema_errors = output_details.get('errors', []) %}
+        {% else %}
+          <span class="text-muted">No runs yet</span>
+        {% endif %}
+      </td>
+      <td data-violations-cell>
+        {% if record %}
           {% if output_details.get('violation_strategy') %}
             <div>Strategy: {{ output_details.get('violation_strategy') }}</div>
           {% endif %}
@@ -105,7 +134,6 @@
               {% endfor %}
             </div>
           {% endif %}
-          {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) %}
           {% if dq_aux %}
             <div class="small text-muted">
               {% for entry in dq_aux %}
@@ -120,137 +148,184 @@
             </div>
           {% endif %}
           {% if not fails and not schema_errors %}
-            {{ r.violations }}
+            {% if record.violations %}
+              {{ record.violations }}
+            {% else %}
+              <span class="text-muted">0</span>
+            {% endif %}
           {% endif %}
-        </td>
-        <td>
-          <details>
-            <summary>Show</summary>
-            <div class="accordion mt-2" id="dq-{{ loop.index }}">
-              <div class="accordion-item">
-                <h2 class="accordion-header" id="dq-input-{{ loop.index }}-h">
-                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-input-{{ loop.index }}">Input</button>
-                </h2>
-                <div id="dq-input-{{ loop.index }}" class="accordion-collapse collapse">
-                  <div class="accordion-body">
-                    {% for key in ['orders', 'customers'] %}
-                      {% if r.dq_details.get(key) %}
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if record %}
+        <details>
+          <summary>Show</summary>
+          <div class="accordion mt-2" id="dq-{{ scenario.key }}">
+            <div class="accordion-item">
+              <h2 class="accordion-header" id="dq-input-{{ scenario.key }}-h">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-input-{{ scenario.key }}">Input</button>
+              </h2>
+              <div id="dq-input-{{ scenario.key }}" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                  {% for key in ['orders', 'customers'] %}
+                    {% if record.dq_details.get(key) %}
                       <h6 class="text-capitalize">{{ key }}</h6>
-                      <pre class="small">{{ r.dq_details.get(key) | tojson(indent=2) }}</pre>
-                      {% endif %}
-                    {% endfor %}
-                  </div>
-                </div>
-              </div>
-              <div class="accordion-item">
-                <h2 class="accordion-header" id="dq-output-{{ loop.index }}-h">
-                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-output-{{ loop.index }}">Output</button>
-                </h2>
-                <div id="dq-output-{{ loop.index }}" class="accordion-collapse collapse">
-                  <div class="accordion-body">
-                    {% set fails = output_details.get('failed_expectations', {}) %}
-                    {% if fails %}
-                      {% for key, info in fails.items() %}
-                        <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
-                        {% if info.examples %}
-                          <details class="small"><summary>Examples</summary><pre class="small mb-0">{{ info.examples | tojson(indent=2) }}</pre></details>
-                        {% endif %}
-                        </div>
-                      {% endfor %}
+                      <pre class="small">{{ record.dq_details.get(key) | tojson(indent=2) }}</pre>
                     {% endif %}
-                    {% set schema_errors = output_details.get('errors', []) %}
-                    {% if schema_errors %}
-                      <div class="mb-2">
-                        <strong>Schema errors</strong>
-                        <ul class="small mb-0 ps-3">
-                          {% for err in schema_errors %}
-                            <li>{{ err }}</li>
-                          {% endfor %}
-                        </ul>
-                      </div>
-                    {% endif %}
-                    {% set warnings = output_details.get('warnings', []) %}
-                    {% if warnings %}
-                      <div class="mb-2">
-                        <strong>Warnings</strong>
-                        <ul class="small mb-0 ps-3">
-                          {% for warning in warnings %}
-                            <li>{{ warning }}</li>
-                          {% endfor %}
-                        </ul>
-                      </div>
-                    {% endif %}
-                    {% set aux = output_details.get('auxiliary_datasets', []) %}
-                    {% if aux %}
-                      <div class="mb-2">
-                        <strong>Auxiliary datasets</strong>
-                        <ul class="small mb-0 ps-3">
-                          {% for entry in aux %}
-                            <li><span class="text-capitalize">{{ entry.kind }}</span>: <code>{{ entry.dataset }}</code>{% if entry.path %} ({{ entry.path }}){% endif %}</li>
-                          {% endfor %}
-                        </ul>
-                      </div>
-                    {% endif %}
-                    {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) %}
-                    {% if dq_aux %}
-                      <div class="mb-2">
-                        <strong>Auxiliary DQ statuses</strong>
-                        <ul class="small mb-0 ps-3">
-                          {% for entry in dq_aux %}
-                            {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
-                            <li>
-                              <code>{{ entry.get('dataset_id') }}</code> → {{ entry.get('status') }}
-                              {% if details.get('draft_contract_version') %}
-                                (draft {{ details.get('draft_contract_version') }})
-                              {% endif %}
-                              {% if details.get('violations') is not none %}
-                                – violations: {{ details.get('violations') }}
-                              {% endif %}
-                            </li>
-                          {% endfor %}
-                        </ul>
-                      </div>
-                    {% endif %}
-                    {% if output_details.get('violation_strategy') %}
-                      <div class="mb-2 small text-muted">Violation strategy: {{ output_details.get('violation_strategy') }}</div>
-                    {% endif %}
-                    <pre class="small mb-0">{{ output_details | tojson(indent=2) }}</pre>
-                  </div>
+                  {% endfor %}
                 </div>
               </div>
             </div>
-          </details>
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+            <div class="accordion-item">
+              <h2 class="accordion-header" id="dq-output-{{ scenario.key }}-h">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-output-{{ scenario.key }}">Output</button>
+              </h2>
+              <div id="dq-output-{{ scenario.key }}" class="accordion-collapse collapse">
+                <div class="accordion-body">
+                  {% if fails %}
+                    {% for key, info in fails.items() %}
+                      <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
+                      {% if info.examples %}
+                        <details class="small"><summary>Examples</summary><pre class="small mb-0">{{ info.examples | tojson(indent=2) }}</pre></details>
+                      {% endif %}
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                  {% if schema_errors %}
+                    <div class="mb-2">
+                      <strong>Schema errors</strong>
+                      <ul class="small mb-0 ps-3">
+                        {% for err in schema_errors %}
+                          <li>{{ err }}</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                  {% set warnings = output_details.get('warnings', []) %}
+                  {% if warnings %}
+                    <div class="mb-2">
+                      <strong>Warnings</strong>
+                      <ul class="small mb-0 ps-3">
+                        {% for warning in warnings %}
+                          <li>{{ warning }}</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                  {% set aux = output_details.get('auxiliary_datasets', []) %}
+                  {% if aux %}
+                    <div class="mb-2">
+                      <strong>Auxiliary datasets</strong>
+                      <ul class="small mb-0 ps-3">
+                        {% for entry in aux %}
+                          <li><span class="text-capitalize">{{ entry.kind }}</span>: <code>{{ entry.dataset }}</code>{% if entry.path %} ({{ entry.path }}){% endif %}</li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                  {% if dq_aux %}
+                    <div class="mb-2">
+                      <strong>Auxiliary DQ statuses</strong>
+                      <ul class="small mb-0 ps-3">
+                        {% for entry in dq_aux %}
+                          {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
+                          <li>
+                            <code>{{ entry.get('dataset_id') }}</code> → {{ entry.get('status') }}
+                            {% if details.get('reason') %}
+                              <span class="text-muted">({{ details.get('reason') }})</span>
+                            {% endif %}
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+      <td class="text-center">{{ scenario.run_count }}</td>
+      <td class="text-end">
+        <form class="d-inline" method="post" action="/pipeline/run">
+          <input type="hidden" name="scenario" value="{{ scenario.key }}"/>
+          <button class="btn btn-primary btn-sm" type="submit">Run</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
 <script>
-    const scenarios = {{ scenarios | tojson }};
-    const scenarioSel = document.getElementById('scenario');
-    const descEl = document.getElementById('scenario-desc');
-    scenarioSel.addEventListener('change', () => {
-      const sc = scenarios[scenarioSel.value];
-      if (sc) {
-        const parts = [sc.description];
-        if (sc.diagram) {
-          parts.push(sc.diagram);
-        }
-        descEl.innerHTML = parts.join('');
-        const diagrams = descEl.querySelectorAll('.mermaid');
-        if (window.mermaid && diagrams.length) {
-          window.mermaid.init(undefined, diagrams);
-        }
-      } else {
-        descEl.innerHTML = '';
+  document.addEventListener('DOMContentLoaded', function () {
+    const buttons = document.querySelectorAll('.scenario-info');
+    buttons.forEach((btn) => {
+      const contentId = btn.getAttribute('data-scenario-popover');
+      if (!contentId) {
+        return;
       }
+      const source = document.getElementById(contentId);
+      if (!source) {
+        return;
+      }
+      const popover = new bootstrap.Popover(btn, {
+        html: true,
+        sanitize: false,
+        trigger: 'focus',
+        container: 'body',
+        title: btn.getAttribute('data-popover-title') || '',
+        content: source.innerHTML,
+      });
+      btn.addEventListener('shown.bs.popover', () => {
+        if (window.mermaid && typeof window.mermaid.run === 'function') {
+          window.mermaid.run({ nodes: document.querySelectorAll('.popover .mermaid') });
+        } else if (window.mermaid && typeof window.mermaid.init === 'function') {
+          window.mermaid.init(undefined, document.querySelectorAll('.popover .mermaid'));
+        }
+      });
     });
-    const runForm = document.getElementById('run-form');
-    const runBtn = document.getElementById('run-btn');
-    runForm.addEventListener('submit', () => {
-      runBtn.disabled = true;
-      runBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Running...';
+
+    const forms = document.querySelectorAll('#scenario-table form');
+    forms.forEach((form) => {
+      form.addEventListener('submit', () => {
+        if (form.dataset.submitting === 'true') {
+          return;
+        }
+        form.dataset.submitting = 'true';
+
+        const button = form.querySelector('button[type="submit"]');
+        if (button) {
+          button.disabled = true;
+          button.innerHTML = '';
+          const spinner = document.createElement('span');
+          spinner.className = 'spinner-border spinner-border-sm me-2';
+          spinner.setAttribute('role', 'status');
+          spinner.setAttribute('aria-hidden', 'true');
+          button.appendChild(spinner);
+          const label = document.createElement('span');
+          label.textContent = 'Running…';
+          button.appendChild(label);
+        }
+
+        const row = form.closest('tr');
+        if (!row) {
+          return;
+        }
+        const statusCell = row.querySelector('[data-status-cell]');
+        if (statusCell) {
+          statusCell.innerHTML = '<span class="text-muted">Running…</span>';
+        }
+        const violationsCell = row.querySelector('[data-violations-cell]');
+        if (violationsCell) {
+          violationsCell.innerHTML = '<span class="text-muted">—</span>';
+        }
+      });
     });
+  });
 </script>
-{% if not records %}<p>No runs recorded.</p>{% endif %}
 {% endblock %}

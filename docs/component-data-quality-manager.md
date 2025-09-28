@@ -1,51 +1,49 @@
 # Data Quality Manager Component
 
-The data quality manager is the façade that integrations call to obtain
-verdicts about dataset versions. It sits between runtime adapters,
-external governance services, and the data-quality engine. Pipelines
-never talk to the governance API directly—instead they hand observations
-to the manager and receive the latest status or draft proposal.
+The data quality manager is the thin façade around the governance engine.
+It evaluates observation payloads (metrics and schema information) using
+the runtime-agnostic rules defined in an Open Data Contract. All
+orchestration—status retrieval, dataset linking, draft generation—now
+resides in the **governance service**. Pipelines therefore only use the
+manager when the service needs a validation outcome derived from cached
+observations.
 
 ## Responsibilities
 
-1. **Resolve dataset status** for a dataset ↔ contract pair using the
-   configured `DQClient` (compatibility matrix, steward workflows, etc.).
-2. **Request validation** from the data-quality engine when the status is
-   unknown or stale, then persist the refreshed verdict through the
-   governance client.
-3. **Propose draft contracts** when validation fails or when a dataset is
-   observed without an existing contract, delegating to the contract
-   drafter.
-4. **Bundle governance feedback** (status, reasons, metrics, draft
-   metadata) and hand it back to the integration layer so pipelines can
-   decide whether to continue or stop.
+1. **Normalise observation payloads** so metrics and schema snapshots are
+   passed to the validation engine in a consistent shape.
+2. **Evaluate expectations** declared in the contract via
+   `dc43.services.data_quality.backend.engine`, returning a `ValidationResult`
+   that lists errors, warnings, and derived metrics.
+3. **Expose engine configuration knobs** (`strict_types`,
+   `allow_extra_columns`, `expectation_severity`) so governance services
+   can reuse the same evaluator across pipelines.
 
 ```mermaid
 flowchart LR
-    Integration["Runtime integration"] --> DQMgr["Data quality manager"]
-    DQMgr --> Client["DQClient / governance"]
+    Governance["Governance service"] -->|requests evaluation| DQMgr["Data quality manager"]
     DQMgr --> Engine["DQ engine"]
     Engine --> DQMgr
-    DQMgr --> Drafter["Contract drafter"]
-    Client --> Catalog["Compatibility matrix"]
-    Catalog --> Integration
+    DQMgr --> Governance
 ```
 
-The manager encapsulates orchestration logic, keeping integrations
-runtime-focused and governance tools authoritative. Implementations can
-wrap filesystem stubs, Collibra workflows, or bespoke quality services by
-supplying a `DQClient` that fulfils the protocol.
+The manager no longer talks to governance clients or persists drafts. It
+simply converts cached observations into validation results so the
+governance service can decide how to act. This keeps runtime adapters
+agnostic of the underlying engine while avoiding tight coupling to
+governance workflows.
 
 ### Core APIs
 
-- `review_validation_outcome` receives a validation result from the
-  integration and, when a draft is requested, produces a proposal through
-  the contract drafter component (or forwards the request to governance).
-- `evaluate_dataset` accepts the dataset identifiers, the contract, and a
-  callable that lazily supplies observation metrics. The manager checks
-  the stored status, refreshes it through the engine when it is unknown or
-  stale, and returns both the latest `DQStatus` and any draft proposal
-  created because of a governance violation.
+- `evaluate` accepts an `ObservationPayload` (metrics, optional schema,
+  reused flag) and an Open Data Contract. It returns a `ValidationResult`
+  that downstream services can interpret as `ok`, `warn`, or `block`.
+- `ObservationPayload` (from `dc43.services.data_quality.models`) is the
+  convenience dataclass used by integrations and governance services to
+  package cached observations in a structured way.
 
-Integrations simply call these APIs and react to the returned status—they
-do not link datasets to contracts or decide when drafts are created.
+Governance services call these APIs when they receive metrics from the
+integration layer. The resulting validation outcome feeds the rest of the
+governance pipeline (status evaluation, draft generation, steward
+notifications) without requiring the integration to understand those
+workflows.

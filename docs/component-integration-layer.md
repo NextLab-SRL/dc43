@@ -2,10 +2,11 @@
 
 dc43 keeps governance logic decoupled from runtime execution. The
 integration layer provides runtime-specific adapters (Spark, warehouses,
-streaming engines, APIs, …) that bridge pipeline runs to the contract and
-quality managers. Integrations do **not** compute governance outcomes
-themselves—they delegate to external components and stop the pipeline
-when the retrieved verdict is blocking.
+streaming engines, APIs, …) that bridge pipeline runs to the contract
+manager and the remote governance coordination service. Integrations do
+**not** compute governance outcomes themselves—they validate the data,
+collect observations, and delegate the decision to the service before
+continuing or blocking the pipeline.
 
 ## Responsibilities
 
@@ -13,12 +14,11 @@ when the retrieved verdict is blocking.
    map them to contract ids supplied by the data contract manager.
 2. **Validate and coerce data** using the retrieved contract while
    respecting enforcement flags.
-3. **Ask the data quality manager** for the latest dataset status and
-   forward observations when the status is unknown so the manager can
-   evaluate the run through the data-quality engine.
-4. **Surface governance decisions** (status, drafts) back to the runtime
-   so pipelines can block, warn, or persist draft proposals alongside the
-   dataset version—the manager decides when drafts exist.
+3. **Call the governance service** with validation metrics so it can
+   consult the contract manager, data-quality engine, and draft tooling.
+4. **Surface governance decisions** (status, drafts, recorded
+   provenance) back to the runtime so pipelines can block, warn, or
+   persist draft proposals alongside the dataset version.
 5. **Expose ergonomic APIs** for orchestrators—wrapping multiple
    component calls behind a simple read/write interface.
 
@@ -26,11 +26,12 @@ when the retrieved verdict is blocking.
 flowchart TD
     Adapter["Integration adapter"] -->|fetch contract| ContractMgr["Data contract manager"]
     ContractMgr --> ContractStore["Contract store"]
-    Adapter -->|status & observations| DQMgr["Data quality manager"]
-    DQMgr -->|evaluate| DQEngine["Data quality engine"]
-    DQMgr --> Drafter["Contract drafter"]
-    DQMgr --> Governance["Compatibility matrix / steward tooling"]
-    Governance -->|verdict| Adapter
+    Adapter -->|observations| Governance["Governance service"]
+    Governance -->|fetch| ContractMgr
+    Governance -->|evaluate| DQEngine["Data quality engine"]
+    Governance --> Drafts["Contract drafter"]
+    Governance --> Steward["Compatibility matrix / steward tooling"]
+    Steward -->|verdict| Adapter
 ```
 
 Adapters should stay thin: they orchestrate the component interfaces

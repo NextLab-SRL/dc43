@@ -5,7 +5,7 @@ from __future__ import annotations
 This application provides a small Bootstrap-powered UI to manage data
 contracts and run an example Spark pipeline that records dataset versions
 with their validation status. Contracts are stored on the local
-filesystem using :class:`~dc43.components.contract_store.impl.filesystem.FSContractStore` and dataset
+filesystem using :class:`~dc43.services.contracts.backend.stores.FSContractStore` and dataset
 metadata lives in a JSON file.
 
 Run the application with::
@@ -36,8 +36,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
 
-from dc43.components.contract_store.impl.filesystem import FSContractStore
-from dc43.components.data_quality.integration import expectations_from_contract
+from dc43.services.contracts.backend.stores import FSContractStore
+from dc43.integration.spark.data_quality import expectations_from_contract as dq_expectations_from_contract
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
     OpenDataContractStandard,
@@ -54,10 +54,7 @@ from packaging.version import Version
 # still load when pyspark is not installed (for example when running fast unit
 # tests).
 try:  # pragma: no cover - exercised indirectly when pyspark is available
-    from dc43.components.integration import (  # type: ignore[attr-defined]
-        ContractVersionLocator,
-        read_with_contract,
-    )
+    from dc43.integration.spark.io import ContractVersionLocator, read_with_contract
 except ModuleNotFoundError as exc:  # pragma: no cover - safety net for CI
     if exc.name != "pyspark":
         raise
@@ -505,6 +502,7 @@ class DatasetRecord:
     run_type: str = "infer"
     violations: int = 0
     draft_contract_version: str | None = None
+    scenario_key: str | None = None
 
 
 _STATUS_BADGES: Dict[str, str] = {
@@ -1258,6 +1256,91 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
+    """Return the expected output dataset for a scenario."""
+
+    dataset_name = params.get("dataset_name")
+    if dataset_name:
+        return str(dataset_name)
+    contract_id = params.get("contract_id")
+    if contract_id:
+        return str(contract_id)
+    dataset_id = params.get("dataset_id")
+    if dataset_id:
+        return str(dataset_id)
+    return "result"
+
+
+def scenario_run_rows(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    """Return scenario metadata enriched with the latest recorded run."""
+
+    by_dataset: Dict[str, List[DatasetRecord]] = {}
+    by_scenario: Dict[str, List[DatasetRecord]] = {}
+    for record in records:
+        if record.dataset_name:
+            by_dataset.setdefault(record.dataset_name, []).append(record)
+        if record.scenario_key:
+            by_scenario.setdefault(record.scenario_key, []).append(record)
+
+    for entries in by_dataset.values():
+        entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+    for entries in by_scenario.values():
+        entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+
+    rows: List[Dict[str, Any]] = []
+    for key, cfg in SCENARIOS.items():
+        params: Mapping[str, Any] = cfg.get("params", {})
+        dataset_name = _scenario_dataset_name(params)
+        dataset_records: List[DatasetRecord] = list(by_scenario.get(key, []))
+
+        if not dataset_records:
+            candidate_records = by_dataset.get(dataset_name, [])
+            if candidate_records:
+                contract_id = params.get("contract_id")
+                contract_version = params.get("contract_version")
+                run_type = params.get("run_type")
+                filtered: List[DatasetRecord] = []
+                for record in candidate_records:
+                    if record.scenario_key:
+                        continue
+                    if contract_id and record.contract_id and record.contract_id != contract_id:
+                        continue
+                    if (
+                        contract_version
+                        and record.contract_version
+                        and record.contract_version != contract_version
+                    ):
+                        continue
+                    if run_type and record.run_type and record.run_type != run_type:
+                        continue
+                    filtered.append(record)
+                if filtered:
+                    dataset_records = filtered
+                else:
+                    dataset_records = [rec for rec in candidate_records if not rec.scenario_key]
+
+        dataset_records = list(dataset_records)
+        dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+        latest_record = dataset_records[-1] if dataset_records else None
+
+        rows.append(
+            {
+                "key": key,
+                "label": cfg.get("label", key.replace("-", " ").title()),
+                "description": cfg.get("description"),
+                "diagram": cfg.get("diagram"),
+                "dataset_name": dataset_name,
+                "contract_id": params.get("contract_id"),
+                "contract_version": params.get("contract_version"),
+                "run_type": params.get("run_type", "infer"),
+                "run_count": len(dataset_records),
+                "latest": latest_record.__dict__.copy() if latest_record else None,
+            }
+        )
+
+    return rows
+
+
 _FLASH_LOCK = Lock()
 _FLASH_MESSAGES: Dict[str, Dict[str, str | None]] = {}
 
@@ -1326,7 +1409,7 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r.__dict__ for r in load_records() if r.contract_id == cid and r.contract_version == ver]
-    expectations = expectations_from_contract(contract)
+    expectations = dq_expectations_from_contract(contract)
     return {
         "contract": contract_to_dict(contract),
         "datasets": datasets,
@@ -1434,7 +1517,7 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
-                "expectations": expectations_from_contract(contract),
+                "expectations": dq_expectations_from_contract(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -1510,7 +1593,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "request": request,
         "contract": contract_to_dict(contract),
         "datasets": datasets,
-        "expectations": expectations_from_contract(contract),
+        "expectations": dq_expectations_from_contract(contract),
         "field_quality": field_quality,
         "dataset_quality": dataset_quality,
         "change_log": change_log,
@@ -1674,9 +1757,8 @@ async def create_contract(
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
-    recs = []
-    for r in records:
-        recs.append(r.__dict__.copy())
+    recs = [r.__dict__.copy() for r in records]
+    scenario_rows = scenario_run_rows(records)
     flash_token = request.query_params.get("flash")
     flash_message: str | None = None
     flash_error: str | None = None
@@ -1689,6 +1771,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
         "request": request,
         "records": recs,
         "scenarios": SCENARIOS,
+        "scenario_rows": scenario_rows,
         "message": flash_message,
         "error": flash_error,
     }
@@ -1787,6 +1870,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             p.get("violation_strategy"),
             p.get("inputs"),
             p.get("output_adjustment"),
+            scenario_key=scenario,
         )
         label = dataset_name or p.get("dataset_name") or p.get("contract_id") or "dataset"
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")

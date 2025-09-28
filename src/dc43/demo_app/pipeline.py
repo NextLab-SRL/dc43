@@ -9,7 +9,7 @@ recording the dataset version in the demo app's registry.
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping, Sequence
+from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
 from dc43.demo_app.server import (
     store,
@@ -21,11 +21,17 @@ from dc43.demo_app.server import (
     set_active_version,
     register_dataset_version,
 )
-from dc43.components.data_quality import DataQualityManager
-from dc43.components.data_quality.governance import DQStatus
-from dc43.components.data_quality.integration import attach_failed_expectations
-from dc43.components.data_quality.governance.stubs import StubDQClient
-from dc43.components.integration.spark_io import (
+from dc43.services.data_quality.backend.engine import (
+    ExpectationSpec,
+    expectation_specs,
+)
+from dc43.services.governance.backend.dq import DQStatus
+from dc43.integration.spark.data_quality import (
+    attach_failed_expectations,
+    validate_dataframe,
+)
+from dc43.services.governance.client import build_local_governance_service
+from dc43.integration.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
     ReadStatusContext,
@@ -34,7 +40,7 @@ from dc43.components.integration.spark_io import (
     read_with_contract,
     write_with_contract,
 )
-from dc43.components.integration.violation_strategy import (
+from dc43.integration.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
     SplitWriteViolationStrategy,
     StrictWriteViolationStrategy,
@@ -329,6 +335,53 @@ def _apply_output_adjustment(
     return df, []
 
 
+def _format_expectation_violation_message(spec: ExpectationSpec, count: int) -> str:
+    """Return the engine-style message for a failed expectation."""
+
+    column = spec.column or "field"
+    if spec.rule in {"not_null", "required"}:
+        return f"column {column} contains {count} null value(s) but is required in the contract"
+    if spec.rule == "unique":
+        return f"column {column} has {count} duplicate value(s)"
+    if spec.rule == "enum":
+        allowed = spec.params.get("values")
+        if isinstance(allowed, Iterable):
+            allowed_str = ", ".join(map(str, allowed))
+        else:
+            allowed_str = str(allowed)
+        return f"column {column} contains {count} value(s) outside enum [{allowed_str}]"
+    if spec.rule == "regex":
+        pattern = spec.params.get("pattern")
+        return f"column {column} contains {count} value(s) not matching regex {pattern}"
+    if spec.rule == "gt":
+        return f"column {column} contains {count} value(s) not greater than {spec.params.get('threshold')}"
+    if spec.rule == "ge":
+        return f"column {column} contains {count} value(s) below {spec.params.get('threshold')}"
+    if spec.rule == "lt":
+        return f"column {column} contains {count} value(s) not less than {spec.params.get('threshold')}"
+    if spec.rule == "le":
+        return f"column {column} contains {count} value(s) above {spec.params.get('threshold')}"
+    return f"expectation {spec.key} failed {count} time(s)"
+
+
+def _expectation_error_messages(
+    contract: OpenDataContractStandard,
+    metrics: Mapping[str, Any] | None,
+) -> set[str]:
+    """Return messages describing expectation failures found in ``metrics``."""
+
+    metric_map = dict(metrics or {})
+    messages: set[str] = set()
+    for spec in expectation_specs(contract):
+        if spec.rule == "query":
+            continue
+        key = f"violations.{spec.key}"
+        count = metric_map.get(key)
+        if isinstance(count, (int, float)) and count > 0:
+            messages.add(_format_expectation_violation_message(spec, int(count)))
+    return messages
+
+
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
@@ -340,6 +393,8 @@ def run_pipeline(
     violation_strategy: StrategySpec = None,
     inputs: Mapping[str, Mapping[str, Any]] | None = None,
     output_adjustment: str | None = None,
+    *,
+    scenario_key: str | None = None,
 ) -> tuple[str, str]:
     """Run an example pipeline using the stored contract.
 
@@ -350,13 +405,13 @@ def run_pipeline(
     flags, and read-status strategies for each source (``"orders"`` and
     ``"customers"``) so demo scenarios can highlight how mixed-validity inputs
     are handled.  ``output_adjustment`` optionally tweaks the joined dataframe
-    (for example to deliberately surface violations). Returns the dataset name
-    used along with the materialized version.
+    (for example to deliberately surface violations). ``scenario_key`` tags the
+    recorded run so the UI can distinguish scenarios that share the same output
+    dataset.  Returns the dataset name used along with the materialized version.
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
-    dq_client = StubDQClient(base_path=str(Path(DATASETS_FILE).parent / "dq_state"))
-    dq = DataQualityManager(dq_client, draft_store=store)
+    governance = build_local_governance_service(store)
 
     run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     base_pipeline_context: dict[str, Any] = {
@@ -364,6 +419,8 @@ def run_pipeline(
         "run_id": run_timestamp,
         "run_type": run_type,
     }
+    if scenario_key:
+        base_pipeline_context["scenario_key"] = scenario_key
     if contract_id:
         base_pipeline_context["target_contract_id"] = contract_id
     if contract_version:
@@ -413,7 +470,7 @@ def run_pipeline(
         contract_id="orders",
         contract_store=store,
         expected_contract_version="==1.1.0",
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=orders_locator,
         status_strategy=orders_strategy,
         enforce=orders_enforce,
@@ -463,7 +520,7 @@ def run_pipeline(
         contract_id="customers",
         contract_store=store,
         expected_contract_version="==1.0.0",
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=customers_locator,
         status_strategy=customers_strategy,
         enforce=customers_enforce,
@@ -523,6 +580,17 @@ def run_pipeline(
         )
     contract_id_ref = getattr(output_contract, "id", None)
     expected_version = f"=={output_contract.version}" if output_contract else None
+    prewrite_schema_errors: list[str] = []
+    if output_contract:
+        prewrite_schema_errors = list(
+            validate_dataframe(
+                df,
+                output_contract,
+                collect_metrics=False,
+            ).errors
+            or []
+        )
+
     result, output_status = write_with_contract(
         df=df,
         contract_id=contract_id_ref,
@@ -531,7 +599,7 @@ def run_pipeline(
         format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
-        dq_client=dq,
+        governance_service=governance,
         dataset_locator=locator,
         expected_contract_version=expected_version,
         return_status=True,
@@ -549,6 +617,49 @@ def run_pipeline(
     if output_status and output_contract:
         output_status = attach_failed_expectations(output_contract, output_status)
 
+    expectation_messages: set[str] = set()
+    if output_contract:
+        expectation_messages = _expectation_error_messages(
+            output_contract,
+            result.metrics,
+        )
+
+    schema_errors: list[str] = []
+    seen_schema_errors: set[str] = set()
+    for message in prewrite_schema_errors:
+        if message in seen_schema_errors:
+            continue
+        seen_schema_errors.add(message)
+        schema_errors.append(message)
+
+    if result.errors:
+        filtered_errors: list[str] = []
+        for message in result.errors:
+            if message in expectation_messages:
+                continue
+            if message in seen_schema_errors:
+                continue
+            seen_schema_errors.add(message)
+            filtered_errors.append(message)
+        if filtered_errors != result.errors:
+            result.errors[:] = filtered_errors
+        schema_errors.extend(filtered_errors)
+
+    handled_split_override = False
+    if isinstance(strategy, SplitWriteViolationStrategy) and output_status:
+        details = output_status.details or {}
+        if isinstance(details, Mapping) and details.get("status_before_override"):
+            handled_split_override = True
+
+    if handled_split_override and result.errors:
+        migrated = list(result.errors)
+        result.errors.clear()
+        for message in migrated:
+            if message not in result.warnings:
+                result.warnings.append(message)
+        if not result.errors:
+            result.ok = True
+
     error: ValueError | None = None
     if run_type == "enforce":
         if not output_contract:
@@ -562,15 +673,19 @@ def run_pipeline(
                 issues.append(
                     f"DQ violation: {detail_msg or output_status.status}"
                 )
-            if not result.ok:
+            if schema_errors:
                 issues.append(
-                    f"Schema validation failed: {result.errors}"
+                    f"Schema validation failed: {schema_errors}"
                 )
             if issues:
                 error = ValueError("; ".join(issues))
 
     draft_version: str | None = None
     output_details = result.details.copy()
+    if schema_errors:
+        output_details["errors"] = schema_errors
+    else:
+        output_details.pop("errors", None)
     if adjustment_notes:
         extra = output_details.setdefault("transformations", [])
         if isinstance(extra, list):
@@ -692,13 +807,10 @@ def run_pipeline(
     if draft_version:
         output_details.setdefault("draft_contract_version", draft_version)
 
-    try:
-        output_activity = dq.get_pipeline_activity(
-            dataset_id=dataset_name,
-            dataset_version=dataset_version,
-        )
-    except AttributeError:
-        output_activity = []
+    output_activity = governance.get_pipeline_activity(
+        dataset_id=dataset_name,
+        dataset_version=dataset_version,
+    )
     if output_activity:
         output_details.setdefault("pipeline_activity", output_activity)
 
@@ -773,7 +885,7 @@ def run_pipeline(
                 if isinstance(violations, (int, float)) and violations:
                     warnings_present = True
 
-    if result.errors or error is not None:
+    if schema_errors or result.errors or error is not None:
         severity = 2
     elif warnings_present:
         severity = max(severity, 1)
@@ -794,6 +906,7 @@ def run_pipeline(
             run_type,
             total_violations,
             draft_contract_version=draft_version,
+            scenario_key=scenario_key,
         )
     )
     save_records(records)
