@@ -18,7 +18,7 @@ from dc43.services.data_quality.engine import (
     evaluate_contract,
     expectation_specs,
 )
-from dc43.services.data_quality.models import DQStatus, ValidationResult
+from dc43.services.data_quality.models import ValidationResult
 
 
 # Minimal mapping from ODCS primitive type strings to Spark SQL types.
@@ -284,8 +284,8 @@ def build_metrics_payload(
 
 def attach_failed_expectations(
     contract: OpenDataContractStandard,
-    status: DQStatus,
-) -> DQStatus:
+    status: ValidationResult,
+) -> ValidationResult:
     """Augment ``status`` with failed expectations derived from engine metrics."""
 
     metrics_map = status.details.get("metrics", {}) if status.details else {}

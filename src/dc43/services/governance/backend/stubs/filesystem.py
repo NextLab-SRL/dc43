@@ -9,16 +9,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Mapping
 
 from dc43.services.contracts.backend.drafting import draft_from_validation_result
-from dc43.services.data_quality.client.interface import DQClient
 from dc43.services.data_quality.engine import evaluate_contract
-from dc43.services.data_quality.models import DQStatus, ValidationResult
+from dc43.services.data_quality.models import ValidationResult
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 
-class StubDQClient(DQClient):
+class StubDQClient:
     """Filesystem-backed stub for a DQ/DO service."""
 
     def __init__(self, base_path: str, *, block_on_violation: bool = True):
@@ -109,11 +108,11 @@ class StubDQClient(DQClient):
         contract_version: str,
         dataset_id: str,
         dataset_version: str,
-    ) -> DQStatus:
+    ) -> ValidationResult:
         path = self._status_path(dataset_id, dataset_version)
         logger.debug("Fetching DQ status from %s", path)
         if not os.path.exists(path):
-            return DQStatus(status="unknown", reason="no-status-for-version")
+            return ValidationResult(status="unknown", reason="no-status-for-version")
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         link = self.get_linked_contract_version(
@@ -121,8 +120,8 @@ class StubDQClient(DQClient):
             dataset_version=dataset_version,
         )
         if link and link != f"{contract_id}:{contract_version}":
-            return DQStatus(status="block", reason=f"dataset linked to contract {link}", details=data)
-        return DQStatus(status=data.get("status", "warn"), reason=data.get("reason"), details=data.get("details", {}))
+            return ValidationResult(status="block", reason=f"dataset linked to contract {link}", details=data)
+        return ValidationResult(status=data.get("status", "warn"), reason=data.get("reason"), details=data.get("details", {}))
 
     def submit_metrics(
         self,
@@ -131,7 +130,7 @@ class StubDQClient(DQClient):
         dataset_id: str,
         dataset_version: str,
         metrics: Dict[str, Any],
-    ) -> DQStatus:
+    ) -> ValidationResult:
         schema_payload = metrics.get("schema") if isinstance(metrics, dict) else None
         metric_values = metrics.copy() if isinstance(metrics, dict) else {}
         if "schema" in metric_values:
@@ -187,7 +186,7 @@ class StubDQClient(DQClient):
             contract_id=contract_id_value,
             contract_version=contract_version_value,
         )
-        return DQStatus(status=status, details=details)
+        return ValidationResult(status=status, details=details)
 
     def record_pipeline_activity(
         self,

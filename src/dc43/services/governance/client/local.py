@@ -8,7 +8,6 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 
 from dc43.services.contracts.backend.stores.interface import ContractStore
 from dc43.services.data_quality.models import ObservationPayload, ValidationResult
-from dc43.services.governance.models import DQStatus
 from dc43.services.contracts.backend import (
     ContractServiceBackend,
     LocalContractServiceBackend,
@@ -78,7 +77,7 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
         dataset_id: str | None = None,
         dataset_version: str | None = None,
         data_format: str | None = None,
-        dq_status: DQStatus | None = None,
+        dq_status: ValidationResult | None = None,
         dq_feedback: Mapping[str, object] | None = None,
         context: QualityDraftContext | None = None,
         pipeline_context: PipelineContextSpec | None = None,
@@ -124,7 +123,7 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
         contract_version: str,
         dataset_id: str,
         dataset_version: str,
-    ) -> Optional[DQStatus]:
+    ) -> Optional[ValidationResult]:
         return self._backend.get_status(
             contract_id=contract_id,
             contract_version=contract_version,

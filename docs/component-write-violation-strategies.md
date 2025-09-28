@@ -100,7 +100,7 @@ governance status. When warnings or auxiliary rejects are present the demo recor
 strict decorator is used the run escalates to `error` even though the data was written. This keeps calling code in control:
 
 - Use `StrictWriteViolationStrategy` (or a custom decorator) when you want the write helper itself to mark the run as failed.
-- Otherwise, inspect the returned `ValidationResult`/`DQStatus` and decide in the calling code whether a warning should stop the
+- Otherwise, inspect the returned `ValidationResult` and decide in the calling code whether a warning should stop the
   job, continue with valid-only data, or trigger alerts.
 
 ## Registering derivative datasets

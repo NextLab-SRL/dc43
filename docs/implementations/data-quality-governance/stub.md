@@ -1,8 +1,8 @@
 # Filesystem Stub DQ Client
 
-`StubDQClient` offers a lightweight implementation of the `DQClient`
-protocol that stores dataset↔contract links and statuses on the
-filesystem. It is designed for demos, local development, and CI
+`StubDQClient` offers a lightweight governance helper that stores
+dataset↔contract links and statuses on the filesystem. It is designed for
+demos, local development, and CI
 pipelines where a full governance platform is not available.
 
 ## Capabilities
@@ -12,7 +12,7 @@ pipelines where a full governance platform is not available.
 * Delegates schema + metric evaluation to the data-quality engine and
   aggregates simple violation counts for convenience.
 * Supports `ok`, `warn`, `block`, and `unknown` statuses based on the
-  submitted metrics.
+  submitted metrics and returns them as `ValidationResult` payloads.
 * Can be queried by `read_with_contract` / `write_with_contract` to gate
   access to datasets.
 

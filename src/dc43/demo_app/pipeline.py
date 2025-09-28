@@ -25,7 +25,7 @@ from dc43.services.data_quality.backend.engine import (
     ExpectationSpec,
     expectation_specs,
 )
-from dc43.services.data_quality.models import DQStatus
+from dc43.services.data_quality.models import ValidationResult
 from dc43.integration.spark.data_quality import (
     attach_failed_expectations,
     validate_dataframe,
@@ -124,17 +124,17 @@ class _DowngradeBlockingReadStrategy:
         self,
         *,
         dataframe: DataFrame,
-        status: DQStatus | None,
+        status: ValidationResult | None,
         enforce: bool,
         context: ReadStatusContext,
-    ) -> tuple[DataFrame, DQStatus | None]:
+    ) -> tuple[DataFrame, ValidationResult | None]:
         if status and status.status == "block":
-            details = dict(status.details or {})
+            details = dict(status.details)
             notes = list(details.get("overrides", []))
             notes.append(self.note)
             details["overrides"] = notes
             details.setdefault("status_before_override", status.status)
-            return dataframe, DQStatus(
+            return dataframe, ValidationResult(
                 status=self.target_status,
                 reason=status.reason,
                 details=details,
@@ -385,7 +385,7 @@ def _expectation_error_messages(
     return messages
 
 
-def _status_payload(status: DQStatus | None) -> dict[str, Any] | None:
+def _status_payload(status: ValidationResult | None) -> dict[str, Any] | None:
     """Return a JSON-serialisable payload summarising ``status``."""
 
     if status is None:
@@ -431,8 +431,8 @@ def _record_blocked_read_failure(
     dataset_name_hint: str,
     run_type: str,
     scenario_key: str | None,
-    orders_status: DQStatus | None,
-    customers_status: DQStatus | None,
+    orders_status: ValidationResult | None,
+    customers_status: ValidationResult | None,
 ) -> None:
     """Persist a dataset record describing a blocked input read."""
 

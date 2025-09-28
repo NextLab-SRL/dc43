@@ -30,11 +30,11 @@ flowchart LR
 ## Interface & context requirements
 
 A drafter should accept both the dataset identifiers and the latest
-status returned by the data-quality manager. Passing the `DQStatus`
-record gives the drafter context about why a draft is being created (for
-example, to remediate a blocking incompatibility). Implementations can
-use this context to flag when a change addresses a known failure versus
-introducing a new field.
+status returned by the data-quality manager. Passing the
+`ValidationResult` record gives the drafter context about why a draft is
+being created (for example, to remediate a blocking incompatibility).
+Implementations can use this context to flag when a change addresses a
+known failure versus introducing a new field.
 
 To keep governance portable, the interface avoids tying draft creation
 to any runtime or storage technology. Implementations can live inside a

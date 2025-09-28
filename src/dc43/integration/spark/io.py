@@ -29,7 +29,7 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 
 from dc43.services.contracts.client.interface import ContractServiceClient
-from dc43.services.data_quality.models import DQStatus, ObservationPayload, ValidationResult
+from dc43.services.data_quality.models import ObservationPayload, ValidationResult
 from dc43.services.governance.client.interface import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
 from .data_quality import (
@@ -666,10 +666,10 @@ class ReadStatusStrategy(Protocol):
         self,
         *,
         dataframe: DataFrame,
-        status: Optional[DQStatus],
+        status: Optional[ValidationResult],
         enforce: bool,
         context: ReadStatusContext,
-    ) -> tuple[DataFrame, Optional[DQStatus]]:
+    ) -> tuple[DataFrame, Optional[ValidationResult]]:
         ...
 
 
@@ -681,10 +681,10 @@ class DefaultReadStatusStrategy:
         self,
         *,
         dataframe: DataFrame,
-        status: Optional[DQStatus],
+        status: Optional[ValidationResult],
         enforce: bool,
         context: ReadStatusContext,
-    ) -> tuple[DataFrame, Optional[DQStatus]]:  # noqa: D401 - short docstring
+    ) -> tuple[DataFrame, Optional[ValidationResult]]:  # noqa: D401 - short docstring
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
         return dataframe, status
@@ -836,7 +836,7 @@ def read_with_contract(
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True] = True,
-) -> tuple[DataFrame, Optional[DQStatus]]:
+) -> tuple[DataFrame, Optional[ValidationResult]]:
     ...
 
 
@@ -880,7 +880,7 @@ def read_with_contract(
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
-) -> DataFrame | tuple[DataFrame, Optional[DQStatus]]:
+) -> DataFrame | tuple[DataFrame, Optional[ValidationResult]]:
     ...
 
 
@@ -902,7 +902,7 @@ def read_with_contract(
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
-) -> DataFrame | Tuple[DataFrame, Optional[DQStatus]]:
+) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
     """Read a DataFrame and validate/enforce an ODCS contract.
 
     - If ``contract_id`` is provided, the contract is fetched from
@@ -997,7 +997,7 @@ def read_with_contract(
 
     # DQ integration
     governance_client = _as_governance_service(governance_service)
-    status: Optional[DQStatus] = None
+    status: Optional[ValidationResult] = None
     if governance_client and contract and result is not None:
         ds_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
         ds_ver = (
@@ -1073,7 +1073,7 @@ def write_with_contract(
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True],
-) -> tuple[ValidationResult, Optional[DQStatus]]:
+) -> tuple[ValidationResult, Optional[ValidationResult]]:
     ...
 
 
@@ -1246,9 +1246,9 @@ def write_with_contract(
     plan = strategy.plan(context)
 
     requests: list[WriteRequest] = []
-    primary_status: Optional[DQStatus] = None
+    primary_status: Optional[ValidationResult] = None
     validations: list[ValidationResult] = []
-    status_records: list[tuple[Optional[DQStatus], WriteRequest]] = []
+    status_records: list[tuple[Optional[ValidationResult], WriteRequest]] = []
 
     if plan.primary is not None:
         requests.append(plan.primary)
@@ -1409,7 +1409,7 @@ def _execute_write_request(
     *,
     governance_client: Optional[GovernanceServiceClient],
     enforce: bool,
-) -> tuple[Optional[DQStatus], Optional[ValidationResult]]:
+) -> tuple[Optional[ValidationResult], Optional[ValidationResult]]:
     writer = request.df.write
     if request.format:
         writer = writer.format(request.format)
@@ -1432,7 +1432,7 @@ def _execute_write_request(
             if message not in validation.warnings:
                 validation.warnings.append(message)
     contract = request.contract
-    status: Optional[DQStatus] = None
+    status: Optional[ValidationResult] = None
     if governance_client and contract and validation is not None:
         dq_dataset_id = request.dataset_id or dataset_id_from_ref(
             table=request.table,

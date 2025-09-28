@@ -7,7 +7,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.services.data_quality.models import DQStatus
+from dc43.services.data_quality.models import ValidationResult
 
 
 PipelineContextSpec = Union[
@@ -62,7 +62,7 @@ class QualityDraftContext:
 class QualityAssessment:
     """Outcome returned after consulting the governance service."""
 
-    status: Optional[DQStatus]
+    status: Optional[ValidationResult]
     draft: Optional[OpenDataContractStandard] = None
     observations_reused: bool = False
 
@@ -130,14 +130,14 @@ def merge_draft_context(
 
 
 def derive_feedback(
-    status: DQStatus | None,
+    status: ValidationResult | None,
     override: Mapping[str, object] | None,
 ) -> Optional[Mapping[str, object]]:
     if override is not None:
         return override
     if status is None:
         return None
-    payload: Dict[str, object] = dict(status.details or {})
+    payload: Dict[str, object] = dict(status.details)
     payload.setdefault("status", status.status)
     if status.reason:
         payload.setdefault("reason", status.reason)
@@ -184,7 +184,6 @@ def build_quality_context(
 
 
 __all__ = [
-    "DQStatus",
     "GovernanceCredentials",
     "PipelineContext",
     "PipelineContextSpec",

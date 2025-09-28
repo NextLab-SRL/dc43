@@ -23,7 +23,8 @@ The Spark integration exposes the following building blocks:
 * `expectations_from_contract(contract)` – expose Spark SQL predicates matching
   the contract expectations (useful for DLT pipelines).
 * `attach_failed_expectations(contract, status)` – enrich a governance
-  `DQStatus` with failing expressions and violation counts after a submission.
+  `ValidationResult` with failing expressions and violation counts after a
+  submission.
 * `apply_contract(df, contract)` – align column order and types before reads and
   writes (via `dc43.services.data_quality.backend.validation`).
 

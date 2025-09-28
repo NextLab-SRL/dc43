@@ -6,8 +6,8 @@ from dataclasses import InitVar, dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
 
-DQStatusState = tuple[str, ...]
-_KNOWN_STATUSES: DQStatusState = ("ok", "warn", "block", "unknown")
+ValidationStatusState = tuple[str, ...]
+_KNOWN_STATUSES: ValidationStatusState = ("ok", "warn", "block", "unknown")
 
 
 @dataclass(slots=True)
@@ -82,9 +82,4 @@ class ValidationResult:
             reason=reason,
             details=details,
         )
-
-
-DQStatus = ValidationResult
-
-
-__all__ = ["DQStatus", "ObservationPayload", "ValidationResult"]
+__all__ = ["ObservationPayload", "ValidationResult"]
