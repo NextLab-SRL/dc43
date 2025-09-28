@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from inspect import isdatadescriptor
-from typing import Any, Dict, List, Optional
+from typing import Any, Mapping, Optional
 
 
 ValidationStatusState = tuple[str, ...]
@@ -21,18 +21,19 @@ class ObservationPayload:
     reused: bool = False
 
 
-@dataclass(init=False, slots=True)
 class ValidationResult:
     """Outcome produced by a data-quality evaluation or governance verdict."""
 
-    ok: bool = True
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    schema: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    status: str = "unknown"
-    reason: Optional[str] = None
-    _details: Dict[str, Any] = field(default_factory=dict, repr=False)
+    __slots__ = (
+        "ok",
+        "errors",
+        "warnings",
+        "metrics",
+        "schema",
+        "status",
+        "reason",
+        "_details",
+    )
 
     def __init__(
         self,
@@ -46,7 +47,7 @@ class ValidationResult:
         reason: Optional[str] = None,
         details: object | None = None,
     ) -> None:
-        self.ok = ok
+        self.ok = bool(ok)
         self.errors = list(errors or [])
         self.warnings = list(warnings or [])
         self.metrics = dict(metrics or {})
@@ -61,8 +62,8 @@ class ValidationResult:
         elif self.status in {"ok", "warn"} and not self.errors:
             self.ok = True
 
-    def _build_details_payload(self) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    def _build_details_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "errors": list(self.errors),
             "warnings": list(self.warnings),
             "metrics": dict(self.metrics),
@@ -76,7 +77,7 @@ class ValidationResult:
         return payload
 
     @property
-    def details(self) -> Dict[str, Any]:
+    def details(self) -> dict[str, Any]:
         """Structured representation combining validation observations."""
 
         return self._build_details_payload()
@@ -107,12 +108,12 @@ class ValidationResult:
 
         if not extra:
             return
-        merged: Dict[str, Any] = dict(self._details)
+        merged: dict[str, Any] = dict(self._details)
         merged.update(extra)
         self._details = coerce_details(merged)
 
 
-def coerce_details(raw: object) -> Dict[str, Any]:
+def coerce_details(raw: object) -> dict[str, Any]:
     """Normalise arbitrary detail payloads into a dictionary."""
 
     if raw is None:
