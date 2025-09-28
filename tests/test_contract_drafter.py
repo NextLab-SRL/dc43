@@ -11,6 +11,7 @@ from open_data_contract_standard.model import (  # type: ignore
     SchemaProperty,
 )
 
+from dc43.odcs import normalise_custom_properties
 from dc43.services.contracts.backend.drafting import draft_from_validation_result
 from dc43.services.data_quality.models import ValidationResult
 
@@ -61,15 +62,24 @@ def _get_property(contract: OpenDataContractStandard, name: str) -> SchemaProper
 
 
 def _change_log(contract: OpenDataContractStandard) -> List[Dict[str, object]]:
-    for prop in contract.customProperties or []:
-        if prop.property == "draft_change_log":
-            value = prop.value or []
-            return list(value)
+    for prop in normalise_custom_properties(contract.customProperties):
+        key = getattr(prop, "property", None)
+        if key == "draft_change_log":
+            value = getattr(prop, "value", None) or []
+            try:
+                return list(value)
+            except TypeError:
+                return []
     return []
 
 
 def _custom_props(contract: OpenDataContractStandard) -> Dict[str, Any]:
-    return {prop.property: prop.value for prop in contract.customProperties or []}
+    props: Dict[str, Any] = {}
+    for prop in normalise_custom_properties(contract.customProperties):
+        key = getattr(prop, "property", None)
+        if key:
+            props[str(key)] = getattr(prop, "value", None)
+    return props
 
 
 def test_draft_preserves_and_updates_quality_rules() -> None:

@@ -38,7 +38,7 @@ from .data_quality import (
     validate_dataframe,
 )
 from .validation import apply_contract
-from dc43.odcs import contract_identity, ensure_version
+from dc43.odcs import contract_identity, custom_properties_dict, ensure_version
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
 
@@ -70,39 +70,6 @@ def _merge_pipeline_context(
     if extra:
         combined.update(extra)
     return combined or None
-
-
-def _custom_property_mapping(server: Any) -> Dict[str, Any]:
-    """Return ``customProperties`` for ``server`` as a dictionary."""
-
-    raw = getattr(server, "customProperties", None)
-    if raw is None or isinstance(raw, (str, bytes, bytearray)):
-        return {}
-
-    if isinstance(raw, Mapping):
-        iterable = raw.values()
-    elif isinstance(raw, (list, tuple, set)):
-        iterable = raw
-    else:
-        try:
-            iterable = list(raw)
-        except TypeError:
-            return {}
-
-    props: Dict[str, Any] = {}
-    for item in iterable:
-        key = None
-        value = None
-        if isinstance(item, Mapping):
-            key = item.get("property")
-            value = item.get("value")
-        else:
-            key = getattr(item, "property", None)
-            value = getattr(item, "value", None)
-        if not key:
-            continue
-        props[str(key)] = value
-    return props
 
 
 def get_delta_version(
@@ -260,7 +227,7 @@ class ContractFirstDatasetLocator:
         write_options: Optional[Dict[str, str]] = None
         if contract and contract.servers:
             first = contract.servers[0]
-            props = _custom_property_mapping(first)
+            props = custom_properties_dict(first)
             if props:
                 server_props = props
                 versioning = props.get(ContractVersionLocator.VERSIONING_PROPERTY)

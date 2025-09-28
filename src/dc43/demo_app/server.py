@@ -16,6 +16,7 @@ Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 ``pyspark``.
 """
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable
@@ -39,6 +40,7 @@ from urllib.parse import urlencode
 from dc43.services.contracts.backend.stores import FSContractStore
 from dc43.services.contracts.client import LocalContractServiceClient
 from dc43.integration.spark.data_quality import expectations_from_contract as dq_expectations_from_contract
+from dc43.odcs import custom_properties_dict, normalise_custom_properties
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
     OpenDataContractStandard,
@@ -63,6 +65,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - safety net for CI
     read_with_contract = None  # type: ignore[assignment]
 
 _SPARK_SESSION: Any | None = None
+logger = logging.getLogger(__name__)
 
 
 def _spark_session() -> Any:
@@ -631,11 +634,7 @@ def _server_details(contract: OpenDataContractStandard) -> Optional[Dict[str, An
     if not contract.servers:
         return None
     first = contract.servers[0]
-    custom: Dict[str, Any] = {}
-    for item in getattr(first, "customProperties", []) or []:
-        key = getattr(item, "property", None)
-        if key:
-            custom[key] = item.value
+    custom: Dict[str, Any] = custom_properties_dict(first)
     dataset_id = contract.id or getattr(first, "dataset", None) or contract.id
     info: Dict[str, Any] = {
         "server": getattr(first, "server", ""),
@@ -802,10 +801,20 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
     """Extract change log entries from the contract custom properties."""
 
     entries: List[Dict[str, Any]] = []
-    for prop in contract.customProperties or []:
-        if prop.property != "draft_change_log":
+    for prop in normalise_custom_properties(contract.customProperties):
+        if isinstance(prop, Mapping):
+            key = prop.get("property")
+            value = prop.get("value")
+        else:
+            key = getattr(prop, "property", None)
+            value = getattr(prop, "value", None)
+        if key != "draft_change_log":
             continue
-        for item in prop.value or []:
+        try:
+            items = list(value or [])
+        except TypeError:
+            continue
+        for item in items:
             if not isinstance(item, Mapping):
                 continue
             details = item.get("details")
@@ -1879,6 +1888,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")
         params = urlencode({"flash": token})
     except Exception as exc:  # pragma: no cover - surface pipeline errors
+        logger.exception("Pipeline run failed for scenario %s", scenario)
         token = queue_flash(error=str(exc))
         params = urlencode({"flash": token})
     return RedirectResponse(url=f"/datasets?{params}", status_code=303)

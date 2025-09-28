@@ -15,7 +15,7 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
-from dc43.odcs import as_odcs_dict, contract_identity, to_model
+from dc43.odcs import as_odcs_dict, contract_identity, normalise_custom_properties, to_model
 from dc43.services.data_quality.models import ValidationResult
 from dc43.versioning import SemVer
 
@@ -280,7 +280,7 @@ def draft_from_validation_result(
             }
         )
 
-    custom_properties = list(draft.customProperties or [])
+    custom_properties = list(normalise_custom_properties(getattr(draft, "customProperties", None)))
 
     if dq_status or dq_feedback:
         feedback = dict(dq_feedback or {})
@@ -405,7 +405,7 @@ def draft_from_observations(
         change_log=[],
     )
 
-    custom_properties = list(draft.customProperties or [])
+    custom_properties = list(normalise_custom_properties(getattr(draft, "customProperties", None)))
     custom_properties.append(
         CustomProperty(
             property="base_contract",
