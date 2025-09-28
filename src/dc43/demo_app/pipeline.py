@@ -27,6 +27,7 @@ from dc43.services.data_quality.engine import (
 )
 from dc43.services.data_quality.models import ValidationResult
 from dc43.integration.spark.data_quality import attach_failed_expectations
+from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
 from dc43.services.governance.client.local import build_local_governance_service
 from dc43.integration.spark.io import (
     ContractFirstDatasetLocator,
@@ -49,6 +50,7 @@ from pyspark.sql.functions import col, when
 from dc43.services.contracts.client.local import LocalContractServiceClient
 
 contract_service = LocalContractServiceClient(store)
+dq_service = LocalDataQualityServiceClient()
 
 
 def _next_version(existing: list[str]) -> str:
@@ -563,6 +565,7 @@ def run_pipeline(
         contract_service=contract_service,
         expected_contract_version="==1.1.0",
         governance_service=governance,
+        data_quality_service=dq_service,
         dataset_locator=orders_locator,
         status_strategy=orders_strategy,
         enforce=orders_enforce,
@@ -624,6 +627,7 @@ def run_pipeline(
         contract_service=contract_service,
         expected_contract_version="==1.0.0",
         governance_service=governance,
+        data_quality_service=dq_service,
         dataset_locator=customers_locator,
         status_strategy=customers_strategy,
         enforce=customers_enforce,
@@ -702,6 +706,7 @@ def run_pipeline(
         format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
+        data_quality_service=dq_service if contract_id_ref else None,
         governance_service=governance,
         dataset_locator=locator,
         expected_contract_version=expected_version,

@@ -13,12 +13,12 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+from dc43.services.data_quality.client.interface import DataQualityServiceClient
 from dc43.services.data_quality.engine import (
     ExpectationSpec,
-    evaluate_contract,
     expectation_specs,
 )
-from dc43.services.data_quality.models import ValidationResult
+from dc43.services.data_quality.models import ObservationPayload, ValidationResult
 
 
 # Minimal mapping from ODCS primitive type strings to Spark SQL types.
@@ -215,46 +215,44 @@ def collect_observations(
     return schema, metrics
 
 
-def evaluate_observations(
+def evaluate_with_observations(
     contract: OpenDataContractStandard,
     *,
+    data_quality_service: DataQualityServiceClient,
     schema: Mapping[str, Mapping[str, Any]] | None,
     metrics: Mapping[str, Any] | None,
-    strict_types: bool = True,
-    allow_extra_columns: bool = True,
-    expectation_severity: Literal["error", "warning", "ignore"] = "error",
+    reused: bool = False,
 ) -> ValidationResult:
-    """Compatibility alias to the engine-level observation evaluator."""
+    """Evaluate observations for ``contract`` using the provided DQ service."""
 
-    return evaluate_contract(
-        contract,
-        schema=schema,
-        metrics=metrics,
-        strict_types=strict_types,
-        allow_extra_columns=allow_extra_columns,
-        expectation_severity=expectation_severity,
+    payload = ObservationPayload(
+        metrics=dict(metrics or {}),
+        schema=dict(schema) if schema else None,
+        reused=reused,
     )
+    result = data_quality_service.evaluate(contract=contract, payload=payload)
+    if schema and not result.schema:
+        result.schema = dict(schema)
+    if metrics and not result.metrics:
+        result.metrics = dict(metrics)
+    return result
 
 
 def validate_dataframe(
     df: DataFrame,
     contract: OpenDataContractStandard,
     *,
-    strict_types: bool = True,
-    allow_extra_columns: bool = True,
+    data_quality_service: DataQualityServiceClient,
     collect_metrics: bool = True,
-    expectation_severity: Literal["error", "warning", "ignore"] = "error",
 ) -> ValidationResult:
-    """Validate ``df`` against ``contract`` using Spark-collected observations."""
+    """Validate ``df`` against ``contract`` using a data-quality service."""
 
     schema, metrics = collect_observations(df, contract, collect_metrics=collect_metrics)
-    return evaluate_observations(
+    return evaluate_with_observations(
         contract,
+        data_quality_service=data_quality_service,
         schema=schema,
         metrics=metrics,
-        strict_types=strict_types,
-        allow_extra_columns=allow_extra_columns,
-        expectation_severity=expectation_severity,
     )
 
 
@@ -326,7 +324,7 @@ __all__ = [
     "expectations_from_contract",
     "compute_metrics",
     "collect_observations",
-    "evaluate_observations",
+    "evaluate_with_observations",
     "validate_dataframe",
     "build_metrics_payload",
     "attach_failed_expectations",

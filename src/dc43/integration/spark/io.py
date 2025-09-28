@@ -29,11 +29,14 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 
 from dc43.services.contracts.client.interface import ContractServiceClient
+from dc43.services.data_quality.client.interface import DataQualityServiceClient
 from dc43.services.data_quality.models import ObservationPayload, ValidationResult
 from dc43.services.governance.client.interface import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
 from .data_quality import (
     build_metrics_payload,
+    collect_observations,
+    evaluate_with_observations,
     expectations_from_contract as dq_expectations_from_contract,
     validate_dataframe,
 )
@@ -846,6 +849,7 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
@@ -868,6 +872,7 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
@@ -890,6 +895,7 @@ def read_with_contract(
     options: Optional[Dict[str, str]] = None,
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
@@ -912,6 +918,7 @@ def read_with_contract(
     enforce: bool = True,
     auto_cast: bool = True,
     # Governance / DQ orchestration
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
@@ -994,12 +1001,24 @@ def read_with_contract(
     target = resolution.load_paths or path
     df = reader.table(table) if table else reader.load(target)
     result: Optional[ValidationResult] = None
+    observed_schema: Optional[Dict[str, Dict[str, Any]]] = None
+    observed_metrics: Optional[Dict[str, Any]] = None
     cid: Optional[str] = None
     cver: Optional[str] = None
     if contract:
+        if data_quality_service is None:
+            raise ValueError(
+                "data_quality_service is required when validating against a contract"
+            )
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
-        result = validate_dataframe(df, contract)
+        observed_schema, observed_metrics = collect_observations(df, contract)
+        result = evaluate_with_observations(
+            contract,
+            data_quality_service=data_quality_service,
+            schema=observed_schema,
+            metrics=observed_metrics,
+        )
         logger.info(
             "Read validation: ok=%s errors=%s warnings=%s",
             result.ok,
@@ -1084,6 +1103,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1106,6 +1126,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1127,6 +1148,7 @@ def write_with_contract(
     mode: str = "append",
     enforce: bool = True,
     auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1190,11 +1212,23 @@ def write_with_contract(
     out_df = df
     governance_client = _as_governance_service(governance_service)
     result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
+    observed_schema: Optional[Dict[str, Dict[str, Any]]] = None
+    observed_metrics: Optional[Dict[str, Any]] = None
     if contract:
+        if data_quality_service is None:
+            raise ValueError(
+                "data_quality_service is required when validating against a contract"
+            )
         cid, cver = contract_identity(contract)
         logger.info("Writing with contract %s:%s", cid, cver)
         # validate before write and always align schema for downstream metrics
-        result = validate_dataframe(df, contract)
+        observed_schema, observed_metrics = collect_observations(df, contract)
+        result = evaluate_with_observations(
+            contract,
+            data_quality_service=data_quality_service,
+            schema=observed_schema,
+            metrics=observed_metrics,
+        )
         if pre_validation_warnings:
             for warning in pre_validation_warnings:
                 if warning not in result.warnings:
@@ -1230,7 +1264,11 @@ def write_with_contract(
     strategy = violation_strategy or NoOpWriteViolationStrategy()
     revalidator: Callable[[DataFrame], ValidationResult]
     if contract:
-        revalidator = lambda new_df: validate_dataframe(new_df, contract)  # type: ignore[misc]
+        revalidator = lambda new_df: validate_dataframe(  # type: ignore[misc]
+            new_df,
+            contract,
+            data_quality_service=data_quality_service,
+        )
     else:
         revalidator = lambda new_df: ValidationResult(  # type: ignore[return-value]
             ok=True,

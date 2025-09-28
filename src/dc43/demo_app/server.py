@@ -39,6 +39,7 @@ from urllib.parse import urlencode
 
 from dc43.services.contracts.backend.stores import FSContractStore
 from dc43.services.contracts.client import LocalContractServiceClient
+from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
 from dc43.integration.spark.data_quality import expectations_from_contract as dq_expectations_from_contract
 from dc43.odcs import custom_properties_dict, normalise_custom_properties
 from dc43.versioning import SemVer
@@ -463,6 +464,7 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
 
 store = FSContractStore(str(CONTRACT_DIR))
 contract_service = LocalContractServiceClient(store)
+dq_service = LocalDataQualityServiceClient()
 
 # Populate server paths with sample datasets matching recorded versions
 _sample_records = json.loads((RECORDS_DIR / "datasets.json").read_text())
@@ -1483,6 +1485,7 @@ async def api_contract_preview(
             dataset_locator=locator,
             enforce=False,
             auto_cast=False,
+            data_quality_service=dq_service,
             return_status=False,
         )
         rows_raw = [row.asDict(recursive=True) for row in df.limit(limit).collect()]
