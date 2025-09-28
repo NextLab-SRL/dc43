@@ -382,6 +382,93 @@ def _expectation_error_messages(
     return messages
 
 
+def _status_payload(status: DQStatus | None) -> dict[str, Any] | None:
+    """Return a JSON-serialisable payload summarising ``status``."""
+
+    if status is None:
+        return None
+    payload: dict[str, Any] = {}
+    details = status.details
+    if isinstance(details, Mapping):
+        payload.update(details)
+    elif details is not None:
+        payload["details"] = details
+    payload.setdefault("status", status.status)
+    if status.reason:
+        payload.setdefault("reason", status.reason)
+    return payload
+
+
+def _resolve_dataset_name_hint(
+    contract_id: str | None,
+    contract_version: str | None,
+    dataset_name: str | None,
+) -> str:
+    """Return the most appropriate dataset identifier for logging failures."""
+
+    if dataset_name:
+        return dataset_name
+    if contract_id and contract_version:
+        try:
+            contract = store.get(contract_id, contract_version)
+        except FileNotFoundError:
+            return contract_id
+        dataset_id = getattr(contract, "id", None)
+        if dataset_id:
+            return dataset_id
+        return contract_id
+    return dataset_name or contract_id or "result"
+
+
+def _record_blocked_read_failure(
+    *,
+    error_message: str,
+    contract_id: str | None,
+    contract_version: str | None,
+    dataset_name_hint: str,
+    run_type: str,
+    scenario_key: str | None,
+    orders_status: DQStatus | None,
+    customers_status: DQStatus | None,
+) -> None:
+    """Persist a dataset record describing a blocked input read."""
+
+    dq_details: dict[str, Any] = {}
+    orders_payload = _status_payload(orders_status)
+    customers_payload = _status_payload(customers_status)
+    if orders_payload:
+        dq_details["orders"] = orders_payload
+    if customers_payload:
+        dq_details["customers"] = customers_payload
+    dq_details["output"] = {
+        "errors": [error_message],
+        "dq_status": {"status": "error", "reason": error_message},
+    }
+
+    violations_total = 0
+    for payload in (orders_payload, customers_payload):
+        if isinstance(payload, Mapping):
+            violations_value = payload.get("violations")
+            if isinstance(violations_value, (int, float)):
+                violations_total += int(violations_value)
+
+    records = load_records()
+    record = DatasetRecord(
+        contract_id or "",
+        contract_version or "",
+        dataset_name_hint,
+        "",
+        "error",
+        dq_details,
+        run_type,
+        violations_total,
+        scenario_key=scenario_key,
+    )
+    record.reason = error_message
+    records.append(record)
+    save_records(records)
+
+
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
@@ -436,6 +523,11 @@ def run_pipeline(
         return payload
 
     input_overrides: Mapping[str, Mapping[str, Any]] = inputs or {}
+    dataset_name_hint = _resolve_dataset_name_hint(
+        contract_id,
+        contract_version,
+        dataset_name,
+    )
 
     orders_overrides = input_overrides.get("orders")
     orders_locator = _apply_locator_overrides(
@@ -481,7 +573,18 @@ def run_pipeline(
     )
     if treat_orders_blocking and orders_status and orders_status.status == "block":
         details = orders_status.reason or orders_status.details
-        raise ValueError(f"DQ status is blocking: {details}")
+        message = f"DQ status is blocking: {details}"
+        _record_blocked_read_failure(
+            error_message=message,
+            contract_id=contract_id,
+            contract_version=contract_version,
+            dataset_name_hint=dataset_name_hint,
+            run_type=run_type,
+            scenario_key=scenario_key,
+            orders_status=orders_status,
+            customers_status=None,
+        )
+        raise ValueError(message)
 
     customers_overrides = input_overrides.get("customers")
     customers_locator = _apply_locator_overrides(
@@ -531,7 +634,18 @@ def run_pipeline(
     )
     if treat_customers_blocking and customers_status and customers_status.status == "block":
         details = customers_status.reason or customers_status.details
-        raise ValueError(f"DQ status is blocking: {details}")
+        message = f"DQ status is blocking: {details}"
+        _record_blocked_read_failure(
+            error_message=message,
+            contract_id=contract_id,
+            contract_version=contract_version,
+            dataset_name_hint=dataset_name_hint,
+            run_type=run_type,
+            scenario_key=scenario_key,
+            orders_status=orders_status,
+            customers_status=customers_status,
+        )
+        raise ValueError(message)
 
     df = orders_df.join(customers_df, "customer_id")
     # Promote one of the rows above the quality threshold so split strategies

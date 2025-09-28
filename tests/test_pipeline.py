@@ -355,7 +355,19 @@ def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
             )
 
         assert "DQ status is blocking" in str(excinfo.value)
-        assert pipeline.load_records() == original_records
+        updated_records = pipeline.load_records()
+        assert updated_records != original_records
+        last = updated_records[-1]
+        assert last.dataset_name == "orders_enriched"
+        assert last.status == "error"
+        assert last.reason.startswith("DQ status is blocking")
+        orders_details = last.dq_details.get("orders", {})
+        assert orders_details.get("status") == "block"
+        assert "duplicate" in json.dumps(orders_details).lower()
+        output_details = last.dq_details.get("output", {})
+        assert output_details.get("dq_status", {}).get("reason", "").startswith(
+            "DQ status is blocking"
+        )
     finally:
         pipeline.save_records(original_records)
         if dq_dir.exists():
