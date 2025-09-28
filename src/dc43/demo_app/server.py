@@ -501,6 +501,7 @@ class DatasetRecord:
     dq_details: Dict[str, Any] = field(default_factory=dict)
     run_type: str = "infer"
     violations: int = 0
+    reason: str = ""
     draft_contract_version: str | None = None
     scenario_key: str | None = None
 
