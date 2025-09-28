@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass, field
 from inspect import isdatadescriptor
 from typing import Any, Dict, List, Optional
 
@@ -21,7 +21,7 @@ class ObservationPayload:
     reused: bool = False
 
 
-@dataclass
+@dataclass(init=False, slots=True)
 class ValidationResult:
     """Outcome produced by a data-quality evaluation or governance verdict."""
 
@@ -32,14 +32,28 @@ class ValidationResult:
     schema: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     status: str = "unknown"
     reason: Optional[str] = None
-    details: InitVar[Optional[Mapping[str, Any]]] = None
-    _details: Dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    _details: Dict[str, Any] = field(default_factory=dict, repr=False)
 
-    def __post_init__(self, details: object | None) -> None:
-        if self.status not in _KNOWN_STATUSES:
-            self.status = "unknown"
-        if details is not None:
-            self._details = coerce_details(details)
+    def __init__(
+        self,
+        ok: bool = True,
+        errors: Optional[Iterable[str]] = None,
+        warnings: Optional[Iterable[str]] = None,
+        metrics: Optional[Mapping[str, Any]] = None,
+        schema: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        *,
+        status: str = "unknown",
+        reason: Optional[str] = None,
+        details: object | None = None,
+    ) -> None:
+        self.ok = ok
+        self.errors = list(errors or [])
+        self.warnings = list(warnings or [])
+        self.metrics = dict(metrics or {})
+        self.schema = {key: dict(value) for key, value in (schema or {}).items()}
+        self.status = status if status in _KNOWN_STATUSES else "unknown"
+        self.reason = reason
+        self._details = coerce_details(details)
         if self.errors and self.ok:
             self.ok = False
         if self.status == "block":
@@ -61,12 +75,14 @@ class ValidationResult:
             payload.update(self._details)
         return payload
 
-    def _get_details(self) -> Dict[str, Any]:
+    @property
+    def details(self) -> Dict[str, Any]:
         """Structured representation combining validation observations."""
 
         return self._build_details_payload()
 
-    def _set_details(self, value: object) -> None:
+    @details.setter
+    def details(self, value: object) -> None:
         self._details = coerce_details(value)
 
     @classmethod
@@ -122,13 +138,6 @@ def coerce_details(raw: object) -> Dict[str, Any]:
             return {}
 
     return {}
-
-
-ValidationResult.details = property(  # type: ignore[attr-defined]
-    ValidationResult._get_details,
-    ValidationResult._set_details,
-    doc="Structured representation combining validation observations.",
-)
 
 
 __all__ = ["ObservationPayload", "ValidationResult", "coerce_details"]
