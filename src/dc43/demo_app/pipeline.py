@@ -26,7 +26,10 @@ from dc43.services.data_quality.backend.engine import (
     expectation_specs,
 )
 from dc43.services.governance.backend.dq import DQStatus
-from dc43.integration.spark.data_quality import attach_failed_expectations
+from dc43.integration.spark.data_quality import (
+    attach_failed_expectations,
+    validate_dataframe,
+)
 from dc43.services.governance.client import build_local_governance_service
 from dc43.integration.spark.io import (
     ContractFirstDatasetLocator,
@@ -577,6 +580,17 @@ def run_pipeline(
         )
     contract_id_ref = getattr(output_contract, "id", None)
     expected_version = f"=={output_contract.version}" if output_contract else None
+    prewrite_schema_errors: list[str] = []
+    if output_contract:
+        prewrite_schema_errors = list(
+            validate_dataframe(
+                df,
+                output_contract,
+                collect_metrics=False,
+            ).errors
+            or []
+        )
+
     result, output_status = write_with_contract(
         df=df,
         contract_id=contract_id_ref,
@@ -610,6 +624,27 @@ def run_pipeline(
             result.metrics,
         )
 
+    schema_errors: list[str] = []
+    seen_schema_errors: set[str] = set()
+    for message in prewrite_schema_errors:
+        if message in seen_schema_errors:
+            continue
+        seen_schema_errors.add(message)
+        schema_errors.append(message)
+
+    if result.errors:
+        filtered_errors: list[str] = []
+        for message in result.errors:
+            if message in expectation_messages:
+                continue
+            if message in seen_schema_errors:
+                continue
+            seen_schema_errors.add(message)
+            filtered_errors.append(message)
+        if filtered_errors != result.errors:
+            result.errors[:] = filtered_errors
+        schema_errors.extend(filtered_errors)
+
     handled_split_override = False
     if isinstance(strategy, SplitWriteViolationStrategy) and output_status:
         details = output_status.details or {}
@@ -638,9 +673,6 @@ def run_pipeline(
                 issues.append(
                     f"DQ violation: {detail_msg or output_status.status}"
                 )
-            schema_errors = [
-                err for err in result.errors if err not in expectation_messages
-            ]
             if schema_errors:
                 issues.append(
                     f"Schema validation failed: {schema_errors}"
@@ -650,6 +682,10 @@ def run_pipeline(
 
     draft_version: str | None = None
     output_details = result.details.copy()
+    if schema_errors:
+        output_details["errors"] = schema_errors
+    else:
+        output_details.pop("errors", None)
     if adjustment_notes:
         extra = output_details.setdefault("transformations", [])
         if isinstance(extra, list):
@@ -849,7 +885,7 @@ def run_pipeline(
                 if isinstance(violations, (int, float)) and violations:
                     warnings_present = True
 
-    if result.errors or error is not None:
+    if schema_errors or result.errors or error is not None:
         severity = 2
     elif warnings_present:
         severity = max(severity, 1)
