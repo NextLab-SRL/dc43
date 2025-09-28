@@ -72,6 +72,39 @@ def _merge_pipeline_context(
     return combined or None
 
 
+def _custom_property_mapping(server: Any) -> Dict[str, Any]:
+    """Return ``customProperties`` for ``server`` as a dictionary."""
+
+    raw = getattr(server, "customProperties", None)
+    if raw is None or isinstance(raw, (str, bytes, bytearray)):
+        return {}
+
+    if isinstance(raw, Mapping):
+        iterable = raw.values()
+    elif isinstance(raw, (list, tuple, set)):
+        iterable = raw
+    else:
+        try:
+            iterable = list(raw)
+        except TypeError:
+            return {}
+
+    props: Dict[str, Any] = {}
+    for item in iterable:
+        key = None
+        value = None
+        if isinstance(item, Mapping):
+            key = item.get("property")
+            value = item.get("value")
+        else:
+            key = getattr(item, "property", None)
+            value = getattr(item, "value", None)
+        if not key:
+            continue
+        props[str(key)] = value
+    return props
+
+
 def get_delta_version(
     spark: SparkSession,
     *,
@@ -223,22 +256,37 @@ class ContractFirstDatasetLocator:
         dataset_id = contract.id if contract else dataset_id_from_ref(table=table, path=path)
         dataset_version = self.clock() if include_timestamp else None
         server_props: Optional[Dict[str, Any]] = None
+        read_options: Optional[Dict[str, str]] = None
+        write_options: Optional[Dict[str, str]] = None
         if contract and contract.servers:
             first = contract.servers[0]
-            props: Dict[str, Any] = {}
-            for item in getattr(first, "customProperties", []) or []:
-                if getattr(item, "property", None):
-                    props[item.property] = item.value
+            props = _custom_property_mapping(first)
             if props:
                 server_props = props
+                versioning = props.get(ContractVersionLocator.VERSIONING_PROPERTY)
+                if isinstance(versioning, Mapping):
+                    read_map = versioning.get("readOptions")
+                    if isinstance(read_map, Mapping):
+                        read_options = {
+                            str(k): str(v)
+                            for k, v in read_map.items()
+                            if v is not None
+                        }
+                    write_map = versioning.get("writeOptions")
+                    if isinstance(write_map, Mapping):
+                        write_options = {
+                            str(k): str(v)
+                            for k, v in write_map.items()
+                            if v is not None
+                        }
         return DatasetResolution(
             path=path,
             table=table,
             format=format,
             dataset_id=dataset_id,
             dataset_version=dataset_version,
-            read_options=None,
-            write_options=None,
+            read_options=read_options,
+            write_options=write_options,
             custom_properties=server_props,
             load_paths=None,
         )

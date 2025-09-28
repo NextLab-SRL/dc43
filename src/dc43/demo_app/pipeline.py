@@ -21,7 +21,7 @@ from dc43.demo_app.server import (
     set_active_version,
     register_dataset_version,
 )
-from dc43.services.data_quality.backend.engine import (
+from dc43.services.data_quality.engine import (
     ExpectationSpec,
     expectation_specs,
 )
@@ -30,7 +30,7 @@ from dc43.integration.spark.data_quality import (
     attach_failed_expectations,
     validate_dataframe,
 )
-from dc43.services.governance.client import build_local_governance_service
+from dc43.services.governance.client.local import build_local_governance_service
 from dc43.integration.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
@@ -49,7 +49,7 @@ from dc43.integration.spark.violation_strategy import (
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, when
-from dc43.services.contracts.client import LocalContractServiceClient
+from dc43.services.contracts.client.local import LocalContractServiceClient
 
 contract_service = LocalContractServiceClient(store)
 
