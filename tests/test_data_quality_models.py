@@ -48,3 +48,17 @@ def test_validation_result_ignores_non_iterable_details() -> None:
     result = ValidationResult(details=Foo.__dict__["details"])
 
     assert "details" not in result.details
+
+
+def test_validation_result_ignores_descriptors_without_iter() -> None:
+    class _Descriptor:
+        def __get__(self, obj, owner):  # pragma: no cover - descriptor access unused
+            return None
+
+    class Foo:
+        details = _Descriptor()
+
+    result = ValidationResult(details=Foo.__dict__["details"])
+
+    assert result.details["errors"] == []
+    assert "details" not in result.details

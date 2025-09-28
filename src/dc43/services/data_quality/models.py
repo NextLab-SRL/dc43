@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import InitVar, dataclass, field
+from inspect import isdatadescriptor
 from typing import Any, Dict, List, Optional
 
 
@@ -101,7 +102,9 @@ def _coerce_details(raw: object) -> Dict[str, Any]:
         return {}
     if isinstance(raw, Mapping):
         return dict(raw)
-    if isinstance(raw, property):
+    if isdatadescriptor(raw):
+        return {}
+    if hasattr(raw, "__get__") and not hasattr(raw, "__iter__"):
         return {}
 
     items = getattr(raw, "items", None)
