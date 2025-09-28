@@ -65,7 +65,7 @@ Strategies receive a `WriteStrategyContext` with the aligned dataframe, validati
 re-run validation on derived subsets. From this context they can:
 
 - Inspect whether the initial validation recorded violations.
-- Compute Spark filters using expectation predicates gathered from the contract.
+- Compute Spark filters using expectation predicates gathered from the data-quality service.
 - Derive new dataset identifiers (`dataset_id::suffix`) and storage paths.
 - Re-validate each subset via `context.revalidate` to capture row counts and violation metrics for downstream governance.
 

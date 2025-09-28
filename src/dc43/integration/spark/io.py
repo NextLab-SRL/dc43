@@ -36,7 +36,6 @@ from dc43.services.governance.models import PipelineContext, normalise_pipeline_
 from .data_quality import (
     build_metrics_payload,
     collect_observations,
-    expectations_from_contract as dq_expectations_from_contract,
 )
 from .validation import apply_contract
 from dc43.odcs import contract_identity, custom_properties_dict, ensure_version
@@ -1026,6 +1025,7 @@ def read_with_contract(
     observed_metrics: Optional[Dict[str, Any]] = None
     cid: Optional[str] = None
     cver: Optional[str] = None
+    expectation_plan: list[Mapping[str, Any]] = []
     if contract:
         if data_quality_service is None:
             raise ValueError(
@@ -1033,7 +1033,14 @@ def read_with_contract(
             )
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
-        observed_schema, observed_metrics = collect_observations(df, contract)
+        expectation_plan = list(
+            data_quality_service.describe_expectations(contract=contract)
+        )
+        observed_schema, observed_metrics = collect_observations(
+            df,
+            contract,
+            expectations=expectation_plan,
+        )
         result = _evaluate_with_service(
             contract=contract,
             service=data_quality_service,
@@ -1069,6 +1076,7 @@ def read_with_contract(
                 contract,
                 validation=result,
                 include_schema=True,
+                expectations=expectation_plan,
             )
             if reused:
                 logger.info("Using cached validation metrics for %s@%s", ds_id, ds_ver)
@@ -1235,6 +1243,7 @@ def write_with_contract(
     result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
     observed_schema: Optional[Dict[str, Dict[str, Any]]] = None
     observed_metrics: Optional[Dict[str, Any]] = None
+    expectation_plan: list[Mapping[str, Any]] = []
     if contract:
         if data_quality_service is None:
             raise ValueError(
@@ -1243,7 +1252,14 @@ def write_with_contract(
         cid, cver = contract_identity(contract)
         logger.info("Writing with contract %s:%s", cid, cver)
         # validate before write and always align schema for downstream metrics
-        observed_schema, observed_metrics = collect_observations(df, contract)
+        expectation_plan = list(
+            data_quality_service.describe_expectations(contract=contract)
+        )
+        observed_schema, observed_metrics = collect_observations(
+            df,
+            contract,
+            expectations=expectation_plan,
+        )
         result = _evaluate_with_service(
             contract=contract,
             service=data_quality_service,
@@ -1278,15 +1294,21 @@ def write_with_contract(
         options_dict.update(resolution.write_options)
     if options:
         options_dict.update(options)
-    expectation_map: Mapping[str, str] = (
-        dq_expectations_from_contract(contract) if contract else {}
-    )
+    expectation_predicates: Mapping[str, str] = {}
+    predicates = result.details.get("expectation_predicates")
+    if isinstance(predicates, Mapping):
+        expectation_predicates = dict(predicates)
 
     strategy = violation_strategy or NoOpWriteViolationStrategy()
     revalidator: Callable[[DataFrame], ValidationResult]
     if contract:
+
         def revalidator(new_df: DataFrame) -> ValidationResult:  # type: ignore[misc]
-            schema, metrics = collect_observations(new_df, contract)
+            schema, metrics = collect_observations(
+                new_df,
+                contract,
+                expectations=expectation_plan,
+            )
             return _evaluate_with_service(
                 contract=contract,
                 service=data_quality_service,
@@ -1317,7 +1339,7 @@ def write_with_contract(
         dataset_id=resolution.dataset_id,
         dataset_version=resolution.dataset_version,
         revalidate=revalidator,
-        expectation_predicates=expectation_map,
+        expectation_predicates=expectation_predicates,
         pipeline_context=base_pipeline_context,
     )
     plan = strategy.plan(context)
@@ -1531,6 +1553,7 @@ def _execute_write_request(
                 contract,
                 validation=validation,
                 include_schema=True,
+                expectations=expectation_plan,
             )
             if reused_metrics:
                 logger.info(

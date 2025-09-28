@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Mapping, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -19,6 +19,11 @@ class DataQualityServiceClient(Protocol):
         payload: ObservationPayload,
     ) -> ValidationResult:
         """Return the validation outcome for the provided observations."""
+
+    def describe_expectations(
+        self, *, contract: OpenDataContractStandard
+    ) -> Sequence[Mapping[str, object]]:
+        """Return serialisable descriptors for contract expectations."""
 
 
 __all__ = ["DataQualityServiceClient"]

@@ -158,13 +158,16 @@ write_with_contract(
 
 ```python
 import dlt
-from dc43.integration.spark.dlt import expectations_from_contract
+from collections.abc import Mapping
+from dc43.integration.spark.dlt import apply_dlt_expectations
 
 @dlt.table(name="orders")
 def orders():
     df = spark.read.stream.table("bronze.sales_orders_raw")
-    exps = expectations_from_contract(contract)
-    dlt.expect_all(exps)
+    # Retrieve predicates from your configured data-quality service.
+    predicates = dq_status.details.get("expectation_predicates")
+    if isinstance(predicates, Mapping):
+        apply_dlt_expectations(dlt, predicates)
     return df.select("order_id", "customer_id", "order_ts", "amount", "currency")
 ```
 

@@ -7,7 +7,7 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
 2. **Validate and coerce data** using helpers from `dc43.integration.spark.data_quality` while respecting enforcement flags.
 3. **Bridge runtime metrics** to the governance service so it can evaluate observations, record activity, and propose drafts when mismatches occur.
-4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`, `expectations_from_contract`).
+4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`).
 
 ```mermaid
 flowchart TD
@@ -26,8 +26,9 @@ flowchart TD
 The canonical implementation lives in [`src/dc43/integration/spark`](../../src/dc43/integration/spark):
 
 * `io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
-* `dlt.py` — Functions to translate ODCS expectations into Delta Live Tables expectations.
-* [`dc43.integration.spark.data_quality`](../../src/dc43/integration/spark/data_quality.py) — Schema snapshots, expectation predicates, and metric builders used by adapters.
+* `dlt.py` — Helpers to apply expectation predicates inside Delta Live Tables pipelines. Expectation SQL is supplied by the
+  data-quality service via validation results so that Delta expectations mirror backend verdicts.
+* [`dc43.integration.spark.data_quality`](../../src/dc43/integration/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
 * [`dc43.services.governance`](../../src/dc43/services/governance) — Coordination service that links contracts, evaluates observations, and persists drafts.
 
 Pipelines typically import these helpers directly:
@@ -55,6 +56,32 @@ validated_df, status = read_with_contract(
 * **Platform-specific metadata**: Augment dataset ids with cluster/job identifiers or lineage metadata for governance audit trails.
 
 Keep the integration layer thin: it should delegate to the contract drafter, DQ engine, and governance interfaces rather than re-implementing them.
+
+### Feeding Delta Live Tables expectations
+
+Quality enforcement inside DLT notebooks should reuse the SQL predicates computed by the data-quality service. When the
+`write_with_contract` helper validates a dataset it returns a `ValidationResult` whose `details` dictionary includes an
+`expectation_predicates` mapping whenever the backend can express expectations as SQL snippets. Pipelines can forward
+this mapping directly to `apply_dlt_expectations` so that in-flight DLT expectations stay aligned with backend verdicts:
+
+```python
+import dlt
+from collections.abc import Mapping
+from dc43.integration.spark.dlt import apply_dlt_expectations
+
+@dlt.table
+def orders():
+    df = spark.read.table("bronze.orders_raw")
+    dq_status = write_result.details  # captured from write_with_contract(...)
+    predicates = dq_status.get("expectation_predicates")
+    if isinstance(predicates, Mapping):
+        apply_dlt_expectations(dlt, predicates)
+    return df
+```
+
+This approach keeps the integration layer free from contract-specific logic while still enabling Delta expectations when
+the backend surfaces SQL predicates. If a backend cannot provide predicates, the helper simply skips registering
+expectations and DLT falls back to the default behaviour.
 
 ## Versioned layouts and Delta time travel
 

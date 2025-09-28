@@ -24,5 +24,10 @@ class LocalDataQualityServiceBackend(DataQualityServiceBackend):
     ) -> ValidationResult:
         return self._manager.evaluate(contract, payload)
 
+    def describe_expectations(
+        self, *, contract: OpenDataContractStandard
+    ) -> list[dict[str, object]]:
+        return self._manager.describe_expectations(contract)
+
 
 __all__ = ["LocalDataQualityServiceBackend"]

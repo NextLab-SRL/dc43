@@ -8,6 +8,10 @@ from dc43.services.data_quality.backend.engine import (
     ValidationResult,
     evaluate_contract,
 )
+from dc43.services.data_quality.backend.predicates import (
+    expectation_plan,
+    expectation_predicates_from_plan,
+)
 from dc43.services.data_quality.models import ObservationPayload
 
 
@@ -32,7 +36,7 @@ class DataQualityManager:
     ) -> ValidationResult:
         """Return the validation outcome for the provided observations."""
 
-        return evaluate_contract(
+        result = evaluate_contract(
             contract,
             schema=payload.schema,
             metrics=payload.metrics,
@@ -40,6 +44,21 @@ class DataQualityManager:
             allow_extra_columns=self._allow_extra_columns,
             expectation_severity=self._expectation_severity,  # type: ignore[arg-type]
         )
+        plan = expectation_plan(contract)
+        if plan:
+            payloads = {"expectation_plan": plan}
+            predicates = expectation_predicates_from_plan(plan)
+            if predicates:
+                payloads["expectation_predicates"] = predicates
+            result.merge_details(payloads)
+        return result
+
+    def describe_expectations(
+        self, contract: OpenDataContractStandard
+    ) -> list[dict[str, object]]:
+        """Return serialisable expectation descriptors for ``contract``."""
+
+        return expectation_plan(contract)
 
 
 __all__ = ["DataQualityManager", "ObservationPayload", "ValidationResult"]
