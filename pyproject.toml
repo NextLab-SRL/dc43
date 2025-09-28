@@ -17,12 +17,17 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
+  "dc43-service-clients>=0.0.3",
+  "dc43-service-backends>=0.0.3",
+  "dc43-integrations>=0.0.3",
   "packaging>=21.0",
   "open-data-contract-standard==3.0.2",
 ]
 
 [project.optional-dependencies]
-spark = []
+spark = [
+  "dc43-integrations[spark]",
+]
 test = [
   "pytest>=7.0",
   "pyspark>=3.4",
@@ -36,7 +41,7 @@ demo = [
   "uvicorn",
   "jinja2",
   "python-multipart",
-  "pyspark>=3.4",
+  "dc43-integrations[spark]",
 ]
 
 [project.scripts]
@@ -48,6 +53,11 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = [
+  "dc43_service_clients*",
+  "dc43_service_backends*",
+  "dc43_integrations*",
+]
 
 [tool.setuptools.package-data]
 "dc43.demo_app" = [

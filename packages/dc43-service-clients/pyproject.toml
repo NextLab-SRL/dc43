@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dc43-service-clients"
+version = "0.0.3.0"
+description = "Client contracts and helper implementations for DC43 services"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Andy Petrella" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "open-data-contract-standard==3.0.2",
+]
+
+[tool.setuptools]
+package-dir = {"" = "../../src"}
+
+[tool.setuptools.packages.find]
+include = ["dc43_service_clients*" ]

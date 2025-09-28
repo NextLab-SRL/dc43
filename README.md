@@ -93,29 +93,35 @@ Variations—such as Collibra-governed contracts or bespoke storage backends—s
 
 ## Install
 
-dc43 ships a single distribution that exposes three importable modules. They are intentionally layered so you can depend on the
-smallest surface that fits your use case:
+dc43 now ships as a family of distributions so you can install only the layers you need:
 
-| Package | Responsibility | Depends on |
-| --- | --- | --- |
-| `dc43_service_clients` | Typed service clients, request/response models, and governance helpers that front-end applications can embed. | `open-data-contract-standard` |
-| `dc43_service_backends` | Reference backend implementations (filesystem store, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43_service_clients` |
-| `dc43_integrations` | Runtime adapters such as the Spark helpers that call into client APIs without requiring backend dependencies. | `dc43_service_clients` |
+| Distribution | Imports | Responsibility | Depends on |
+| --- | --- | --- | --- |
+| `dc43-service-clients` | `dc43_service_clients.*` | Typed service clients, request/response models, and governance helpers that front-end applications can embed. | `open-data-contract-standard` |
+| `dc43-service-backends` | `dc43_service_backends.*` | Reference backend implementations (filesystem store, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43-service-clients` |
+| `dc43-integrations` | `dc43_integrations.*` | Runtime adapters such as the Spark helpers that call into client APIs without requiring backend dependencies. | `dc43-service-clients` |
+| `dc43` | `dc43.*` | Aggregating package that wires the CLI/demo and depends on the three modules above. | all of the above |
 
 ### Pip installs
 
-- **Full stack**: `pip install dc43` – installs the base distribution with the three modules above.
-- **Spark extras**: `pip install "dc43[spark]"` – pulls in Spark runtime requirements for the integration helpers.
-- **Demo app**: `pip install "dc43[demo]"` – adds FastAPI/uvicorn extras for the example application.
+- **Service contracts only**: `pip install dc43-service-clients`
+- **Backend reference services**: `pip install dc43-service-backends`
+- **Spark integrations**: `pip install "dc43-integrations[spark]"`
+- **Full stack**: `pip install dc43`
+- **Spark extras for the meta package**: `pip install "dc43[spark]"`
+- **Demo app**: `pip install "dc43[demo]"`
 
-When developing locally (Databricks Repos, workspace files, or any source checkout) you can also install in editable mode:
+When developing locally (Databricks Repos, workspace files, or any source checkout) install the modules you need in editable mode:
 
 ```bash
+pip install -e packages/dc43-service-clients
+pip install -e packages/dc43-service-backends
+pip install -e packages/dc43-integrations[spark]
+# Optional: install the aggregator if you work on the CLI/demo
 pip install -e .
 ```
 
-Each module can be imported independently after installation. For example, lightweight clients can use
-`from dc43_service_clients.data_quality import ValidationResult` without pulling in the backend packages at runtime.
+Each distribution can now be installed independently. For example, lightweight clients can use `pip install dc43-service-clients` and then `from dc43_service_clients.data_quality import ValidationResult` without pulling in the backend or Spark helpers at runtime.
 
 ## Quickstart
 
