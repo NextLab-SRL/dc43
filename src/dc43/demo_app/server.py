@@ -40,7 +40,6 @@ from urllib.parse import urlencode
 from dc43.services.contracts.backend.stores import FSContractStore
 from dc43.services.contracts.client import LocalContractServiceClient
 from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
-from dc43.integration.spark.data_quality import expectations_from_contract as dq_expectations_from_contract
 from dc43.odcs import custom_properties_dict, normalise_custom_properties
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
@@ -465,6 +464,17 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
 store = FSContractStore(str(CONTRACT_DIR))
 contract_service = LocalContractServiceClient(store)
 dq_service = LocalDataQualityServiceClient()
+
+
+def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[str, str]:
+    plan = dq_service.describe_expectations(contract=contract)
+    mapping: Dict[str, str] = {}
+    for item in plan:
+        key = item.get("key") if isinstance(item, Mapping) else None
+        predicate = item.get("predicate") if isinstance(item, Mapping) else None
+        if isinstance(key, str) and isinstance(predicate, str):
+            mapping[key] = predicate
+    return mapping
 
 # Populate server paths with sample datasets matching recorded versions
 _sample_records = json.loads((RECORDS_DIR / "datasets.json").read_text())
@@ -1423,7 +1433,7 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r.__dict__ for r in load_records() if r.contract_id == cid and r.contract_version == ver]
-    expectations = dq_expectations_from_contract(contract)
+    expectations = _expectation_predicates(contract)
     return {
         "contract": contract_to_dict(contract),
         "datasets": datasets,
@@ -1532,7 +1542,7 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
-                "expectations": dq_expectations_from_contract(contract),
+                "expectations": _expectation_predicates(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -1608,7 +1618,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "request": request,
         "contract": contract_to_dict(contract),
         "datasets": datasets,
-        "expectations": dq_expectations_from_contract(contract),
+        "expectations": _expectation_predicates(contract),
         "field_quality": field_quality,
         "dataset_quality": dataset_quality,
         "change_log": change_log,

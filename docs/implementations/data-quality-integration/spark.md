@@ -13,12 +13,14 @@ The Spark integration exposes the following building blocks:
 
 * `schema_snapshot(df)` – capture the observed fields as `backend_type`,
   canonical `odcs_type`, and `nullable` flags.
-* `collect_observations(df, contract)` – return `(schema, metrics)` tuples ready
-  to hand to your configured data-quality service via an `ObservationPayload`.
-* `build_metrics_payload(df, contract, validation=...)` – reuse cached metrics or
-  compute fresh ones before submitting them to a governance adapter.
-* `expectations_from_contract(contract)` – expose Spark SQL predicates matching
-  the contract expectations (useful for DLT pipelines).
+* `collect_observations(df, contract, expectations=...)` – return `(schema, metrics)`
+  tuples ready to hand to your configured data-quality service via an
+  `ObservationPayload`. Expectation descriptors come from
+  `DataQualityServiceClient.describe_expectations` so the integration layer never
+  interprets contract rules on its own.
+* `build_metrics_payload(df, contract, validation=..., expectations=...)` – reuse
+  cached metrics or compute fresh ones before submitting them to a governance
+  adapter.
 * `attach_failed_expectations(contract, status, metrics=...)` – enrich a
   governance `ValidationResult` with failing expressions and violation counts
   after a submission, optionally providing supplemental metrics captured during
@@ -28,14 +30,18 @@ The Spark integration exposes the following building blocks:
 
 ```python
 from dc43.integration.spark.data_quality import build_metrics_payload
+from dc43.services.data_quality.client import LocalDataQualityServiceClient
 from dc43.services.data_quality.models import ObservationPayload
 from dc43.services.governance.client import build_local_governance_service
 
+data_quality = LocalDataQualityServiceClient()
+plan = data_quality.describe_expectations(contract=contract)
 metrics_payload, schema_payload, reused = build_metrics_payload(
     df,
     contract,
     validation=None,
     include_schema=True,
+    expectations=plan,
 )
 payload = ObservationPayload(metrics=metrics_payload, schema=schema_payload, reused=reused)
 governance = build_local_governance_service(contract_store)

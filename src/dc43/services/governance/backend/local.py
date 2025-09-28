@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Mapping, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -359,6 +359,18 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             if isinstance(value, (int, float)) and value > 0:
                 violation_total += int(value)
 
+        extra_details: Dict[str, Any] = {}
+        details_payload = validation.details
+        if isinstance(details_payload, Mapping):
+            plan = details_payload.get("expectation_plan")
+            if isinstance(plan, Iterable):
+                plan_items = [item for item in plan if isinstance(item, Mapping)]
+                if plan_items:
+                    extra_details["expectation_plan"] = plan_items
+            predicates = details_payload.get("expectation_predicates")
+            if isinstance(predicates, Mapping):
+                extra_details["expectation_predicates"] = dict(predicates)
+
         if validation.errors or not validation.ok:
             reason = validation.errors[0] if validation.errors else None
             return ValidationResult(
@@ -368,6 +380,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     "errors": list(validation.errors),
                     "warnings": list(validation.warnings),
                     "violations": violation_total or len(validation.errors),
+                    **extra_details,
                 },
             )
 
@@ -381,6 +394,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 "warnings": list(validation.warnings),
                 "violations": violation_total,
             }
+            if extra_details:
+                details.update(extra_details)
             if operation == "write":
                 details.setdefault("operation", operation)
                 return ValidationResult(
@@ -401,10 +416,14 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 details={
                     "warnings": list(validation.warnings),
                     "violations": violation_total,
+                    **extra_details,
                 },
             )
 
-        return ValidationResult(status="ok", details={"violations": 0})
+        ok_details: Dict[str, Any] = {"violations": 0}
+        if extra_details:
+            ok_details.update(extra_details)
+        return ValidationResult(status="ok", details=ok_details)
 
     def _record_pipeline_activity(
         self,
