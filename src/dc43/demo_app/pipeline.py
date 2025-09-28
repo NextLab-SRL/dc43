@@ -26,10 +26,7 @@ from dc43.services.data_quality.engine import (
     expectation_specs,
 )
 from dc43.services.data_quality.models import ValidationResult
-from dc43.integration.spark.data_quality import (
-    attach_failed_expectations,
-    validate_dataframe,
-)
+from dc43.integration.spark.data_quality import attach_failed_expectations
 from dc43.services.governance.client.local import build_local_governance_service
 from dc43.integration.spark.io import (
     ContractFirstDatasetLocator,
@@ -697,17 +694,6 @@ def run_pipeline(
         )
     contract_id_ref = getattr(output_contract, "id", None)
     expected_version = f"=={output_contract.version}" if output_contract else None
-    prewrite_schema_errors: list[str] = []
-    if output_contract:
-        prewrite_schema_errors = list(
-            validate_dataframe(
-                df,
-                output_contract,
-                collect_metrics=False,
-            ).errors
-            or []
-        )
-
     result, output_status = write_with_contract(
         df=df,
         contract_id=contract_id_ref,
@@ -747,12 +733,7 @@ def run_pipeline(
 
     schema_errors: list[str] = []
     seen_schema_errors: set[str] = set()
-    for message in prewrite_schema_errors:
-        if message in seen_schema_errors:
-            continue
-        seen_schema_errors.add(message)
-        schema_errors.append(message)
-
+    original_errors = list(result.errors)
     if result.errors:
         filtered_errors: list[str] = []
         for message in result.errors:
@@ -765,6 +746,21 @@ def run_pipeline(
         if filtered_errors != result.errors:
             result.errors[:] = filtered_errors
         schema_errors.extend(filtered_errors)
+    if not schema_errors:
+        residual = [msg for msg in original_errors if msg not in expectation_messages]
+        schema_errors.extend(residual)
+    if output_contract:
+        expected_columns = {
+            prop.name
+            for obj in output_contract.schema_ or []
+            for prop in obj.properties or []
+            if prop.name
+        }
+        missing = sorted(name for name in expected_columns if name not in set(df.columns))
+        for name in missing:
+            message = f"missing required column: {name}"
+            if message not in schema_errors:
+                schema_errors.append(message)
 
     handled_split_override = False
     if isinstance(strategy, SplitWriteViolationStrategy) and output_status:

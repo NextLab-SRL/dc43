@@ -7,7 +7,6 @@ from .backend import (
     LocalDataQualityServiceBackend,
     ObservationPayload,
     ValidationResult,
-    apply_contract,
     evaluate_contract,
     expectation_specs,
 )
@@ -24,5 +23,4 @@ __all__ = [
     "ExpectationSpec",
     "evaluate_contract",
     "expectation_specs",
-    "apply_contract",
 ]
