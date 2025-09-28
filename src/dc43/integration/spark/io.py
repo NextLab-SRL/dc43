@@ -28,11 +28,9 @@ from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
 
-from dc43.services.contracts.backend.stores.interface import ContractStore
-from dc43.services.data_quality.backend.engine import ValidationResult
-from dc43.services.data_quality.models import ObservationPayload
-from dc43.services.governance.backend.dq import DQStatus
-from dc43.services.governance.client import GovernanceServiceClient
+from dc43.services.contracts.client.interface import ContractServiceClient
+from dc43.services.data_quality.models import DQStatus, ObservationPayload, ValidationResult
+from dc43.services.governance.client.interface import GovernanceServiceClient
 from dc43.services.governance.models import PipelineContext, normalise_pipeline_context
 from .data_quality import (
     build_metrics_payload,
@@ -138,8 +136,6 @@ def _as_governance_service(
     """Return the provided governance service when configured."""
 
     return service
-
-
 @dataclass
 class DatasetResolution:
     """Resolved location and governance identifiers for a dataset."""
@@ -795,29 +791,29 @@ def _resolve_contract(
     *,
     contract_id: str,
     expected_version: Optional[str],
-    store: ContractStore,
+    service: ContractServiceClient,
 ) -> OpenDataContractStandard:
-    """Fetch a contract from ``store`` honouring the expected version constraint."""
+    """Fetch a contract from the configured service respecting version hints."""
 
-    if store is None:
-        raise ValueError("contract_store is required when contract_id is provided")
+    if service is None:
+        raise ValueError("contract_service is required when contract_id is provided")
 
     if not expected_version:
-        contract = store.latest(contract_id)
+        contract = service.latest(contract_id)
         if contract is None:
             raise ValueError(f"No versions available for contract {contract_id}")
         return contract
 
     if expected_version.startswith("=="):
         version = expected_version[2:]
-        return store.get(contract_id, version)
+        return service.get(contract_id, version)
 
     if expected_version.startswith(">="):
         base = expected_version[2:]
-        version = _select_version(store.list_versions(contract_id), base)
-        return store.get(contract_id, version)
+        version = _select_version(list(service.list_versions(contract_id)), base)
+        return service.get(contract_id, version)
 
-    return store.get(contract_id, expected_version)
+    return service.get(contract_id, expected_version)
 
 
 # Overloads help type checkers infer the return type based on ``return_status``
@@ -827,7 +823,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -849,7 +845,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -871,7 +867,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -892,7 +888,7 @@ def read_with_contract(
     spark: SparkSession,
     *,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -909,8 +905,8 @@ def read_with_contract(
 ) -> DataFrame | Tuple[DataFrame, Optional[DQStatus]]:
     """Read a DataFrame and validate/enforce an ODCS contract.
 
-    - If ``contract_id`` is provided, the contract is fetched from ``contract_store``
-      before validating schema and aligning columns/types.
+    - If ``contract_id`` is provided, the contract is fetched from
+      ``contract_service`` before validating schema and aligning columns/types.
     - If ``governance_service`` is provided the remote coordinator evaluates
       metrics, records governance activity, and returns the dataset status when
       ``return_status=True``.
@@ -923,7 +919,7 @@ def read_with_contract(
         contract = _resolve_contract(
             contract_id=contract_id,
             expected_version=expected_contract_version,
-            store=contract_store,
+            service=contract_service,
         )
         ensure_version(contract)
         _check_contract_version(expected_contract_version, contract.version)
@@ -1064,7 +1060,7 @@ def write_with_contract(
     *,
     df: DataFrame,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
@@ -1086,7 +1082,7 @@ def write_with_contract(
     *,
     df: DataFrame,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
@@ -1107,7 +1103,7 @@ def write_with_contract(
     *,
     df: DataFrame,
     contract_id: Optional[str] = None,
-    contract_store: Optional[ContractStore] = None,
+    contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
     table: Optional[str] = None,
@@ -1135,7 +1131,7 @@ def write_with_contract(
         contract = _resolve_contract(
             contract_id=contract_id,
             expected_version=expected_contract_version,
-            store=contract_store,
+            service=contract_service,
         )
         ensure_version(contract)
         _check_contract_version(expected_contract_version, contract.version)

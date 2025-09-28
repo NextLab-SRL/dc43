@@ -11,16 +11,19 @@ from .backend import (
     evaluate_contract,
     expectation_specs,
 )
-from .client import DataQualityServiceClient, LocalDataQualityServiceClient
+from .client import DQClient, DataQualityServiceClient, LocalDataQualityServiceClient
+from .models import DQStatus
 
 __all__ = [
     "DataQualityServiceBackend",
     "LocalDataQualityServiceBackend",
     "DataQualityServiceClient",
     "LocalDataQualityServiceClient",
+    "DQClient",
     "ObservationPayload",
     "DataQualityManager",
     "ValidationResult",
+    "DQStatus",
     "ExpectationSpec",
     "evaluate_contract",
     "expectation_specs",

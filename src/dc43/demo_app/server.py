@@ -37,6 +37,7 @@ from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
 
 from dc43.services.contracts.backend.stores import FSContractStore
+from dc43.services.contracts.client import LocalContractServiceClient
 from dc43.integration.spark.data_quality import expectations_from_contract as dq_expectations_from_contract
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
@@ -458,6 +459,7 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
     )
 
 store = FSContractStore(str(CONTRACT_DIR))
+contract_service = LocalContractServiceClient(store)
 
 # Populate server paths with sample datasets matching recorded versions
 _sample_records = json.loads((RECORDS_DIR / "datasets.json").read_text())
@@ -1467,7 +1469,7 @@ async def api_contract_preview(
         df = read_with_contract(  # type: ignore[misc]
             spark,
             contract_id=cid,
-            contract_store=store,
+            contract_service=contract_service,
             expected_contract_version=f"=={ver}",
             dataset_locator=locator,
             enforce=False,

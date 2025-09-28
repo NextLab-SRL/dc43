@@ -9,8 +9,8 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 
 from dc43.services.contracts.backend.drafting import draft_from_validation_result
 from dc43.services.contracts.backend.stores.interface import ContractStore
-from dc43.services.data_quality.backend.engine import ValidationResult
-from dc43.services.governance.backend.dq import DQStatus
+from dc43.services.data_quality.models import ValidationResult
+from dc43.services.governance.models import DQStatus
 from dc43.odcs import contract_identity
 from dc43.services.contracts.backend import ContractServiceBackend
 from dc43.services.contracts.client import ContractServiceClient

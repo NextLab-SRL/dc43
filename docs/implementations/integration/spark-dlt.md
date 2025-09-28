@@ -33,16 +33,14 @@ The canonical implementation lives in [`src/dc43/integration/spark`](../../src/d
 Pipelines typically import these helpers directly:
 
 ```python
-from dc43.integration.spark.io import (
-    read_with_contract,
-    write_with_contract,
-    ContractVersionLocator,
-)
+from dc43.integration.spark.io import read_with_contract, write_with_contract, ContractVersionLocator
+from dc43.services.contracts.client import LocalContractServiceClient
 
+contract_service = LocalContractServiceClient(store)
 validated_df, status = read_with_contract(
     spark,
     contract_id="sales.orders",
-    contract_store=store,
+    contract_service=contract_service,
     expected_contract_version=">=1.0.0",
     governance_service=governance,
     dataset_locator=ContractVersionLocator(dataset_version="latest"),

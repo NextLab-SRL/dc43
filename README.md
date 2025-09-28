@@ -133,17 +133,19 @@ contract = OpenDataContractStandard(
 
 ```python
 from dc43.services.contracts.backend.stores import FSContractStore
+from dc43.services.contracts.client import LocalContractServiceClient
 from dc43.integration.spark.io import (
     write_with_contract,
     ContractVersionLocator,
 )
 
 store = FSContractStore(base_path="/mnt/contracts")
+contract_service = LocalContractServiceClient(store)
 
 write_with_contract(
     df=orders_df,
     contract_id="sales.orders",
-    contract_store=store,
+    contract_service=contract_service,
     expected_contract_version=">=0.1.0",
     dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",
@@ -179,17 +181,16 @@ latest = store.latest("sales.orders")
 5) DQ/DO orchestration on read
 
 ```python
-from dc43.integration.spark.io import (
-    read_with_contract,
-    ContractVersionLocator,
-)
+from dc43.integration.spark.io import read_with_contract, ContractVersionLocator
+from dc43.services.contracts.client import LocalContractServiceClient
 from dc43.services.governance.client import build_local_governance_service
 
 governance = build_local_governance_service(store)
+contract_service = LocalContractServiceClient(store)
 df, status = read_with_contract(
     spark,
     contract_id="sales.orders",
-    contract_store=store,
+    contract_service=contract_service,
     expected_contract_version="==0.1.0",
     governance_service=governance,
     dataset_locator=ContractVersionLocator(dataset_version="latest"),
@@ -201,15 +202,14 @@ print(status.status, status.reason)
 6) Quality status check on write
 
 ```python
-from dc43.integration.spark.io import (
-    write_with_contract,
-    ContractVersionLocator,
-)
+from dc43.integration.spark.io import write_with_contract, ContractVersionLocator
+from dc43.services.contracts.client import LocalContractServiceClient
 
+contract_service = LocalContractServiceClient(store)
 vr, status = write_with_contract(
     df=orders_df,
     contract_id="sales.orders",
-    contract_store=store,
+    contract_service=contract_service,
     expected_contract_version=">=0.1.0",
     dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",

@@ -13,7 +13,8 @@ from dc43.services.data_quality.backend.engine import (
     ValidationResult,
     evaluate_contract,
 )
-from dc43.services.governance.backend.dq import DQClient, DQStatus
+from dc43.services.data_quality.client.interface import DQClient
+from dc43.services.data_quality.models import DQStatus
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 

@@ -25,7 +25,7 @@ from dc43.services.data_quality.backend.engine import (
     ExpectationSpec,
     expectation_specs,
 )
-from dc43.services.governance.backend.dq import DQStatus
+from dc43.services.data_quality.models import DQStatus
 from dc43.integration.spark.data_quality import (
     attach_failed_expectations,
     validate_dataframe,
@@ -49,6 +49,9 @@ from dc43.integration.spark.violation_strategy import (
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, when
+from dc43.services.contracts.client import LocalContractServiceClient
+
+contract_service = LocalContractServiceClient(store)
 
 
 def _next_version(existing: list[str]) -> str:
@@ -410,7 +413,7 @@ def _resolve_dataset_name_hint(
         return dataset_name
     if contract_id and contract_version:
         try:
-            contract = store.get(contract_id, contract_version)
+            contract = contract_service.get(contract_id, contract_version)
         except FileNotFoundError:
             return contract_id
         dataset_id = getattr(contract, "id", None)
@@ -560,7 +563,7 @@ def run_pipeline(
     orders_df, orders_status = read_with_contract(
         spark,
         contract_id="orders",
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version="==1.1.0",
         governance_service=governance,
         dataset_locator=orders_locator,
@@ -621,7 +624,7 @@ def run_pipeline(
     customers_df, customers_status = read_with_contract(
         spark,
         contract_id="customers",
-        contract_store=store,
+        contract_service=contract_service,
         expected_contract_version="==1.0.0",
         governance_service=governance,
         dataset_locator=customers_locator,
@@ -708,7 +711,7 @@ def run_pipeline(
     result, output_status = write_with_contract(
         df=df,
         contract_id=contract_id_ref,
-        contract_store=store if contract_id_ref else None,
+        contract_service=contract_service if contract_id_ref else None,
         path=None if contract_id_ref else str(output_path),
         format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",

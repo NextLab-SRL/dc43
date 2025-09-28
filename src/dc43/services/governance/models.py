@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
-from dc43.services.governance.backend.dq import DQStatus
+
+from dc43.services.data_quality.models import DQStatus
+
 
 PipelineContextSpec = Union[
     "PipelineContext",
@@ -182,6 +184,7 @@ def build_quality_context(
 
 
 __all__ = [
+    "DQStatus",
     "GovernanceCredentials",
     "PipelineContext",
     "PipelineContextSpec",

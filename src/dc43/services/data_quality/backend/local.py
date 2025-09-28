@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.services.data_quality.backend.engine import ValidationResult
+from dc43.services.data_quality.models import ObservationPayload, ValidationResult
 from .manager import DataQualityManager
-from dc43.services.data_quality.models import ObservationPayload
 
 from .interface import DataQualityServiceBackend
 

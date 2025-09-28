@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -19,6 +19,12 @@ class LocalContractServiceBackend(ContractServiceBackend):
 
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         return self._store.get(contract_id, contract_version)
+
+    def latest(self, contract_id: str) -> Optional[OpenDataContractStandard]:
+        return self._store.latest(contract_id)
+
+    def list_versions(self, contract_id: str) -> Sequence[str]:
+        return self._store.list_versions(contract_id)
 
     def link_dataset_contract(
         self,

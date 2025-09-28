@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43.odcs import list_properties
+from dc43.services.data_quality.models import ValidationResult
 
 _TYPE_SYNONYMS: Dict[str, str] = {
     "string": "string",
@@ -42,34 +43,6 @@ class ExpectationSpec:
     column: Optional[str] = None
     params: Mapping[str, Any] = field(default_factory=dict)
     optional: bool = False
-
-
-@dataclass
-class ValidationResult:
-    """Outcome produced by the data-quality engine.
-
-    ``metrics`` mirrors the observations collected by execution engines while
-    ``schema`` captures the field snapshot used to derive the verdict.  Both
-    payloads are stored so governance adapters can forward them without having
-    to recompute anything at submission time.
-    """
-
-    ok: bool
-    errors: List[str]
-    warnings: List[str]
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    schema: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-
-    @property
-    def details(self) -> Dict[str, Any]:
-        """Structured representation combining validation observations."""
-
-        return {
-            "errors": self.errors,
-            "warnings": self.warnings,
-            "metrics": self.metrics,
-            "schema": self.schema,
-        }
 
 
 def expectation_specs(contract: OpenDataContractStandard) -> List[ExpectationSpec]:

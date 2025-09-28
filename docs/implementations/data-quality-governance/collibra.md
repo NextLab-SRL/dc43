@@ -71,7 +71,7 @@ used for contract resolution with calls that manage compatibility assets:
 
 ```python
 from dc43.services.contracts.backend.stores import HttpCollibraContractAdapter
-from dc43.services.governance.backend.dq import DQStatus
+from dc43.services.data_quality.models import DQStatus
 
 class CollibraDQClient:
     def __init__(self, adapter: HttpCollibraContractAdapter, asset_type: str):

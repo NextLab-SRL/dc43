@@ -16,7 +16,7 @@ from open_data_contract_standard.model import (  # type: ignore
 )
 
 from dc43.odcs import as_odcs_dict, contract_identity, to_model
-from dc43.services.data_quality.backend.engine import ValidationResult
+from dc43.services.data_quality.models import ValidationResult
 from dc43.versioning import SemVer
 
 
