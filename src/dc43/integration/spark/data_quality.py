@@ -285,10 +285,18 @@ def build_metrics_payload(
 def attach_failed_expectations(
     contract: OpenDataContractStandard,
     status: ValidationResult,
+    *,
+    metrics: Mapping[str, Any] | None = None,
 ) -> ValidationResult:
     """Augment ``status`` with failed expectations derived from engine metrics."""
 
-    metrics_map = status.details.get("metrics", {}) if status.details else {}
+    metrics_map: Dict[str, Any] = {}
+    if metrics:
+        metrics_map.update(dict(metrics))
+    if status.metrics:
+        metrics_map.update(status.metrics)
+    if status.details:
+        metrics_map.update(status.details.get("metrics", {}))
     specs = expectation_specs(contract)
     failures: Dict[str, Dict[str, Any]] = {}
     for spec in specs:
@@ -306,9 +314,7 @@ def attach_failed_expectations(
             info["column"] = spec.column
         failures[spec.key] = info
     if failures:
-        if not status.details:
-            status.details = {}
-        status.details["failed_expectations"] = failures
+        status.merge_details({"failed_expectations": failures})
     return status
 
 

@@ -22,9 +22,10 @@ The Spark integration exposes the following building blocks:
   compute fresh ones before submitting them to a governance adapter.
 * `expectations_from_contract(contract)` – expose Spark SQL predicates matching
   the contract expectations (useful for DLT pipelines).
-* `attach_failed_expectations(contract, status)` – enrich a governance
-  `ValidationResult` with failing expressions and violation counts after a
-  submission.
+* `attach_failed_expectations(contract, status, metrics=...)` – enrich a
+  governance `ValidationResult` with failing expressions and violation counts
+  after a submission, optionally providing supplemental metrics captured during
+  the write.
 * `apply_contract(df, contract)` – align column order and types before reads and
   writes (via `dc43.services.data_quality.backend.validation`).
 

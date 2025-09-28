@@ -732,7 +732,11 @@ def run_pipeline(
     )
 
     if output_status and output_contract:
-        output_status = attach_failed_expectations(output_contract, output_status)
+        output_status = attach_failed_expectations(
+            output_contract,
+            output_status,
+            metrics=result.metrics,
+        )
 
     expectation_messages: set[str] = set()
     if output_contract:
@@ -1006,6 +1010,15 @@ def run_pipeline(
         severity = 2
     elif warnings_present:
         severity = max(severity, 1)
+
+    if (
+        handled_split_override
+        and severity > 1
+        and not schema_errors
+        and not result.errors
+        and error is None
+    ):
+        severity = 1
 
     status_value = "ok"
     if severity == 1:

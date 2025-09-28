@@ -67,6 +67,32 @@ class ValidationResult:
     def details(self, value: object) -> None:
         self._details = _coerce_details(value)
 
+    @classmethod
+    def from_status(
+        cls,
+        status: str,
+        *,
+        reason: Optional[str] = None,
+        details: Optional[Mapping[str, Any]] = None,
+    ) -> "ValidationResult":
+        """Build a validation payload that represents a governance verdict."""
+
+        return cls(
+            ok=status != "block",
+            status=status if status in _KNOWN_STATUSES else "unknown",
+            reason=reason,
+            details=details,
+        )
+
+    def merge_details(self, extra: Mapping[str, Any]) -> None:
+        """Add ``extra`` fields to the detail payload without clobbering state."""
+
+        if not extra:
+            return
+        merged: Dict[str, Any] = dict(self._details)
+        merged.update(extra)
+        self._details = _coerce_details(merged)
+
 
 def _coerce_details(raw: object) -> Dict[str, Any]:
     """Normalise arbitrary detail payloads into a dictionary."""
@@ -93,20 +119,5 @@ def _coerce_details(raw: object) -> Dict[str, Any]:
 
     return {}
 
-    @classmethod
-    def from_status(
-        cls,
-        status: str,
-        *,
-        reason: Optional[str] = None,
-        details: Optional[Mapping[str, Any]] = None,
-    ) -> "ValidationResult":
-        """Build a validation payload that represents a governance verdict."""
 
-        return cls(
-            ok=status != "block",
-            status=status if status in _KNOWN_STATUSES else "unknown",
-            reason=reason,
-            details=details,
-        )
 __all__ = ["ObservationPayload", "ValidationResult"]

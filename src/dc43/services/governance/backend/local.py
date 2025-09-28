@@ -110,9 +110,13 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         if status is not None:
             details = dict(status.details)
             if payload.metrics:
-                details.setdefault("metrics", payload.metrics)
+                if not details.get("metrics"):
+                    details["metrics"] = payload.metrics
+                status.metrics = dict(payload.metrics)
             if payload.schema:
-                details.setdefault("schema", payload.schema)
+                if not details.get("schema"):
+                    details["schema"] = payload.schema
+                status.schema = dict(payload.schema)
             status.details = details
 
         cache_key = (contract_id, contract_version, dataset_id, dataset_version)
