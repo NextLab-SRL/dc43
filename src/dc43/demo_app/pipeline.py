@@ -9,7 +9,7 @@ recording the dataset version in the demo app's registry.
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping, Sequence
+from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
 from dc43.demo_app.server import (
     store,
@@ -20,6 +20,10 @@ from dc43.demo_app.server import (
     save_records,
     set_active_version,
     register_dataset_version,
+)
+from dc43.services.data_quality.backend.engine import (
+    ExpectationSpec,
+    expectation_specs,
 )
 from dc43.services.governance.backend.dq import DQStatus
 from dc43.integration.spark.data_quality import attach_failed_expectations
@@ -328,6 +332,53 @@ def _apply_output_adjustment(
     return df, []
 
 
+def _format_expectation_violation_message(spec: ExpectationSpec, count: int) -> str:
+    """Return the engine-style message for a failed expectation."""
+
+    column = spec.column or "field"
+    if spec.rule in {"not_null", "required"}:
+        return f"column {column} contains {count} null value(s) but is required in the contract"
+    if spec.rule == "unique":
+        return f"column {column} has {count} duplicate value(s)"
+    if spec.rule == "enum":
+        allowed = spec.params.get("values")
+        if isinstance(allowed, Iterable):
+            allowed_str = ", ".join(map(str, allowed))
+        else:
+            allowed_str = str(allowed)
+        return f"column {column} contains {count} value(s) outside enum [{allowed_str}]"
+    if spec.rule == "regex":
+        pattern = spec.params.get("pattern")
+        return f"column {column} contains {count} value(s) not matching regex {pattern}"
+    if spec.rule == "gt":
+        return f"column {column} contains {count} value(s) not greater than {spec.params.get('threshold')}"
+    if spec.rule == "ge":
+        return f"column {column} contains {count} value(s) below {spec.params.get('threshold')}"
+    if spec.rule == "lt":
+        return f"column {column} contains {count} value(s) not less than {spec.params.get('threshold')}"
+    if spec.rule == "le":
+        return f"column {column} contains {count} value(s) above {spec.params.get('threshold')}"
+    return f"expectation {spec.key} failed {count} time(s)"
+
+
+def _expectation_error_messages(
+    contract: OpenDataContractStandard,
+    metrics: Mapping[str, Any] | None,
+) -> set[str]:
+    """Return messages describing expectation failures found in ``metrics``."""
+
+    metric_map = dict(metrics or {})
+    messages: set[str] = set()
+    for spec in expectation_specs(contract):
+        if spec.rule == "query":
+            continue
+        key = f"violations.{spec.key}"
+        count = metric_map.get(key)
+        if isinstance(count, (int, float)) and count > 0:
+            messages.add(_format_expectation_violation_message(spec, int(count)))
+    return messages
+
+
 def run_pipeline(
     contract_id: str | None,
     contract_version: str | None,
@@ -552,6 +603,13 @@ def run_pipeline(
     if output_status and output_contract:
         output_status = attach_failed_expectations(output_contract, output_status)
 
+    expectation_messages: set[str] = set()
+    if output_contract:
+        expectation_messages = _expectation_error_messages(
+            output_contract,
+            result.metrics,
+        )
+
     handled_split_override = False
     if isinstance(strategy, SplitWriteViolationStrategy) and output_status:
         details = output_status.details or {}
@@ -580,9 +638,12 @@ def run_pipeline(
                 issues.append(
                     f"DQ violation: {detail_msg or output_status.status}"
                 )
-            if not result.ok:
+            schema_errors = [
+                err for err in result.errors if err not in expectation_messages
+            ]
+            if schema_errors:
                 issues.append(
-                    f"Schema validation failed: {result.errors}"
+                    f"Schema validation failed: {schema_errors}"
                 )
             if issues:
                 error = ValueError("; ".join(issues))

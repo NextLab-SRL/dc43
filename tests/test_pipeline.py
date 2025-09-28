@@ -19,7 +19,7 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
     existing_versions = set(pipeline.store.list_versions("orders_enriched"))
 
     try:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError) as excinfo:
             pipeline.run_pipeline(
                 contract_id="orders_enriched",
                 contract_version="1.1.0",
@@ -29,6 +29,10 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
                 collect_examples=True,
                 examples_limit=2,
             )
+
+        message = str(excinfo.value)
+        assert "DQ violation" in message
+        assert "Schema validation failed" not in message
 
         updated = pipeline.load_records()
         last = updated[-1]
