@@ -70,8 +70,8 @@ A Collibra-backed client typically combines the existing Collibra adapter used
 for contract resolution with calls that manage compatibility assets:
 
 ```python
-from dc43.services.contracts.backend.stores import HttpCollibraContractAdapter
-from dc43.services.data_quality.models import ValidationResult
+from dc43_service_backends.contracts.backend.stores import HttpCollibraContractAdapter
+from dc43_service_clients.data_quality import ValidationResult
 
 class CollibraDQClient:
     def __init__(self, adapter: HttpCollibraContractAdapter, asset_type: str):

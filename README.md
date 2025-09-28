@@ -14,7 +14,7 @@ dc43 is a governance-first toolkit that separates the **concepts** of data contr
 
 On top of the conceptual platform, dc43 ships opinionated integrations that you can adopt or replace:
 
-- Spark & DLT pipelines via `dc43.integration.spark.io` with schema/metric helpers from `dc43.services.data_quality.backend` for auto-casting and contract-aware IO.
+- Spark & DLT pipelines via `dc43_integrations.spark.io` with schema/metric helpers from `dc43_service_backends.data_quality.backend` for auto-casting and contract-aware IO.
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
 
@@ -30,7 +30,7 @@ dc43 exposes a small set of well-defined components. Swap any of them without re
 | Governance | **Data quality manager interface** | Coordinate with an external DQ governance tool (e.g., Collibra, Unity Catalog) that records dataset↔contract alignment and approval state. |
 | Authoring support | **Contract drafter module** | Generate ODCS drafts from observed data or schema drift events before handing them back to governance. |
 | Runtime services | **Data-quality metrics engine** | Collect contract-driven metrics in execution engines and forward them to the governance tool for status evaluation. |
-| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43.integration.spark`). |
+| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43_integrations.spark`). |
 
 Guides for each component live under `docs/`:
 
@@ -93,7 +93,29 @@ Variations—such as Collibra-governed contracts or bespoke storage backends—s
 
 ## Install
 
-- As a source lib (Databricks Repos, workspace files) or package. No hard dependencies by default; bring your own `pyspark` on Databricks clusters.
+dc43 ships a single distribution that exposes three importable modules. They are intentionally layered so you can depend on the
+smallest surface that fits your use case:
+
+| Package | Responsibility | Depends on |
+| --- | --- | --- |
+| `dc43_service_clients` | Typed service clients, request/response models, and governance helpers that front-end applications can embed. | `open-data-contract-standard` |
+| `dc43_service_backends` | Reference backend implementations (filesystem store, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43_service_clients` |
+| `dc43_integrations` | Runtime adapters such as the Spark helpers that call into client APIs without requiring backend dependencies. | `dc43_service_clients` |
+
+### Pip installs
+
+- **Full stack**: `pip install dc43` – installs the base distribution with the three modules above.
+- **Spark extras**: `pip install "dc43[spark]"` – pulls in Spark runtime requirements for the integration helpers.
+- **Demo app**: `pip install "dc43[demo]"` – adds FastAPI/uvicorn extras for the example application.
+
+When developing locally (Databricks Repos, workspace files, or any source checkout) you can also install in editable mode:
+
+```bash
+pip install -e .
+```
+
+Each module can be imported independently after installation. For example, lightweight clients can use
+`from dc43_service_clients.data_quality import ValidationResult` without pulling in the backend packages at runtime.
 
 ## Quickstart
 
@@ -132,9 +154,9 @@ contract = OpenDataContractStandard(
 2) Validate and write with Spark
 
 ```python
-from dc43.services.contracts.backend.stores import FSContractStore
-from dc43.services.contracts.client import LocalContractServiceClient
-from dc43.integration.spark.io import (
+from dc43_service_backends.contracts.backend.stores import FSContractStore
+from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_integrations.spark.io import (
     write_with_contract,
     ContractVersionLocator,
 )
@@ -159,7 +181,7 @@ write_with_contract(
 ```python
 import dlt
 from collections.abc import Mapping
-from dc43.integration.spark.dlt import apply_dlt_expectations
+from dc43_integrations.spark.dlt import apply_dlt_expectations
 
 @dlt.table(name="orders")
 def orders():
@@ -174,7 +196,7 @@ def orders():
 4) Store and resolve contracts
 
 ```python
-from dc43.services.contracts.backend.stores import FSContractStore
+from dc43_service_backends.contracts.backend.stores import FSContractStore
 
 store = FSContractStore(base_path="/mnt/contracts")
 store.put(contract)
@@ -184,9 +206,9 @@ latest = store.latest("sales.orders")
 5) DQ/DO orchestration on read
 
 ```python
-from dc43.integration.spark.io import read_with_contract, ContractVersionLocator
-from dc43.services.contracts.client import LocalContractServiceClient
-from dc43.services.governance.client import build_local_governance_service
+from dc43_integrations.spark.io import read_with_contract, ContractVersionLocator
+from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_service_clients.governance import build_local_governance_service
 
 governance = build_local_governance_service(store)
 contract_service = LocalContractServiceClient(store)
@@ -205,8 +227,8 @@ print(status.status, status.reason)
 6) Quality status check on write
 
 ```python
-from dc43.integration.spark.io import write_with_contract, ContractVersionLocator
-from dc43.services.contracts.client import LocalContractServiceClient
+from dc43_integrations.spark.io import write_with_contract, ContractVersionLocator
+from dc43_service_clients.contracts import LocalContractServiceClient
 
 contract_service = LocalContractServiceClient(store)
 vr, status = write_with_contract(

@@ -13,7 +13,7 @@ observations.
 1. **Normalise observation payloads** so metrics and schema snapshots are
    passed to the validation engine in a consistent shape.
 2. **Evaluate expectations** declared in the contract via
-   `dc43.services.data_quality.backend.engine`, returning a `ValidationResult`
+   `dc43_service_backends.data_quality.backend.engine`, returning a `ValidationResult`
    that lists errors, warnings, and derived metrics.
 3. **Expose engine configuration knobs** (`strict_types`,
    `allow_extra_columns`, `expectation_severity`) so governance services
@@ -38,7 +38,7 @@ governance workflows.
 - `evaluate` accepts an `ObservationPayload` (metrics, optional schema,
   reused flag) and an Open Data Contract. It returns a `ValidationResult`
   that downstream services can interpret as `ok`, `warn`, or `block`.
-- `ObservationPayload` (from `dc43.services.data_quality.models`) is the
+- `ObservationPayload` (from `dc43_service_clients.data_quality`) is the
   convenience dataclass used by integrations and governance services to
   package cached observations in a structured way.
 

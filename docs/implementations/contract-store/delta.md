@@ -32,7 +32,7 @@ lookups by `id`.
 Configure it via:
 
 ```python
-from dc43.services.contracts.backend.stores import DeltaContractStore
+from dc43_service_backends.contracts.backend.stores import DeltaContractStore
 
 store = DeltaContractStore(table_path="/mnt/contracts_delta")
 store.put(contract)
