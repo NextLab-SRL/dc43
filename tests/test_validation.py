@@ -58,8 +58,13 @@ def test_validate_ok(spark):
         (2, 102, datetime(2024, 1, 2, 10, 0, 0), 20.5, "USD"),
     ]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount", "currency"])
-    schema, metrics = collect_observations(df, contract)
     client = LocalDataQualityServiceClient()
+    expectations = client.describe_expectations(contract=contract)
+    schema, metrics = collect_observations(
+        df,
+        contract,
+        expectations=expectations,
+    )
     res = client.evaluate(
         contract=contract,
         payload=ObservationPayload(metrics=metrics, schema=schema),
@@ -77,8 +82,13 @@ def test_validate_type_mismatch(spark):
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), "not-a-double", "EUR"),
     ]
     df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount", "currency"])
-    schema, metrics = collect_observations(df, contract)
     client = LocalDataQualityServiceClient()
+    expectations = client.describe_expectations(contract=contract)
+    schema, metrics = collect_observations(
+        df,
+        contract,
+        expectations=expectations,
+    )
     res = client.evaluate(
         contract=contract,
         payload=ObservationPayload(metrics=metrics, schema=schema),
@@ -104,8 +114,13 @@ def test_validate_required_nulls(spark):
         ]
     )
     df = spark.createDataFrame(data, schema=schema)
-    schema_obs, metrics = collect_observations(df, contract)
     client = LocalDataQualityServiceClient()
+    expectations = client.describe_expectations(contract=contract)
+    schema_obs, metrics = collect_observations(
+        df,
+        contract,
+        expectations=expectations,
+    )
     res = client.evaluate(
         contract=contract,
         payload=ObservationPayload(metrics=metrics, schema=schema_obs),
