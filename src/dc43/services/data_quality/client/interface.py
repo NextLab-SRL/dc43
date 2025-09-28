@@ -21,8 +21,8 @@ class DataQualityServiceClient(Protocol):
         """Return the validation outcome for the provided observations."""
 
 
-class DQClient(Protocol):
-    """Interface expected when coordinating quality verdicts with governance."""
+class DQClient(DataQualityServiceClient, Protocol):
+    """Extended client used when coordinating quality verdicts with governance."""
 
     def get_status(
         self,

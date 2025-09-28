@@ -9,12 +9,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Mapping
 
 from dc43.services.contracts.backend.drafting import draft_from_validation_result
-from dc43.services.data_quality.backend.engine import (
-    ValidationResult,
-    evaluate_contract,
-)
 from dc43.services.data_quality.client.interface import DQClient
-from dc43.services.data_quality.models import DQStatus
+from dc43.services.data_quality.engine import evaluate_contract
+from dc43.services.data_quality.models import DQStatus, ValidationResult
 from dc43.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
