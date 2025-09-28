@@ -1,26 +1,31 @@
 """Service backends, local clients, and governance helpers for dc43."""
 
-from .data_quality import ObservationPayload
-
-from .contracts import (
+from dc43_service_backends.data_quality import (
+    DataQualityServiceBackend,
+    LocalDataQualityServiceBackend,
+)
+from dc43_service_backends.contracts import (
     ContractServiceBackend,
-    ContractServiceClient,
     LocalContractServiceBackend,
+)
+from dc43_service_backends.governance import (
+    GovernanceServiceBackend,
+    LocalGovernanceServiceBackend,
+)
+from dc43_service_clients.contracts import (
+    ContractServiceClient,
     LocalContractServiceClient,
 )
-from .data_quality import (
-    DataQualityServiceBackend,
+from dc43_service_clients.data_quality import (
     DataQualityServiceClient,
-    LocalDataQualityServiceBackend,
     LocalDataQualityServiceClient,
+    ObservationPayload,
+    ValidationResult,
 )
-from .governance import (
-    GovernanceServiceBackend,
+from dc43_service_clients.governance import (
     GovernanceCredentials,
     GovernanceServiceClient,
-    LocalGovernanceServiceBackend,
     LocalGovernanceServiceClient,
-    LocalGovernanceService,
     PipelineContext,
     PipelineContextSpec,
     QualityAssessment,
@@ -28,6 +33,8 @@ from .governance import (
     build_local_governance_service,
     normalise_pipeline_context,
 )
+
+LocalGovernanceService = LocalGovernanceServiceBackend
 
 __all__ = [
     "DataQualityServiceBackend",
@@ -51,4 +58,5 @@ __all__ = [
     "normalise_pipeline_context",
     "ContractServiceClient",
     "LocalContractServiceClient",
+    "ValidationResult",
 ]

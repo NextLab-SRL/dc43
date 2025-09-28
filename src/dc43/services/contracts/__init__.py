@@ -1,11 +1,14 @@
 """Backend and client helpers for contract management services."""
 
-from .backend import (
+from dc43_service_backends.contracts import (
     ContractServiceBackend,
     LocalContractServiceBackend,
     ContractStore,
 )
-from .client import ContractServiceClient, LocalContractServiceClient
+from dc43_service_clients.contracts import (
+    ContractServiceClient,
+    LocalContractServiceClient,
+)
 
 __all__ = [
     "ContractServiceBackend",

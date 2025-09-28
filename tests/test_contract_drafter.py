@@ -12,8 +12,8 @@ from open_data_contract_standard.model import (  # type: ignore
 )
 
 from dc43.odcs import normalise_custom_properties
-from dc43.services.contracts.backend.drafting import draft_from_validation_result
-from dc43.services.data_quality.models import ValidationResult
+from dc43_service_backends.contracts.drafting import draft_from_validation_result
+from dc43_service_clients.data_quality import ValidationResult
 
 
 def _build_contract() -> OpenDataContractStandard:

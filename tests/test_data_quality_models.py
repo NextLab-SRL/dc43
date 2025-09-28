@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator
 
-from dc43.services.data_quality.models import ValidationResult
+from dc43_service_clients.data_quality import ValidationResult
 
 
 class _DictLike:

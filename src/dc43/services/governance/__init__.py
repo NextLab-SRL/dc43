@@ -1,17 +1,18 @@
 """Governance orchestration service abstractions and local stubs."""
 
-from .backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
-from .client import (
+from dc43_service_backends.governance import (
+    GovernanceServiceBackend,
+    LocalGovernanceServiceBackend,
+)
+from dc43_service_clients.governance import (
+    GovernanceCredentials,
     GovernanceServiceClient,
     LocalGovernanceServiceClient,
-    build_local_governance_service,
-)
-from .models import (
-    GovernanceCredentials,
     PipelineContext,
     PipelineContextSpec,
     QualityAssessment,
     QualityDraftContext,
+    build_local_governance_service,
     normalise_pipeline_context,
 )
 

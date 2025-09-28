@@ -12,18 +12,18 @@ from open_data_contract_standard.model import (
     Server,
 )
 
-from dc43.services.contracts.backend.stores import FSContractStore
-from dc43.services.contracts.client import LocalContractServiceClient
-from dc43.integration.spark.io import (
+from dc43_service_backends.contracts.backend.stores import FSContractStore
+from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_integrations.spark.io import (
     read_with_contract,
     write_with_contract,
     StaticDatasetLocator,
     ContractVersionLocator,
     DatasetResolution,
 )
-from dc43.integration.spark.violation_strategy import SplitWriteViolationStrategy
-from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
-from dc43.services.governance.client import build_local_governance_service
+from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
+from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
+from dc43_service_clients.governance import build_local_governance_service
 from datetime import datetime
 import logging
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 This application provides a small Bootstrap-powered UI to manage data
 contracts and run an example Spark pipeline that records dataset versions
 with their validation status. Contracts are stored on the local
-filesystem using :class:`~dc43.services.contracts.backend.stores.FSContractStore` and dataset
+filesystem using :class:`~dc43_service_backends.contracts.backend.stores.FSContractStore` and dataset
 metadata lives in a JSON file.
 
 Run the application with::
@@ -37,9 +37,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
 
-from dc43.services.contracts.backend.stores import FSContractStore
-from dc43.services.contracts.client import LocalContractServiceClient
-from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
+from dc43_service_backends.contracts.backend.stores import FSContractStore
+from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
 from dc43.odcs import custom_properties_dict, normalise_custom_properties
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
@@ -57,7 +57,7 @@ from packaging.version import Version
 # still load when pyspark is not installed (for example when running fast unit
 # tests).
 try:  # pragma: no cover - exercised indirectly when pyspark is available
-    from dc43.integration.spark.io import ContractVersionLocator, read_with_contract
+    from dc43_integrations.spark.io import ContractVersionLocator, read_with_contract
 except ModuleNotFoundError as exc:  # pragma: no cover - safety net for CI
     if exc.name != "pyspark":
         raise

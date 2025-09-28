@@ -1,16 +1,19 @@
 """Backend and client helpers for running data-quality services."""
 
-from .backend import (
+from dc43_service_backends.data_quality import (
     DataQualityManager,
     DataQualityServiceBackend,
     ExpectationSpec,
     LocalDataQualityServiceBackend,
-    ObservationPayload,
-    ValidationResult,
     evaluate_contract,
     expectation_specs,
 )
-from .client import DataQualityServiceClient, LocalDataQualityServiceClient
+from dc43_service_clients.data_quality import (
+    DataQualityServiceClient,
+    LocalDataQualityServiceClient,
+    ObservationPayload,
+    ValidationResult,
+)
 
 __all__ = [
     "DataQualityServiceBackend",
