@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import InitVar, dataclass, field
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Optional
 
 
 ValidationStatusState = tuple[str, ...]
@@ -33,11 +34,11 @@ class ValidationResult:
     details: InitVar[Optional[Mapping[str, Any]]] = None
     _details: Dict[str, Any] = field(default_factory=dict, init=False, repr=False)
 
-    def __post_init__(self, details: Optional[Mapping[str, Any]]) -> None:
+    def __post_init__(self, details: object | None) -> None:
         if self.status not in _KNOWN_STATUSES:
             self.status = "unknown"
-        if details:
-            self._details = dict(details)
+        if details is not None:
+            self._details = _coerce_details(details)
         if self.errors and self.ok:
             self.ok = False
         if self.status == "block":
@@ -63,8 +64,34 @@ class ValidationResult:
         return payload
 
     @details.setter
-    def details(self, value: Mapping[str, Any]) -> None:
-        self._details = dict(value)
+    def details(self, value: object) -> None:
+        self._details = _coerce_details(value)
+
+
+def _coerce_details(raw: object) -> Dict[str, Any]:
+    """Normalise arbitrary detail payloads into a dictionary."""
+
+    if raw is None:
+        return {}
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    if isinstance(raw, property):
+        return {}
+
+    items = getattr(raw, "items", None)
+    if callable(items):
+        try:
+            return dict(items())
+        except TypeError:
+            return {}
+
+    if isinstance(raw, Iterable):
+        try:
+            return dict(raw)
+        except (TypeError, ValueError):
+            return {}
+
+    return {}
 
     @classmethod
     def from_status(
