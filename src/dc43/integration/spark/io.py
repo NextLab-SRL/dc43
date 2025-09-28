@@ -1526,6 +1526,13 @@ def _execute_write_request(
         writer.save(request.path)
 
     validation = request.validation_factory() if request.validation_factory else None
+    expectation_plan: list[Mapping[str, Any]] = []
+    if validation is not None:
+        raw_plan = validation.details.get("expectation_plan")
+        if isinstance(raw_plan, Iterable):
+            expectation_plan = [
+                item for item in raw_plan if isinstance(item, Mapping)
+            ]
     if validation is not None and request.warnings:
         for message in request.warnings:
             if message not in validation.warnings:
