@@ -23,13 +23,13 @@ flowchart TD
 
 ## Spark & Delta Helpers
 
-The canonical implementation lives in [`src/dc43_integrations/spark`](../../src/dc43_integrations/spark):
+The canonical implementation lives in [`src/dc43_integrations/spark`](../../packages/dc43-integrations/src/dc43_integrations/spark):
 
 * `io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
 * `dlt.py` — Helpers to apply expectation predicates inside Delta Live Tables pipelines. Expectation SQL is supplied by the
   data-quality service via validation results so that Delta expectations mirror backend verdicts.
-* [`dc43_integrations.spark.data_quality`](../../src/dc43_integrations/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
-* [`dc43_service_clients.governance`](../../src/dc43_service_clients/governance) — Client APIs that link contracts, evaluate observations, and interact with governance backends.
+* [`dc43_integrations.spark.data_quality`](../../packages/dc43-integrations/src/dc43_integrations/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
+* [`dc43_service_clients.governance`](../../packages/dc43-service-clients/src/dc43_service_clients/governance) — Client APIs that link contracts, evaluate observations, and interact with governance backends.
 
 Pipelines typically import these helpers directly:
 

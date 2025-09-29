@@ -21,7 +21,8 @@ dependencies = [
 ]
 
 [tool.setuptools]
-package-dir = {"" = "../../src"}
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-include = ["dc43_service_clients*" ]
+where = ["src"]
+include = ["dc43_service_clients*"]
