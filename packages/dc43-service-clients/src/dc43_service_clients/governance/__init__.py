@@ -3,6 +3,7 @@
 from .client import (
     GovernanceServiceClient,
     LocalGovernanceServiceClient,
+    RemoteGovernanceServiceClient,
     build_local_governance_service,
 )
 from .models import (
@@ -17,6 +18,7 @@ from .models import (
 __all__ = [
     "GovernanceServiceClient",
     "LocalGovernanceServiceClient",
+    "RemoteGovernanceServiceClient",
     "build_local_governance_service",
     "GovernanceCredentials",
     "PipelineContext",

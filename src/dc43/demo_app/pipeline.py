@@ -20,6 +20,9 @@ from dc43.demo_app.server import (
     save_records,
     set_active_version,
     register_dataset_version,
+    contract_service,
+    dq_service,
+    governance_service,
 )
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
@@ -27,8 +30,6 @@ from dc43_service_backends.data_quality.backend.engine import (
 )
 from dc43_service_clients.data_quality import ValidationResult
 from dc43_integrations.spark.data_quality import attach_failed_expectations
-from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
-from dc43_service_clients.governance.client.local import build_local_governance_service
 from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
@@ -47,10 +48,6 @@ from dc43_integrations.spark.violation_strategy import (
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, when
-from dc43_service_clients.contracts.client.local import LocalContractServiceClient
-
-contract_service = LocalContractServiceClient(store)
-dq_service = LocalDataQualityServiceClient()
 
 
 def _next_version(existing: list[str]) -> str:
@@ -500,7 +497,7 @@ def run_pipeline(
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
-    governance = build_local_governance_service(store)
+    governance = governance_service
 
     run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     base_pipeline_context: dict[str, Any] = {
@@ -804,6 +801,13 @@ def run_pipeline(
 
     draft_version: str | None = None
     output_details = result.details.copy()
+    if result.warnings:
+        warning_list = list(output_details.get("warnings", []) or [])
+        for message in result.warnings:
+            if message not in warning_list:
+                warning_list.append(message)
+        if warning_list:
+            output_details["warnings"] = warning_list
     if schema_errors:
         output_details["errors"] = schema_errors
     else:

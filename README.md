@@ -106,6 +106,9 @@ dc43 now ships as a family of distributions so you can install only the layers y
 
 - **Service contracts only**: `pip install dc43-service-clients`
 - **Backend reference services**: `pip install dc43-service-backends`
+- **HTTP service backends**: `pip install "dc43-service-backends[http]"` (see
+  [`deploy/http-backend/README.md`](deploy/http-backend/README.md) for a
+  containerised deployment recipe)
 - **Spark integrations**: `pip install "dc43-integrations[spark]"`
 - **Full stack**: `pip install dc43`
 - **Spark extras for the meta package**: `pip install "dc43[spark]"`
@@ -284,6 +287,29 @@ preconfigured scenarios are documented in
 [`docs/demo-pipeline-scenarios.md`](docs/demo-pipeline-scenarios.md) including
 the new split strategy example that writes ``orders_enriched::valid`` and
 ``orders_enriched::reject`` alongside the main dataset.
+
+The demo now drives its contract, governance, and data-quality operations
+through the same HTTP clients that production pipelines use. When the UI starts
+it spins up an in-process instance of the service backend HTTP application, so
+Spark runs exercise the remote code paths without requiring an external
+deployment.
+
+### Running the service backend over HTTP
+
+Pipelines that rely on the remote clients can reach a standalone backend via
+the `dc43_service_backends.webapp` module. Set the contract directory and (if
+needed) a bearer token before launching `uvicorn`:
+
+```bash
+export DC43_CONTRACT_STORE=/path/to/contracts
+export DC43_BACKEND_TOKEN="super-secret"  # optional
+uvicorn dc43_service_backends.webapp:app --host 0.0.0.0 --port 8001
+```
+
+Contracts stored under `$DC43_CONTRACT_STORE` are served over the API while the
+stub data-quality and governance backends keep draft information on disk. See
+[`docs/implementations/service-backends/http-server.md`](docs/implementations/service-backends/http-server.md)
+for Docker packaging notes and deployment options.
 
 ## Spark Flow (Mermaid)
 

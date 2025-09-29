@@ -2,5 +2,10 @@
 
 from .interface import ContractServiceClient
 from .local import LocalContractServiceClient
+from .remote import RemoteContractServiceClient
 
-__all__ = ["ContractServiceClient", "LocalContractServiceClient"]
+__all__ = [
+    "ContractServiceClient",
+    "LocalContractServiceClient",
+    "RemoteContractServiceClient",
+]

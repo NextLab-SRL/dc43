@@ -17,6 +17,8 @@ done
 
 if [[ "$install_deps" == true ]]; then
     python -m pip install -e ".[test]"
+    python -m pip install -e "packages/dc43-service-backends[http]"
+    python -m pip install -e "packages/dc43-service-clients[http]"
 fi
 
 pytest_targets=(
