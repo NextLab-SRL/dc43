@@ -5,13 +5,13 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 ## Responsibilities
 
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
-2. **Validate and coerce data** using helpers from `dc43.integration.spark.data_quality` while respecting enforcement flags.
+2. **Validate and coerce data** using helpers from `dc43_integrations.spark.data_quality` while respecting enforcement flags.
 3. **Bridge runtime metrics** to the governance service so it can evaluate observations, record activity, and propose drafts when mismatches occur.
 4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`).
 
 ```mermaid
 flowchart TD
-    ContractStore["Contract store"] --> IO["dc43.integration.spark.io"]
+    ContractStore["Contract store"] --> IO["dc43_integrations.spark.io"]
     IO --> Spark["Spark Jobs / DLT"]
     IO --> ContractMgr["Data contract manager"]
     IO --> Governance["Governance service"]
@@ -23,19 +23,19 @@ flowchart TD
 
 ## Spark & Delta Helpers
 
-The canonical implementation lives in [`src/dc43/integration/spark`](../../src/dc43/integration/spark):
+The canonical implementation lives in [`src/dc43_integrations/spark`](../../src/dc43_integrations/spark):
 
 * `io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
 * `dlt.py` — Helpers to apply expectation predicates inside Delta Live Tables pipelines. Expectation SQL is supplied by the
   data-quality service via validation results so that Delta expectations mirror backend verdicts.
-* [`dc43.integration.spark.data_quality`](../../src/dc43/integration/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
-* [`dc43.services.governance`](../../src/dc43/services/governance) — Coordination service that links contracts, evaluates observations, and persists drafts.
+* [`dc43_integrations.spark.data_quality`](../../src/dc43_integrations/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
+* [`dc43_service_clients.governance`](../../src/dc43_service_clients/governance) — Client APIs that link contracts, evaluate observations, and interact with governance backends.
 
 Pipelines typically import these helpers directly:
 
 ```python
-from dc43.integration.spark.io import read_with_contract, write_with_contract, ContractVersionLocator
-from dc43.services.contracts.client import LocalContractServiceClient
+from dc43_integrations.spark.io import read_with_contract, write_with_contract, ContractVersionLocator
+from dc43_service_clients.contracts import LocalContractServiceClient
 
 contract_service = LocalContractServiceClient(store)
 validated_df, status = read_with_contract(
@@ -67,7 +67,7 @@ this mapping directly to `apply_dlt_expectations` so that in-flight DLT expectat
 ```python
 import dlt
 from collections.abc import Mapping
-from dc43.integration.spark.dlt import apply_dlt_expectations
+from dc43_integrations.spark.dlt import apply_dlt_expectations
 
 @dlt.table
 def orders():

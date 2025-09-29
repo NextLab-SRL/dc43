@@ -8,10 +8,10 @@ from open_data_contract_standard.model import (
     Description,
 )
 
-from dc43.integration.spark.validation import apply_contract
-from dc43.integration.spark.data_quality import collect_observations
-from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
-from dc43.services.data_quality.models import ObservationPayload
+from dc43_integrations.spark.validation import apply_contract
+from dc43_integrations.spark.data_quality import collect_observations
+from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
+from dc43_service_clients.data_quality import ObservationPayload
 from datetime import datetime
 from pyspark.sql.types import (
     StructType,

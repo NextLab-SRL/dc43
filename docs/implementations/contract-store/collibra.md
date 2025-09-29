@@ -31,7 +31,7 @@ adapter configuration so dc43 can route writes and reads consistently.
 ## Configuration example
 
 ```python
-from dc43.services.contracts.backend.stores import (
+from dc43_service_backends.contracts.backend.stores import (
     CollibraContractStore,
     HttpCollibraContractAdapter,
 )

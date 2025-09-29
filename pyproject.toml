@@ -16,28 +16,7 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
-dependencies = [
-  "packaging>=21.0",
-  "open-data-contract-standard==3.0.2",
-]
-
-[project.optional-dependencies]
-spark = []
-test = [
-  "pytest>=7.0",
-  "pyspark>=3.4",
-  "fastapi",
-  "jinja2",
-  "python-multipart",
-  "httpx",
-]
-demo = [
-  "fastapi",
-  "uvicorn",
-  "jinja2",
-  "python-multipart",
-  "pyspark>=3.4",
-]
+dynamic = ["dependencies", "optional-dependencies"]
 
 [project.scripts]
 dc43 = "dc43.cli:main"
@@ -48,6 +27,11 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = [
+  "dc43_service_clients*",
+  "dc43_service_backends*",
+  "dc43_integrations*",
+]
 
 [tool.setuptools.package-data]
 "dc43.demo_app" = [

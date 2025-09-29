@@ -21,15 +21,15 @@ from dc43.demo_app.server import (
     set_active_version,
     register_dataset_version,
 )
-from dc43.services.data_quality.engine import (
+from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
     expectation_specs,
 )
-from dc43.services.data_quality.models import ValidationResult
-from dc43.integration.spark.data_quality import attach_failed_expectations
-from dc43.services.data_quality.client.local import LocalDataQualityServiceClient
-from dc43.services.governance.client.local import build_local_governance_service
-from dc43.integration.spark.io import (
+from dc43_service_clients.data_quality import ValidationResult
+from dc43_integrations.spark.data_quality import attach_failed_expectations
+from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
+from dc43_service_clients.governance.client.local import build_local_governance_service
+from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
     ReadStatusContext,
@@ -38,7 +38,7 @@ from dc43.integration.spark.io import (
     read_with_contract,
     write_with_contract,
 )
-from dc43.integration.spark.violation_strategy import (
+from dc43_integrations.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
     SplitWriteViolationStrategy,
     StrictWriteViolationStrategy,
@@ -47,7 +47,7 @@ from dc43.integration.spark.violation_strategy import (
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, when
-from dc43.services.contracts.client.local import LocalContractServiceClient
+from dc43_service_clients.contracts.client.local import LocalContractServiceClient
 
 contract_service = LocalContractServiceClient(store)
 dq_service = LocalDataQualityServiceClient()

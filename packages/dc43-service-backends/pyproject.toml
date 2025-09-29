@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dc43-service-backends"
+version = "0.0.3.0"
+description = "Backend service implementations for dc43"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Andy Petrella" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "dc43-service-clients>=0.0.3",
+  "open-data-contract-standard==3.0.2",
+]
+
+[project.optional-dependencies]
+spark = ["pyspark>=3.4"]
+
+[tool.setuptools]
+package-dir = {"" = "../../src"}
+
+[tool.setuptools.packages.find]
+include = ["dc43_service_backends*" ]

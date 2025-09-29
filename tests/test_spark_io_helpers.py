@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from dc43.integration.spark.io import ContractFirstDatasetLocator
+from dc43_integrations.spark.io import ContractFirstDatasetLocator
 
 
 def _dummy_contract(custom_properties, *, dataset_id="orders", path="/tmp/orders"):

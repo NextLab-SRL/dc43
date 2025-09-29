@@ -2,9 +2,9 @@
 
 The Spark integration captures schema snapshots and expectation metrics inside
 Spark jobs before forwarding them to the **governance service**. Runtime
-helpers live in `dc43.integration.spark.data_quality` while the runtime-agnostic
-evaluation logic stays inside `dc43.services.data_quality.backend.engine`. Use
-`dc43.integration.spark.validation.apply_contract` to align Spark IO with
+helpers live in `dc43_integrations.spark.data_quality` while the runtime-agnostic
+evaluation logic stays inside `dc43_service_backends.data_quality.backend.engine`. Use
+`dc43_integrations.spark.validation.apply_contract` to align Spark IO with
 an approved contract when reading or writing datasets.
 
 ## Helpers
@@ -26,13 +26,13 @@ The Spark integration exposes the following building blocks:
   after a submission, optionally providing supplemental metrics captured during
   the write.
 * `apply_contract(df, contract)` – align column order and types before reads and
-  writes (via `dc43.services.data_quality.backend.validation`).
+  writes using the helpers in `dc43_integrations.spark.validation`.
 
 ```python
-from dc43.integration.spark.data_quality import build_metrics_payload
-from dc43.services.data_quality.client import LocalDataQualityServiceClient
-from dc43.services.data_quality.models import ObservationPayload
-from dc43.services.governance.client import build_local_governance_service
+from dc43_integrations.spark.data_quality import build_metrics_payload
+from dc43_service_clients.data_quality import ObservationPayload
+from dc43_service_clients.data_quality.client import LocalDataQualityServiceClient
+from dc43_service_clients.governance import build_local_governance_service
 
 data_quality = LocalDataQualityServiceClient()
 plan = data_quality.describe_expectations(contract=contract)
