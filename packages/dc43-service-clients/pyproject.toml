@@ -26,6 +26,9 @@ dependencies = [
 [project.optional-dependencies]
 test = []
 
+[project.scripts]
+pytest = "dc43_service_clients._pytest_runner:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
