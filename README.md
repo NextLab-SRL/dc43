@@ -347,11 +347,19 @@ pip install open-data-contract-standard==3.0.2 pyspark
 
 # Tests
 
-- Install test extras and run
+- Install the shared test extras and run the suites that matter for the area you
+  are touching:
 
 ```bash
 pip install -e ".[test]"
+
+# Core demo / ODCS helpers shipped with the top-level ``dc43`` package
 pytest
+
+# Service packages ship their own targeted suites
+pytest packages/dc43-service-clients/tests
+pytest packages/dc43-service-backends/tests
+pytest packages/dc43-integrations/tests
 ```
 
 # Publishing

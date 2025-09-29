@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from typing import Any, Dict, List
 
 from open_data_contract_standard.model import (  # type: ignore
@@ -11,9 +12,25 @@ from open_data_contract_standard.model import (  # type: ignore
     SchemaProperty,
 )
 
-from dc43.odcs import normalise_custom_properties
 from dc43_service_backends.contracts.drafting import draft_from_validation_result
 from dc43_service_clients.data_quality import ValidationResult
+
+
+def _normalise_custom_properties(raw: Any) -> List[Any]:
+    """Return ``customProperties`` entries as a list while handling descriptors."""
+
+    if raw is None or isinstance(raw, (str, bytes, bytearray, property)):
+        return []
+    if isinstance(raw, Mapping):
+        iterable = raw.values()
+    elif isinstance(raw, Iterable):
+        iterable = raw
+    else:
+        try:
+            iterable = list(raw)
+        except TypeError:
+            return []
+    return [item for item in iterable if item is not None]
 
 
 def _build_contract() -> OpenDataContractStandard:
@@ -62,7 +79,7 @@ def _get_property(contract: OpenDataContractStandard, name: str) -> SchemaProper
 
 
 def _change_log(contract: OpenDataContractStandard) -> List[Dict[str, object]]:
-    for prop in normalise_custom_properties(contract.customProperties):
+    for prop in _normalise_custom_properties(contract.customProperties):
         key = getattr(prop, "property", None)
         if key == "draft_change_log":
             value = getattr(prop, "value", None) or []
@@ -75,7 +92,7 @@ def _change_log(contract: OpenDataContractStandard) -> List[Dict[str, object]]:
 
 def _custom_props(contract: OpenDataContractStandard) -> Dict[str, Any]:
     props: Dict[str, Any] = {}
-    for prop in normalise_custom_properties(contract.customProperties):
+    for prop in _normalise_custom_properties(contract.customProperties):
         key = getattr(prop, "property", None)
         if key:
             props[str(key)] = getattr(prop, "value", None)

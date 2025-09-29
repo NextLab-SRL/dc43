@@ -10,26 +10,33 @@ from dc43_service_backends.contracts.backend.stores import (
     StubCollibraContractAdapter,
 )
 from dc43_service_backends.contracts.backend.stores.collibra import CollibraContractStore
-from dc43.odcs import build_odcs
-from open_data_contract_standard.model import SchemaProperty, SchemaObject, Server  # type: ignore
+from open_data_contract_standard.model import (
+    OpenDataContractStandard,
+    SchemaObject,
+    SchemaProperty,
+    Server,
+)  # type: ignore
 
 
-def _sample_contract(version: str = "1.0.0"):
-    return build_odcs(
-        contract_id="sales.orders",
+def _sample_contract(version: str = "1.0.0") -> OpenDataContractStandard:
+    return OpenDataContractStandard(
         version=version,
         kind="DatasetContract",
-        api_version="3.0.2",
-        schema_objects=[
+        apiVersion="3.0.2",
+        id="sales.orders",
+        name="Sales Orders",
+        schema=[
             SchemaObject(
                 name="orders",
                 properties=[
-                    SchemaProperty(name="order_id", type="integer", required=True),
-                    SchemaProperty(name="order_ts", type="string"),
+                    SchemaProperty(name="order_id", physicalType="integer", required=True),
+                    SchemaProperty(name="order_ts", physicalType="string"),
                 ],
             )
         ],
-        servers=[Server(server="s3", type="s3", path="datalake/orders", format="delta")],
+        servers=[
+            Server(server="s3", type="s3", path="datalake/orders", format="delta")
+        ],
     )
 
 
