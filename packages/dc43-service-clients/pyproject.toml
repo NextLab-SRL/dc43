@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dc43-service-clients"
-version = "0.2.0.0"
+version = "0.3.0.0"
 description = "Client contracts and helper implementations for DC43 services"
 readme = "README.md"
 requires-python = ">=3.11"
