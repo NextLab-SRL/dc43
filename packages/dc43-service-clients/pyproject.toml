@@ -18,7 +18,16 @@ classifiers = [
 ]
 dependencies = [
   "open-data-contract-standard==3.0.2",
+  # Ensure "pytest" is always available so CI jobs that install the package
+  # without extras can still execute the bundled test suite.
+  "pytest>=7.0",
 ]
+
+[project.optional-dependencies]
+test = []
+
+[project.scripts]
+pytest = "dc43_service_clients._pytest_runner:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
