@@ -20,12 +20,12 @@ def _load_module():
 def test_parse_simple_filenames_extracts_versions() -> None:
     module = _load_module()
     filenames = [
-        "dc43_service_clients-0.4.0.0-py3-none-any.whl",
-        "dc43-service-clients-0.4.0.0.tar.gz",
+        "dc43_service_clients-0.5.0.0-py3-none-any.whl",
+        "dc43-service-clients-0.5.0.0.tar.gz",
         "dc43_service_clients-0.2.1-py3-none-any.whl",
         "unrelated-1.0.0.tar.gz",
     ]
 
     versions = module._parse_simple_filenames("dc43-service-clients", filenames)
 
-    assert [str(version) for version in versions] == ["0.2.1", "0.4.0.0"]
+    assert [str(version) for version in versions] == ["0.2.1", "0.5.0.0"]
