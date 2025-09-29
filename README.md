@@ -353,15 +353,13 @@ pip install open-data-contract-standard==3.0.2 pyspark
   `pytest` works even before the editable installs finish building.
 
 ```bash
+# Option A: run everything with one helper (installs extras unless --skip-install is passed)
+./scripts/test_all.sh
+
+# Option B: manage installs yourself and invoke pytest directly
 pip install -e ".[test]"
-
-# Core demo / ODCS helpers shipped with the top-level ``dc43`` package
-pytest
-
-# Service packages ship their own targeted suites
-pytest packages/dc43-service-clients/tests
-pytest packages/dc43-service-backends/tests
-pytest packages/dc43-integrations/tests
+pytest -q tests packages/dc43-service-clients/tests \
+  packages/dc43-service-backends/tests packages/dc43-integrations/tests
 ```
 
 # Publishing
