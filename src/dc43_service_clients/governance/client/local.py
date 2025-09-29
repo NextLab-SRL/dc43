@@ -23,7 +23,10 @@ from dc43_service_clients.governance.models import (
     QualityDraftContext,
 )
 from .interface import GovernanceServiceClient
-from ..backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
+from dc43_service_backends.governance.backend import (
+    GovernanceServiceBackend,
+    LocalGovernanceServiceBackend,
+)
 
 
 class LocalGovernanceServiceClient(GovernanceServiceClient):

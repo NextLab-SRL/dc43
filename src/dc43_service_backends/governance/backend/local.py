@@ -19,7 +19,7 @@ from dc43_service_clients.data_quality import (
 )
 
 from .interface import GovernanceServiceBackend
-from ..models import (
+from dc43_service_clients.governance.models import (
     GovernanceCredentials,
     PipelineContextSpec,
     QualityAssessment,

@@ -111,14 +111,17 @@ dc43 now ships as a family of distributions so you can install only the layers y
 - **Spark extras for the meta package**: `pip install "dc43[spark]"`
 - **Demo app**: `pip install "dc43[demo]"`
 
-When developing locally (Databricks Repos, workspace files, or any source checkout) install the modules you need in editable mode:
+When developing locally (Databricks Repos, workspace files, or any source checkout) the editable install automatically pulls in
+the sibling packages:
 
 ```bash
-pip install -e packages/dc43-service-clients
-pip install -e packages/dc43-service-backends
-pip install -e packages/dc43-integrations[spark]
-# Optional: install the aggregator if you work on the CLI/demo
 pip install -e .
+```
+
+Chain extras as needed—for example to prepare the test environment run:
+
+```bash
+pip install -e ".[test]"
 ```
 
 Each distribution can now be installed independently. For example, lightweight clients can use `pip install dc43-service-clients` and then `from dc43_service_clients.data_quality import ValidationResult` without pulling in the backend or Spark helpers at runtime.

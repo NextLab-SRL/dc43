@@ -7,7 +7,7 @@ from typing import Callable, Mapping, Optional, Protocol, Sequence
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
-from ..models import (
+from dc43_service_clients.governance.models import (
     GovernanceCredentials,
     PipelineContextSpec,
     QualityAssessment,
