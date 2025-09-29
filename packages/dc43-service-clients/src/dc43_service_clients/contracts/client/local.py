@@ -1,17 +1,20 @@
-"""Local client implementation backed by in-memory contract storage."""
+"""Local contract client delegating to backend implementations."""
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, TYPE_CHECKING
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43_service_backends.contracts import (
-    ContractServiceBackend,
-    ContractStore,
-    LocalContractServiceBackend,
-)
 from .interface import ContractServiceClient
+
+if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
+    from dc43_service_backends.contracts import (
+        ContractServiceBackend,
+        ContractStore,
+    )
+else:  # pragma: no cover - help type checkers resolve names
+    ContractServiceBackend = ContractStore = object  # type: ignore
 
 
 class LocalContractServiceClient(ContractServiceClient):
@@ -19,17 +22,22 @@ class LocalContractServiceClient(ContractServiceClient):
 
     def __init__(
         self,
-        backend: ContractServiceBackend | ContractStore | None = None,
+        backend: "ContractServiceBackend | ContractStore | None" = None,
         *,
-        store: ContractStore | None = None,
+        store: "ContractStore | None" = None,
     ) -> None:
-        if isinstance(backend, ContractStore):
+        from dc43_service_backends.contracts import (
+            ContractStore as _ContractStore,
+            LocalContractServiceBackend as _LocalContractServiceBackend,
+        )
+
+        if isinstance(backend, _ContractStore):
             store = backend
             backend = None
         if backend is None:
             if store is None:
                 raise ValueError("a ContractStore is required for the local backend")
-            backend = LocalContractServiceBackend(store)
+            backend = _LocalContractServiceBackend(store)
         self._backend = backend
 
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
