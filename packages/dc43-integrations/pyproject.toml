@@ -26,7 +26,8 @@ spark = [
 ]
 
 [tool.setuptools]
-package-dir = {"" = "../../src"}
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-include = ["dc43_integrations*" ]
+where = ["src"]
+include = ["dc43_integrations*"]
