@@ -43,33 +43,26 @@ try:  # Python >=3.11
 except ModuleNotFoundError:  # pragma: no cover - fallback for older runtimes
     import tomli as tomllib  # type: ignore
 
-ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = {
-    "dc43": {
-        "paths": [ROOT / "src" / "dc43", ROOT / "pyproject.toml"],
-        "pyproject": ROOT / "pyproject.toml",
-        "pypi": "dc43",
-        "tag_prefix": "dc43",
-    },
-    "dc43-service-clients": {
-        "paths": [ROOT / "packages" / "dc43-service-clients"],
-        "pyproject": ROOT / "packages" / "dc43-service-clients" / "pyproject.toml",
-        "pypi": "dc43-service-clients",
-        "tag_prefix": "dc43-service-clients",
-    },
-    "dc43-service-backends": {
-        "paths": [ROOT / "packages" / "dc43-service-backends"],
-        "pyproject": ROOT / "packages" / "dc43-service-backends" / "pyproject.toml",
-        "pypi": "dc43-service-backends",
-        "tag_prefix": "dc43-service-backends",
-    },
-    "dc43-integrations": {
-        "paths": [ROOT / "packages" / "dc43-integrations"],
-        "pyproject": ROOT / "packages" / "dc43-integrations" / "pyproject.toml",
-        "pypi": "dc43-integrations",
-        "tag_prefix": "dc43-integrations",
-    },
-}
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from _packages import DEFAULT_RELEASE_ORDER, PACKAGES, ROOT
+
+
+def _ordered_packages(packages: Iterable[str]) -> List[str]:
+    """Return ``packages`` sorted to respect the default dependency order."""
+
+    order = {name: index for index, name in enumerate(DEFAULT_RELEASE_ORDER)}
+    seen: set[str] = set()
+    sorted_packages: List[str] = []
+    for name in packages:
+        if name in seen:
+            continue
+        seen.add(name)
+        sorted_packages.append(name)
+    sorted_packages.sort(key=lambda name: order.get(name, len(order)))
+    return sorted_packages
 
 
 @dataclass
@@ -246,7 +239,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--packages",
         nargs="+",
         choices=sorted(PACKAGES.keys()),
-        help="Specific packages to evaluate. Defaults to all packages.",
+        help="Specific packages to evaluate. Defaults to dependency order.",
     )
     parser.add_argument(
         "--commit",
@@ -273,7 +266,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
-    packages = args.packages or sorted(PACKAGES.keys())
+    packages = _ordered_packages(args.packages or DEFAULT_RELEASE_ORDER)
     if args.push:
         args.apply = True
     if args.apply:
