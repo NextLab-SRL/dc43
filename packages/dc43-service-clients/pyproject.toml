@@ -18,12 +18,13 @@ classifiers = [
 ]
 dependencies = [
   "open-data-contract-standard==3.0.2",
+  # Ensure "pytest" is always available so CI jobs that install the package
+  # without extras can still execute the bundled test suite.
+  "pytest>=7.0",
 ]
 
 [project.optional-dependencies]
-test = [
-  "pytest>=7.0",
-]
+test = []
 
 [tool.setuptools]
 package-dir = {"" = "src"}
