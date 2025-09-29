@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 try:  # pragma: no cover - import guard exercised in packaging contexts
-    from fastapi import APIRouter, FastAPI, HTTPException
+    from fastapi import APIRouter, FastAPI, HTTPException, Response
     from fastapi.encoders import jsonable_encoder
 except ModuleNotFoundError as exc:  # pragma: no cover - raised when optional deps missing
     raise ModuleNotFoundError(
@@ -131,7 +131,7 @@ def build_app(
         versions = contract_backend.list_versions(contract_id)
         return [str(value) for value in versions]
 
-    @router.post("/contracts/link", status_code=204)
+    @router.post("/contracts/link", status_code=204, response_class=Response)
     def link_contract(payload: _LinkDatasetPayload) -> None:
         contract_backend.link_dataset_contract(
             dataset_id=payload.dataset_id,
@@ -169,7 +169,7 @@ def build_app(
     # ------------------------------------------------------------------
     # Governance endpoints
     # ------------------------------------------------------------------
-    @router.post("/governance/auth", status_code=204)
+    @router.post("/governance/auth", status_code=204, response_class=Response)
     def configure_auth(payload: _AuthPayload) -> None:
         credentials = decode_credentials(payload.credentials)
         governance_backend.configure_auth(credentials)
