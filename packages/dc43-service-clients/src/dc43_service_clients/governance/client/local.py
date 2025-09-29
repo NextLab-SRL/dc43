@@ -2,19 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Callable, Mapping, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43_service_backends.contracts import (
-    ContractServiceBackend,
-    ContractStore,
-    LocalContractServiceBackend,
-)
-from dc43_service_backends.data_quality import (
-    DataQualityServiceBackend,
-    LocalDataQualityServiceBackend,
-)
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
 from dc43_service_clients.governance.models import (
     GovernanceCredentials,
@@ -23,16 +14,23 @@ from dc43_service_clients.governance.models import (
     QualityDraftContext,
 )
 from .interface import GovernanceServiceClient
-from dc43_service_backends.governance.backend import (
-    GovernanceServiceBackend,
-    LocalGovernanceServiceBackend,
-)
+
+if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
+    from dc43_service_backends.contracts import ContractServiceBackend, ContractStore
+    from dc43_service_backends.data_quality import DataQualityServiceBackend
+    from dc43_service_backends.governance.backend import (
+        GovernanceServiceBackend,
+        LocalGovernanceServiceBackend,
+    )
+else:  # pragma: no cover - satisfy type checkers without importing at runtime
+    ContractServiceBackend = ContractStore = DataQualityServiceBackend = object  # type: ignore
+    GovernanceServiceBackend = LocalGovernanceServiceBackend = object  # type: ignore
 
 
 class LocalGovernanceServiceClient(GovernanceServiceClient):
     """Delegate client calls to an in-process backend implementation."""
 
-    def __init__(self, backend: GovernanceServiceBackend) -> None:
+    def __init__(self, backend: "GovernanceServiceBackend") -> None:
         self._backend = backend
 
     def configure_auth(
@@ -172,12 +170,16 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
 
 
 def build_local_governance_service(
-    store: ContractStore,
+    store: "ContractStore",
     *,
-    contract_backend: ContractServiceBackend | None = None,
-    dq_backend: DataQualityServiceBackend | None = None,
+    contract_backend: "ContractServiceBackend | None" = None,
+    dq_backend: "DataQualityServiceBackend | None" = None,
 ) -> LocalGovernanceServiceClient:
     """Construct a governance client wired against local backend stubs."""
+
+    from dc43_service_backends.contracts import LocalContractServiceBackend
+    from dc43_service_backends.data_quality import LocalDataQualityServiceBackend
+    from dc43_service_backends.governance.backend import LocalGovernanceServiceBackend
 
     contract_backend = contract_backend or LocalContractServiceBackend(store)
     dq_backend = dq_backend or LocalDataQualityServiceBackend()
