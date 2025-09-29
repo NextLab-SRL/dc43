@@ -3,46 +3,112 @@ name: release
 on:
   push:
     tags:
-      - 'v*'
+      - "dc43-v*"
+      - "dc43-service-clients-v*"
+      - "dc43-service-backends-v*"
+      - "dc43-integrations-v*"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.meta.outputs.package }}
+      package_dir: ${{ steps.meta.outputs.package_dir }}
+      dist_path: ${{ steps.meta.outputs.dist_path }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # fetch full history
+          fetch-depth: 0
           tags: true
+
+      - name: Derive package metadata
+        id: meta
+        run: |
+          ref="${GITHUB_REF_NAME}"
+          case "$ref" in
+            dc43-v*)
+              package="dc43"
+              package_dir="."
+              ;;
+            dc43-service-clients-v*)
+              package="dc43-service-clients"
+              package_dir="packages/dc43-service-clients"
+              ;;
+            dc43-service-backends-v*)
+              package="dc43-service-backends"
+              package_dir="packages/dc43-service-backends"
+              ;;
+            dc43-integrations-v*)
+              package="dc43-integrations"
+              package_dir="packages/dc43-integrations"
+              ;;
+            *)
+              echo "Unknown tag prefix: $ref" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ "$package_dir" = "." ]; then
+            dist_path="dist"
+            pyproject="pyproject.toml"
+          else
+            dist_path="$package_dir/dist"
+            pyproject="$package_dir/pyproject.toml"
+          fi
+
+          {
+            echo "package=$package"
+            echo "package_dir=$package_dir"
+            echo "dist_path=$dist_path"
+            echo "pyproject=$pyproject"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[test]' build
+
       - name: Run tests
         run: pytest
+
       - name: Check version matches tag
+        env:
+          PYPROJECT_PATH: ${{ steps.meta.outputs.pyproject }}
         run: |
           python - <<'PY'
-          import tomllib, os, sys
-          with open('pyproject.toml','rb') as f:
-              version = tomllib.load(f)['project']['version']
-          tag = os.environ['GITHUB_REF'].split('/')[-1]
-          if f"v{version}" != tag:
+          import os
+          import sys
+          import tomllib
+
+          pyproject_path = os.environ["PYPROJECT_PATH"]
+          with open(pyproject_path, 'rb') as f:
+              version = tomllib.load(f)["project"]["version"]
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected_tag = f"dc43-v{version}" if pyproject_path == "pyproject.toml" else f"{os.path.basename(os.path.dirname(pyproject_path))}-v{version}"
+
+          if tag != expected_tag:
               print(f"Tag {tag} does not match version {version}")
               sys.exit(1)
           PY
+
       - name: Build package
+        working-directory: ${{ steps.meta.outputs.package_dir }}
         run: python -m build
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: dist
+          path: ${{ steps.meta.outputs.dist_path }}
 
   publish:
     needs: build
@@ -59,6 +125,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: dist
       - uses: softprops/action-gh-release@v1
         with:
           files: dist/*
