@@ -19,6 +19,17 @@ if [[ "$install_deps" == true ]]; then
     python -m pip install -e ".[test]"
 fi
 
-pytest -q tests packages/dc43-service-clients/tests \
-  packages/dc43-service-backends/tests packages/dc43-integrations/tests \
-  "${pytest_args[@]}"
+pytest_targets=(
+  tests
+  packages/dc43-service-clients/tests
+  packages/dc43-service-backends/tests
+  packages/dc43-integrations/tests
+)
+
+pytest_cmd=(pytest -q)
+pytest_cmd+=("${pytest_targets[@]}")
+if (( ${#pytest_args[@]} )); then
+  pytest_cmd+=("${pytest_args[@]}")
+fi
+
+"${pytest_cmd[@]}"
