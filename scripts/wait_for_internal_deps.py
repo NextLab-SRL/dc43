@@ -25,20 +25,37 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from _packages import INTERNAL_PACKAGE_NAMES
+from _packages import DEFAULT_RELEASE_ORDER, INTERNAL_PACKAGE_NAMES
+from _internal_dependency_versions import load_versions
 
 DEFAULT_TIMEOUT = 600
 DEFAULT_INTERVAL = 10
 
 
-def _load_dependencies(pyproject: Path) -> Iterable[str]:
+META_PACKAGE_NAME = "dc43"
+META_PACKAGE_DEPENDENCIES = [
+    name for name in DEFAULT_RELEASE_ORDER if name != META_PACKAGE_NAME
+]
+
+
+def _load_dependencies(pyproject: Path) -> list[str]:
     data = tomllib.loads(pyproject.read_text())
-    return data.get("project", {}).get("dependencies", [])
+    dependencies = data.get("project", {}).get("dependencies") or []
+    return list(dependencies)
+
+
+def _default_internal_requirements(package: str) -> list[str]:
+    if package == META_PACKAGE_NAME:
+        return META_PACKAGE_DEPENDENCIES
+    return []
 
 
 def _internal_requirements(pyproject: Path, current: str) -> list[Requirement]:
     requirements: list[Requirement] = []
-    for spec in _load_dependencies(pyproject):
+    specs = _load_dependencies(pyproject)
+    if not specs:
+        specs = _default_internal_requirements(current)
+    for spec in specs:
         req = Requirement(spec)
         if req.name in INTERNAL_PACKAGE_NAMES and req.name != current:
             requirements.append(req)
@@ -82,11 +99,23 @@ def wait_for_dependencies(pyproject: Path, package: str, timeout: int, interval:
 
     deadline = time.monotonic() + timeout
     pending = {req.name: req for req in requirements}
+    expected_versions: dict[str, Version] = {
+        name: Version(version)
+        for name, version in load_versions(pending).items()
+    }
 
     while pending:
         resolved = []
         for name, requirement in pending.items():
             versions = _fetch_versions(name)
+            expected = expected_versions.get(name)
+            if expected is not None:
+                if expected not in versions:
+                    continue
+                if requirement.specifier and expected not in requirement.specifier:
+                    continue
+                resolved.append(name)
+                continue
             if _specifier_satisfied(requirement.specifier, versions):
                 resolved.append(name)
         for name in resolved:
