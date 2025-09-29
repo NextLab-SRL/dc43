@@ -1,46 +1,38 @@
-from pathlib import Path
-from typing import Dict
+from __future__ import annotations
 
-import tomllib
+from pathlib import Path
+import sys
+
 from setuptools import setup
 
 
-def _load_version(package_name: str) -> str:
-    """Read the version of a local package from its ``pyproject.toml`` file."""
+SCRIPT_DIR = Path(__file__).resolve().parent / "scripts"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
-    pyproject_path = (
-        Path(__file__).resolve().parent
-        / "packages"
-        / package_name
-        / "pyproject.toml"
-    )
-
-    with pyproject_path.open("rb") as file:
-        data = tomllib.load(file)
-
-    return data["project"]["version"]
+from _internal_dependency_versions import load_versions
 
 
-PACKAGE_VERSIONS: Dict[str, str] = {
-    name: _load_version(name)
-    for name in (
-        "dc43-service-clients",
-        "dc43-service-backends",
-        "dc43-integrations",
-    )
-}
+_INTERNAL_DEPENDENCIES = [
+    "dc43-service-clients",
+    "dc43-service-backends",
+    "dc43-integrations",
+]
+
+_PACKAGE_VERSIONS = load_versions(_INTERNAL_DEPENDENCIES)
+
 
 install_requires = [
-    f"dc43-service-clients=={PACKAGE_VERSIONS['dc43-service-clients']}",
-    f"dc43-service-backends=={PACKAGE_VERSIONS['dc43-service-backends']}",
-    f"dc43-integrations=={PACKAGE_VERSIONS['dc43-integrations']}",
+    f"{name}=={_PACKAGE_VERSIONS[name]}" for name in _INTERNAL_DEPENDENCIES
+]
+install_requires += [
     "packaging>=21.0",
     "open-data-contract-standard==3.0.2",
 ]
 
 extras_require = {
     "spark": [
-        f"dc43-integrations[spark]=={PACKAGE_VERSIONS['dc43-integrations']}"
+        f"dc43-integrations[spark]=={_PACKAGE_VERSIONS['dc43-integrations']}"
     ],
     "test": [
         "pytest>=7.0",
@@ -55,7 +47,7 @@ extras_require = {
         "uvicorn",
         "jinja2",
         "python-multipart",
-        f"dc43-integrations[spark]=={PACKAGE_VERSIONS['dc43-integrations']}",
+        f"dc43-integrations[spark]=={_PACKAGE_VERSIONS['dc43-integrations']}",
     ],
 }
 
