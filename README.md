@@ -348,7 +348,9 @@ pip install open-data-contract-standard==3.0.2 pyspark
 # Tests
 
 - Install the shared test extras and run the suites that matter for the area you
-  are touching:
+  are touching.  The top-level pytest configuration automatically adds each
+  package's `src` directory to `sys.path`, so cloning the repo and running
+  `pytest` works even before the editable installs finish building.
 
 ```bash
 pip install -e ".[test]"
