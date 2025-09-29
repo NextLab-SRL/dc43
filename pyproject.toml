@@ -16,33 +16,7 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
-dependencies = [
-  "dc43-service-clients @ file:packages/dc43-service-clients",
-  "dc43-service-backends @ file:packages/dc43-service-backends",
-  "dc43-integrations @ file:packages/dc43-integrations",
-  "packaging>=21.0",
-  "open-data-contract-standard==3.0.2",
-]
-
-[project.optional-dependencies]
-spark = [
-  "dc43-integrations[spark] @ file:packages/dc43-integrations",
-]
-test = [
-  "pytest>=7.0",
-  "pyspark>=3.4",
-  "fastapi",
-  "jinja2",
-  "python-multipart",
-  "httpx",
-]
-demo = [
-  "fastapi",
-  "uvicorn",
-  "jinja2",
-  "python-multipart",
-  "dc43-integrations[spark] @ file:packages/dc43-integrations",
-]
+dynamic = ["dependencies", "optional-dependencies"]
 
 [project.scripts]
 dc43 = "dc43.cli:main"
