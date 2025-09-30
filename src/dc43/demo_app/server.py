@@ -510,21 +510,32 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
 
     _close_backend_client()
 
+    client_base_url = (base_url.rstrip("/") if base_url else "http://dc43-services")
+
     if base_url:
         _backend_app = None
         _backend_transport = None
-        _backend_client = httpx.AsyncClient(base_url=base_url)
+        _backend_client = httpx.AsyncClient(base_url=client_base_url)
     else:
         _backend_app = build_local_app(store)
         _backend_transport = ASGITransport(app=_backend_app)
         _backend_client = httpx.AsyncClient(
             transport=_backend_transport,
-            base_url="http://dc43-services",
+            base_url=client_base_url,
         )
 
-    contract_service = RemoteContractServiceClient(client=_backend_client)
-    dq_service = RemoteDataQualityServiceClient(client=_backend_client)
-    governance_service = RemoteGovernanceServiceClient(client=_backend_client)
+    contract_service = RemoteContractServiceClient(
+        base_url=client_base_url,
+        client=_backend_client,
+    )
+    dq_service = RemoteDataQualityServiceClient(
+        base_url=client_base_url,
+        client=_backend_client,
+    )
+    governance_service = RemoteGovernanceServiceClient(
+        base_url=client_base_url,
+        client=_backend_client,
+    )
 
 
 _initialise_backend(base_url=os.getenv("DC43_DEMO_BACKEND_URL"))
