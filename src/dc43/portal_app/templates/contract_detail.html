@@ -3,7 +3,8 @@
 <h1>Contract {{ contract.id }} {{ contract.version }}</h1>
 <p><a href="/contracts/{{ contract.id }}">Back to versions</a></p>
 <p>
-  <a class="btn btn-secondary btn-sm" href="/api/contracts/{{ contract.id }}/{{ contract.version }}">Download JSON</a>
+  <a class="btn btn-primary btn-sm" href="/contracts/{{ contract.id }}/{{ contract.version }}/edit">Edit</a>
+  <a class="btn btn-secondary btn-sm ms-2" href="/api/contracts/{{ contract.id }}/{{ contract.version }}">Download JSON</a>
 </p>
 
 <ul class="nav nav-tabs" id="contractTabs" role="tablist">

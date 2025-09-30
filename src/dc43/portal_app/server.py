@@ -3,6 +3,7 @@ from __future__ import annotations
 """FastAPI application exposing contract and dataset explorer views."""
 
 import asyncio
+import json
 import os
 from collections import defaultdict
 from datetime import datetime
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,6 +24,14 @@ from dc43_service_backends.web import build_local_app
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from dc43_service_clients._http_sync import close_client
+from dc43.portal_app.editor import (
+    ValidationError,
+    build_contract_from_payload,
+    contract_editor_state,
+    editor_context,
+    next_version,
+    validate_contract_payload,
+)
 from open_data_contract_standard.model import (  # type: ignore
     DataQuality,
     OpenDataContractStandard,
@@ -69,6 +78,7 @@ _STATUS_BADGES = {
 _backend_app: FastAPI | None = None
 _backend_transport: ASGITransport | None = None
 _backend_client: httpx.AsyncClient | None = None
+_contract_store: FSContractStore | None = None
 contract_service: RemoteContractServiceClient
 _governance_service: RemoteGovernanceServiceClient
 
@@ -91,8 +101,8 @@ def _close_backend_client() -> None:
 def _initialise_backend(*, base_url: str | None = None) -> None:
     """Configure remote service clients for the portal."""
 
-    global _backend_app, _backend_transport, _backend_client
-    global contract_service, quality_service, _governance_service
+    global _backend_app, _backend_transport, _backend_client, _contract_store
+    global contract_service, _governance_service
 
     _close_backend_client()
 
@@ -102,6 +112,7 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
         _backend_app = None
         _backend_transport = None
         _backend_client = httpx.AsyncClient(base_url=client_base_url)
+        _contract_store = None
     else:
         store_root = os.getenv("DC43_PORTAL_STORE")
         if store_root:
@@ -115,6 +126,7 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
             base_url=client_base_url,
             transport=_backend_transport,
         )
+        _contract_store = store
 
     contract_service = RemoteContractServiceClient(
         base_url=client_base_url,
@@ -146,6 +158,16 @@ def _key_version(value: str) -> tuple[int, Any]:
         return (0, Version(value))
     except InvalidVersion:
         return (1, value)
+
+
+def _require_store() -> FSContractStore:
+    store = _contract_store
+    if store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Contract editing is unavailable with the configured backend.",
+        )
+    return store
 
 
 def _dataset_status_payload(status: str | None) -> Dict[str, str]:
@@ -275,8 +297,10 @@ def _quality_rule_summary(dq: DataQuality) -> Dict[str, Any]:
         conditions.append(f"Value must be {dq.mustBe}")
     if dq.mustNotBe is not None:
         conditions.append(f"Value must not be {dq.mustNotBe}")
+    title = getattr(dq, "title", None)
+    fallback = getattr(dq, "rule", None) or getattr(dq, "name", None)
     return {
-        "title": dq.title or dq.rule or "Rule",
+        "title": (title or fallback or "Rule"),
         "conditions": conditions or ["Condition not specified"],
         "severity": dq.severity or "",
         "dimension": dq.dimension or "",
@@ -373,6 +397,132 @@ def create_app() -> FastAPI:
         ordered = sorted({str(cid) for cid in contract_ids})
         context = {"request": request, "contracts": ordered}
         return TEMPLATES.TemplateResponse("contracts.html", context)
+
+    @app.get("/contracts/new", response_class=HTMLResponse)
+    async def new_contract_form(request: Request) -> HTMLResponse:
+        store = _require_store()
+        editor_state = contract_editor_state()
+        editor_state["version"] = editor_state.get("version") or "1.0.0"
+        context = editor_context(
+            request,
+            store=store,
+            editor_state=editor_state,
+        )
+        return TEMPLATES.TemplateResponse("new_contract.html", context)
+
+    @app.post("/contracts/new", response_class=HTMLResponse)
+    async def create_contract(request: Request, payload: str = Form(...)) -> HTMLResponse:
+        store = _require_store()
+        error: Optional[str] = None
+        try:
+            editor_state = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            error = f"Invalid editor payload: {exc.msg}"
+            editor_state = contract_editor_state()
+            editor_state["version"] = editor_state.get("version") or "1.0.0"
+        else:
+            try:
+                validate_contract_payload(editor_state, store=store, editing=False)
+                model = build_contract_from_payload(editor_state)
+                await asyncio.to_thread(store.put, model)
+                return RedirectResponse(url="/contracts", status_code=303)
+            except (ValidationError, ValueError) as exc:
+                error = str(exc)
+            except Exception as exc:  # pragma: no cover - defensive logging of unexpected issues
+                error = str(exc)
+        context = editor_context(
+            request,
+            store=store,
+            editor_state=editor_state,
+            error=error,
+        )
+        return TEMPLATES.TemplateResponse("new_contract.html", context)
+
+    @app.get(
+        "/contracts/{contract_id}/{contract_version}/edit",
+        response_class=HTMLResponse,
+    )
+    async def edit_contract_form(
+        request: Request, contract_id: str, contract_version: str
+    ) -> HTMLResponse:
+        store = _require_store()
+        try:
+            contract = await asyncio.to_thread(store.get, contract_id, contract_version)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        editor_state = contract_editor_state(contract)
+        baseline_state = json.loads(json.dumps(editor_state))
+        editor_state["version"] = next_version(contract_version)
+        context = editor_context(
+            request,
+            store=store,
+            editor_state=editor_state,
+            editing=True,
+            original_version=contract_version,
+            baseline_state=baseline_state,
+            baseline_contract=contract,
+        )
+        return TEMPLATES.TemplateResponse("new_contract.html", context)
+
+    @app.post(
+        "/contracts/{contract_id}/{contract_version}/edit",
+        response_class=HTMLResponse,
+    )
+    async def save_contract_edits(
+        request: Request,
+        contract_id: str,
+        contract_version: str,
+        payload: str = Form(...),
+        original_version: str = Form(""),
+    ) -> HTMLResponse:
+        store = _require_store()
+        error: Optional[str] = None
+        base_version = original_version or contract_version
+        baseline_contract: Optional[OpenDataContractStandard] = None
+        baseline_state: Optional[Dict[str, Any]] = None
+        try:
+            baseline_contract = await asyncio.to_thread(store.get, contract_id, base_version)
+            baseline_state = json.loads(json.dumps(contract_editor_state(baseline_contract)))
+        except FileNotFoundError:
+            baseline_contract = None
+            baseline_state = None
+        try:
+            editor_state = json.loads(payload)
+        except json.JSONDecodeError as exc:
+            error = f"Invalid editor payload: {exc.msg}"
+            editor_state = contract_editor_state()
+            editor_state["id"] = contract_id
+            editor_state["version"] = next_version(contract_version)
+        else:
+            try:
+                validate_contract_payload(
+                    editor_state,
+                    store=store,
+                    editing=True,
+                    base_contract_id=contract_id,
+                    base_version=base_version,
+                )
+                model = build_contract_from_payload(editor_state)
+                await asyncio.to_thread(store.put, model)
+                return RedirectResponse(
+                    url=f"/contracts/{model.id}/{model.version}",
+                    status_code=303,
+                )
+            except (ValidationError, ValueError) as exc:
+                error = str(exc)
+            except Exception as exc:  # pragma: no cover - defensive logging of unexpected issues
+                error = str(exc)
+        context = editor_context(
+            request,
+            store=store,
+            editor_state=editor_state,
+            editing=True,
+            original_version=base_version,
+            baseline_state=baseline_state,
+            baseline_contract=baseline_contract,
+            error=error,
+        )
+        return TEMPLATES.TemplateResponse("new_contract.html", context)
 
     @app.get("/contracts/{contract_id}", response_class=HTMLResponse)
     async def contract_versions(request: Request, contract_id: str) -> HTMLResponse:

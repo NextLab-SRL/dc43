@@ -46,7 +46,17 @@ def test_contracts_page_renders_without_records(tmp_path, monkeypatch) -> None:
         with TestClient(app) as client:
             response = client.get("/contracts")
     assert response.status_code == 200
-    assert "No contracts have been registered yet." in response.text
+    assert "No contracts stored." in response.text
+
+
+def test_new_contract_form_renders(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DC43_PORTAL_STORE", str(tmp_path))
+    with _PortalEnv():
+        app = portal_server.create_app()
+        with TestClient(app) as client:
+            response = client.get("/contracts/new")
+    assert response.status_code == 200
+    assert "New Contract" in response.text
 
 
 def test_datasets_page_renders_without_activity(tmp_path, monkeypatch) -> None:

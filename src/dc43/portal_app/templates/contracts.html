@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Contracts</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="mb-0">Contracts</h1>
+  <a class="btn btn-primary" href="/contracts/new">Add Contract</a>
+</div>
 <table class="table table-striped">
     <thead><tr><th>Contract ID</th></tr></thead>
     <tbody>
@@ -11,5 +14,5 @@
     {% endfor %}
     </tbody>
 </table>
-{% if not contracts %}<p>No contracts have been registered yet.</p>{% endif %}
+{% if not contracts %}<p>No contracts stored.</p>{% endif %}
 {% endblock %}
