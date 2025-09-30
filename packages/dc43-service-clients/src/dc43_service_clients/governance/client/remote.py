@@ -13,6 +13,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
     ) from exc
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+from dc43_service_clients._http_sync import ensure_response, close_client
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
 from dc43_service_clients.data_quality.transport import (
     encode_observation_payload,
@@ -42,7 +43,7 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         self,
         *,
         base_url: str = "http://localhost:8000",
-        client: httpx.Client | None = None,
+        client: httpx.Client | httpx.AsyncClient | None = None,
         transport: httpx.BaseTransport | None = None,
         headers: Mapping[str, str] | None = None,
         auth: httpx.Auth | tuple[str, str] | None = None,
@@ -74,7 +75,7 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
 
     def close(self) -> None:
         if self._owns_client:
-            self._client.close()
+            close_client(self._client)
 
     def _request_path(self, path: str) -> str:
         if self._base_url and not path.startswith("http"):
@@ -94,9 +95,11 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
             payload = {"token": credentials}
         else:
             payload = None
-        response = self._client.post(
-            self._request_path("/governance/auth"),
-            json={"credentials": payload},
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/auth"),
+                json={"credentials": payload},
+            )
         )
         response.raise_for_status()
 
@@ -116,21 +119,23 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         draft_on_violation: bool = False,
     ) -> QualityAssessment:
         payload = observations()
-        response = self._client.post(
-            self._request_path("/governance/evaluate"),
-            json={
-                "contract_id": contract_id,
-                "contract_version": contract_version,
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-                "validation": encode_validation_result(validation),
-                "observations": encode_observation_payload(payload),
-                "bump": bump,
-                "context": encode_draft_context(context),
-                "pipeline_context": encode_pipeline_context(pipeline_context),
-                "operation": operation,
-                "draft_on_violation": draft_on_violation,
-            },
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/evaluate"),
+                json={
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "validation": encode_validation_result(validation),
+                    "observations": encode_observation_payload(payload),
+                    "bump": bump,
+                    "context": encode_draft_context(context),
+                    "pipeline_context": encode_pipeline_context(pipeline_context),
+                    "operation": operation,
+                    "draft_on_violation": draft_on_violation,
+                },
+            )
         )
         response.raise_for_status()
         return decode_quality_assessment(response.json())
@@ -151,22 +156,24 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         draft_requested: bool = False,
         operation: str | None = None,
     ) -> Optional[OpenDataContractStandard]:
-        response = self._client.post(
-            self._request_path("/governance/review"),
-            json={
-                "validation": encode_validation_result(validation),
-                "base_contract": base_contract.model_dump(by_alias=True, exclude_none=True),
-                "bump": bump,
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-                "data_format": data_format,
-                "dq_status": encode_validation_result(dq_status),
-                "dq_feedback": dict(dq_feedback) if isinstance(dq_feedback, Mapping) else dq_feedback,
-                "context": encode_draft_context(context),
-                "pipeline_context": encode_pipeline_context(pipeline_context),
-                "draft_requested": draft_requested,
-                "operation": operation,
-            },
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/review"),
+                json={
+                    "validation": encode_validation_result(validation),
+                    "base_contract": base_contract.model_dump(by_alias=True, exclude_none=True),
+                    "bump": bump,
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "data_format": data_format,
+                    "dq_status": encode_validation_result(dq_status),
+                    "dq_feedback": dict(dq_feedback) if isinstance(dq_feedback, Mapping) else dq_feedback,
+                    "context": encode_draft_context(context),
+                    "pipeline_context": encode_pipeline_context(pipeline_context),
+                    "draft_requested": draft_requested,
+                    "operation": operation,
+                },
+            )
         )
         response.raise_for_status()
         return decode_contract(response.json())
@@ -180,15 +187,17 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         context: QualityDraftContext | None = None,
         pipeline_context: PipelineContextSpec | None = None,
     ) -> OpenDataContractStandard:
-        response = self._client.post(
-            self._request_path("/governance/draft"),
-            json={
-                "validation": encode_validation_result(validation),
-                "base_contract": base_contract.model_dump(by_alias=True, exclude_none=True),
-                "bump": bump,
-                "context": encode_draft_context(context),
-                "pipeline_context": encode_pipeline_context(pipeline_context),
-            },
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/draft"),
+                json={
+                    "validation": encode_validation_result(validation),
+                    "base_contract": base_contract.model_dump(by_alias=True, exclude_none=True),
+                    "bump": bump,
+                    "context": encode_draft_context(context),
+                    "pipeline_context": encode_pipeline_context(pipeline_context),
+                },
+            )
         )
         response.raise_for_status()
         payload = response.json()
@@ -204,14 +213,16 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         dataset_id: str,
         dataset_version: str,
     ) -> Optional[ValidationResult]:
-        response = self._client.get(
-            self._request_path("/governance/status"),
-            params={
-                "contract_id": contract_id,
-                "contract_version": contract_version,
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-            },
+        response = ensure_response(
+            self._client.get(
+                self._request_path("/governance/status"),
+                params={
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                },
+            )
         )
         if response.status_code == 404:
             return None
@@ -226,14 +237,16 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         contract_id: str,
         contract_version: str,
     ) -> None:
-        response = self._client.post(
-            self._request_path("/governance/link"),
-            json={
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-                "contract_id": contract_id,
-                "contract_version": contract_version,
-            },
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/link"),
+                json={
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                },
+            )
         )
         response.raise_for_status()
 
@@ -243,14 +256,16 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         dataset_id: str,
         dataset_version: Optional[str] = None,
     ) -> Optional[str]:
-        response = self._client.get(
-            self._request_path("/governance/linked"),
-            params={
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-            }
-            if dataset_version is not None
-            else {"dataset_id": dataset_id},
+        response = ensure_response(
+            self._client.get(
+                self._request_path("/governance/linked"),
+                params={
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                }
+                if dataset_version is not None
+                else {"dataset_id": dataset_id},
+            )
         )
         if response.status_code == 404:
             return None
@@ -267,14 +282,16 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         dataset_id: str,
         dataset_version: Optional[str] = None,
     ) -> Sequence[Mapping[str, object]]:
-        response = self._client.get(
-            self._request_path("/governance/activity"),
-            params={
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-            }
-            if dataset_version is not None
-            else {"dataset_id": dataset_id},
+        response = ensure_response(
+            self._client.get(
+                self._request_path("/governance/activity"),
+                params={
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                }
+                if dataset_version is not None
+                else {"dataset_id": dataset_id},
+            )
         )
         response.raise_for_status()
         payload = response.json()
