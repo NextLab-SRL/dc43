@@ -1,32 +1,1111 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ 'Edit Contract' if editing else 'New Contract' }}</h1>
-<form method="post">
-  <div class="mb-3">
-    <label class="form-label">Contract ID</label>
-    <input class="form-control" name="contract_id" value="{{ contract_id or '' }}" {% if editing %}readonly{% endif %}/>
+<h1 class="mb-4">{{ 'Edit Contract' if editing else 'New Contract' }}</h1>
+{% if editing and original_version %}
+<div class="alert alert-info">
+  Editing version <strong>{{ original_version }}</strong>. Updates will be saved as version <strong>{{ editor_state.version }}</strong>.
+</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+<form id="contract-form" method="post" class="mb-5">
+  {% if editing %}
+  <input type="hidden" name="original_version" value="{{ original_version }}"/>
+  {% endif %}
+  <input type="hidden" name="payload" id="contract-payload"/>
+  <section class="mb-4">
+    <h2 class="h4">Contract basics</h2>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Contract ID</label>
+        <input class="form-control" data-field="id" {% if editing %}readonly{% endif %} placeholder="orders_enriched"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Version</label>
+        <input class="form-control" data-field="version" placeholder="1.2.0"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Kind</label>
+        <input class="form-control" data-field="kind" placeholder="DataContract"/>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">API version</label>
+        <input class="form-control" data-field="apiVersion" placeholder="3.0.2"/>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Name</label>
+        <input class="form-control" data-field="name" placeholder="Orders enriched"/>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Status</label>
+        <input class="form-control" data-field="status" placeholder="active"/>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" data-field="description" rows="2" placeholder="Describe the contract intent"></textarea>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Domain</label>
+        <input class="form-control" data-field="domain" placeholder="sales"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Data product</label>
+        <input class="form-control" data-field="dataProduct" placeholder="customer360"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tenant</label>
+        <input class="form-control" data-field="tenant" placeholder="finance"/>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Tags</label>
+        <input class="form-control" data-field="tags" placeholder="gold, critical"/>
+        <div class="form-text">Comma-separated list.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Servers</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" id="add-server">Add server</button>
+    </div>
+    <div id="servers"></div>
+  </section>
+
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Schema</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" id="add-schema-object">Add schema object</button>
+    </div>
+    <div id="schema-objects"></div>
+  </section>
+
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Contract custom properties</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" id="add-contract-custom">Add property</button>
+    </div>
+    <div id="contract-custom-properties"></div>
+  </section>
+
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Support &amp; communication channels</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" id="add-support">Add channel</button>
+    </div>
+    <div id="support-channels"></div>
+  </section>
+
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Service level agreements</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" id="add-sla">Add SLA</button>
+    </div>
+    <div id="sla-properties"></div>
+  </section>
+
+  <div class="d-flex gap-2">
+    <button class="btn btn-primary" type="submit">Save</button>
+    <a class="btn btn-outline-secondary" href="{{ '/contracts/' ~ editor_state.id ~ '/' ~ original_version if editing and original_version else '/contracts' }}">Cancel</a>
   </div>
-  <div class="mb-3">
-    <label class="form-label">Version</label>
-    <input class="form-control" name="contract_version" value="{{ contract_version or '' }}"/>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Name</label>
-    <input class="form-control" name="name" value="{{ name or '' }}"/>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Description</label>
-    <input class="form-control" name="description" value="{{ description or '' }}"/>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Dataset Path</label>
-    <input class="form-control" name="dataset_path" value="{{ dataset_path or '' }}"/>
-  </div>
-  <div class="mb-3">
-    <label class="form-label">Columns (name:type per line)</label>
-    <textarea class="form-control" name="columns" rows="5" placeholder="order_id:bigint&#10;amount:double">{{ columns or '' }}</textarea>
-  </div>
-  <button class="btn btn-primary" type="submit">Save</button>
 </form>
-{% if error %}<div class="alert alert-danger mt-3">{{ error }}</div>{% endif %}
+
+<template id="server-template">
+  <div class="card server-card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="h5 mb-0">Server</h3>
+        <button type="button" class="btn btn-sm btn-outline-danger remove-server">Remove</button>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label">Name</label>
+          <input class="form-control" data-field="server" placeholder="local"/>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Type</label>
+          <input class="form-control" data-field="type" placeholder="filesystem"/>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Environment</label>
+          <input class="form-control" data-field="environment" placeholder="prod"/>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Format</label>
+          <input class="form-control" data-field="format" placeholder="parquet"/>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Path</label>
+          <input class="form-control" data-field="path" placeholder="data/orders"/>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Dataset</label>
+          <input class="form-control" data-field="dataset" placeholder="orders"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Database</label>
+          <input class="form-control" data-field="database"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Schema</label>
+          <input class="form-control" data-field="schema"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Catalog</label>
+          <input class="form-control" data-field="catalog"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Host</label>
+          <input class="form-control" data-field="host"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Port</label>
+          <input class="form-control" data-field="port" type="number" min="0"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Location</label>
+          <input class="form-control" data-field="location"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Endpoint URL</label>
+          <input class="form-control" data-field="endpointUrl"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Project</label>
+          <input class="form-control" data-field="project"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Region</label>
+          <input class="form-control" data-field="region"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Warehouse</label>
+          <input class="form-control" data-field="warehouse"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Service name</label>
+          <input class="form-control" data-field="serviceName"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Account</label>
+          <input class="form-control" data-field="account"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Staging directory</label>
+          <input class="form-control" data-field="stagingDir"/>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" rows="2" data-field="description"></textarea>
+        </div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="h6 mb-0">Server custom properties</h4>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-server-custom">Add property</button>
+        </div>
+        <div class="custom-property-list"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="schema-object-template">
+  <div class="card schema-object mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="h5 mb-0">Schema object</h3>
+        <button type="button" class="btn btn-sm btn-outline-danger remove-schema-object">Remove</button>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Name</label>
+          <input class="form-control" data-field="name" placeholder="orders_enriched"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Business name</label>
+          <input class="form-control" data-field="businessName"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Logical type</label>
+          <input class="form-control" data-field="logicalType"/>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" rows="2" data-field="description"></textarea>
+        </div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="h6 mb-0">Fields</h4>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-property">Add field</button>
+        </div>
+        <div class="schema-properties"></div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="h6 mb-0">Schema custom properties</h4>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-schema-custom">Add property</button>
+        </div>
+        <div class="schema-custom-properties"></div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="h6 mb-0">Schema data quality</h4>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-schema-quality">Add check</button>
+        </div>
+        <div class="schema-quality"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="schema-property-template">
+  <div class="schema-property border rounded p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="h6 mb-0">Field</h4>
+      <button type="button" class="btn btn-sm btn-outline-danger remove-property">Remove</button>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">Name</label>
+        <input class="form-control" data-field="name" placeholder="order_id"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Physical type</label>
+        <input class="form-control" data-field="physicalType" placeholder="integer"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Required</label>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" data-field="required"/>
+          <label class="form-check-label">Field must be present</label>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Unique</label>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" data-field="unique"/>
+          <label class="form-check-label">Values must be unique</label>
+        </div>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" rows="2" data-field="description"></textarea>
+      </div>
+    </div>
+    <details class="mt-3">
+      <summary>Advanced settings</summary>
+      <div class="row g-3 mt-2">
+        <div class="col-md-4">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" data-field="primaryKey"/>
+            <label class="form-check-label">Primary key</label>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" data-field="partitioned"/>
+            <label class="form-check-label">Partition key</label>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Classification</label>
+          <input class="form-control" data-field="classification" placeholder="confidential"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Business name</label>
+          <input class="form-control" data-field="businessName"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Logical type</label>
+          <input class="form-control" data-field="logicalType" placeholder="currency"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Logical type options (JSON)</label>
+          <textarea class="form-control" rows="2" data-field="logicalTypeOptions"></textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Examples</label>
+          <textarea class="form-control" rows="2" data-field="examples" placeholder="one example per line"></textarea>
+        </div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="h6 mb-0">Field custom properties</h5>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-property-custom">Add property</button>
+        </div>
+        <div class="property-custom-properties"></div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="h6 mb-0">Data quality checks</h5>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-property-quality">Add check</button>
+        </div>
+        <div class="property-quality"></div>
+      </div>
+    </details>
+  </div>
+</template>
+
+<template id="custom-property-template">
+  <div class="row g-2 align-items-end custom-property-row mb-2">
+    <div class="col-md-5">
+      <label class="form-label">Property</label>
+      <input class="form-control" data-field="property" placeholder="dc43.versioning"/>
+    </div>
+    <div class="col-md-5">
+      <label class="form-label">Value</label>
+      <input class="form-control" data-field="value" placeholder='{"mode": "delta"}'/>
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button type="button" class="btn btn-outline-danger remove-custom-property w-100">Remove</button>
+    </div>
+  </div>
+</template>
+
+<template id="quality-template">
+  <div class="quality-item border rounded p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0">Quality rule</h6>
+      <button type="button" class="btn btn-sm btn-outline-danger remove-quality">Remove</button>
+    </div>
+    <div class="row g-2">
+      <div class="col-md-3">
+        <label class="form-label">Name</label>
+        <input class="form-control" data-field="name" placeholder="Amount positive"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Type</label>
+        <input class="form-control" data-field="type" placeholder="expectation"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Expectation</label>
+        <select class="form-select" data-field="expectation">
+          <option value=""></option>
+          <option value="mustBe">mustBe</option>
+          <option value="mustNotBe">mustNotBe</option>
+          <option value="mustBeGreaterThan">mustBeGreaterThan</option>
+          <option value="mustBeGreaterOrEqualTo">mustBeGreaterOrEqualTo</option>
+          <option value="mustBeLessThan">mustBeLessThan</option>
+          <option value="mustBeLessOrEqualTo">mustBeLessOrEqualTo</option>
+          <option value="mustBeBetween">mustBeBetween</option>
+          <option value="mustNotBeBetween">mustNotBeBetween</option>
+          <option value="query">query</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Value</label>
+        <input class="form-control" data-field="expectationValue" placeholder="100"/>
+      </div>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-md-4">
+        <label class="form-label">Dimension</label>
+        <input class="form-control" data-field="dimension" placeholder="freshness"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Severity</label>
+        <input class="form-control" data-field="severity" placeholder="high"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Rule</label>
+        <input class="form-control" data-field="rule" placeholder="amount > 0"/>
+      </div>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-md-6">
+        <label class="form-label">Description</label>
+        <input class="form-control" data-field="description"/>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Business impact</label>
+        <input class="form-control" data-field="businessImpact"/>
+      </div>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-md-6">
+        <label class="form-label">Schedule</label>
+        <input class="form-control" data-field="schedule" placeholder="daily"/>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Scheduler</label>
+        <input class="form-control" data-field="scheduler" placeholder="airflow"/>
+      </div>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-md-6">
+        <label class="form-label">Tags</label>
+        <input class="form-control" data-field="tags" placeholder="critical, sla"/>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Implementation (JSON)</label>
+        <textarea class="form-control" rows="2" data-field="implementation" placeholder='{"engine": "great_expectations"}'></textarea>
+      </div>
+    </div>
+    <div class="mt-3">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0">Quality custom properties</h6>
+        <button type="button" class="btn btn-sm btn-outline-secondary add-quality-custom">Add property</button>
+      </div>
+      <div class="quality-custom-properties"></div>
+    </div>
+  </div>
+</template>
+
+<template id="support-template">
+  <div class="support-item border rounded p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h4 class="h6 mb-0">Communication channel</h4>
+      <button type="button" class="btn btn-sm btn-outline-danger remove-support">Remove</button>
+    </div>
+    <div class="row g-2">
+      <div class="col-md-4">
+        <label class="form-label">Channel</label>
+        <input class="form-control" data-field="channel" placeholder="slack"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">URL</label>
+        <input class="form-control" data-field="url" placeholder="https://..."/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tool</label>
+        <input class="form-control" data-field="tool" placeholder="slack"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Scope</label>
+        <input class="form-control" data-field="scope" placeholder="incident"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Invitation URL</label>
+        <input class="form-control" data-field="invitationUrl"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Description</label>
+        <input class="form-control" data-field="description"/>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="sla-template">
+  <div class="sla-item border rounded p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h4 class="h6 mb-0">SLA property</h4>
+      <button type="button" class="btn btn-sm btn-outline-danger remove-sla">Remove</button>
+    </div>
+    <div class="row g-2">
+      <div class="col-md-4">
+        <label class="form-label">Property</label>
+        <input class="form-control" data-field="property" placeholder="freshness"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Value</label>
+        <input class="form-control" data-field="value" placeholder="1"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Unit</label>
+        <input class="form-control" data-field="unit" placeholder="hour"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Element</label>
+        <input class="form-control" data-field="element" placeholder="latency"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Driver</label>
+        <input class="form-control" data-field="driver" placeholder="pipeline"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Extended value</label>
+        <input class="form-control" data-field="valueExt" placeholder="critical"/>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script type="application/json" id="contract-data">{{ editor_state | tojson }}</script>
+<script>
+(function() {
+  const dataEl = document.getElementById('contract-data');
+  const payloadInput = document.getElementById('contract-payload');
+  const form = document.getElementById('contract-form');
+  let initialData = {};
+  try {
+    initialData = JSON.parse(dataEl.textContent || '{}');
+  } catch (err) {
+    console.warn('Unable to parse editor state', err);
+    initialData = {};
+  }
+
+  function normaliseArray(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  function setField(selector, value) {
+    const field = document.querySelector(selector);
+    if (field) {
+      if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+        field.value = value ?? '';
+      }
+    }
+  }
+
+  setField('input[data-field="id"]', initialData.id || '');
+  setField('input[data-field="version"]', initialData.version || '');
+  setField('input[data-field="kind"]', initialData.kind || 'DataContract');
+  setField('input[data-field="apiVersion"]', initialData.apiVersion || '3.0.2');
+  setField('input[data-field="name"]', initialData.name || '');
+  setField('input[data-field="status"]', initialData.status || '');
+  setField('textarea[data-field="description"]', initialData.description || '');
+  setField('input[data-field="domain"]', initialData.domain || '');
+  setField('input[data-field="dataProduct"]', initialData.dataProduct || '');
+  setField('input[data-field="tenant"]', initialData.tenant || '');
+  setField('input[data-field="tags"]', Array.isArray(initialData.tags) ? initialData.tags.join(', ') : (initialData.tags || ''));
+
+  function createFromTemplate(id) {
+    const tpl = document.getElementById(id);
+    if (!tpl) {
+      throw new Error('Missing template ' + id);
+    }
+    return tpl.content.firstElementChild.cloneNode(true);
+  }
+
+  function attachCustomPropertyHandlers(container, initial) {
+    const list = container;
+    normaliseArray(initial).forEach((item) => {
+      list.appendChild(createCustomProperty(item));
+    });
+    if (!list.children.length) {
+      list.appendChild(createCustomProperty());
+    }
+  }
+
+  function createCustomProperty(initial) {
+    const node = createFromTemplate('custom-property-template');
+    const propInput = node.querySelector('input[data-field="property"]');
+    const valueInput = node.querySelector('input[data-field="value"]');
+    if (propInput) {
+      propInput.value = initial && initial.property ? initial.property : '';
+    }
+    if (valueInput) {
+      valueInput.value = initial && initial.value !== undefined ? initial.value : '';
+    }
+    const removeBtn = node.querySelector('.remove-custom-property');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  function createQuality(initial) {
+    const node = createFromTemplate('quality-template');
+    const fieldMap = [
+      'name', 'type', 'expectation', 'expectationValue', 'dimension', 'severity',
+      'rule', 'description', 'businessImpact', 'schedule', 'scheduler', 'tags', 'implementation'
+    ];
+    fieldMap.forEach((field) => {
+      const input = node.querySelector('[data-field="' + field + '"]');
+      if (input) {
+        const value = initial && Object.prototype.hasOwnProperty.call(initial, field) ? initial[field] : '';
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+          input.value = value ?? '';
+        }
+        if (input instanceof HTMLSelectElement) {
+          input.value = value ?? '';
+        }
+      }
+    });
+    const customContainer = node.querySelector('.quality-custom-properties');
+    if (customContainer) {
+      normaliseArray(initial && initial.customProperties).forEach((item) => {
+        customContainer.appendChild(createCustomProperty(item));
+      });
+      const addBtn = node.querySelector('.add-quality-custom');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          customContainer.appendChild(createCustomProperty());
+        });
+      }
+      if (!customContainer.children.length) {
+        customContainer.appendChild(createCustomProperty());
+      }
+    }
+    const removeBtn = node.querySelector('.remove-quality');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  function createProperty(initial) {
+    const node = createFromTemplate('schema-property-template');
+    const simpleFields = [
+      'name', 'physicalType', 'description', 'classification', 'businessName', 'logicalType', 'logicalTypeOptions', 'examples'
+    ];
+    simpleFields.forEach((field) => {
+      const input = node.querySelector('[data-field="' + field + '"]');
+      if (input) {
+        const value = initial && initial[field] !== undefined ? initial[field] : '';
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+          input.value = value ?? '';
+        }
+      }
+    });
+    const booleanFields = ['required', 'unique', 'partitioned', 'primaryKey'];
+    booleanFields.forEach((field) => {
+      const input = node.querySelector('[data-field="' + field + '"]');
+      if (input instanceof HTMLInputElement) {
+        const value = initial && typeof initial[field] === 'boolean' ? initial[field] : false;
+        input.checked = Boolean(value);
+      }
+    });
+    const customContainer = node.querySelector('.property-custom-properties');
+    if (customContainer) {
+      attachCustomPropertyHandlers(customContainer, initial && initial.customProperties);
+      const addBtn = node.querySelector('.add-property-custom');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          customContainer.appendChild(createCustomProperty());
+        });
+      }
+    }
+    const qualityContainer = node.querySelector('.property-quality');
+    if (qualityContainer) {
+      const qualityItems = normaliseArray(initial && initial.quality);
+      if (qualityItems.length) {
+        qualityItems.forEach((item) => qualityContainer.appendChild(createQuality(item)));
+      }
+      const addBtn = node.querySelector('.add-property-quality');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          qualityContainer.appendChild(createQuality());
+        });
+      }
+    }
+    const removeBtn = node.querySelector('.remove-property');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  function createSchemaObject(initial) {
+    const node = createFromTemplate('schema-object-template');
+    ['name', 'description', 'businessName', 'logicalType'].forEach((field) => {
+      const input = node.querySelector('[data-field="' + field + '"]');
+      if (input) {
+        const value = initial && initial[field] !== undefined ? initial[field] : '';
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+          input.value = value ?? '';
+        }
+      }
+    });
+    const propertiesContainer = node.querySelector('.schema-properties');
+    const schemaProperties = normaliseArray(initial && initial.properties);
+    if (propertiesContainer) {
+      if (schemaProperties.length) {
+        schemaProperties.forEach((prop) => propertiesContainer.appendChild(createProperty(prop)));
+      } else {
+        propertiesContainer.appendChild(createProperty());
+      }
+      const addBtn = node.querySelector('.add-property');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          propertiesContainer.appendChild(createProperty());
+        });
+      }
+    }
+    const customContainer = node.querySelector('.schema-custom-properties');
+    if (customContainer) {
+      attachCustomPropertyHandlers(customContainer, initial && initial.customProperties);
+      const addBtn = node.querySelector('.add-schema-custom');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          customContainer.appendChild(createCustomProperty());
+        });
+      }
+    }
+    const qualityContainer = node.querySelector('.schema-quality');
+    if (qualityContainer) {
+      const qualityItems = normaliseArray(initial && initial.quality);
+      if (qualityItems.length) {
+        qualityItems.forEach((item) => qualityContainer.appendChild(createQuality(item)));
+      }
+      const addBtn = node.querySelector('.add-schema-quality');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          qualityContainer.appendChild(createQuality());
+        });
+      }
+    }
+    const removeBtn = node.querySelector('.remove-schema-object');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  function createServer(initial) {
+    const node = createFromTemplate('server-template');
+    const fields = [
+      'server', 'type', 'environment', 'format', 'path', 'dataset', 'database', 'schema', 'catalog', 'host', 'port',
+      'location', 'endpointUrl', 'project', 'region', 'warehouse', 'serviceName', 'account', 'stagingDir', 'description'
+    ];
+    fields.forEach((field) => {
+      const input = node.querySelector('[data-field="' + field + '"]');
+      if (input) {
+        let value = initial && initial[field] !== undefined ? initial[field] : '';
+        if (field === 'port' && value === 0) {
+          value = 0;
+        }
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+          input.value = value ?? '';
+        }
+      }
+    });
+    const customContainer = node.querySelector('.custom-property-list');
+    if (customContainer) {
+      attachCustomPropertyHandlers(customContainer, initial && initial.customProperties);
+      const addBtn = node.querySelector('.add-server-custom');
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          customContainer.appendChild(createCustomProperty());
+        });
+      }
+    }
+    const removeBtn = node.querySelector('.remove-server');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  function createSupport(initial) {
+    const node = createFromTemplate('support-template');
+    ['channel', 'url', 'tool', 'scope', 'invitationUrl', 'description'].forEach((field) => {
+      const input = node.querySelector('[data-field="' + field + '"]');
+      if (input) {
+        const value = initial && initial[field] !== undefined ? initial[field] : '';
+        if (input instanceof HTMLInputElement) {
+          input.value = value ?? '';
+        }
+      }
+    });
+    const removeBtn = node.querySelector('.remove-support');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  function createSla(initial) {
+    const node = createFromTemplate('sla-template');
+    ['property', 'value', 'unit', 'element', 'driver', 'valueExt'].forEach((field) => {
+      const input = node.querySelector('[data-field="' + field + '"]');
+      if (input) {
+        const value = initial && initial[field] !== undefined ? initial[field] : '';
+        if (input instanceof HTMLInputElement) {
+          input.value = value ?? '';
+        }
+      }
+    });
+    const removeBtn = node.querySelector('.remove-sla');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  const serversContainer = document.getElementById('servers');
+  if (serversContainer) {
+    const servers = normaliseArray(initialData.servers);
+    if (servers.length) {
+      servers.forEach((server) => serversContainer.appendChild(createServer(server)));
+    } else {
+      serversContainer.appendChild(createServer({}));
+    }
+    const addServerBtn = document.getElementById('add-server');
+    if (addServerBtn) {
+      addServerBtn.addEventListener('click', () => {
+        serversContainer.appendChild(createServer({}));
+      });
+    }
+  }
+
+  const schemaContainer = document.getElementById('schema-objects');
+  if (schemaContainer) {
+    const schemaObjects = normaliseArray(initialData.schemaObjects);
+    if (schemaObjects.length) {
+      schemaObjects.forEach((obj) => schemaContainer.appendChild(createSchemaObject(obj)));
+    } else {
+      schemaContainer.appendChild(createSchemaObject({}));
+    }
+    const addSchemaBtn = document.getElementById('add-schema-object');
+    if (addSchemaBtn) {
+      addSchemaBtn.addEventListener('click', () => {
+        schemaContainer.appendChild(createSchemaObject({}));
+      });
+    }
+  }
+
+  const contractCustomContainer = document.getElementById('contract-custom-properties');
+  if (contractCustomContainer) {
+    attachCustomPropertyHandlers(contractCustomContainer, initialData.customProperties);
+    const addContractCustom = document.getElementById('add-contract-custom');
+    if (addContractCustom) {
+      addContractCustom.addEventListener('click', () => {
+        contractCustomContainer.appendChild(createCustomProperty());
+      });
+    }
+  }
+
+  const supportContainer = document.getElementById('support-channels');
+  if (supportContainer) {
+    const supportItems = normaliseArray(initialData.support);
+    if (supportItems.length) {
+      supportItems.forEach((item) => supportContainer.appendChild(createSupport(item)));
+    }
+    const addSupportBtn = document.getElementById('add-support');
+    if (addSupportBtn) {
+      addSupportBtn.addEventListener('click', () => {
+        supportContainer.appendChild(createSupport({}));
+      });
+    }
+  }
+
+  const slaContainer = document.getElementById('sla-properties');
+  if (slaContainer) {
+    const slaItems = normaliseArray(initialData.slaProperties);
+    if (slaItems.length) {
+      slaItems.forEach((item) => slaContainer.appendChild(createSla(item)));
+    }
+    const addSlaBtn = document.getElementById('add-sla');
+    if (addSlaBtn) {
+      addSlaBtn.addEventListener('click', () => {
+        slaContainer.appendChild(createSla({}));
+      });
+    }
+  }
+
+  function collectCustomProperties(container) {
+    const rows = container ? Array.from(container.querySelectorAll('.custom-property-row')) : [];
+    return rows.map((row) => {
+      const property = row.querySelector('[data-field="property"]');
+      const value = row.querySelector('[data-field="value"]');
+      const propValue = property ? property.value.trim() : '';
+      const valValue = value ? value.value.trim() : '';
+      if (!propValue && !valValue) {
+        return null;
+      }
+      return { property: propValue, value: valValue };
+    }).filter(Boolean);
+  }
+
+  function collectQuality(container) {
+    if (!container) {
+      return [];
+    }
+    const items = Array.from(container.querySelectorAll('.quality-item'));
+    return items.map((item) => {
+      const data = {};
+      ['name', 'type', 'expectation', 'expectationValue', 'dimension', 'severity', 'rule', 'description', 'businessImpact', 'schedule', 'scheduler', 'tags', 'implementation'].forEach((field) => {
+        const input = item.querySelector('[data-field="' + field + '"]');
+        if (!input) {
+          return;
+        }
+        let value = '';
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement || input instanceof HTMLSelectElement) {
+          value = input.value.trim();
+        }
+        if (value) {
+          data[field] = value;
+        }
+      });
+      const customProps = collectCustomProperties(item.querySelector('.quality-custom-properties'));
+      if (customProps.length) {
+        data.customProperties = customProps;
+      }
+      return Object.keys(data).length ? data : null;
+    }).filter(Boolean);
+  }
+
+  function collectProperties(container) {
+    if (!container) {
+      return [];
+    }
+    const nodes = Array.from(container.querySelectorAll('.schema-property'));
+    return nodes.map((node) => {
+      const nameInput = node.querySelector('[data-field="name"]');
+      const physicalInput = node.querySelector('[data-field="physicalType"]');
+      const name = nameInput ? nameInput.value.trim() : '';
+      const physicalType = physicalInput ? physicalInput.value.trim() : '';
+      if (!name && !physicalType) {
+        return null;
+      }
+      const data = { name, physicalType };
+      ['description', 'classification', 'businessName', 'logicalType', 'logicalTypeOptions', 'examples'].forEach((field) => {
+        const input = node.querySelector('[data-field="' + field + '"]');
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+          const value = input.value.trim();
+          if (value) {
+            data[field] = value;
+          }
+        }
+      });
+      ['required', 'unique', 'partitioned', 'primaryKey'].forEach((field) => {
+        const checkbox = node.querySelector('[data-field="' + field + '"]');
+        if (checkbox instanceof HTMLInputElement && checkbox.checked) {
+          data[field] = true;
+        }
+      });
+      const customProps = collectCustomProperties(node.querySelector('.property-custom-properties'));
+      if (customProps.length) {
+        data.customProperties = customProps;
+      }
+      const quality = collectQuality(node.querySelector('.property-quality'));
+      if (quality.length) {
+        data.quality = quality;
+      }
+      return data;
+    }).filter(Boolean);
+  }
+
+  function collectSchemaObjects() {
+    const objects = Array.from(document.querySelectorAll('.schema-object'));
+    return objects.map((obj) => {
+      const nameInput = obj.querySelector('[data-field="name"]');
+      const name = nameInput ? nameInput.value.trim() : '';
+      const properties = collectProperties(obj.querySelector('.schema-properties'));
+      if (!name && !properties.length) {
+        return null;
+      }
+      const data = { name, properties };
+      ['description', 'businessName', 'logicalType'].forEach((field) => {
+        const input = obj.querySelector('[data-field="' + field + '"]');
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+          const value = input.value.trim();
+          if (value) {
+            data[field] = value;
+          }
+        }
+      });
+      const customProps = collectCustomProperties(obj.querySelector('.schema-custom-properties'));
+      if (customProps.length) {
+        data.customProperties = customProps;
+      }
+      const quality = collectQuality(obj.querySelector('.schema-quality'));
+      if (quality.length) {
+        data.quality = quality;
+      }
+      return data;
+    }).filter(Boolean);
+  }
+
+  function collectServers() {
+    const servers = Array.from(document.querySelectorAll('.server-card'));
+    return servers.map((card) => {
+      const data = {};
+      ['server', 'type', 'environment', 'format', 'path', 'dataset', 'database', 'schema', 'catalog', 'host', 'port', 'location', 'endpointUrl', 'project', 'region', 'warehouse', 'serviceName', 'account', 'stagingDir', 'description'].forEach((field) => {
+        const input = card.querySelector('[data-field="' + field + '"]');
+        if (!input) {
+          return;
+        }
+        let value = '';
+        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+          value = input.value.trim();
+        }
+        if (value) {
+          data[field] = value;
+        }
+      });
+      const customProps = collectCustomProperties(card.querySelector('.custom-property-list'));
+      if (customProps.length) {
+        data.customProperties = customProps;
+      }
+      if (!data.server && !data.type) {
+        return null;
+      }
+      return data;
+    }).filter(Boolean);
+  }
+
+  function collectSupportChannels() {
+    const nodes = Array.from(document.querySelectorAll('.support-item'));
+    return nodes.map((node) => {
+      const channelInput = node.querySelector('[data-field="channel"]');
+      const channel = channelInput ? channelInput.value.trim() : '';
+      if (!channel) {
+        return null;
+      }
+      const data = { channel };
+      ['url', 'tool', 'scope', 'invitationUrl', 'description'].forEach((field) => {
+        const input = node.querySelector('[data-field="' + field + '"]');
+        if (input instanceof HTMLInputElement) {
+          const value = input.value.trim();
+          if (value) {
+            data[field] = value;
+          }
+        }
+      });
+      return data;
+    }).filter(Boolean);
+  }
+
+  function collectSlaProperties() {
+    const nodes = Array.from(document.querySelectorAll('.sla-item'));
+    return nodes.map((node) => {
+      const propertyInput = node.querySelector('[data-field="property"]');
+      const property = propertyInput ? propertyInput.value.trim() : '';
+      if (!property) {
+        return null;
+      }
+      const data = { property };
+      ['value', 'unit', 'element', 'driver', 'valueExt'].forEach((field) => {
+        const input = node.querySelector('[data-field="' + field + '"]');
+        if (input instanceof HTMLInputElement) {
+          const value = input.value.trim();
+          if (value) {
+            data[field] = value;
+          }
+        }
+      });
+      return data;
+    }).filter(Boolean);
+  }
+
+  function collectContractCustomProperties() {
+    return collectCustomProperties(document.getElementById('contract-custom-properties'));
+  }
+
+  let submitting = false;
+  form.addEventListener('submit', (event) => {
+    if (submitting) {
+      return;
+    }
+    event.preventDefault();
+    const payload = {
+      id: (document.querySelector('input[data-field="id"]')?.value || '').trim(),
+      version: (document.querySelector('input[data-field="version"]')?.value || '').trim(),
+      kind: (document.querySelector('input[data-field="kind"]')?.value || '').trim(),
+      apiVersion: (document.querySelector('input[data-field="apiVersion"]')?.value || '').trim(),
+      name: (document.querySelector('input[data-field="name"]')?.value || '').trim(),
+      status: (document.querySelector('input[data-field="status"]')?.value || '').trim(),
+      description: (document.querySelector('textarea[data-field="description"]')?.value || '').trim(),
+      domain: (document.querySelector('input[data-field="domain"]')?.value || '').trim(),
+      dataProduct: (document.querySelector('input[data-field="dataProduct"]')?.value || '').trim(),
+      tenant: (document.querySelector('input[data-field="tenant"]')?.value || '').trim(),
+      tags: (document.querySelector('input[data-field="tags"]')?.value || '').trim(),
+      servers: collectServers(),
+      schemaObjects: collectSchemaObjects(),
+      customProperties: collectContractCustomProperties(),
+      support: collectSupportChannels(),
+      slaProperties: collectSlaProperties(),
+    };
+    payloadInput.value = JSON.stringify(payload);
+    submitting = true;
+    form.submit();
+  });
+})();
+</script>
 {% endblock %}

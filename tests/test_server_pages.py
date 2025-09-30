@@ -46,6 +46,25 @@ def test_contract_versions_page():
     assert f"/contracts/{rec.contract_id}/{rec.contract_version}/edit" in resp.text
 
 
+def test_contract_edit_form_renders_editor_sections():
+    client = TestClient(app)
+    resp = client.get("/contracts/orders/1.1.0/edit")
+    assert resp.status_code == 200
+    assert "Contract basics" in resp.text
+    assert "Servers" in resp.text
+    assert "Schema" in resp.text
+    assert 'id="contract-data"' in resp.text
+
+
+def test_new_contract_form_defaults():
+    client = TestClient(app)
+    resp = client.get("/contracts/new")
+    assert resp.status_code == 200
+    assert "Contract basics" in resp.text
+    assert 'id="contract-data"' in resp.text
+    assert '"version":"1.0.0"' in resp.text or '"version": "1.0.0"' in resp.text
+
+
 def test_customers_contract_versions_page():
     client = TestClient(app)
     resp = client.get("/contracts/customers")
