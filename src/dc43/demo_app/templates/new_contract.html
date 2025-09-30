@@ -14,110 +14,153 @@
   <input type="hidden" name="original_version" value="{{ original_version }}"/>
   {% endif %}
   <input type="hidden" name="payload" id="contract-payload"/>
-  <section class="mb-4">
-    <h2 class="h4">Contract basics</h2>
-    <div class="row g-3">
-      <div class="col-md-4">
-        <label class="form-label">Contract ID</label>
-        <input class="form-control" data-field="id" {% if editing %}readonly{% endif %} placeholder="orders_enriched"/>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Version</label>
-        <input class="form-control" data-field="version" placeholder="1.2.0"/>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Kind</label>
-        <input class="form-control" data-field="kind" placeholder="DataContract"/>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label">API version</label>
-        <input class="form-control" data-field="apiVersion" placeholder="3.0.2"/>
-      </div>
-      <div class="col-md-6">
-        <label class="form-label">Name</label>
-        <input class="form-control" data-field="name" placeholder="Orders enriched"/>
-      </div>
-      <div class="col-md-6">
-        <label class="form-label">Status</label>
-        <input class="form-control" data-field="status" placeholder="active"/>
-      </div>
-      <div class="col-12">
-        <label class="form-label">Description</label>
-        <textarea class="form-control" data-field="description" rows="2" placeholder="Describe the contract intent"></textarea>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Domain</label>
-        <input class="form-control" data-field="domain" placeholder="sales"/>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Data product</label>
-        <input class="form-control" data-field="dataProduct" placeholder="customer360"/>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Tenant</label>
-        <input class="form-control" data-field="tenant" placeholder="finance"/>
-      </div>
-      <div class="col-12">
-        <label class="form-label">Tags</label>
-        <input class="form-control" data-field="tags" placeholder="gold, critical"/>
-        <div class="form-text">Comma-separated list.</div>
-      </div>
+  <div id="inline-errors" class="alert alert-danger d-none" role="alert"></div>
+  <ul class="nav nav-tabs mb-0" id="editor-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#tab-overview" type="button" role="tab" aria-controls="tab-overview" aria-selected="true">Overview</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="schema-tab" data-bs-toggle="tab" data-bs-target="#tab-schema" type="button" role="tab" aria-controls="tab-schema" aria-selected="false">Schema</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="distribution-tab" data-bs-toggle="tab" data-bs-target="#tab-distribution" type="button" role="tab" aria-controls="tab-distribution" aria-selected="false">Distribution</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="operations-tab" data-bs-toggle="tab" data-bs-target="#tab-operations" type="button" role="tab" aria-controls="tab-operations" aria-selected="false">Operations</button>
+    </li>
+  </ul>
+  <div class="tab-content border border-top-0 rounded-bottom bg-body shadow-sm" id="editor-tab-content">
+    <div class="tab-pane fade show active p-4" id="tab-overview" role="tabpanel" aria-labelledby="overview-tab">
+      <section class="mb-4">
+        <h2 class="h4">Contract basics</h2>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Contract ID</label>
+            <input class="form-control" data-field="id" {% if editing %}readonly{% endif %} placeholder="orders_enriched"/>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Version</label>
+            <input class="form-control" data-field="version" placeholder="1.2.0"/>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Kind</label>
+            <input class="form-control" data-field="kind" placeholder="DataContract"/>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">API version</label>
+            <input class="form-control" data-field="apiVersion" placeholder="3.0.2"/>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Name</label>
+            <input class="form-control" data-field="name" placeholder="Orders enriched"/>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Status</label>
+            <select class="form-select" data-field="status">
+              {% for value, label in status_options %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" data-field="description" rows="3" placeholder="Describe the contract intent"></textarea>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Domain</label>
+            <input class="form-control" data-field="domain" placeholder="sales"/>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Data product</label>
+            <input class="form-control" data-field="dataProduct" placeholder="customer360"/>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Tenant</label>
+            <input class="form-control" data-field="tenant" placeholder="finance"/>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Tags</label>
+            <input class="form-control" data-field="tags" placeholder="gold, critical"/>
+            <div class="form-text">Comma-separated list.</div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h4 mb-0">Contract custom properties</h2>
+          <button class="btn btn-sm btn-outline-primary" type="button" id="add-contract-custom">Add property</button>
+        </div>
+        <p class="text-muted small">Use custom properties for governance metadata such as retention, data owners, or draft provenance.</p>
+        <div id="contract-custom-properties"></div>
+      </section>
     </div>
-  </section>
-
-  <section class="mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <h2 class="h4 mb-0">Servers</h2>
-      <button class="btn btn-sm btn-outline-primary" type="button" id="add-server">Add server</button>
+    <div class="tab-pane fade p-4" id="tab-schema" role="tabpanel" aria-labelledby="schema-tab">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h4 mb-0">Schema objects</h2>
+        <button class="btn btn-sm btn-outline-primary" type="button" id="add-schema-object">Add schema object</button>
+      </div>
+      <p class="text-muted small">Describe the logical objects and their fields. Field names must be unique within each object.</p>
+      <div id="schema-objects"></div>
     </div>
-    <div id="servers"></div>
-  </section>
-
-  <section class="mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <h2 class="h4 mb-0">Schema</h2>
-      <button class="btn btn-sm btn-outline-primary" type="button" id="add-schema-object">Add schema object</button>
+    <div class="tab-pane fade p-4" id="tab-distribution" role="tabpanel" aria-labelledby="distribution-tab">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h4 mb-0">Servers &amp; storage</h2>
+        <button class="btn btn-sm btn-outline-primary" type="button" id="add-server">Add server</button>
+      </div>
+      <p class="text-muted small">Capture where the data lives and how dc43 should resolve dataset versions.</p>
+      <div id="servers"></div>
     </div>
-    <div id="schema-objects"></div>
-  </section>
-
-  <section class="mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <h2 class="h4 mb-0">Contract custom properties</h2>
-      <button class="btn btn-sm btn-outline-primary" type="button" id="add-contract-custom">Add property</button>
+    <div class="tab-pane fade p-4" id="tab-operations" role="tabpanel" aria-labelledby="operations-tab">
+      <section class="mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h4 mb-0">Support &amp; communication channels</h2>
+          <button class="btn btn-sm btn-outline-primary" type="button" id="add-support">Add channel</button>
+        </div>
+        <div id="support-channels"></div>
+      </section>
+      <section>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h2 class="h4 mb-0">Service level agreements</h2>
+          <button class="btn btn-sm btn-outline-primary" type="button" id="add-sla">Add SLA</button>
+        </div>
+        <div id="sla-properties"></div>
+      </section>
     </div>
-    <div id="contract-custom-properties"></div>
-  </section>
+  </div>
 
-  <section class="mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <h2 class="h4 mb-0">Support &amp; communication channels</h2>
-      <button class="btn btn-sm btn-outline-primary" type="button" id="add-support">Add channel</button>
-    </div>
-    <div id="support-channels"></div>
-  </section>
-
-  <section class="mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <h2 class="h4 mb-0">Service level agreements</h2>
-      <button class="btn btn-sm btn-outline-primary" type="button" id="add-sla">Add SLA</button>
-    </div>
-    <div id="sla-properties"></div>
-  </section>
-
-  <div class="d-flex gap-2">
-    <button class="btn btn-primary" type="submit">Save</button>
+  <div class="d-flex gap-2 mt-4">
+    <button class="btn btn-primary" type="button" id="preview-contract">Preview changes</button>
     <a class="btn btn-outline-secondary" href="{{ '/contracts/' ~ editor_state.id ~ '/' ~ original_version if editing and original_version else '/contracts' }}">Cancel</a>
   </div>
 </form>
 
+<div class="modal fade" id="preview-modal" tabindex="-1" aria-labelledby="preview-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="preview-modal-label">Draft preview</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="preview-errors" class="alert alert-danger d-none" role="alert"></div>
+        <div id="preview-summary" class="mb-3"></div>
+        <pre id="preview-json" class="bg-light border rounded small p-3 mb-0"></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="confirm-save">Save draft</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <template id="server-template">
   <div class="card server-card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h3 class="h5 mb-0">Server</h3>
+      <button type="button" class="btn btn-sm btn-outline-danger remove-server">Remove</button>
+    </div>
     <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3 class="h5 mb-0">Server</h3>
-        <button type="button" class="btn btn-sm btn-outline-danger remove-server">Remove</button>
-      </div>
       <div class="row g-3">
         <div class="col-md-3">
           <label class="form-label">Name</label>
@@ -200,10 +243,60 @@
           <textarea class="form-control" rows="2" data-field="description"></textarea>
         </div>
       </div>
-      <div class="mt-3">
+      <div class="bg-light-subtle border rounded p-3 mt-4" data-versioning>
         <div class="d-flex justify-content-between align-items-center mb-2">
-          <h4 class="h6 mb-0">Server custom properties</h4>
-          <button type="button" class="btn btn-sm btn-outline-secondary add-server-custom">Add property</button>
+          <div>
+            <h4 class="h6 mb-1 text-uppercase text-muted">dc43 versioning</h4>
+            <p class="small mb-0 text-muted">Configure how dc43 resolves dataset versions for this location.</p>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary clear-versioning" type="button">Clear</button>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Mode</label>
+            <select class="form-select" data-versioning-field="mode">
+              {% for value, label in versioning_modes %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Subfolder pattern</label>
+            <input class="form-control" data-versioning-field="subfolder" placeholder="{version}"/>
+            <div class="form-text">Use placeholders such as <code>{version}</code> or <code>{&lt;=version}</code>.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">File pattern</label>
+            <input class="form-control" data-versioning-field="filePattern" placeholder="orders.json"/>
+          </div>
+          <div class="col-md-4">
+            <div class="form-check mt-4 pt-2">
+              <input class="form-check-input" type="checkbox" data-versioning-field="includePriorVersions"/>
+              <label class="form-check-label">Include prior versions</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Read options</label>
+            <div class="key-value-rows" data-versioning-read-options></div>
+            <button class="btn btn-sm btn-outline-primary mt-2" type="button" data-add-read-option>Add read option</button>
+            <div class="form-text">Pairs are stored as strings and passed to Spark readers.</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Write options</label>
+            <div class="key-value-rows" data-versioning-write-options></div>
+            <button class="btn btn-sm btn-outline-primary mt-2" type="button" data-add-write-option>Add write option</button>
+          </div>
+        </div>
+      </div>
+      <div class="bg-light-subtle border rounded p-3 mt-4">
+        <h4 class="h6 mb-2 text-uppercase text-muted">dc43 path pattern</h4>
+        <input class="form-control" data-path-pattern placeholder="data/orders/{<=version}/orders.json"/>
+        <div class="form-text">Supports placeholders like <code>{version}</code>, <code>{&lt;=version}</code>, or <code>{dataset_id}</code>.</div>
+      </div>
+      <div class="mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="h6 mb-0">Additional custom properties</h4>
+          <button class="btn btn-sm btn-outline-primary add-server-custom" type="button">Add property</button>
         </div>
         <div class="custom-property-list"></div>
       </div>
@@ -353,7 +446,7 @@
   <div class="row g-2 align-items-end custom-property-row mb-2">
     <div class="col-md-5">
       <label class="form-label">Property</label>
-      <input class="form-control" data-field="property" placeholder="dc43.versioning"/>
+      <input class="form-control" data-field="property" placeholder="dc43.retention"/>
     </div>
     <div class="col-md-5">
       <label class="form-label">Value</label>
@@ -361,6 +454,22 @@
     </div>
     <div class="col-md-2 d-flex align-items-end">
       <button type="button" class="btn btn-outline-danger remove-custom-property w-100">Remove</button>
+    </div>
+  </div>
+</template>
+
+<template id="key-value-template">
+  <div class="row g-2 align-items-end key-value-row mb-2">
+    <div class="col-md-5">
+      <label class="form-label">Key</label>
+      <input class="form-control" data-field="key" placeholder="recursiveFileLookup"/>
+    </div>
+    <div class="col-md-5">
+      <label class="form-label">Value</label>
+      <input class="form-control" data-field="value" placeholder="true"/>
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button type="button" class="btn btn-outline-danger remove-key-value w-100">Remove</button>
     </div>
   </div>
 </template>
@@ -525,17 +634,26 @@
 </template>
 
 <script type="application/json" id="contract-data">{{ editor_state | tojson }}</script>
+<script type="application/json" id="contract-meta">{{ editor_meta | tojson }}</script>
 <script>
 (function() {
   const dataEl = document.getElementById('contract-data');
+  const metaEl = document.getElementById('contract-meta');
   const payloadInput = document.getElementById('contract-payload');
   const form = document.getElementById('contract-form');
   let initialData = {};
+  let editorMeta = {};
   try {
     initialData = JSON.parse(dataEl.textContent || '{}');
   } catch (err) {
     console.warn('Unable to parse editor state', err);
     initialData = {};
+  }
+  try {
+    editorMeta = JSON.parse(metaEl ? metaEl.textContent || '{}' : '{}');
+  } catch (err) {
+    console.warn('Unable to parse editor meta', err);
+    editorMeta = {};
   }
 
   function normaliseArray(value) {
@@ -545,7 +663,11 @@
   function setField(selector, value) {
     const field = document.querySelector(selector);
     if (field) {
-      if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+      if (
+        field instanceof HTMLInputElement ||
+        field instanceof HTMLTextAreaElement ||
+        field instanceof HTMLSelectElement
+      ) {
         field.value = value ?? '';
       }
     }
@@ -556,7 +678,7 @@
   setField('input[data-field="kind"]', initialData.kind || 'DataContract');
   setField('input[data-field="apiVersion"]', initialData.apiVersion || '3.0.2');
   setField('input[data-field="name"]', initialData.name || '');
-  setField('input[data-field="status"]', initialData.status || '');
+  setField('[data-field="status"]', initialData.status || '');
   setField('textarea[data-field="description"]', initialData.description || '');
   setField('input[data-field="domain"]', initialData.domain || '');
   setField('input[data-field="dataProduct"]', initialData.dataProduct || '');
@@ -596,6 +718,65 @@
       removeBtn.addEventListener('click', () => node.remove());
     }
     return node;
+  }
+
+  function createKeyValue(initial) {
+    const node = createFromTemplate('key-value-template');
+    const keyInput = node.querySelector('input[data-field="key"]');
+    const valueInput = node.querySelector('input[data-field="value"]');
+    if (keyInput) {
+      keyInput.value = initial && initial.key ? initial.key : '';
+    }
+    if (valueInput) {
+      valueInput.value = initial && initial.value !== undefined ? initial.value : '';
+    }
+    const removeBtn = node.querySelector('.remove-key-value');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => node.remove());
+    }
+    return node;
+  }
+
+  function setKeyValueRows(container, initial) {
+    if (!container) {
+      return;
+    }
+    container.innerHTML = '';
+    const entries = [];
+    if (initial && typeof initial === 'object' && !Array.isArray(initial)) {
+      Object.entries(initial).forEach(([key, value]) => {
+        entries.push({ key, value: value ?? '' });
+      });
+    } else if (Array.isArray(initial)) {
+      initial.forEach((entry) => {
+        if (entry && typeof entry === 'object' && 'key' in entry) {
+          entries.push({ key: entry.key, value: entry.value ?? '' });
+        }
+      });
+    }
+    if (!entries.length) {
+      return;
+    }
+    entries.forEach((entry) => container.appendChild(createKeyValue(entry)));
+  }
+
+  function collectKeyValueRows(container) {
+    if (!container) {
+      return null;
+    }
+    const rows = Array.from(container.querySelectorAll('.key-value-row'));
+    const result = {};
+    rows.forEach((row) => {
+      const keyInput = row.querySelector('[data-field="key"]');
+      const valueInput = row.querySelector('[data-field="value"]');
+      const key = keyInput ? keyInput.value.trim() : '';
+      if (!key) {
+        return;
+      }
+      const value = valueInput ? valueInput.value.trim() : '';
+      result[key] = value;
+    });
+    return Object.keys(result).length ? result : null;
   }
 
   function createQuality(initial) {
@@ -764,6 +945,73 @@
         }
       }
     });
+    const versioningBlock = node.querySelector('[data-versioning]');
+    if (versioningBlock) {
+      const versioning = initial && initial.versioningConfig ? initial.versioningConfig : null;
+      const modeField = versioningBlock.querySelector('[data-versioning-field="mode"]');
+      if (modeField instanceof HTMLSelectElement) {
+        modeField.value = versioning && versioning.mode ? versioning.mode : '';
+      }
+      const subfolderField = versioningBlock.querySelector('[data-versioning-field="subfolder"]');
+      if (subfolderField instanceof HTMLInputElement) {
+        subfolderField.value = versioning && versioning.subfolder ? versioning.subfolder : '';
+      }
+      const filePatternField = versioningBlock.querySelector('[data-versioning-field="filePattern"]');
+      if (filePatternField instanceof HTMLInputElement) {
+        filePatternField.value = versioning && versioning.filePattern ? versioning.filePattern : '';
+      }
+      const includePrior = versioningBlock.querySelector('[data-versioning-field="includePriorVersions"]');
+      if (includePrior instanceof HTMLInputElement) {
+        includePrior.checked = Boolean(versioning && versioning.includePriorVersions);
+      }
+      const readContainer = versioningBlock.querySelector('[data-versioning-read-options]');
+      setKeyValueRows(readContainer, versioning && versioning.readOptions);
+      const addReadBtn = versioningBlock.querySelector('[data-add-read-option]');
+      if (addReadBtn) {
+        addReadBtn.addEventListener('click', () => {
+          if (readContainer) {
+            readContainer.appendChild(createKeyValue());
+          }
+        });
+      }
+      const writeContainer = versioningBlock.querySelector('[data-versioning-write-options]');
+      setKeyValueRows(writeContainer, versioning && versioning.writeOptions);
+      const addWriteBtn = versioningBlock.querySelector('[data-add-write-option]');
+      if (addWriteBtn) {
+        addWriteBtn.addEventListener('click', () => {
+          if (writeContainer) {
+            writeContainer.appendChild(createKeyValue());
+          }
+        });
+      }
+      const clearBtn = versioningBlock.querySelector('.clear-versioning');
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          if (modeField instanceof HTMLSelectElement) {
+            modeField.value = '';
+          }
+          if (subfolderField instanceof HTMLInputElement) {
+            subfolderField.value = '';
+          }
+          if (filePatternField instanceof HTMLInputElement) {
+            filePatternField.value = '';
+          }
+          if (includePrior instanceof HTMLInputElement) {
+            includePrior.checked = false;
+          }
+          if (readContainer) {
+            readContainer.innerHTML = '';
+          }
+          if (writeContainer) {
+            writeContainer.innerHTML = '';
+          }
+        });
+      }
+    }
+    const pathPatternInput = node.querySelector('[data-path-pattern]');
+    if (pathPatternInput instanceof HTMLInputElement) {
+      pathPatternInput.value = initial && initial.pathPattern ? initial.pathPattern : '';
+    }
     const customContainer = node.querySelector('.custom-property-list');
     if (customContainer) {
       attachCustomPropertyHandlers(customContainer, initial && initial.customProperties);
@@ -902,6 +1150,44 @@
     }).filter(Boolean);
   }
 
+  function collectVersioning(block) {
+    if (!block) {
+      return null;
+    }
+    const data = {};
+    const modeField = block.querySelector('[data-versioning-field="mode"]');
+    if (modeField instanceof HTMLSelectElement && modeField.value) {
+      data.mode = modeField.value;
+    }
+    const subfolderField = block.querySelector('[data-versioning-field="subfolder"]');
+    if (subfolderField instanceof HTMLInputElement) {
+      const value = subfolderField.value.trim();
+      if (value) {
+        data.subfolder = value;
+      }
+    }
+    const filePatternField = block.querySelector('[data-versioning-field="filePattern"]');
+    if (filePatternField instanceof HTMLInputElement) {
+      const value = filePatternField.value.trim();
+      if (value) {
+        data.filePattern = value;
+      }
+    }
+    const includeField = block.querySelector('[data-versioning-field="includePriorVersions"]');
+    if (includeField instanceof HTMLInputElement && includeField.checked) {
+      data.includePriorVersions = true;
+    }
+    const readOptions = collectKeyValueRows(block.querySelector('[data-versioning-read-options]'));
+    if (readOptions) {
+      data.readOptions = readOptions;
+    }
+    const writeOptions = collectKeyValueRows(block.querySelector('[data-versioning-write-options]'));
+    if (writeOptions) {
+      data.writeOptions = writeOptions;
+    }
+    return Object.keys(data).length ? data : null;
+  }
+
   function collectQuality(container) {
     if (!container) {
       return [];
@@ -1023,6 +1309,20 @@
       if (customProps.length) {
         data.customProperties = customProps;
       }
+      const versioningBlock = card.querySelector('[data-versioning]');
+      if (versioningBlock) {
+        const versioning = collectVersioning(versioningBlock);
+        if (versioning) {
+          data.versioningConfig = versioning;
+        }
+      }
+      const pathPatternInput = card.querySelector('[data-path-pattern]');
+      if (pathPatternInput instanceof HTMLInputElement) {
+        const pathPattern = pathPatternInput.value.trim();
+        if (pathPattern) {
+          data.pathPattern = pathPattern;
+        }
+      }
       if (!data.server && !data.type) {
         return null;
       }
@@ -1078,19 +1378,14 @@
     return collectCustomProperties(document.getElementById('contract-custom-properties'));
   }
 
-  let submitting = false;
-  form.addEventListener('submit', (event) => {
-    if (submitting) {
-      return;
-    }
-    event.preventDefault();
-    const payload = {
+  function buildPayload() {
+    return {
       id: (document.querySelector('input[data-field="id"]')?.value || '').trim(),
       version: (document.querySelector('input[data-field="version"]')?.value || '').trim(),
       kind: (document.querySelector('input[data-field="kind"]')?.value || '').trim(),
       apiVersion: (document.querySelector('input[data-field="apiVersion"]')?.value || '').trim(),
       name: (document.querySelector('input[data-field="name"]')?.value || '').trim(),
-      status: (document.querySelector('input[data-field="status"]')?.value || '').trim(),
+      status: (document.querySelector('[data-field="status"]')?.value || '').trim(),
       description: (document.querySelector('textarea[data-field="description"]')?.value || '').trim(),
       domain: (document.querySelector('input[data-field="domain"]')?.value || '').trim(),
       dataProduct: (document.querySelector('input[data-field="dataProduct"]')?.value || '').trim(),
@@ -1102,9 +1397,437 @@
       support: collectSupportChannels(),
       slaProperties: collectSlaProperties(),
     };
-    payloadInput.value = JSON.stringify(payload);
-    submitting = true;
-    form.submit();
+  }
+
+  const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
+
+  function parseSemVer(value) {
+    if (!value) {
+      return null;
+    }
+    const match = value.match(SEMVER_RE);
+    if (!match) {
+      return null;
+    }
+    return {
+      major: Number(match[1]),
+      minor: Number(match[2]),
+      patch: Number(match[3]),
+      prerelease: match[4] || null,
+      build: match[5] || null,
+    };
+  }
+
+  function compareSemVer(a, b) {
+    if (!a || !b) {
+      return 0;
+    }
+    if (a.major !== b.major) {
+      return a.major > b.major ? 1 : -1;
+    }
+    if (a.minor !== b.minor) {
+      return a.minor > b.minor ? 1 : -1;
+    }
+    if (a.patch !== b.patch) {
+      return a.patch > b.patch ? 1 : -1;
+    }
+    if (a.prerelease === b.prerelease) {
+      return 0;
+    }
+    if (!a.prerelease) {
+      return 1;
+    }
+    if (!b.prerelease) {
+      return -1;
+    }
+    return a.prerelease > b.prerelease ? 1 : a.prerelease < b.prerelease ? -1 : 0;
+  }
+
+  function normaliseTagList(value) {
+    if (!value) {
+      return [];
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+    return String(value)
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function stableStringify(value) {
+    if (Array.isArray(value)) {
+      return '[' + value.map((item) => stableStringify(item)).join(',') + ']';
+    }
+    if (value && typeof value === 'object') {
+      const keys = Object.keys(value).sort();
+      return '{' + keys.map((key) => JSON.stringify(key) + ':' + stableStringify(value[key])).join(',') + '}';
+    }
+    return JSON.stringify(value);
+  }
+
+  function validatePayload(payload) {
+    const errors = [];
+    if (!payload.id) {
+      errors.push('Contract ID is required.');
+    }
+    if (!payload.version) {
+      errors.push('Version is required.');
+    }
+    const parsedVersion = parseSemVer(payload.version);
+    if (payload.version && !parsedVersion) {
+      errors.push('Version must follow the MAJOR.MINOR.PATCH semantic versioning pattern.');
+    }
+    if (!payload.schemaObjects.length) {
+      errors.push('At least one schema object is required.');
+    }
+    payload.schemaObjects.forEach((obj) => {
+      if (!obj.properties || !obj.properties.length) {
+        errors.push(`Schema object ${obj.name || 'without name'} must define at least one field.`);
+        return;
+      }
+      const seen = new Set();
+      obj.properties.forEach((prop) => {
+        const name = prop.name;
+        if (!name) {
+          return;
+        }
+        if (seen.has(name)) {
+          errors.push(`Field ${name} is defined more than once in ${obj.name || 'a schema object'}.`);
+        }
+        seen.add(name);
+      });
+    });
+    if (!editorMeta.editing && Array.isArray(editorMeta.existingContracts)) {
+      if (editorMeta.existingContracts.includes(payload.id)) {
+        errors.push(`Contract ${payload.id} already exists. Use the editor to create a new version.`);
+      }
+    }
+    const existingVersions = (editorMeta.existingVersions && editorMeta.existingVersions[payload.id]) || [];
+    if (payload.version && existingVersions.includes(payload.version)) {
+      errors.push(`Version ${payload.version} already exists for ${payload.id}.`);
+    }
+    if (editorMeta.editing && editorMeta.baseVersion && parsedVersion) {
+      const baseSemVer = parseSemVer(editorMeta.baseVersion);
+      if (baseSemVer && compareSemVer(parsedVersion, baseSemVer) <= 0) {
+        errors.push(`Version ${payload.version} must be greater than ${editorMeta.baseVersion}.`);
+      }
+    }
+    return errors;
+  }
+
+  const inlineErrors = document.getElementById('inline-errors');
+  function showInlineErrors(messages) {
+    if (!inlineErrors) {
+      return;
+    }
+    inlineErrors.classList.remove('d-none');
+    inlineErrors.innerHTML = '';
+    const list = document.createElement('ul');
+    list.className = 'mb-0';
+    messages.forEach((message) => {
+      const item = document.createElement('li');
+      item.textContent = message;
+      list.appendChild(item);
+    });
+    inlineErrors.appendChild(list);
+    inlineErrors.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function clearInlineErrors() {
+    if (inlineErrors) {
+      inlineErrors.classList.add('d-none');
+      inlineErrors.textContent = '';
+    }
+  }
+
+  const previewModalEl = document.getElementById('preview-modal');
+  const previewModal = window.bootstrap && previewModalEl ? new window.bootstrap.Modal(previewModalEl) : null;
+  const previewButton = document.getElementById('preview-contract');
+  const confirmButton = document.getElementById('confirm-save');
+  const previewSummary = document.getElementById('preview-summary');
+  const previewJson = document.getElementById('preview-json');
+  const previewErrorBox = document.getElementById('preview-errors');
+  let lastPreviewPayload = null;
+  let allowSubmit = false;
+
+  function summariseChanges(payload, baseline) {
+    const messages = [];
+    if (!baseline) {
+      messages.push('This will create a new contract draft.');
+    } else if (editorMeta.baseVersion) {
+      messages.push(`Draft will be created from version ${editorMeta.baseVersion}.`);
+    }
+    if (!baseline || payload.version !== (baseline.version || '')) {
+      messages.push(`Version will be set to ${payload.version || 'unspecified'}.`);
+    }
+    const fieldLabels = {
+      name: 'Name',
+      status: 'Status',
+      domain: 'Domain',
+      dataProduct: 'Data product',
+      tenant: 'Tenant',
+      description: 'Description',
+    };
+    Object.entries(fieldLabels).forEach(([field, label]) => {
+      const newValue = (payload[field] || '').trim();
+      const oldValue = baseline ? String(baseline[field] || '').trim() : '';
+      if (!baseline && newValue) {
+        messages.push(`${label} set to ${newValue}.`);
+      } else if (baseline && newValue !== (oldValue || '')) {
+        messages.push(`${label} changed from ${oldValue || 'empty'} to ${newValue || 'empty'}.`);
+      }
+    });
+    const newTags = normaliseTagList(payload.tags);
+    const oldTags = normaliseTagList(baseline ? baseline.tags : []);
+    const addedTags = newTags.filter((tag) => !oldTags.includes(tag));
+    const removedTags = oldTags.filter((tag) => !newTags.includes(tag));
+    if (addedTags.length) {
+      messages.push(`Tags added: ${addedTags.join(', ')}.`);
+    }
+    if (removedTags.length) {
+      messages.push(`Tags removed: ${removedTags.join(', ')}.`);
+    }
+
+    const schemaMap = new Map();
+    const baselineMap = new Map();
+    payload.schemaObjects.forEach((obj) => {
+      if (obj.name) {
+        schemaMap.set(obj.name, obj);
+      }
+    });
+    (baseline && baseline.schemaObjects ? baseline.schemaObjects : []).forEach((obj) => {
+      if (obj.name) {
+        baselineMap.set(obj.name, obj);
+      }
+    });
+    const addedSchemas = Array.from(schemaMap.keys()).filter((name) => !baselineMap.has(name));
+    const removedSchemas = Array.from(baselineMap.keys()).filter((name) => !schemaMap.has(name));
+    if (addedSchemas.length) {
+      messages.push(`Schema objects added: ${addedSchemas.join(', ')}.`);
+    }
+    if (removedSchemas.length) {
+      messages.push(`Schema objects removed: ${removedSchemas.join(', ')}.`);
+    }
+    schemaMap.forEach((obj, name) => {
+      if (!baselineMap.has(name)) {
+        return;
+      }
+      const baselineObj = baselineMap.get(name);
+      const newFields = new Set((obj.properties || []).map((prop) => prop.name).filter(Boolean));
+      const oldFields = new Set((baselineObj.properties || []).map((prop) => prop.name).filter(Boolean));
+      const addedFields = Array.from(newFields).filter((field) => !oldFields.has(field));
+      const removedFields = Array.from(oldFields).filter((field) => !newFields.has(field));
+      if (addedFields.length) {
+        messages.push(`${name} fields added: ${addedFields.join(', ')}.`);
+      }
+      if (removedFields.length) {
+        messages.push(`${name} fields removed: ${removedFields.join(', ')}.`);
+      }
+    });
+
+    const serverMap = new Map();
+    const baselineServers = new Map();
+    payload.servers.forEach((server) => {
+      if (server.server) {
+        serverMap.set(server.server, server);
+      }
+    });
+    (baseline && baseline.servers ? baseline.servers : []).forEach((server) => {
+      if (server.server) {
+        baselineServers.set(server.server, server);
+      }
+    });
+    const addedServers = Array.from(serverMap.keys()).filter((name) => !baselineServers.has(name));
+    const removedServers = Array.from(baselineServers.keys()).filter((name) => !serverMap.has(name));
+    if (addedServers.length) {
+      messages.push(`Servers added: ${addedServers.join(', ')}.`);
+    }
+    if (removedServers.length) {
+      messages.push(`Servers removed: ${removedServers.join(', ')}.`);
+    }
+    serverMap.forEach((server, name) => {
+      if (!baselineServers.has(name)) {
+        return;
+      }
+      const serialisedNew = stableStringify(server);
+      const serialisedOld = stableStringify(baselineServers.get(name));
+      if (serialisedNew !== serialisedOld) {
+        messages.push(`Server ${name} updated.`);
+      }
+    });
+
+    const supportMap = new Map();
+    const baselineSupport = new Map();
+    payload.support.forEach((entry) => {
+      if (entry.channel) {
+        supportMap.set(entry.channel, entry);
+      }
+    });
+    (baseline && baseline.support ? baseline.support : []).forEach((entry) => {
+      if (entry.channel) {
+        baselineSupport.set(entry.channel, entry);
+      }
+    });
+    const addedSupport = Array.from(supportMap.keys()).filter((channel) => !baselineSupport.has(channel));
+    const removedSupport = Array.from(baselineSupport.keys()).filter((channel) => !supportMap.has(channel));
+    if (addedSupport.length) {
+      messages.push(`Support channels added: ${addedSupport.join(', ')}.`);
+    }
+    if (removedSupport.length) {
+      messages.push(`Support channels removed: ${removedSupport.join(', ')}.`);
+    }
+    supportMap.forEach((entry, channel) => {
+      if (!baselineSupport.has(channel)) {
+        return;
+      }
+      const serialisedNew = stableStringify(entry);
+      const serialisedOld = stableStringify(baselineSupport.get(channel));
+      if (serialisedNew !== serialisedOld) {
+        messages.push(`Support channel ${channel} updated.`);
+      }
+    });
+
+    const slaMap = new Map();
+    const baselineSla = new Map();
+    payload.slaProperties.forEach((entry) => {
+      if (entry.property) {
+        slaMap.set(entry.property, entry);
+      }
+    });
+    (baseline && baseline.slaProperties ? baseline.slaProperties : []).forEach((entry) => {
+      if (entry.property) {
+        baselineSla.set(entry.property, entry);
+      }
+    });
+    const addedSla = Array.from(slaMap.keys()).filter((prop) => !baselineSla.has(prop));
+    const removedSla = Array.from(baselineSla.keys()).filter((prop) => !slaMap.has(prop));
+    if (addedSla.length) {
+      messages.push(`SLA properties added: ${addedSla.join(', ')}.`);
+    }
+    if (removedSla.length) {
+      messages.push(`SLA properties removed: ${removedSla.join(', ')}.`);
+    }
+    slaMap.forEach((entry, prop) => {
+      if (!baselineSla.has(prop)) {
+        return;
+      }
+      const serialisedNew = stableStringify(entry);
+      const serialisedOld = stableStringify(baselineSla.get(prop));
+      if (serialisedNew !== serialisedOld) {
+        messages.push(`SLA ${prop} updated.`);
+      }
+    });
+
+    const customMap = new Map();
+    const baselineCustom = new Map();
+    payload.customProperties.forEach((entry) => {
+      if (entry.property) {
+        customMap.set(entry.property, entry.value);
+      }
+    });
+    (baseline && baseline.customProperties ? baseline.customProperties : []).forEach((entry) => {
+      if (entry.property) {
+        baselineCustom.set(entry.property, entry.value);
+      }
+    });
+    const addedCustom = Array.from(customMap.keys()).filter((prop) => !baselineCustom.has(prop));
+    const removedCustom = Array.from(baselineCustom.keys()).filter((prop) => !customMap.has(prop));
+    if (addedCustom.length) {
+      messages.push(`Custom properties added: ${addedCustom.join(', ')}.`);
+    }
+    if (removedCustom.length) {
+      messages.push(`Custom properties removed: ${removedCustom.join(', ')}.`);
+    }
+    customMap.forEach((value, prop) => {
+      if (!baselineCustom.has(prop)) {
+        return;
+      }
+      const previous = baselineCustom.get(prop);
+      if (value !== previous) {
+        messages.push(`Custom property ${prop} updated.`);
+      }
+    });
+
+    if (!baseline) {
+      if (payload.schemaObjects.length) {
+        messages.push(`Schema objects defined: ${payload.schemaObjects.length}.`);
+      }
+      if (payload.servers.length) {
+        messages.push(`Servers defined: ${payload.servers.length}.`);
+      }
+    }
+
+    return messages;
+  }
+
+  function renderPreview(payload) {
+    if (previewSummary) {
+      previewSummary.innerHTML = '';
+      const summaryItems = summariseChanges(payload, editorMeta.baselineState || null);
+      if (summaryItems.length) {
+        const list = document.createElement('ul');
+        summaryItems.forEach((message) => {
+          const item = document.createElement('li');
+          item.textContent = message;
+          list.appendChild(item);
+        });
+        previewSummary.appendChild(list);
+      } else {
+        const paragraph = document.createElement('p');
+        paragraph.className = 'text-muted mb-0';
+        paragraph.textContent = 'No differences detected compared to the baseline contract.';
+        previewSummary.appendChild(paragraph);
+      }
+    }
+    if (previewJson) {
+      previewJson.textContent = JSON.stringify(payload, null, 2);
+    }
+    if (previewErrorBox) {
+      previewErrorBox.classList.add('d-none');
+      previewErrorBox.textContent = '';
+    }
+  }
+
+  if (previewButton) {
+    previewButton.addEventListener('click', () => {
+      lastPreviewPayload = null;
+      const payload = buildPayload();
+      const errors = validatePayload(payload);
+      if (errors.length) {
+        showInlineErrors(errors);
+        return;
+      }
+      clearInlineErrors();
+      renderPreview(payload);
+      lastPreviewPayload = payload;
+      if (previewModal) {
+        previewModal.show();
+      }
+    });
+  }
+
+  if (confirmButton) {
+    confirmButton.addEventListener('click', () => {
+      if (!lastPreviewPayload) {
+        previewButton?.click();
+        return;
+      }
+      clearInlineErrors();
+      payloadInput.value = JSON.stringify(lastPreviewPayload);
+      allowSubmit = true;
+      form.submit();
+    });
+  }
+
+  form.addEventListener('submit', (event) => {
+    if (allowSubmit) {
+      allowSubmit = false;
+      return;
+    }
+    event.preventDefault();
+    previewButton?.click();
   });
 })();
 </script>

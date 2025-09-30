@@ -38,6 +38,7 @@ import re
 import shutil
 import tempfile
 from datetime import datetime
+from collections import Counter
 
 import httpx
 from fastapi import FastAPI, Request, Form, HTTPException
@@ -67,7 +68,7 @@ from open_data_contract_standard.model import (
     Support,
 )
 from pydantic import ValidationError
-from packaging.version import Version
+from packaging.version import Version, InvalidVersion
 
 # Optional pyspark-based helpers. Keep imports lazy-friendly so the demo UI can
 # still load when pyspark is not installed (for example when running fast unit
@@ -478,6 +479,23 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
     )
 
 store = FSContractStore(str(CONTRACT_DIR))
+
+
+_STATUS_OPTIONS: List[Tuple[str, str]] = [
+    ("", "Unspecified"),
+    ("draft", "Draft"),
+    ("active", "Active"),
+    ("deprecated", "Deprecated"),
+    ("retired", "Retired"),
+    ("suspended", "Suspended"),
+]
+
+_VERSIONING_MODES: List[Tuple[str, str]] = [
+    ("", "Not specified"),
+    ("delta", "Delta (time-travel compatible)"),
+    ("snapshot", "Snapshot folders"),
+    ("append", "Append-only log"),
+]
 
 _backend_app: FastAPI | None = None
 _backend_transport: ASGITransport | None = None
@@ -1666,6 +1684,45 @@ async def list_contracts(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/contracts/new", response_class=HTMLResponse)
+async def new_contract_form(request: Request) -> HTMLResponse:
+    editor_state = _contract_editor_state()
+    editor_state["version"] = editor_state.get("version") or "1.0.0"
+    context = _editor_context(request, editor_state=editor_state)
+    return templates.TemplateResponse("new_contract.html", context)
+
+
+@app.post("/contracts/new", response_class=HTMLResponse)
+async def create_contract(
+    request: Request,
+    payload: str = Form(...),
+) -> HTMLResponse:
+    error: Optional[str] = None
+    try:
+        editor_state = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        error = f"Invalid editor payload: {exc.msg}"
+        editor_state = _contract_editor_state()
+    else:
+        try:
+            _validate_contract_payload(editor_state, editing=False)
+            model = _build_contract_from_payload(editor_state)
+            store.put(model)
+            return RedirectResponse(url="/contracts", status_code=303)
+        except (ValidationError, ValueError) as exc:
+            error = str(exc)
+        except Exception as exc:  # pragma: no cover - display unexpected errors
+            error = str(exc)
+    context = _editor_context(
+        request,
+        editor_state=editor_state,
+        error=error,
+    )
+    return templates.TemplateResponse("new_contract.html", context)
+
+
+
+
 @app.get("/contracts/{cid}", response_class=HTMLResponse)
 async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
     versions = store.list_versions(cid)
@@ -1955,7 +2012,35 @@ def _server_state(server: Server) -> Dict[str, Any]:
     }
     for field, attr in _SERVER_FIELD_MAP.items():
         state[field] = getattr(server, attr, "") or ""
-    state["customProperties"] = _custom_properties_state(getattr(server, "customProperties", None))
+    versioning_value: Any | None = None
+    path_pattern_value: Any | None = None
+    custom_entries: List[Dict[str, str]] = []
+    for item in normalise_custom_properties(getattr(server, "customProperties", None)):
+        key = None
+        value = None
+        if isinstance(item, Mapping):
+            key = item.get("property")
+            value = item.get("value")
+        else:
+            key = getattr(item, "property", None)
+            value = getattr(item, "value", None)
+        if not key:
+            continue
+        if str(key) == "dc43.versioning":
+            versioning_value = value
+            continue
+        if str(key) == "dc43.pathPattern":
+            path_pattern_value = value
+            continue
+        custom_entries.append({"property": str(key), "value": _stringify_value(value)})
+    if versioning_value is not None:
+        parsed = versioning_value
+        if isinstance(parsed, str):
+            parsed = _parse_json_value(parsed)
+        state["versioningConfig"] = parsed if isinstance(parsed, Mapping) else None
+    if path_pattern_value not in (None, ""):
+        state["pathPattern"] = str(path_pattern_value)
+    state["customProperties"] = custom_entries
     return state
 
 
@@ -2049,6 +2134,88 @@ def _contract_editor_state(contract: Optional[OpenDataContractStandard] = None) 
     return state
 
 
+def _sorted_versions(values: Iterable[str]) -> List[str]:
+    parsed: List[Tuple[Version, str]] = []
+    invalid: List[str] = []
+    for value in values:
+        if not value:
+            continue
+        try:
+            parsed.append((Version(str(value)), str(value)))
+        except InvalidVersion:
+            invalid.append(str(value))
+    parsed.sort(key=lambda entry: entry[0])
+    return [ver for _, ver in parsed] + sorted(invalid)
+
+
+def _build_editor_meta(
+    *,
+    editor_state: Mapping[str, Any],
+    editing: bool,
+    original_version: Optional[str],
+    baseline_state: Optional[Mapping[str, Any]],
+    baseline_contract: Optional[OpenDataContractStandard],
+) -> Dict[str, Any]:
+    existing_contracts = sorted(store.list_contracts())
+    version_map: Dict[str, List[str]] = {}
+    for contract_id in existing_contracts:
+        try:
+            versions = store.list_versions(contract_id)
+        except FileNotFoundError:
+            versions = []
+        version_map[contract_id] = _sorted_versions(versions)
+    meta: Dict[str, Any] = {
+        "existingContracts": existing_contracts,
+        "existingVersions": version_map,
+        "editing": editing,
+        "originalVersion": original_version,
+        "contractId": str(editor_state.get("id", "")) or (
+            getattr(baseline_contract, "id", "") if baseline_contract else ""
+        ),
+    }
+    if original_version:
+        meta["baseVersion"] = original_version
+    if baseline_state is None and baseline_contract is not None:
+        baseline_state = _contract_editor_state(baseline_contract)
+    if baseline_state is not None:
+        # ensure baseline is JSON serializable
+        meta["baselineState"] = jsonable_encoder(baseline_state)
+    if baseline_contract is not None:
+        meta["baseContract"] = contract_to_dict(baseline_contract)
+    return meta
+
+
+def _editor_context(
+    request: Request,
+    *,
+    editor_state: Dict[str, Any],
+    editing: bool = False,
+    original_version: Optional[str] = None,
+    baseline_state: Optional[Mapping[str, Any]] = None,
+    baseline_contract: Optional[OpenDataContractStandard] = None,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    context = {
+        "request": request,
+        "editing": editing,
+        "editor_state": editor_state,
+        "status_options": _STATUS_OPTIONS,
+        "versioning_modes": _VERSIONING_MODES,
+        "editor_meta": _build_editor_meta(
+            editor_state=editor_state,
+            editing=editing,
+            original_version=original_version,
+            baseline_state=baseline_state,
+            baseline_contract=baseline_contract,
+        ),
+    }
+    if original_version:
+        context["original_version"] = original_version
+    if error:
+        context["error"] = error
+    return context
+
+
 def _custom_properties_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[CustomProperty] | None:
     result: List[CustomProperty] = []
     if not items:
@@ -2062,6 +2229,53 @@ def _custom_properties_models(items: Optional[Iterable[Mapping[str, Any]]]) -> L
         value = _parse_json_value(item.get("value"))
         result.append(CustomProperty(property=key, value=value))
     return result or None
+
+
+def _validate_contract_payload(
+    payload: Mapping[str, Any],
+    *,
+    editing: bool,
+    base_contract_id: Optional[str] = None,
+    base_version: Optional[str] = None,
+) -> None:
+    contract_id = (str(payload.get("id", ""))).strip()
+    if not contract_id:
+        raise ValueError("Contract ID is required")
+    version = (str(payload.get("version", ""))).strip()
+    if not version:
+        raise ValueError("Version is required")
+    try:
+        new_version = SemVer.parse(version)
+    except ValueError as exc:
+        raise ValueError(f"Invalid semantic version: {exc}") from exc
+    existing_contracts = set(store.list_contracts())
+    existing_versions = (
+        set(store.list_versions(contract_id)) if contract_id in existing_contracts else set()
+    )
+    if editing:
+        if base_contract_id and contract_id != base_contract_id:
+            raise ValueError("Contract ID cannot be changed while editing")
+        if base_version:
+            try:
+                prior = SemVer.parse(base_version)
+            except ValueError:
+                prior = None
+            if prior and (
+                (new_version.major, new_version.minor, new_version.patch)
+                <= (prior.major, prior.minor, prior.patch)
+            ):
+                raise ValueError(
+                    f"Version {version} must be greater than {base_version}"
+                )
+        if version in existing_versions:
+            raise ValueError(
+                f"Version {version} is already stored for contract {contract_id}"
+            )
+    else:
+        if contract_id in existing_contracts and version in existing_versions:
+            raise ValueError(
+                f"Contract {contract_id} already has a version {version}."
+            )
 
 
 def _support_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[Support] | None:
@@ -2266,6 +2480,17 @@ def _schema_objects_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List
         if quality:
             payload["quality"] = quality
         properties = _schema_properties_models(item.get("properties"))
+        if properties:
+            name_counts = Counter(
+                prop.name for prop in properties if getattr(prop, "name", None)
+            )
+            duplicates = [name for name, count in name_counts.items() if count > 1]
+            if duplicates:
+                object_name = payload.get("name") or "schema object"
+                dup_list = ", ".join(sorted(duplicates))
+                raise ValueError(
+                    f"Duplicate field name(s) {dup_list} in {object_name}"
+                )
         payload["properties"] = properties
         result.append(SchemaObject(**payload))
     return result
@@ -2290,7 +2515,27 @@ def _server_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[Server]
         port_value = item.get("port")
         if port_value not in (None, ""):
             payload["port"] = _as_int(port_value)
-        custom_props = _custom_properties_models(item.get("customProperties"))
+        custom_props: List[CustomProperty] = []
+        base_custom = _custom_properties_models(item.get("customProperties"))
+        if base_custom:
+            custom_props.extend(base_custom)
+        versioning_config = item.get("versioningConfig")
+        if versioning_config not in (None, "", {}):
+            parsed_versioning = (
+                versioning_config
+                if isinstance(versioning_config, Mapping)
+                else _parse_json_value(versioning_config)
+            )
+            if not isinstance(parsed_versioning, Mapping):
+                raise ValueError("dc43.versioning must be provided as an object")
+            custom_props.append(
+                CustomProperty(property="dc43.versioning", value=parsed_versioning)
+            )
+        path_pattern = item.get("pathPattern")
+        if path_pattern not in (None, ""):
+            custom_props.append(
+                CustomProperty(property="dc43.pathPattern", value=str(path_pattern))
+            )
         if custom_props:
             payload["customProperties"] = custom_props
         result.append(Server(**payload))
@@ -2364,13 +2609,16 @@ async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLRespon
         raise HTTPException(status_code=404, detail=str(exc))
     new_ver = _next_version(ver)
     editor_state = _contract_editor_state(contract)
+    baseline_state = json.loads(json.dumps(editor_state))
     editor_state["version"] = new_ver
-    context = {
-        "request": request,
-        "editing": True,
-        "original_version": ver,
-        "editor_state": editor_state,
-    }
+    context = _editor_context(
+        request,
+        editor_state=editor_state,
+        editing=True,
+        original_version=ver,
+        baseline_state=baseline_state,
+        baseline_contract=contract,
+    )
     return templates.TemplateResponse("new_contract.html", context)
 
 
@@ -2383,6 +2631,15 @@ async def save_contract_edits(
     original_version: str = Form(""),
 ) -> HTMLResponse:
     editor_state: Dict[str, Any]
+    baseline_contract: Optional[OpenDataContractStandard] = None
+    baseline_state: Optional[Dict[str, Any]] = None
+    base_version = original_version or ver
+    try:
+        baseline_contract = store.get(cid, base_version)
+        baseline_state = json.loads(json.dumps(_contract_editor_state(baseline_contract)))
+    except FileNotFoundError:
+        baseline_contract = None
+        baseline_state = None
     try:
         editor_state = json.loads(payload)
     except json.JSONDecodeError as exc:
@@ -2392,6 +2649,12 @@ async def save_contract_edits(
         editor_state["version"] = _next_version(ver)
     else:
         try:
+            _validate_contract_payload(
+                editor_state,
+                editing=True,
+                base_contract_id=cid,
+                base_version=base_version,
+            )
             model = _build_contract_from_payload(editor_state)
             store.put(model)
             return RedirectResponse(
@@ -2401,58 +2664,21 @@ async def save_contract_edits(
             error = str(exc)
         except Exception as exc:  # pragma: no cover - display unexpected errors
             error = str(exc)
-    context = {
-        "request": request,
-        "editing": True,
-        "error": error,
-        "editor_state": editor_state,
-        "original_version": original_version or ver,
-    }
+    context = _editor_context(
+        request,
+        editor_state=editor_state,
+        editing=True,
+        original_version=base_version,
+        baseline_state=baseline_state,
+        baseline_contract=baseline_contract,
+        error=error,
+    )
     return templates.TemplateResponse("new_contract.html", context)
 
 
 @app.post("/contracts/{cid}/{ver}/validate")
 async def html_validate_contract(cid: str, ver: str) -> HTMLResponse:
     return RedirectResponse(url=f"/contracts/{cid}/{ver}", status_code=303)
-
-
-@app.get("/contracts/new", response_class=HTMLResponse)
-async def new_contract_form(request: Request) -> HTMLResponse:
-    editor_state = _contract_editor_state()
-    editor_state.setdefault("version", "1.0.0")
-    context = {
-        "request": request,
-        "editor_state": editor_state,
-    }
-    return templates.TemplateResponse("new_contract.html", context)
-
-
-@app.post("/contracts/new", response_class=HTMLResponse)
-async def create_contract(
-    request: Request,
-    payload: str = Form(...),
-) -> HTMLResponse:
-    error: Optional[str] = None
-    try:
-        editor_state = json.loads(payload)
-    except json.JSONDecodeError as exc:
-        error = f"Invalid editor payload: {exc.msg}"
-        editor_state = _contract_editor_state()
-    else:
-        try:
-            model = _build_contract_from_payload(editor_state)
-            store.put(model)
-            return RedirectResponse(url="/contracts", status_code=303)
-        except (ValidationError, ValueError) as exc:
-            error = str(exc)
-        except Exception as exc:  # pragma: no cover - display unexpected errors
-            error = str(exc)
-    context = {
-        "request": request,
-        "error": error,
-        "editor_state": editor_state,
-    }
-    return templates.TemplateResponse("new_contract.html", context)
 
 
 @app.get("/datasets", response_class=HTMLResponse)
