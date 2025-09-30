@@ -131,7 +131,7 @@ def build_app(
         versions = contract_backend.list_versions(contract_id)
         return [str(value) for value in versions]
 
-    @router.post("/contracts/link", status_code=204, response_class=Response)
+    @router.post("/contracts/link")
     def link_contract(payload: _LinkDatasetPayload) -> None:
         contract_backend.link_dataset_contract(
             dataset_id=payload.dataset_id,
@@ -169,7 +169,7 @@ def build_app(
     # ------------------------------------------------------------------
     # Governance endpoints
     # ------------------------------------------------------------------
-    @router.post("/governance/auth", status_code=204, response_class=Response)
+    @router.post("/governance/auth")
     def configure_auth(payload: _AuthPayload) -> None:
         credentials = decode_credentials(payload.credentials)
         governance_backend.configure_auth(credentials)
