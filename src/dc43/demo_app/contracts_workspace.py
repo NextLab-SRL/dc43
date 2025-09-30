@@ -9,11 +9,19 @@ from typing import Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard
 
-from dc43_contracts_app import (
-    configure_backend,
-    configure_workspace,
-    current_workspace,
-)
+try:  # pragma: no cover - exercised via integration when legacy wheels are present
+    from dc43_contracts_app import (
+        configure_backend,
+        configure_workspace,
+        current_workspace,
+    )
+except ImportError:  # Older distributions expose helpers only from the server module.
+    from dc43_contracts_app.server import (  # type: ignore[attr-defined]
+        configure_backend,
+        configure_workspace,
+        current_workspace,
+    )
+
 from dc43_contracts_app.workspace import ContractsAppWorkspace, workspace_from_env
 from dc43_contracts_app.server import refresh_dataset_aliases, set_active_version
 
