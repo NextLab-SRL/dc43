@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import subprocess
@@ -14,7 +15,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 
-from dc43_contracts_app import server as contracts_server
+from dc43_contracts_app import (
+    configure_from_config as configure_contracts_from_config,
+    load_config as load_contracts_config,
+    server as contracts_server,
+)
 from .contracts_workspace import prepare_demo_workspace
 from .scenarios import SCENARIOS
 
@@ -49,6 +54,53 @@ templates = Jinja2Templates(env=template_env)
 app = FastAPI(title="DC43 Demo Pipeline")
 
 CONTRACTS_APP_URL = os.getenv("DC43_CONTRACTS_APP_URL")
+
+
+def _toml_string(value: str) -> str:
+    """Return a TOML-safe representation of ``value``."""
+
+    return json.dumps(value)
+
+
+def _write_backend_config(path: Path, contracts_dir: Path, token: str | None) -> None:
+    lines = [
+        "[contract_store]",
+        f"root = {_toml_string(contracts_dir.as_posix())}",
+    ]
+    if token:
+        lines.extend(
+            [
+                "",
+                "[auth]",
+                f"token = {_toml_string(token)}",
+            ]
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_contracts_config(
+    path: Path,
+    workspace_root: Path,
+    backend_host: str,
+    backend_port: int,
+    backend_url: str,
+    backend_log_level: str | None,
+) -> None:
+    lines = [
+        "[workspace]",
+        f"root = {_toml_string(workspace_root.as_posix())}",
+        "",
+        "[backend]",
+        "mode = \"remote\"",
+        f"base_url = {_toml_string(backend_url)}",
+        "",
+        "[backend.process]",
+        f"host = {_toml_string(backend_host)}",
+        f"port = {backend_port}",
+    ]
+    if backend_log_level:
+        lines.append(f"log_level = {_toml_string(backend_log_level)}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 @app.get("/")
@@ -162,6 +214,7 @@ def run() -> None:  # pragma: no cover - convenience runner
     backend_host = os.getenv("DC43_DEMO_BACKEND_HOST", "127.0.0.1")
     backend_port = int(os.getenv("DC43_DEMO_BACKEND_PORT", "8001"))
     backend_url = f"http://{backend_host}:{backend_port}"
+    backend_log_level = os.getenv("DC43_DEMO_BACKEND_LOG")
 
     contracts_host = os.getenv("DC43_CONTRACTS_APP_HOST", "127.0.0.1")
     contracts_port = int(os.getenv("DC43_CONTRACTS_APP_PORT", "8002"))
@@ -171,9 +224,40 @@ def run() -> None:  # pragma: no cover - convenience runner
     pipeline_host = os.getenv("DC43_DEMO_HOST", "0.0.0.0")
     pipeline_port = int(os.getenv("DC43_DEMO_PORT", "8000"))
 
+    workspace = contracts_server.current_workspace()
+    config_dir = workspace.root / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    backend_token = os.getenv("DC43_BACKEND_TOKEN")
+    backend_config_path = config_dir / "service_backends.toml"
+    _write_backend_config(backend_config_path, workspace.contracts_dir, backend_token)
+
+    contracts_config_path = config_dir / "contracts_app.toml"
+    _write_contracts_config(
+        contracts_config_path,
+        workspace.root,
+        backend_host,
+        backend_port,
+        backend_url,
+        backend_log_level,
+    )
+
+    previous_contracts_config = os.getenv("DC43_CONTRACTS_APP_CONFIG")
+    previous_backend_config = os.getenv("DC43_SERVICE_BACKENDS_CONFIG")
+    previous_demo_backend_url = os.getenv("DC43_DEMO_BACKEND_URL")
+    previous_demo_work_dir = os.getenv("DC43_DEMO_WORK_DIR")
+    previous_contract_store = os.getenv("DC43_CONTRACT_STORE")
+
+    os.environ["DC43_CONTRACTS_APP_CONFIG"] = str(contracts_config_path)
+    os.environ["DC43_SERVICE_BACKENDS_CONFIG"] = str(backend_config_path)
+    os.environ["DC43_DEMO_BACKEND_URL"] = backend_url
+    os.environ["DC43_DEMO_WORK_DIR"] = str(workspace.root)
+    os.environ.setdefault("DC43_CONTRACT_STORE", str(workspace.contracts_dir))
+
+    contracts_config = load_contracts_config(contracts_config_path)
+    configure_contracts_from_config(contracts_config)
+
     env = os.environ.copy()
-    env.setdefault("DC43_CONTRACT_STORE", str(contracts_server.CONTRACT_DIR))
-    env["DC43_DEMO_WORK_DIR"] = str(contracts_server.WORK_DIR)
 
     backend_cmd = [
         sys.executable,
@@ -185,7 +269,6 @@ def run() -> None:  # pragma: no cover - convenience runner
         "--port",
         str(backend_port),
     ]
-    backend_log_level = os.getenv("DC43_DEMO_BACKEND_LOG")
     if backend_log_level:
         backend_cmd.extend(["--log-level", backend_log_level])
 
@@ -198,9 +281,6 @@ def run() -> None:  # pragma: no cover - convenience runner
         with contextlib.suppress(Exception):
             backend_process.wait(timeout=5)
         raise
-
-    original_backend_url = os.getenv("DC43_DEMO_BACKEND_URL")
-    contracts_server._initialise_backend(base_url=backend_url)
 
     contract_process: subprocess.Popen[bytes] | None = None
     if configured_contracts_url is None:
@@ -231,7 +311,6 @@ def run() -> None:  # pragma: no cover - convenience runner
             backend_process.terminate()
             with contextlib.suppress(Exception):
                 backend_process.wait(timeout=5)
-            contracts_server._initialise_backend(base_url=original_backend_url)
             raise
 
     global CONTRACTS_APP_URL
@@ -257,4 +336,29 @@ def run() -> None:  # pragma: no cover - convenience runner
         with contextlib.suppress(Exception):
             backend_process.wait(timeout=5)
 
-        contracts_server._initialise_backend(base_url=original_backend_url)
+        if previous_contracts_config is not None:
+            os.environ["DC43_CONTRACTS_APP_CONFIG"] = previous_contracts_config
+        else:
+            os.environ.pop("DC43_CONTRACTS_APP_CONFIG", None)
+
+        if previous_backend_config is not None:
+            os.environ["DC43_SERVICE_BACKENDS_CONFIG"] = previous_backend_config
+        else:
+            os.environ.pop("DC43_SERVICE_BACKENDS_CONFIG", None)
+
+        if previous_demo_backend_url is not None:
+            os.environ["DC43_DEMO_BACKEND_URL"] = previous_demo_backend_url
+        else:
+            os.environ.pop("DC43_DEMO_BACKEND_URL", None)
+
+        if previous_demo_work_dir is not None:
+            os.environ["DC43_DEMO_WORK_DIR"] = previous_demo_work_dir
+        else:
+            os.environ.pop("DC43_DEMO_WORK_DIR", None)
+
+        if previous_contract_store is not None:
+            os.environ["DC43_CONTRACT_STORE"] = previous_contract_store
+        else:
+            os.environ.pop("DC43_CONTRACT_STORE", None)
+
+        configure_contracts_from_config(load_contracts_config(previous_contracts_config))

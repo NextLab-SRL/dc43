@@ -33,3 +33,8 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["dc43_service_backends*"]
+
+[tool.setuptools.package-data]
+"dc43_service_backends" = [
+  "config/*.toml",
+]

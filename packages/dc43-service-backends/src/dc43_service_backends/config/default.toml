@@ -1,0 +1,8 @@
+[contract_store]
+# Path to the filesystem contract store. Defaults to a "contracts" directory
+# inside the current working directory when unset.
+root = ""
+
+[auth]
+# Optional bearer token required for requests to the backend API.
+token = ""
