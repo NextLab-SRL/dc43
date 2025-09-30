@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dc43-service-backends"
-version = "0.7.0.0"
+version = "0.8.0.0"
 description = "Backend service implementations for dc43"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,9 @@ dependencies = [
 
 [project.optional-dependencies]
 spark = ["pyspark>=3.4"]
+http = [
+  "fastapi>=0.118.0",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

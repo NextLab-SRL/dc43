@@ -1368,7 +1368,12 @@ def write_with_contract(
             return final_result, None
         return final_result
 
+    request_warning_messages: list[str] = []
+
     for index, request in enumerate(requests):
+        for message in request.warnings:
+            if message not in request_warning_messages:
+                request_warning_messages.append(message)
         status, request_validation = _execute_write_request(
             request,
             governance_client=governance_client,
@@ -1388,6 +1393,11 @@ def write_with_contract(
         final_result = validations[0]
     else:
         final_result = result
+
+    if request_warning_messages:
+        for message in request_warning_messages:
+            if message not in final_result.warnings:
+                final_result.warnings.append(message)
 
     if status_records:
         aggregated_entries: list[Dict[str, Any]] = []
@@ -1429,6 +1439,19 @@ def write_with_contract(
                 aggregated_draft = draft_version
             merged_warnings.extend(details.get("warnings", []) or [])
             merged_errors.extend(details.get("errors", []) or [])
+
+            if request.warnings:
+                for message in request.warnings:
+                    if message not in merged_warnings:
+                        merged_warnings.append(message)
+                    if message not in status.warnings:
+                        status.warnings.append(message)
+                entry_warnings = list(details.get("warnings", []) or [])
+                for message in request.warnings:
+                    if message not in entry_warnings:
+                        entry_warnings.append(message)
+                if entry_warnings:
+                    details["warnings"] = entry_warnings
 
         if aggregated_entries:
             if primary_status is None:

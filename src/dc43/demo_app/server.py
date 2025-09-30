@@ -16,6 +16,7 @@ Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 ``pyspark``.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,16 +31,20 @@ import shutil
 import tempfile
 from datetime import datetime
 
+import httpx
 from fastapi import FastAPI, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
 from urllib.parse import urlencode
+from httpx import ASGITransport
 
 from dc43_service_backends.contracts.backend.stores import FSContractStore
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
+from dc43_service_backends.web import build_local_app
+from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
+from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
+from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from dc43.odcs import custom_properties_dict, normalise_custom_properties
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
@@ -462,12 +467,17 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
     )
 
 store = FSContractStore(str(CONTRACT_DIR))
-contract_service = LocalContractServiceClient(store)
-dq_service = LocalDataQualityServiceClient()
+_backend_app = build_local_app(store)
+_backend_transport = ASGITransport(app=_backend_app)
+_backend_client = httpx.AsyncClient(transport=_backend_transport, base_url="http://dc43-services")
+
+contract_service = RemoteContractServiceClient(client=_backend_client)
+dq_service = RemoteDataQualityServiceClient(client=_backend_client)
+governance_service = RemoteGovernanceServiceClient(client=_backend_client)
 
 
-def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[str, str]:
-    plan = dq_service.describe_expectations(contract=contract)
+async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[str, str]:
+    plan = await asyncio.to_thread(dq_service.describe_expectations, contract=contract)
     mapping: Dict[str, str] = {}
     for item in plan:
         key = item.get("key") if isinstance(item, Mapping) else None
@@ -1433,7 +1443,7 @@ async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r.__dict__ for r in load_records() if r.contract_id == cid and r.contract_version == ver]
-    expectations = _expectation_predicates(contract)
+    expectations = await _expectation_predicates(contract)
     return {
         "contract": contract_to_dict(contract),
         "datasets": datasets,
@@ -1482,25 +1492,28 @@ async def api_contract_preview(
     limit = max(1, min(limit, 500))
 
     try:
-        spark = _spark_session()
-        locator = ContractVersionLocator(
-            dataset_version=selected_version,
-            dataset_id=effective_dataset_id,
-        )
-        df = read_with_contract(  # type: ignore[misc]
-            spark,
-            contract_id=cid,
-            contract_service=contract_service,
-            expected_contract_version=f"=={ver}",
-            dataset_locator=locator,
-            enforce=False,
-            auto_cast=False,
-            data_quality_service=dq_service,
-            return_status=False,
-        )
-        rows_raw = [row.asDict(recursive=True) for row in df.limit(limit).collect()]
+        def _load_preview() -> tuple[list[Mapping[str, Any]], list[str]]:
+            spark = _spark_session()
+            locator = ContractVersionLocator(
+                dataset_version=selected_version,
+                dataset_id=effective_dataset_id,
+            )
+            df = read_with_contract(  # type: ignore[misc]
+                spark,
+                contract_id=cid,
+                contract_service=contract_service,
+                expected_contract_version=f"=={ver}",
+                dataset_locator=locator,
+                enforce=False,
+                auto_cast=False,
+                data_quality_service=dq_service,
+                return_status=False,
+            )
+            rows_raw = [row.asDict(recursive=True) for row in df.limit(limit).collect()]
+            return rows_raw, list(df.columns)
+
+        rows_raw, columns = await asyncio.to_thread(_load_preview)
         rows = jsonable_encoder(rows_raw)
-        columns = list(df.columns)
     except Exception as exc:  # pragma: no cover - defensive guard for preview errors
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -1542,7 +1555,7 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
-                "expectations": _expectation_predicates(contract),
+                "expectations": await _expectation_predicates(contract),
             }
     raise HTTPException(status_code=404, detail="Dataset not found")
 
@@ -1618,7 +1631,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "request": request,
         "contract": contract_to_dict(contract),
         "datasets": datasets,
-        "expectations": _expectation_predicates(contract),
+        "expectations": await _expectation_predicates(contract),
         "field_quality": field_quality,
         "dataset_quality": dataset_quality,
         "change_log": change_log,
@@ -1884,7 +1897,8 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         except FileNotFoundError:
             continue
     try:
-        dataset_name, new_version = run_pipeline(
+        dataset_name, new_version = await asyncio.to_thread(
+            run_pipeline,
             p.get("contract_id"),
             p.get("contract_version"),
             p.get("dataset_name"),

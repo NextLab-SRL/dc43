@@ -159,9 +159,10 @@ class SplitWriteViolationStrategy:
             valid_df = context.aligned_df.filter(composite_predicate)
             has_valid = valid_df.limit(1).count() > 0
             if has_valid:
-                warnings.append(
-                    f"Valid subset written to dataset suffix '{self.valid_suffix}'",
+                valid_warning = (
+                    f"Valid subset written to dataset suffix '{self.valid_suffix}'"
                 )
+                warnings.append(valid_warning)
                 valid_request = WriteRequest(
                     df=valid_df,
                     path=self._extend_path(context.path, self.valid_suffix),
@@ -173,6 +174,7 @@ class SplitWriteViolationStrategy:
                     dataset_id=_extend_dataset_id(context.dataset_id, self.valid_suffix),
                     dataset_version=context.dataset_version,
                     validation_factory=lambda df=valid_df: context.revalidate(df),
+                    warnings=(valid_warning,),
                     pipeline_context=_merge_pipeline_context(
                         context.pipeline_context,
                         {"subset": self.valid_suffix},
@@ -183,9 +185,10 @@ class SplitWriteViolationStrategy:
             reject_df = context.aligned_df.filter(f"NOT ({composite_predicate})")
             has_reject = reject_df.limit(1).count() > 0
             if has_reject:
-                warnings.append(
-                    f"Rejected subset written to dataset suffix '{self.reject_suffix}'",
+                reject_warning = (
+                    f"Rejected subset written to dataset suffix '{self.reject_suffix}'"
                 )
+                warnings.append(reject_warning)
                 reject_request = WriteRequest(
                     df=reject_df,
                     path=self._extend_path(context.path, self.reject_suffix),
@@ -197,6 +200,7 @@ class SplitWriteViolationStrategy:
                     dataset_id=_extend_dataset_id(context.dataset_id, self.reject_suffix),
                     dataset_version=context.dataset_version,
                     validation_factory=lambda df=reject_df: context.revalidate(df),
+                    warnings=(reject_warning,),
                     pipeline_context=_merge_pipeline_context(
                         context.pipeline_context,
                         {"subset": self.reject_suffix},
