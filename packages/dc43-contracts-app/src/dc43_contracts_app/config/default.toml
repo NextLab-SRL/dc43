@@ -1,0 +1,13 @@
+[workspace]
+# ``root`` defaults to a temporary directory when left empty.
+root = ""
+
+[backend]
+# Use the in-process backend by default to keep tests lightweight.
+mode = "embedded"
+
+[backend.process]
+# Settings applied when the contracts CLI spawns a backend.
+host = "127.0.0.1"
+port = 8001
+log_level = ""

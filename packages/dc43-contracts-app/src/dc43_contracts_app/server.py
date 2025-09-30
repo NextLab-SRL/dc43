@@ -53,6 +53,7 @@ from dc43_service_clients.data_quality.client.remote import RemoteDataQualitySer
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
+from .config import BackendConfig, ContractsAppConfig, load_config
 from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
     CustomProperty,
@@ -99,6 +100,8 @@ def _spark_session() -> Any:
 
 BASE_DIR = Path(__file__).resolve().parent
 
+_CONFIG_LOCK = Lock()
+_ACTIVE_CONFIG: ContractsAppConfig | None = None
 _WORKSPACE_LOCK = Lock()
 _WORKSPACE: ContractsAppWorkspace | None = None
 WORK_DIR: Path
@@ -124,23 +127,45 @@ def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     DQ_STATUS_DIR = workspace.dq_status_dir
     _WORKSPACE = workspace
     store = FSContractStore(str(CONTRACT_DIR))
+    try:
+        os.environ.setdefault("DC43_CONTRACTS_APP_WORK_DIR", str(WORK_DIR))
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 def current_workspace() -> ContractsAppWorkspace:
     """Return the configured workspace initialising defaults when needed."""
 
+    _current_config()
     global _WORKSPACE
     if _WORKSPACE is None:
         with _WORKSPACE_LOCK:
             if _WORKSPACE is None:
-                workspace, _ = workspace_from_env()
+                active = _current_config()
+                default_root = (
+                    str(active.workspace.root) if active.workspace.root else None
+                )
+                workspace, _ = workspace_from_env(default_root=default_root)
                 configure_workspace(workspace)
     assert _WORKSPACE is not None
     return _WORKSPACE
 
 
-# Ensure module-level paths are set for callers that import attributes directly.
-configure_workspace(workspace_from_env()[0])
+def _set_active_config(config: ContractsAppConfig) -> ContractsAppConfig:
+    with _CONFIG_LOCK:
+        global _ACTIVE_CONFIG
+        _ACTIVE_CONFIG = config
+    return config
+
+
+def _current_config() -> ContractsAppConfig:
+    with _CONFIG_LOCK:
+        global _ACTIVE_CONFIG
+        if _ACTIVE_CONFIG is None:
+            _ACTIVE_CONFIG = load_config()
+        return _ACTIVE_CONFIG
+
+
 
 
 def _safe_fs_name(value: str) -> str:
@@ -429,9 +454,6 @@ def register_dataset_version(dataset: str, version: str, source: Path) -> None:
     _ensure_version_marker(target, version)
 
 
-store = FSContractStore(str(CONTRACT_DIR))
-
-
 _STATUS_OPTIONS: List[Tuple[str, str]] = [
     ("", "Unspecified"),
     ("draft", "Draft"),
@@ -510,16 +532,45 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
     )
 
 
-def configure_backend(base_url: str | None = None) -> None:
+def configure_backend(
+    base_url: str | None = None, *, config: BackendConfig | None = None
+) -> None:
     """Initialise service clients against the configured backend."""
 
-    target_url = base_url or os.getenv("DC43_CONTRACTS_APP_BACKEND_URL") or os.getenv(
+    if base_url is not None:
+        _initialise_backend(base_url=base_url or None)
+        return
+
+    env_url = os.getenv("DC43_CONTRACTS_APP_BACKEND_URL") or os.getenv(
         "DC43_DEMO_BACKEND_URL"
     )
-    _initialise_backend(base_url=target_url)
+    if env_url:
+        _initialise_backend(base_url=env_url)
+        return
+
+    config = config or _current_config().backend
+    mode = (config.mode or "embedded").lower()
+    if mode == "remote":
+        target_url = config.base_url or config.process.url()
+        _initialise_backend(base_url=target_url)
+    else:
+        _initialise_backend(base_url=None)
 
 
-configure_backend()
+def configure_from_config(config: ContractsAppConfig | None = None) -> ContractsAppConfig:
+    """Apply ``config`` to initialise workspace and backend defaults."""
+
+    config = config or load_config()
+    workspace_root = config.workspace.root
+    default_root = str(workspace_root) if workspace_root else None
+    workspace, _ = workspace_from_env(default_root=default_root)
+    configure_workspace(workspace)
+    configure_backend(config=config.backend)
+    return _set_active_config(config)
+
+
+# Ensure module-level paths and backend clients are ready for import-time users.
+configure_from_config()
 
 
 def _wait_for_backend(base_url: str, timeout: float = 30.0) -> None:
@@ -2402,14 +2453,17 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-def run() -> None:  # pragma: no cover - convenience runner
+def run(config_path: str | os.PathLike[str] | None = None) -> None:  # pragma: no cover - convenience runner
     """Run the demo UI and spawn a dedicated backend server."""
 
     import uvicorn
 
-    backend_host = os.getenv("DC43_DEMO_BACKEND_HOST", "127.0.0.1")
-    backend_port = int(os.getenv("DC43_DEMO_BACKEND_PORT", "8001"))
-    backend_url = f"http://{backend_host}:{backend_port}"
+    config = configure_from_config(load_config(config_path))
+    backend_cfg = config.backend
+    process_cfg = backend_cfg.process
+    backend_host = process_cfg.host
+    backend_port = process_cfg.port
+    backend_url = backend_cfg.base_url or process_cfg.url()
 
     env = os.environ.copy()
     env.setdefault("DC43_CONTRACT_STORE", str(CONTRACT_DIR))
@@ -2423,7 +2477,7 @@ def run() -> None:  # pragma: no cover - convenience runner
         "--port",
         str(backend_port),
     ]
-    log_level = os.getenv("DC43_DEMO_BACKEND_LOG")
+    log_level = process_cfg.log_level
     if log_level:
         cmd.extend(["--log-level", log_level])
 
@@ -2443,4 +2497,4 @@ def run() -> None:  # pragma: no cover - convenience runner
         process.terminate()
         with contextlib.suppress(Exception):
             process.wait(timeout=5)
-        configure_backend()
+        configure_from_config(config)

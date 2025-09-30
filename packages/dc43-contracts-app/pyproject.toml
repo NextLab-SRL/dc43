@@ -39,4 +39,5 @@ include = ["dc43_contracts_app*"]
 "dc43_contracts_app" = [
   "static/**/*",
   "templates/**/*",
+  "config/*.toml",
 ]
