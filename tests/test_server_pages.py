@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from dc43.contracts_app import server as contracts_server
+from dc43_contracts_app import server as contracts_server
 from dc43.demo_app import server as demo_server
 
 SCENARIOS = contracts_server.SCENARIOS

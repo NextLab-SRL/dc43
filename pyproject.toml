@@ -19,7 +19,6 @@ classifiers = [
 dynamic = ["dependencies", "optional-dependencies"]
 
 [project.scripts]
-dc43 = "dc43.cli:main"
 dc43-demo = "dc43.demo_app.server:run"
 
 [tool.setuptools]

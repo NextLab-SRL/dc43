@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
-from dc43.contracts_app.server import (
+from dc43_contracts_app.server import (
     DATASETS_FILE,
     DATA_DIR,
     DatasetRecord,

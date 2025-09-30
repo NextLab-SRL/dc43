@@ -2910,7 +2910,7 @@ def run() -> None:  # pragma: no cover - convenience runner
 
     try:
         _initialise_backend(base_url=backend_url)
-        uvicorn.run("dc43.contracts_app.server:app", host="0.0.0.0", port=8000)
+        uvicorn.run("dc43_contracts_app.server:app", host="0.0.0.0", port=8000)
     finally:
         process.terminate()
         with contextlib.suppress(Exception):

@@ -12,9 +12,11 @@ from pathlib import Path
 # parallel).
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_SRC_DIRS = [
+    ROOT / "src",
     ROOT / "packages" / "dc43-service-clients" / "src",
     ROOT / "packages" / "dc43-service-backends" / "src",
     ROOT / "packages" / "dc43-integrations" / "src",
+    ROOT / "packages" / "dc43-contracts-app" / "src",
 ]
 
 for src_dir in PACKAGE_SRC_DIRS:

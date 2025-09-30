@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 
-from dc43.contracts_app import server as contracts_server
+from dc43_contracts_app import server as contracts_server
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +207,7 @@ def run() -> None:  # pragma: no cover - convenience runner
             sys.executable,
             "-m",
             "uvicorn",
-            "dc43.contracts_app.server:app",
+            "dc43_contracts_app.server:app",
             "--host",
             contracts_host,
             "--port",
