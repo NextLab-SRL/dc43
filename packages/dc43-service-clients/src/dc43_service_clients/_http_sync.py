@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import threading
 from typing import Any, Awaitable, TypeVar
 
 try:  # pragma: no cover - optional dependency guard
@@ -15,6 +16,16 @@ except ModuleNotFoundError as exc:  # pragma: no cover
     ) from exc
 
 T = TypeVar("T")
+
+_THREAD_LOCAL = threading.local()
+
+
+def _thread_loop() -> asyncio.AbstractEventLoop:
+    loop = getattr(_THREAD_LOCAL, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _THREAD_LOCAL.loop = loop
+    return loop
 
 
 def _await_sync(awaitable: Awaitable[T]) -> T:
@@ -28,9 +39,14 @@ def _await_sync(awaitable: Awaitable[T]) -> T:
     """
 
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:  # No running loop, safe to block.
-        return asyncio.run(awaitable)
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = _thread_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(awaitable)
+        finally:
+            asyncio.set_event_loop(None)
 
     raise RuntimeError(
         "Cannot synchronously wait on an asynchronous httpx client while an "

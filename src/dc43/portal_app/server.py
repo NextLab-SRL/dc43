@@ -21,6 +21,7 @@ from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_backends.web import build_local_app
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
+from dc43_service_clients._http_sync import close_client
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -65,17 +66,7 @@ def _close_backend_client() -> None:
     client = _backend_client
     if client is None:
         return
-    if client.is_closed:  # pragma: no cover - guard for already closed client
-        _backend_client = None
-        return
-    try:
-        asyncio.run(client.aclose())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(client.aclose())
-        finally:
-            loop.close()
+    close_client(client)
     _backend_client = None
 
 
