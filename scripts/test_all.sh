@@ -16,16 +16,17 @@ for arg in "$@"; do
 done
 
 if [[ "$install_deps" == true ]]; then
-    python -m pip install -e ".[test]"
-    python -m pip install -e "packages/dc43-service-backends[http]"
     python -m pip install -e "packages/dc43-service-clients[http]"
+    python -m pip install -e "packages/dc43-service-backends[http]"
+    python -m pip install -e "packages/dc43-integrations"
+    python -m pip install -e ".[test]"
 fi
 
 pytest_targets=(
-  tests
   packages/dc43-service-clients/tests
   packages/dc43-service-backends/tests
   packages/dc43-integrations/tests
+  tests
 )
 
 pytest_cmd=(pytest -q)

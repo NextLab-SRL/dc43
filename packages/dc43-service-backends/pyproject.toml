@@ -24,7 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 spark = ["pyspark>=3.4"]
 http = [
-  "fastapi>=0.109",
+  "fastapi>=0.118.0",
 ]
 
 [tool.setuptools]
