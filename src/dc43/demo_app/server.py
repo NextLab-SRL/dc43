@@ -8,16 +8,24 @@ with their validation status. Contracts are stored on the local
 filesystem using :class:`~dc43_service_backends.contracts.backend.stores.FSContractStore` and dataset
 metadata lives in a JSON file.
 
-Run the application with::
+Run the UI directly with::
 
     uvicorn dc43.demo_app.server:app --reload
+
+or start the full demo (UI + HTTP backend) with::
+
+    dc43-demo
 
 Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
 ``pyspark``.
 """
 
 import asyncio
+import contextlib
 import logging
+import subprocess
+import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable
@@ -467,13 +475,77 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
     )
 
 store = FSContractStore(str(CONTRACT_DIR))
-_backend_app = build_local_app(store)
-_backend_transport = ASGITransport(app=_backend_app)
-_backend_client = httpx.AsyncClient(transport=_backend_transport, base_url="http://dc43-services")
 
-contract_service = RemoteContractServiceClient(client=_backend_client)
-dq_service = RemoteDataQualityServiceClient(client=_backend_client)
-governance_service = RemoteGovernanceServiceClient(client=_backend_client)
+_backend_app: FastAPI | None = None
+_backend_transport: ASGITransport | None = None
+_backend_client: httpx.AsyncClient | None = None
+contract_service: RemoteContractServiceClient
+dq_service: RemoteDataQualityServiceClient
+governance_service: RemoteGovernanceServiceClient
+
+
+def _close_backend_client() -> None:
+    """Best-effort close of the shared HTTP client."""
+
+    global _backend_client
+    client = _backend_client
+    if client is None:
+        return
+    try:
+        asyncio.run(client.aclose())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(client.aclose())
+        finally:
+            loop.close()
+    _backend_client = None
+
+
+def _initialise_backend(*, base_url: str | None = None) -> None:
+    """Configure service clients against an in-process or remote backend."""
+
+    global _backend_app, _backend_transport, _backend_client
+    global contract_service, dq_service, governance_service
+
+    _close_backend_client()
+
+    if base_url:
+        _backend_app = None
+        _backend_transport = None
+        _backend_client = httpx.AsyncClient(base_url=base_url)
+    else:
+        _backend_app = build_local_app(store)
+        _backend_transport = ASGITransport(app=_backend_app)
+        _backend_client = httpx.AsyncClient(
+            transport=_backend_transport,
+            base_url="http://dc43-services",
+        )
+
+    contract_service = RemoteContractServiceClient(client=_backend_client)
+    dq_service = RemoteDataQualityServiceClient(client=_backend_client)
+    governance_service = RemoteGovernanceServiceClient(client=_backend_client)
+
+
+_initialise_backend(base_url=os.getenv("DC43_DEMO_BACKEND_URL"))
+
+
+def _wait_for_backend(base_url: str, timeout: float = 30.0) -> None:
+    """Block until the backend responds or ``timeout`` elapses."""
+
+    deadline = time.monotonic() + timeout
+    probe_url = f"{base_url.rstrip('/')}/openapi.json"
+    with httpx.Client(timeout=2.0) as client:
+        while True:
+            try:
+                response = client.get(probe_url)
+                if response.status_code < 500:
+                    return
+            except httpx.HTTPError:
+                pass
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"Backend at {base_url} failed to start within {timeout}s")
+            time.sleep(0.2)
 
 
 async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[str, str]:
@@ -1922,7 +1994,44 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
 
 
 def run() -> None:  # pragma: no cover - convenience runner
-    """Run the demo app with uvicorn."""
+    """Run the demo UI and spawn a dedicated backend server."""
+
     import uvicorn
 
-    uvicorn.run("dc43.demo_app.server:app", host="0.0.0.0", port=8000)
+    backend_host = os.getenv("DC43_DEMO_BACKEND_HOST", "127.0.0.1")
+    backend_port = int(os.getenv("DC43_DEMO_BACKEND_PORT", "8001"))
+    backend_url = f"http://{backend_host}:{backend_port}"
+
+    env = os.environ.copy()
+    env.setdefault("DC43_CONTRACT_STORE", str(CONTRACT_DIR))
+    cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "dc43_service_backends.webapp:app",
+        "--host",
+        backend_host,
+        "--port",
+        str(backend_port),
+    ]
+    log_level = os.getenv("DC43_DEMO_BACKEND_LOG")
+    if log_level:
+        cmd.extend(["--log-level", log_level])
+
+    process = subprocess.Popen(cmd, env=env)
+
+    try:
+        _wait_for_backend(backend_url)
+    except Exception:
+        process.terminate()
+        process.wait(timeout=5)
+        raise
+
+    try:
+        _initialise_backend(base_url=backend_url)
+        uvicorn.run("dc43.demo_app.server:app", host="0.0.0.0", port=8000)
+    finally:
+        process.terminate()
+        with contextlib.suppress(Exception):
+            process.wait(timeout=5)
+        _initialise_backend(base_url=os.getenv("DC43_DEMO_BACKEND_URL"))
