@@ -154,6 +154,89 @@
   </div>
 </div>
 
+<div class="modal fade" id="versioning-help-modal" tabindex="-1" aria-labelledby="versioning-help-modal-label" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="versioning-help-modal-label">dc43 versioning modes</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Each mode controls how dc43 discovers new releases and how downstream tools address historical data. Choose the pattern that matches your storage technology and retention expectations.</p>
+        <div class="accordion" id="versioning-help-accordion">
+          <div class="accordion-item">
+            <h3 class="accordion-header" id="versioning-help-delta-heading">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#versioning-help-delta" aria-expanded="true" aria-controls="versioning-help-delta">
+                Delta (time-travel compatible)
+              </button>
+            </h3>
+            <div id="versioning-help-delta" class="accordion-collapse collapse show" aria-labelledby="versioning-help-delta-heading" data-bs-parent="#versioning-help-accordion">
+              <div class="accordion-body">
+                <p>Use when storing datasets in table formats that track commits such as <strong>Delta Lake</strong>, <strong>Apache Iceberg</strong>, or <strong>Apache Hudi</strong>. dc43 will request the version that matches the consumer’s semantic constraints and can optionally include compatible historical snapshots.</p>
+                <p class="mb-2">Typical layout:</p>
+                <pre class="bg-light border rounded small p-3">{
+  "mode": "delta",
+  "subfolder": "{dataset_id}",
+  "includePriorVersions": true,
+  "readOptions": {
+    "versionAsOf": "{version}",
+    "connector": "spark"
+  }
+}</pre>
+                <p class="mb-0">Works with Spark, dbt, Trino, and other engines that can address table versions. Combine with retention policies (for example <code>dc43.retention</code>) to document how long earlier snapshots stay available.</p>
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <h3 class="accordion-header" id="versioning-help-snapshot-heading">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#versioning-help-snapshot" aria-expanded="false" aria-controls="versioning-help-snapshot">
+                Snapshot folders
+              </button>
+            </h3>
+            <div id="versioning-help-snapshot" class="accordion-collapse collapse" aria-labelledby="versioning-help-snapshot-heading" data-bs-parent="#versioning-help-accordion">
+              <div class="accordion-body">
+                <p>Choose for immutable exports where every semantic release lands in its own folder. Readers normally fetch the most recent compatible release and ignore prior ones unless a rollback is required.</p>
+                <p class="mb-2">Example:</p>
+                <pre class="bg-light border rounded small p-3">{
+  "mode": "snapshot",
+  "subfolder": "releases/{version}",
+  "filePattern": "orders_{version}.parquet",
+  "includePriorVersions": false
+}</pre>
+                <p class="mb-0">Great fit for object stores such as S3, ADLS, or GCS where consumers pull Parquet/CSV exports. Pair with automated lifecycle rules to expire old folders once the SLA allows.</p>
+              </div>
+            </div>
+          </div>
+          <div class="accordion-item">
+            <h3 class="accordion-header" id="versioning-help-append-heading">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#versioning-help-append" aria-expanded="false" aria-controls="versioning-help-append">
+                Append-only log
+              </button>
+            </h3>
+            <div id="versioning-help-append" class="accordion-collapse collapse" aria-labelledby="versioning-help-append-heading" data-bs-parent="#versioning-help-accordion">
+              <div class="accordion-body">
+                <p>Pick for streaming-style sinks where each delivery adds files instead of replacing a complete snapshot. Consumers usually process the latest batch while retaining previous ones for replay or reconciliation.</p>
+                <p class="mb-2">Example:</p>
+                <pre class="bg-light border rounded small p-3">{
+  "mode": "append",
+  "subfolder": "incremental/{run_date}",
+  "filePattern": "orders_*.json",
+  "includePriorVersions": true
+}</pre>
+                <p class="mb-0">Ideal for message-log exports or CDC pipelines. Document downstream compaction or watermarking rules in the contract notes so readers understand how much history accumulates.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="mt-3 mb-0 small text-muted">See the <a href="https://github.com/dc43/dc43/blob/main/docs/release-versioning.md" target="_blank" rel="noopener">dc43 release versioning guide</a> for more advanced combinations and migration guidance.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <template id="server-template">
   <div class="card server-card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -244,14 +327,16 @@
         </div>
       </div>
       <div class="bg-light-subtle border rounded p-3 mt-4" data-versioning>
-        <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
           <div>
             <h4 class="h6 mb-1 text-uppercase text-muted">dc43 versioning</h4>
-            <p class="small mb-0 text-muted">Configure how dc43 resolves dataset versions for this location. Review the
-              <a href="https://github.com/dc43/dc43/blob/main/docs/release-versioning.md" target="_blank" rel="noopener">release versioning guide</a>
-              for strategies and sample layouts.</p>
+            <p class="small mb-0 text-muted">Configure how dc43 resolves dataset versions for this location. Consult the detailed mode reference for
+              <a href="https://github.com/dc43/dc43/blob/main/docs/release-versioning.md" target="_blank" rel="noopener">release strategies and layout patterns</a>.</p>
           </div>
-          <button class="btn btn-sm btn-outline-secondary clear-versioning" type="button">Clear</button>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Versioning actions">
+            <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#versioning-help-modal">Mode reference</button>
+            <button class="btn btn-outline-secondary clear-versioning" type="button">Clear</button>
+          </div>
         </div>
         <div class="row g-3">
           <div class="col-md-4">
@@ -364,7 +449,10 @@
       </div>
       <details class="schema-quality-section quality-section mt-3" data-quality-section>
         <summary class="d-flex align-items-center justify-content-between gap-2 quality-summary">
-          <span class="h6 mb-0">Schema data quality</span>
+          <span>
+            <span class="h6 mb-0">Schema data quality</span>
+            <span class="small ms-2" data-quality-summary-text>0 checks</span>
+          </span>
           <span class="badge rounded-pill text-bg-secondary" data-quality-count>0</span>
         </summary>
         <div class="border rounded p-3 mt-3 quality-body">
@@ -383,16 +471,17 @@
 <template id="schema-property-template">
   <div class="schema-property card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <div class="d-flex align-items-center gap-2">
-        <button type="button" class="btn btn-sm btn-outline-secondary toggle-property" aria-expanded="false">
-          <span data-property-toggle-icon aria-hidden="true">▸</span>
-          <span class="visually-hidden">Toggle field details</span>
-        </button>
-        <div>
-          <div class="fw-semibold" data-property-label>New field</div>
-          <div class="small text-muted d-none" data-property-subtitle></div>
-        </div>
-      </div>
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary toggle-property" aria-expanded="false">
+              <span data-property-toggle-icon aria-hidden="true">▸</span>
+              <span class="visually-hidden">Toggle field details</span>
+            </button>
+            <div>
+              <div class="fw-semibold" data-property-label>New field</div>
+              <div class="small text-muted d-none" data-property-subtitle></div>
+              <div class="small text-muted" data-property-quality-caption>0 data quality checks</div>
+            </div>
+          </div>
       <button type="button" class="btn btn-sm btn-outline-danger remove-property">Remove</button>
     </div>
     <div class="collapse property-collapse">
@@ -468,20 +557,23 @@
             </div>
             <div class="property-custom-properties"></div>
           </div>
-          <details class="quality-section property-quality-section mt-3" data-quality-section>
-            <summary class="d-flex align-items-center justify-content-between gap-2 quality-summary">
+        </details>
+        <details class="quality-section property-quality-section mt-3" data-quality-section>
+          <summary class="d-flex align-items-center justify-content-between gap-2 quality-summary">
+            <span>
               <span class="h6 mb-0">Data quality checks</span>
-              <span class="badge rounded-pill text-bg-secondary" data-quality-count>0</span>
-            </summary>
-            <div class="border rounded p-3 mt-3 quality-body">
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="text-muted small">Capture expectations for this field.</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary add-property-quality">Add check</button>
-              </div>
-              <div class="property-quality-empty text-muted fst-italic small py-2" data-quality-empty>No data quality checks defined.</div>
-              <div class="property-quality" data-quality-container></div>
+              <span class="small ms-2" data-quality-summary-text>0 checks</span>
+            </span>
+            <span class="badge rounded-pill text-bg-secondary" data-quality-count>0</span>
+          </summary>
+          <div class="border rounded p-3 mt-3 quality-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="text-muted small">Capture expectations for this field.</span>
+              <button type="button" class="btn btn-sm btn-outline-secondary add-property-quality">Add check</button>
             </div>
-          </details>
+            <div class="property-quality-empty text-muted fst-italic small py-2" data-quality-empty>No data quality checks defined.</div>
+            <div class="property-quality" data-quality-container></div>
+          </div>
         </details>
       </div>
     </div>
@@ -521,12 +613,23 @@
 </template>
 
 <template id="quality-template">
-  <div class="quality-item border rounded p-3 mb-3">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <h6 class="mb-0">Quality rule</h6>
+  <div class="quality-item card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary toggle-quality" aria-expanded="false">
+          <span data-quality-toggle-icon aria-hidden="true">▸</span>
+          <span class="visually-hidden">Toggle quality rule</span>
+        </button>
+        <div>
+          <div class="fw-semibold" data-quality-label>Quality rule</div>
+          <div class="small text-muted" data-quality-subtitle>Define expectation details</div>
+        </div>
+      </div>
       <button type="button" class="btn btn-sm btn-outline-danger remove-quality">Remove</button>
     </div>
-    <div class="row g-2">
+    <div class="collapse quality-collapse">
+      <div class="card-body">
+        <div class="row g-2">
       <div class="col-md-3">
         <label class="form-label">Name</label>
         <input class="form-control" data-field="name" placeholder="Amount positive"/>
@@ -594,17 +697,19 @@
         <label class="form-label">Tags</label>
         <input class="form-control" data-field="tags" placeholder="critical, sla"/>
       </div>
-      <div class="col-md-6">
-        <label class="form-label">Implementation (JSON)</label>
-        <textarea class="form-control" rows="2" data-field="implementation" placeholder='{"engine": "great_expectations"}'></textarea>
+          <div class="col-md-6">
+            <label class="form-label">Implementation (JSON)</label>
+            <textarea class="form-control" rows="2" data-field="implementation" placeholder='{"engine": "great_expectations"}'></textarea>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Quality custom properties</h6>
+            <button type="button" class="btn btn-sm btn-outline-secondary add-quality-custom">Add property</button>
+          </div>
+          <div class="quality-custom-properties"></div>
+        </div>
       </div>
-    </div>
-    <div class="mt-3">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <h6 class="mb-0">Quality custom properties</h6>
-        <button type="button" class="btn btn-sm btn-outline-secondary add-quality-custom">Add property</button>
-      </div>
-      <div class="quality-custom-properties"></div>
     </div>
   </div>
 </template>
@@ -720,6 +825,7 @@
     const badge = section.querySelector('[data-quality-count]');
     const container = section.querySelector('[data-quality-container]');
     const emptyState = section.querySelector('[data-quality-empty]');
+    const summaryText = section.querySelector('[data-quality-summary-text]');
     const count = container ? container.querySelectorAll('.quality-item').length : 0;
     if (badge) {
       badge.textContent = count;
@@ -730,8 +836,22 @@
         badge.classList.add('text-bg-secondary');
       }
     }
+    if (summaryText) {
+      summaryText.textContent = count === 1 ? '1 check' : `${count} checks`;
+      summaryText.classList.remove('text-danger', 'text-muted');
+      summaryText.classList.add(count === 0 ? 'text-danger' : 'text-muted');
+    }
     if (emptyState) {
       emptyState.classList.toggle('d-none', count > 0);
+    }
+    const propertyCard = section.closest('.schema-property');
+    if (propertyCard) {
+      const caption = propertyCard.querySelector('[data-property-quality-caption]');
+      if (caption) {
+        caption.textContent = count === 1 ? '1 data quality check' : `${count} data quality checks`;
+        caption.classList.remove('text-danger', 'text-muted');
+        caption.classList.add(count === 0 ? 'text-danger' : 'text-muted');
+      }
     }
   }
 
@@ -856,6 +976,61 @@
 
   function createQuality(initial) {
     const node = createFromTemplate('quality-template');
+    const collapseEl = node.querySelector('.quality-collapse');
+    const toggleBtn = node.querySelector('.toggle-quality');
+    const toggleIcon = node.querySelector('[data-quality-toggle-icon]');
+    const labelEl = node.querySelector('[data-quality-label]');
+    const subtitleEl = node.querySelector('[data-quality-subtitle]');
+    const collapseId = collapseEl ? nextId('quality-item') : '';
+    if (collapseEl && collapseId) {
+      collapseEl.id = collapseId;
+    }
+    if (toggleBtn && collapseId) {
+      toggleBtn.setAttribute('aria-controls', collapseId);
+    }
+    const collapseInstance = collapseEl && collapseApi
+      ? collapseApi.getOrCreateInstance(collapseEl, { toggle: false })
+      : null;
+    const setExpanded = (expanded) => {
+      if (toggleBtn) {
+        toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      }
+      if (toggleIcon) {
+        toggleIcon.textContent = expanded ? '▾' : '▸';
+      }
+    };
+    const expand = () => {
+      if (collapseInstance) {
+        collapseInstance.show();
+      } else if (collapseEl) {
+        collapseEl.classList.add('show');
+      }
+      setExpanded(true);
+    };
+    const collapse = () => {
+      if (collapseInstance) {
+        collapseInstance.hide();
+      } else if (collapseEl) {
+        collapseEl.classList.remove('show');
+      }
+      setExpanded(false);
+    };
+    node.expandQuality = expand;
+    node.collapseQuality = collapse;
+    if (collapseEl && collapseApi) {
+      collapseEl.addEventListener('shown.bs.collapse', () => setExpanded(true));
+      collapseEl.addEventListener('hidden.bs.collapse', () => setExpanded(false));
+    }
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
+        if (expanded) {
+          collapse();
+        } else {
+          expand();
+        }
+      });
+    }
     const fieldMap = [
       'name', 'type', 'expectation', 'expectationValue', 'dimension', 'severity',
       'rule', 'description', 'businessImpact', 'schedule', 'scheduler', 'tags', 'implementation'
@@ -870,6 +1045,45 @@
         if (input instanceof HTMLSelectElement) {
           input.value = value ?? '';
         }
+      }
+    });
+    const nameInput = node.querySelector('[data-field="name"]');
+    const expectationInput = node.querySelector('[data-field="expectation"]');
+    const dimensionInput = node.querySelector('[data-field="dimension"]');
+    const severityInput = node.querySelector('[data-field="severity"]');
+    const updateSummary = () => {
+      const nameValue = nameInput ? nameInput.value.trim() : '';
+      if (labelEl) {
+        labelEl.textContent = nameValue || 'Quality rule';
+      }
+      const parts = [];
+      const expectationValue = expectationInput ? expectationInput.value.trim() : '';
+      if (expectationValue) {
+        parts.push(expectationValue);
+      }
+      const dimensionValue = dimensionInput ? dimensionInput.value.trim() : '';
+      if (dimensionValue) {
+        parts.push(dimensionValue);
+      }
+      const severityValue = severityInput ? severityInput.value.trim() : '';
+      if (severityValue) {
+        parts.push(`severity ${severityValue}`);
+      }
+      if (subtitleEl) {
+        if (parts.length) {
+          subtitleEl.textContent = parts.join(' • ');
+          subtitleEl.classList.remove('text-danger');
+          subtitleEl.classList.add('text-muted');
+        } else {
+          subtitleEl.textContent = 'No expectation details yet';
+          subtitleEl.classList.remove('text-muted');
+          subtitleEl.classList.add('text-danger');
+        }
+      }
+    };
+    [nameInput, expectationInput, dimensionInput, severityInput].forEach((input) => {
+      if (input) {
+        input.addEventListener('input', updateSummary);
       }
     });
     const customContainer = node.querySelector('.quality-custom-properties');
@@ -896,6 +1110,12 @@
           updateQualitySummary(section);
         }
       });
+    }
+    updateSummary();
+    if (!initial) {
+      expand();
+    } else {
+      setExpanded(Boolean(collapseEl && collapseEl.classList.contains('show')));
     }
     return node;
   }
