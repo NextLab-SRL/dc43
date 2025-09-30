@@ -80,33 +80,6 @@
       </td>
       <td class="text-end">
         <a class="btn btn-sm btn-outline-primary" href="/datasets/{{ entry.dataset_name }}">View versions</a>
-        {% set editable_contracts = [] %}
-        {% for contract in entry.contract_summaries %}
-          {% if contract.latest_version %}
-            {% set _ = editable_contracts.append(contract) %}
-          {% endif %}
-        {% endfor %}
-        {% if editable_contracts %}
-          {% if editable_contracts | length == 1 %}
-            {% set target = editable_contracts[0] %}
-            <a class="btn btn-sm btn-primary ms-2" href="/contracts/{{ target.id }}/{{ target.latest_version }}/edit">Open editor</a>
-          {% else %}
-            <div class="btn-group ms-2">
-              <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                Open editor
-              </button>
-              <ul class="dropdown-menu dropdown-menu-end">
-                {% for contract in editable_contracts %}
-                  <li>
-                    <a class="dropdown-item" href="/contracts/{{ contract.id }}/{{ contract.latest_version }}/edit">
-                      {{ contract.id }} / {{ contract.latest_version }}
-                    </a>
-                  </li>
-                {% endfor %}
-              </ul>
-            </div>
-          {% endif %}
-        {% endif %}
       </td>
     </tr>
   {% endfor %}

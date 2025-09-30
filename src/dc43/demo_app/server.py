@@ -1777,9 +1777,9 @@ async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLRespon
     new_ver = _next_version(ver)
     server = (contract.servers or [None])[0]
     path = getattr(server, "path", "") if server else ""
-    props = []
-    if contract.schema:
-        props = contract.schema[0].properties or []
+    props: list[SchemaProperty] = []
+    for obj in contract.schema_ or []:
+        props.extend(obj.properties or [])
     columns = "\n".join(f"{p.name}:{p.physicalType}" for p in props)
     context = {
         "request": request,
