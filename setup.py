@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 
@@ -20,11 +21,33 @@ _INTERNAL_DEPENDENCIES = [
     "dc43-contracts-app",
 ]
 
+_LOCAL_FALLBACK_PACKAGES = set(_INTERNAL_DEPENDENCIES)
+
+
+def _use_pypi_versions() -> bool:
+    flag = os.getenv("DC43_REQUIRE_PYPI", "")
+    return flag.lower() in {"1", "true", "yes", "on"}
+
+
+def _local_package_path(name: str) -> Path:
+    return Path(__file__).resolve().parent / "packages" / name
+
+
+def _dependency(name: str, *, extras: str | None = None) -> str:
+    version = _PACKAGE_VERSIONS[name]
+    suffix = f"[{extras}]" if extras else ""
+    if name not in _LOCAL_FALLBACK_PACKAGES or _use_pypi_versions():
+        return f"{name}{suffix}=={version}"
+    candidate = _local_package_path(name)
+    if candidate.exists():
+        return f"{name}{suffix} @ {candidate.resolve().as_uri()}"
+    return f"{name}{suffix}=={version}"
+
 _PACKAGE_VERSIONS = load_versions(_INTERNAL_DEPENDENCIES)
 
 
 install_requires = [
-    f"{name}=={_PACKAGE_VERSIONS[name]}" for name in _INTERNAL_DEPENDENCIES
+    _dependency(name) for name in _INTERNAL_DEPENDENCIES
 ]
 install_requires += [
     "packaging>=21.0",
@@ -33,7 +56,7 @@ install_requires += [
 
 extras_require = {
     "spark": [
-        f"dc43-integrations[spark]=={_PACKAGE_VERSIONS['dc43-integrations']}"
+        _dependency("dc43-integrations", extras="spark")
     ],
     "test": [
         "pytest>=7.0",
@@ -42,15 +65,15 @@ extras_require = {
         "jinja2",
         "python-multipart",
         "httpx",
-        f"dc43-contracts-app[spark]=={_PACKAGE_VERSIONS['dc43-contracts-app']}",
+        _dependency("dc43-contracts-app", extras="spark"),
     ],
     "demo": [
         "fastapi",
         "uvicorn",
         "jinja2",
         "python-multipart",
-        f"dc43-contracts-app[spark]=={_PACKAGE_VERSIONS['dc43-contracts-app']}",
-        f"dc43-integrations[spark]=={_PACKAGE_VERSIONS['dc43-integrations']}",
+        _dependency("dc43-contracts-app", extras="spark"),
+        _dependency("dc43-integrations", extras="spark"),
     ],
 }
 

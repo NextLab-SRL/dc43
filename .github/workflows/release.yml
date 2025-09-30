@@ -7,6 +7,7 @@ on:
       - "dc43-service-clients-v*"
       - "dc43-service-backends-v*"
       - "dc43-integrations-v*"
+      - "dc43-contracts-app-v*"
 
 jobs:
   build:
@@ -41,6 +42,10 @@ jobs:
             dc43-integrations-v*)
               package="dc43-integrations"
               package_dir="packages/dc43-integrations"
+              ;;
+            dc43-contracts-app-v*)
+              package="dc43-contracts-app"
+              package_dir="packages/dc43-contracts-app"
               ;;
             *)
               echo "Unknown tag prefix: $ref" >&2
@@ -84,6 +89,8 @@ jobs:
             --package "${{ steps.meta.outputs.package }}"
 
       - name: Install package under test
+        env:
+          DC43_REQUIRE_PYPI: "1"
         run: |
           case "${{ steps.meta.outputs.package }}" in
             dc43)
@@ -99,6 +106,12 @@ jobs:
             dc43-integrations)
               pip install -e packages/dc43-service-clients
               pip install -e packages/dc43-integrations
+              ;;
+            dc43-contracts-app)
+              pip install -e packages/dc43-service-clients[http]
+              pip install -e packages/dc43-service-backends[http]
+              pip install -e packages/dc43-integrations
+              pip install -e packages/dc43-contracts-app[spark]
               ;;
             *)
               echo "Unknown package: ${{ steps.meta.outputs.package }}" >&2
@@ -120,6 +133,9 @@ jobs:
               ;;
             dc43-integrations)
               pytest packages/dc43-integrations/tests
+              ;;
+            dc43-contracts-app)
+              pytest packages/dc43-contracts-app/tests
               ;;
             *)
               echo "Unknown package: ${{ steps.meta.outputs.package }}" >&2
@@ -150,6 +166,8 @@ jobs:
 
       - name: Build package
         working-directory: ${{ steps.meta.outputs.package_dir }}
+        env:
+          DC43_REQUIRE_PYPI: "1"
         run: python -m build
 
       - uses: actions/upload-artifact@v4
