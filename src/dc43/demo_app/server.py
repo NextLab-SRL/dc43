@@ -638,6 +638,13 @@ _DQ_STATUS_BADGES: Dict[str, str] = {
 }
 
 
+_CONTRACT_STATUS_BADGES: Dict[str, str] = {
+    "active": "bg-success",
+    "draft": "bg-warning text-dark",
+    "deprecated": "bg-secondary",
+}
+
+
 def _dq_version_records(
     dataset_id: str,
     *,
@@ -1661,22 +1668,49 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
     versions = store.list_versions(cid)
     if not versions:
         raise HTTPException(status_code=404, detail="Contract not found")
+    records_by_version: Dict[str, List[DatasetRecord]] = {}
+    for record in load_records():
+        if record.contract_id != cid:
+            continue
+        records_by_version.setdefault(record.contract_version, []).append(record)
+
     contracts = []
     for ver in versions:
         try:
             contract = store.get(cid, ver)
         except FileNotFoundError:
             continue
-        server = (contract.servers or [None])[0]
-        path = ""
-        if server:
-            parts: List[str] = []
-            if getattr(server, "path", None):
-                parts.append(server.path)
-            if getattr(server, "dataset", None):
-                parts.append(server.dataset)
-            path = "/".join(parts)
-        contracts.append({"id": cid, "version": ver, "path": path})
+
+        status_raw = getattr(contract, "status", "") or "unknown"
+        status_value = str(status_raw).lower()
+        status_label = str(status_raw).replace("_", " ").title()
+        status_badge = _CONTRACT_STATUS_BADGES.get(status_value, "bg-secondary")
+
+        server_info = _server_details(contract)
+        dataset_hint = (
+            server_info.get("dataset_id")
+            if server_info
+            else (contract.id or cid)
+        )
+
+        latest_run: Optional[DatasetRecord] = None
+        run_entries = records_by_version.get(ver, [])
+        if run_entries:
+            run_entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+            latest_run = run_entries[-1]
+
+        contracts.append(
+            {
+                "id": cid,
+                "version": ver,
+                "status": status_value,
+                "status_label": status_label,
+                "status_badge": status_badge,
+                "server": server_info,
+                "dataset_hint": dataset_hint,
+                "latest_run": latest_run.__dict__ if latest_run else None,
+            }
+        )
     context = {"request": request, "contract_id": cid, "contracts": contracts}
     return templates.TemplateResponse("contract_versions.html", context)
 
@@ -1877,6 +1911,13 @@ async def create_contract(
 
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
+    catalog = dataset_catalog(load_records())
+    context = {"request": request, "datasets": catalog}
+    return templates.TemplateResponse("datasets.html", context)
+
+
+@app.get("/pipeline-runs", response_class=HTMLResponse)
+async def list_pipeline_runs(request: Request) -> HTMLResponse:
     records = load_records()
     recs = [r.__dict__.copy() for r in records]
     scenario_rows = scenario_run_rows(records)
@@ -1896,7 +1937,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
         "message": flash_message,
         "error": flash_error,
     }
-    return templates.TemplateResponse("datasets.html", context)
+    return templates.TemplateResponse("pipeline_runs.html", context)
 
 
 @app.get("/datasets/{dataset_name}", response_class=HTMLResponse)
@@ -1942,6 +1983,112 @@ def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: st
     except Exception:
         return ""
     return ""
+
+
+def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    """Summarise known datasets and associated contract information."""
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for record in records:
+        if not record.dataset_name:
+            continue
+        bucket = grouped.setdefault(
+            record.dataset_name,
+            {"dataset_name": record.dataset_name, "records": []},
+        )
+        bucket["records"].append(record)
+
+    for contract_id in store.list_contracts():
+        for version in store.list_versions(contract_id):
+            try:
+                contract = store.get(contract_id, version)
+            except FileNotFoundError:
+                continue
+            server_info = _server_details(contract) or {}
+            dataset_id = (
+                server_info.get("dataset_id")
+                or server_info.get("dataset")
+                or contract.id
+                or contract_id
+            )
+            bucket = grouped.setdefault(
+                dataset_id,
+                {"dataset_name": dataset_id, "records": []},
+            )
+            contracts_map = bucket.setdefault("contracts_by_id", {})
+            contracts = contracts_map.setdefault(contract_id, [])
+            contracts.append(
+                {
+                    "version": version,
+                    "status": getattr(contract, "status", ""),
+                    "server": server_info,
+                }
+            )
+
+    catalog: List[Dict[str, Any]] = []
+    for dataset_name, payload in grouped.items():
+        dataset_records: List[DatasetRecord] = list(payload.get("records", []))
+        dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+        latest_record: Optional[DatasetRecord] = dataset_records[-1] if dataset_records else None
+
+        latest_status_value: Optional[str] = None
+        latest_status_label: str = ""
+        latest_status_badge: str = ""
+        latest_reason: Optional[str] = None
+        if latest_record:
+            status_raw = str(latest_record.status or "unknown")
+            latest_status_value = status_raw.lower()
+            latest_status_label = status_raw.replace("_", " ").title()
+            latest_status_badge = _DQ_STATUS_BADGES.get(latest_status_value, "bg-secondary")
+            latest_reason = latest_record.reason or None
+
+        run_drafts = sorted(
+            {rec.draft_contract_version for rec in dataset_records if rec.draft_contract_version},
+            key=_version_sort_key,
+        )
+        contracts_summary: List[Dict[str, Any]] = []
+        contracts_map: Dict[str, List[Dict[str, Any]]] = payload.get("contracts_by_id", {})
+        for contract_id, versions in contracts_map.items():
+            versions.sort(key=lambda item: _version_sort_key(item["version"]))
+            other_versions = [item["version"] for item in versions[:-1]]
+            latest_contract = versions[-1] if versions else {"version": "", "status": ""}
+            status_raw = str(latest_contract.get("status") or "unknown")
+            status_value = status_raw.lower()
+            status_label = status_raw.replace("_", " ").title()
+            draft_versions = [
+                item for item in versions if str(item.get("status", "")).lower() == "draft"
+            ]
+            latest_draft = draft_versions[-1]["version"] if draft_versions else None
+            contracts_summary.append(
+                {
+                    "id": contract_id,
+                    "latest_version": latest_contract.get("version", ""),
+                    "latest_status": status_value,
+                    "latest_status_label": status_label,
+                    "other_versions": other_versions,
+                    "drafts_count": len(draft_versions),
+                    "latest_draft_version": latest_draft,
+                }
+            )
+
+        contracts_summary.sort(key=lambda item: item["id"])
+
+        catalog.append(
+            {
+                "dataset_name": dataset_name,
+                "latest_version": latest_record.dataset_version if latest_record else "",
+                "latest_status": latest_status_value,
+                "latest_status_label": latest_status_label,
+                "latest_status_badge": latest_status_badge,
+                "latest_record_reason": latest_reason,
+                "contract_summaries": contracts_summary,
+                "run_drafts_count": len(run_drafts),
+                "run_latest_draft_version": run_drafts[-1] if run_drafts else None,
+            }
+        )
+
+    catalog.sort(key=lambda item: item["dataset_name"])
+    return catalog
 
 
 @app.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
@@ -2001,7 +2148,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         logger.exception("Pipeline run failed for scenario %s", scenario)
         token = queue_flash(error=str(exc))
         params = urlencode({"flash": token})
-    return RedirectResponse(url=f"/datasets?{params}", status_code=303)
+    return RedirectResponse(url=f"/pipeline-runs?{params}", status_code=303)
 
 
 def run() -> None:  # pragma: no cover - convenience runner

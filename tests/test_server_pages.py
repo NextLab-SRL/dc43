@@ -42,6 +42,8 @@ def test_contract_versions_page():
     client = TestClient(app)
     resp = client.get(f"/contracts/{rec.contract_id}")
     assert resp.status_code == 200
+    assert "Open editor" in resp.text
+    assert f"/contracts/{rec.contract_id}/{rec.contract_version}/edit" in resp.text
 
 
 def test_customers_contract_versions_page():
@@ -52,7 +54,7 @@ def test_customers_contract_versions_page():
 
 def test_pipeline_runs_page_lists_scenarios():
     client = TestClient(app)
-    resp = client.get("/datasets")
+    resp = client.get("/pipeline-runs")
     assert resp.status_code == 200
     for key, cfg in SCENARIOS.items():
         assert cfg["label"] in resp.text
@@ -73,6 +75,15 @@ def test_dataset_versions_page():
     client = TestClient(app)
     resp = client.get(f"/datasets/{rec.dataset_name}")
     assert resp.status_code == 200
+
+
+def test_datasets_page_catalog_overview():
+    client = TestClient(app)
+    resp = client.get("/datasets")
+    assert resp.status_code == 200
+    assert "orders" in resp.text
+    assert "Status:" in resp.text
+    assert "Open editor" in resp.text
 
 
 def test_dataset_pages_without_contract():
@@ -109,11 +120,11 @@ def test_flash_message_consumed_once():
     token = queue_flash(message="Hello there", error=None)
     client = TestClient(app)
 
-    first = client.get(f"/datasets?flash={token}")
+    first = client.get(f"/pipeline-runs?flash={token}")
     assert first.status_code == 200
     assert "Hello there" in first.text
 
-    second = client.get(f"/datasets?flash={token}")
+    second = client.get(f"/pipeline-runs?flash={token}")
     assert second.status_code == 200
     assert "Hello there" not in second.text
 
