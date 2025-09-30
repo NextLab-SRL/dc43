@@ -1,17 +1,51 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Contract {{ contract_id }}</h1>
-<table class="table table-striped">
-  <thead><tr><th>Version</th><th>Dataset Path</th><th>Actions</th></tr></thead>
+<table class="table table-striped align-middle">
+  <thead>
+    <tr>
+      <th scope="col">Version</th>
+      <th scope="col">Status</th>
+      <th scope="col">Server</th>
+      <th scope="col" class="text-end">Actions</th>
+    </tr>
+  </thead>
   <tbody>
   {% for c in contracts %}
-  <tr>
-    <td><a href="/contracts/{{ contract_id }}/{{ c.version }}">{{ c.version }}</a></td>
-    <td>{{ c.path or '' }}</td>
-    <td>
-      <a class="btn btn-sm btn-primary" href="/contracts/{{ contract_id }}/{{ c.version }}/edit">Edit</a>
-    </td>
-  </tr>
+    <tr>
+      <th scope="row">
+        <a href="/contracts/{{ contract_id }}/{{ c.version }}">{{ c.version }}</a>
+      </th>
+      <td>
+        <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
+      </td>
+      <td>
+        {% if c.server %}
+          <div class="fw-semibold">{{ c.server.dataset_id or c.dataset_hint }}</div>
+          <div class="small text-muted">
+            {{ c.server.type or 'Unknown type' }}{% if c.server.format %} · {{ c.server.format | upper }}{% endif %}
+          </div>
+          {% if c.server.path %}
+            <div class="small text-muted">Path: {{ c.server.path }}</div>
+          {% endif %}
+          {% if c.server.path_pattern %}
+            <div class="small text-muted">Pattern: <code>{{ c.server.path_pattern }}</code></div>
+          {% endif %}
+        {% else %}
+          <span class="text-muted">No server info</span>
+        {% endif %}
+        {% if c.latest_run %}
+          <div class="small mt-2">
+            Latest run: <a href="/datasets/{{ c.latest_run.dataset_name }}/{{ c.latest_run.dataset_version }}">{{ c.latest_run.dataset_version }}</a>
+            ({{ c.latest_run.status }})
+          </div>
+        {% endif %}
+      </td>
+      <td class="text-end">
+        <a class="btn btn-sm btn-outline-primary" href="/contracts/{{ contract_id }}/{{ c.version }}">View</a>
+        <a class="btn btn-sm btn-primary ms-2" href="/contracts/{{ contract_id }}/{{ c.version }}/edit">Open editor</a>
+      </td>
+    </tr>
   {% endfor %}
   </tbody>
 </table>

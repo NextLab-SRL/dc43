@@ -38,6 +38,7 @@ import re
 import shutil
 import tempfile
 from datetime import datetime
+from collections import Counter
 
 import httpx
 from fastapi import FastAPI, Request, Form, HTTPException
@@ -56,15 +57,18 @@ from dc43_service_clients.governance.client.remote import RemoteGovernanceServic
 from dc43.odcs import custom_properties_dict, normalise_custom_properties
 from dc43.versioning import SemVer
 from open_data_contract_standard.model import (
+    CustomProperty,
+    DataQuality,
+    Description,
     OpenDataContractStandard,
     SchemaObject,
     SchemaProperty,
-    Description,
     Server,
-    DataQuality,
+    ServiceLevelAgreementProperty,
+    Support,
 )
 from pydantic import ValidationError
-from packaging.version import Version
+from packaging.version import Version, InvalidVersion
 
 # Optional pyspark-based helpers. Keep imports lazy-friendly so the demo UI can
 # still load when pyspark is not installed (for example when running fast unit
@@ -476,6 +480,23 @@ for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
 
 store = FSContractStore(str(CONTRACT_DIR))
 
+
+_STATUS_OPTIONS: List[Tuple[str, str]] = [
+    ("", "Unspecified"),
+    ("draft", "Draft"),
+    ("active", "Active"),
+    ("deprecated", "Deprecated"),
+    ("retired", "Retired"),
+    ("suspended", "Suspended"),
+]
+
+_VERSIONING_MODES: List[Tuple[str, str]] = [
+    ("", "Not specified"),
+    ("delta", "Delta (time-travel compatible)"),
+    ("snapshot", "Snapshot folders"),
+    ("append", "Append-only log"),
+]
+
 _backend_app: FastAPI | None = None
 _backend_transport: ASGITransport | None = None
 _backend_client: httpx.AsyncClient | None = None
@@ -635,6 +656,13 @@ _DQ_STATUS_BADGES: Dict[str, str] = {
     "block": "bg-danger",
     "stale": "bg-secondary",
     "unknown": "bg-secondary",
+}
+
+
+_CONTRACT_STATUS_BADGES: Dict[str, str] = {
+    "active": "bg-success",
+    "draft": "bg-warning text-dark",
+    "deprecated": "bg-secondary",
 }
 
 
@@ -1656,27 +1684,93 @@ async def list_contracts(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/contracts/new", response_class=HTMLResponse)
+async def new_contract_form(request: Request) -> HTMLResponse:
+    editor_state = _contract_editor_state()
+    editor_state["version"] = editor_state.get("version") or "1.0.0"
+    context = _editor_context(request, editor_state=editor_state)
+    return templates.TemplateResponse("new_contract.html", context)
+
+
+@app.post("/contracts/new", response_class=HTMLResponse)
+async def create_contract(
+    request: Request,
+    payload: str = Form(...),
+) -> HTMLResponse:
+    error: Optional[str] = None
+    try:
+        editor_state = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        error = f"Invalid editor payload: {exc.msg}"
+        editor_state = _contract_editor_state()
+    else:
+        try:
+            _validate_contract_payload(editor_state, editing=False)
+            model = _build_contract_from_payload(editor_state)
+            store.put(model)
+            return RedirectResponse(url="/contracts", status_code=303)
+        except (ValidationError, ValueError) as exc:
+            error = str(exc)
+        except Exception as exc:  # pragma: no cover - display unexpected errors
+            error = str(exc)
+    context = _editor_context(
+        request,
+        editor_state=editor_state,
+        error=error,
+    )
+    return templates.TemplateResponse("new_contract.html", context)
+
+
+
+
 @app.get("/contracts/{cid}", response_class=HTMLResponse)
 async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
     versions = store.list_versions(cid)
     if not versions:
         raise HTTPException(status_code=404, detail="Contract not found")
+    records_by_version: Dict[str, List[DatasetRecord]] = {}
+    for record in load_records():
+        if record.contract_id != cid:
+            continue
+        records_by_version.setdefault(record.contract_version, []).append(record)
+
     contracts = []
     for ver in versions:
         try:
             contract = store.get(cid, ver)
         except FileNotFoundError:
             continue
-        server = (contract.servers or [None])[0]
-        path = ""
-        if server:
-            parts: List[str] = []
-            if getattr(server, "path", None):
-                parts.append(server.path)
-            if getattr(server, "dataset", None):
-                parts.append(server.dataset)
-            path = "/".join(parts)
-        contracts.append({"id": cid, "version": ver, "path": path})
+
+        status_raw = getattr(contract, "status", "") or "unknown"
+        status_value = str(status_raw).lower()
+        status_label = str(status_raw).replace("_", " ").title()
+        status_badge = _CONTRACT_STATUS_BADGES.get(status_value, "bg-secondary")
+
+        server_info = _server_details(contract)
+        dataset_hint = (
+            server_info.get("dataset_id")
+            if server_info
+            else (contract.id or cid)
+        )
+
+        latest_run: Optional[DatasetRecord] = None
+        run_entries = records_by_version.get(ver, [])
+        if run_entries:
+            run_entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+            latest_run = run_entries[-1]
+
+        contracts.append(
+            {
+                "id": cid,
+                "version": ver,
+                "status": status_value,
+                "status_label": status_label,
+                "status_badge": status_badge,
+                "server": server_info,
+                "dataset_hint": dataset_hint,
+                "latest_run": latest_run.__dict__ if latest_run else None,
+            }
+        )
     context = {"request": request, "contract_id": cid, "contracts": contracts}
     return templates.TemplateResponse("contract_versions.html", context)
 
@@ -1734,6 +1828,779 @@ def _next_version(ver: str) -> str:
     return f"{v.major}.{v.minor}.{v.micro + 1}"
 
 
+_EXPECTATION_KEYS = (
+    "mustBe",
+    "mustNotBe",
+    "mustBeGreaterThan",
+    "mustBeGreaterOrEqualTo",
+    "mustBeLessThan",
+    "mustBeLessOrEqualTo",
+    "mustBeBetween",
+    "mustNotBeBetween",
+    "query",
+)
+
+
+def _stringify_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (bool, int, float)):
+        return json.dumps(value)
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, indent=2, sort_keys=True)
+    return str(value)
+
+
+def _parse_json_value(raw: Any) -> Any:
+    if raw is None:
+        return None
+    if isinstance(raw, (dict, list, bool, int, float)):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return text
+    return raw
+
+
+def _as_bool(value: Any) -> Optional[bool]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "n", "off"}:
+            return False
+    return bool(value)
+
+
+def _as_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Expected integer value, got {value!r}")
+
+
+def _custom_properties_state(raw: Any) -> List[Dict[str, str]]:
+    state: List[Dict[str, str]] = []
+    for item in normalise_custom_properties(raw):
+        key = None
+        value = None
+        if isinstance(item, Mapping):
+            key = item.get("property")
+            value = item.get("value")
+        else:
+            key = getattr(item, "property", None)
+            value = getattr(item, "value", None)
+        if key:
+            state.append({"property": str(key), "value": _stringify_value(value)})
+    return state
+
+
+def _quality_state(items: Optional[Iterable[Any]]) -> List[Dict[str, Any]]:
+    state: List[Dict[str, Any]] = []
+    if not items:
+        return state
+    for item in items:
+        if hasattr(item, "model_dump"):
+            raw = item.model_dump(exclude_none=True)
+        elif hasattr(item, "dict"):
+            raw = item.dict(exclude_none=True)  # type: ignore[attr-defined]
+        else:
+            raw = {k: v for k, v in vars(item).items() if v is not None}
+        expectation = None
+        expectation_value = None
+        for key in _EXPECTATION_KEYS:
+            if key in raw:
+                expectation = key
+                expectation_value = raw.pop(key)
+                break
+        for key, value in list(raw.items()):
+            if isinstance(value, (list, dict)):
+                raw[key] = json.dumps(value, indent=2, sort_keys=True)
+        entry: Dict[str, Any] = {k: v for k, v in raw.items() if v is not None}
+        if expectation:
+            entry["expectation"] = expectation
+            if isinstance(expectation_value, list):
+                entry["expectationValue"] = ", ".join(str(v) for v in expectation_value)
+            elif isinstance(expectation_value, (dict, list)):
+                entry["expectationValue"] = json.dumps(expectation_value, indent=2, sort_keys=True)
+            elif expectation_value is None:
+                entry["expectationValue"] = ""
+            else:
+                entry["expectationValue"] = str(expectation_value)
+        state.append(entry)
+    return state
+
+
+def _schema_property_state(prop: SchemaProperty) -> Dict[str, Any]:
+    examples = getattr(prop, "examples", None) or []
+    return {
+        "name": getattr(prop, "name", "") or "",
+        "physicalType": getattr(prop, "physicalType", "") or "",
+        "description": getattr(prop, "description", "") or "",
+        "businessName": getattr(prop, "businessName", "") or "",
+        "logicalType": getattr(prop, "logicalType", "") or "",
+        "logicalTypeOptions": _stringify_value(getattr(prop, "logicalTypeOptions", None)),
+        "required": bool(getattr(prop, "required", False)),
+        "unique": bool(getattr(prop, "unique", False)),
+        "partitioned": bool(getattr(prop, "partitioned", False)),
+        "primaryKey": bool(getattr(prop, "primaryKey", False)),
+        "classification": getattr(prop, "classification", "") or "",
+        "examples": "\n".join(str(item) for item in examples),
+        "customProperties": _custom_properties_state(getattr(prop, "customProperties", None)),
+        "quality": _quality_state(getattr(prop, "quality", None)),
+    }
+
+
+def _schema_object_state(obj: SchemaObject) -> Dict[str, Any]:
+    properties = [
+        _schema_property_state(prop)
+        for prop in getattr(obj, "properties", None) or []
+    ]
+    return {
+        "name": getattr(obj, "name", "") or "",
+        "description": getattr(obj, "description", "") or "",
+        "businessName": getattr(obj, "businessName", "") or "",
+        "logicalType": getattr(obj, "logicalType", "") or "",
+        "customProperties": _custom_properties_state(getattr(obj, "customProperties", None)),
+        "quality": _quality_state(getattr(obj, "quality", None)),
+        "properties": properties,
+    }
+
+
+_SERVER_FIELD_MAP = {
+    "description": "description",
+    "environment": "environment",
+    "format": "format",
+    "path": "path",
+    "dataset": "dataset",
+    "database": "database",
+    "schema": "schema_",
+    "catalog": "catalog",
+    "host": "host",
+    "location": "location",
+    "endpointUrl": "endpointUrl",
+    "project": "project",
+    "region": "region",
+    "regionName": "regionName",
+    "serviceName": "serviceName",
+    "warehouse": "warehouse",
+    "stagingDir": "stagingDir",
+    "account": "account",
+}
+
+
+def _server_state(server: Server) -> Dict[str, Any]:
+    state = {
+        "server": getattr(server, "server", "") or "",
+        "type": getattr(server, "type", "") or "",
+        "port": getattr(server, "port", None) or "",
+    }
+    for field, attr in _SERVER_FIELD_MAP.items():
+        state[field] = getattr(server, attr, "") or ""
+    versioning_value: Any | None = None
+    path_pattern_value: Any | None = None
+    custom_entries: List[Dict[str, str]] = []
+    for item in normalise_custom_properties(getattr(server, "customProperties", None)):
+        key = None
+        value = None
+        if isinstance(item, Mapping):
+            key = item.get("property")
+            value = item.get("value")
+        else:
+            key = getattr(item, "property", None)
+            value = getattr(item, "value", None)
+        if not key:
+            continue
+        if str(key) == "dc43.versioning":
+            versioning_value = value
+            continue
+        if str(key) == "dc43.pathPattern":
+            path_pattern_value = value
+            continue
+        custom_entries.append({"property": str(key), "value": _stringify_value(value)})
+    if versioning_value is not None:
+        parsed = versioning_value
+        if isinstance(parsed, str):
+            parsed = _parse_json_value(parsed)
+        state["versioningConfig"] = parsed if isinstance(parsed, Mapping) else None
+    if path_pattern_value not in (None, ""):
+        state["pathPattern"] = str(path_pattern_value)
+    state["customProperties"] = custom_entries
+    return state
+
+
+def _support_state(items: Optional[Iterable[Support]]) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    if not items:
+        return result
+    for entry in items:
+        payload: Dict[str, Any] = {}
+        for field in ("channel", "url", "description", "tool", "scope", "invitationUrl"):
+            value = getattr(entry, field, None)
+            if value:
+                payload[field] = value
+        if payload:
+            result.append(payload)
+    return result
+
+
+def _sla_state(items: Optional[Iterable[ServiceLevelAgreementProperty]]) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    if not items:
+        return result
+    for entry in items:
+        payload: Dict[str, Any] = {}
+        for field in ("property", "value", "valueExt", "unit", "element", "driver"):
+            value = getattr(entry, field, None)
+            if value is None:
+                continue
+            if field in {"value", "valueExt"}:
+                payload[field] = _stringify_value(value)
+            else:
+                payload[field] = value
+        if payload:
+            result.append(payload)
+    return result
+
+
+def _contract_editor_state(contract: Optional[OpenDataContractStandard] = None) -> Dict[str, Any]:
+    if contract is None:
+        return {
+            "id": "",
+            "version": "",
+            "kind": "DataContract",
+            "apiVersion": "3.0.2",
+            "name": "",
+            "description": "",
+            "status": "",
+            "domain": "",
+            "dataProduct": "",
+            "tenant": "",
+            "tags": [],
+            "customProperties": [],
+            "servers": [],
+            "schemaObjects": [
+                {
+                    "name": "",
+                    "description": "",
+                    "businessName": "",
+                    "logicalType": "",
+                    "customProperties": [],
+                    "quality": [],
+                    "properties": [],
+                }
+            ],
+            "support": [],
+            "slaProperties": [],
+        }
+    description = getattr(contract.description, "usage", "") if getattr(contract, "description", None) else ""
+    state = {
+        "id": getattr(contract, "id", "") or "",
+        "version": getattr(contract, "version", "") or "",
+        "kind": getattr(contract, "kind", "DataContract") or "DataContract",
+        "apiVersion": getattr(contract, "apiVersion", "3.0.2") or "3.0.2",
+        "name": getattr(contract, "name", "") or "",
+        "description": description,
+        "status": getattr(contract, "status", "") or "",
+        "domain": getattr(contract, "domain", "") or "",
+        "dataProduct": getattr(contract, "dataProduct", "") or "",
+        "tenant": getattr(contract, "tenant", "") or "",
+        "tags": list(getattr(contract, "tags", []) or []),
+        "customProperties": _custom_properties_state(getattr(contract, "customProperties", None)),
+        "servers": [_server_state(server) for server in getattr(contract, "servers", []) or []],
+        "schemaObjects": [
+            _schema_object_state(obj) for obj in getattr(contract, "schema_", None) or []
+        ],
+        "support": _support_state(getattr(contract, "support", None)),
+        "slaProperties": _sla_state(getattr(contract, "slaProperties", None)),
+    }
+    if not state["schemaObjects"]:
+        state["schemaObjects"] = _contract_editor_state(None)["schemaObjects"]
+    return state
+
+
+def _sorted_versions(values: Iterable[str]) -> List[str]:
+    parsed: List[Tuple[Version, str]] = []
+    invalid: List[str] = []
+    for value in values:
+        if not value:
+            continue
+        try:
+            parsed.append((Version(str(value)), str(value)))
+        except InvalidVersion:
+            invalid.append(str(value))
+    parsed.sort(key=lambda entry: entry[0])
+    return [ver for _, ver in parsed] + sorted(invalid)
+
+
+def _build_editor_meta(
+    *,
+    editor_state: Mapping[str, Any],
+    editing: bool,
+    original_version: Optional[str],
+    baseline_state: Optional[Mapping[str, Any]],
+    baseline_contract: Optional[OpenDataContractStandard],
+) -> Dict[str, Any]:
+    existing_contracts = sorted(store.list_contracts())
+    version_map: Dict[str, List[str]] = {}
+    for contract_id in existing_contracts:
+        try:
+            versions = store.list_versions(contract_id)
+        except FileNotFoundError:
+            versions = []
+        version_map[contract_id] = _sorted_versions(versions)
+    meta: Dict[str, Any] = {
+        "existingContracts": existing_contracts,
+        "existingVersions": version_map,
+        "editing": editing,
+        "originalVersion": original_version,
+        "contractId": str(editor_state.get("id", "")) or (
+            getattr(baseline_contract, "id", "") if baseline_contract else ""
+        ),
+    }
+    if original_version:
+        meta["baseVersion"] = original_version
+    if baseline_state is None and baseline_contract is not None:
+        baseline_state = _contract_editor_state(baseline_contract)
+    if baseline_state is not None:
+        # ensure baseline is JSON serializable
+        meta["baselineState"] = jsonable_encoder(baseline_state)
+    if baseline_contract is not None:
+        meta["baseContract"] = contract_to_dict(baseline_contract)
+    return meta
+
+
+def _editor_context(
+    request: Request,
+    *,
+    editor_state: Dict[str, Any],
+    editing: bool = False,
+    original_version: Optional[str] = None,
+    baseline_state: Optional[Mapping[str, Any]] = None,
+    baseline_contract: Optional[OpenDataContractStandard] = None,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    context = {
+        "request": request,
+        "editing": editing,
+        "editor_state": editor_state,
+        "status_options": _STATUS_OPTIONS,
+        "versioning_modes": _VERSIONING_MODES,
+        "editor_meta": _build_editor_meta(
+            editor_state=editor_state,
+            editing=editing,
+            original_version=original_version,
+            baseline_state=baseline_state,
+            baseline_contract=baseline_contract,
+        ),
+    }
+    if original_version:
+        context["original_version"] = original_version
+    if error:
+        context["error"] = error
+    return context
+
+
+def _custom_properties_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[CustomProperty] | None:
+    result: List[CustomProperty] = []
+    if not items:
+        return None
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        key = (str(item.get("property", ""))).strip()
+        if not key:
+            continue
+        value = _parse_json_value(item.get("value"))
+        result.append(CustomProperty(property=key, value=value))
+    return result or None
+
+
+def _validate_contract_payload(
+    payload: Mapping[str, Any],
+    *,
+    editing: bool,
+    base_contract_id: Optional[str] = None,
+    base_version: Optional[str] = None,
+) -> None:
+    contract_id = (str(payload.get("id", ""))).strip()
+    if not contract_id:
+        raise ValueError("Contract ID is required")
+    version = (str(payload.get("version", ""))).strip()
+    if not version:
+        raise ValueError("Version is required")
+    try:
+        new_version = SemVer.parse(version)
+    except ValueError as exc:
+        raise ValueError(f"Invalid semantic version: {exc}") from exc
+    existing_contracts = set(store.list_contracts())
+    existing_versions = (
+        set(store.list_versions(contract_id)) if contract_id in existing_contracts else set()
+    )
+    if editing:
+        if base_contract_id and contract_id != base_contract_id:
+            raise ValueError("Contract ID cannot be changed while editing")
+        if base_version:
+            try:
+                prior = SemVer.parse(base_version)
+            except ValueError:
+                prior = None
+            if prior and (
+                (new_version.major, new_version.minor, new_version.patch)
+                <= (prior.major, prior.minor, prior.patch)
+            ):
+                raise ValueError(
+                    f"Version {version} must be greater than {base_version}"
+                )
+        if version in existing_versions:
+            raise ValueError(
+                f"Version {version} is already stored for contract {contract_id}"
+            )
+    else:
+        if contract_id in existing_contracts and version in existing_versions:
+            raise ValueError(
+                f"Contract {contract_id} already has a version {version}."
+            )
+
+
+def _support_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[Support] | None:
+    result: List[Support] = []
+    if not items:
+        return None
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        channel = (str(item.get("channel", ""))).strip()
+        if not channel:
+            continue
+        payload: Dict[str, Any] = {"channel": channel}
+        for field in ("url", "description", "tool", "scope", "invitationUrl"):
+            value = item.get(field)
+            if value:
+                payload[field] = value
+        result.append(Support(**payload))
+    return result or None
+
+
+def _sla_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[ServiceLevelAgreementProperty] | None:
+    result: List[ServiceLevelAgreementProperty] = []
+    if not items:
+        return None
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        key = (str(item.get("property", ""))).strip()
+        if not key:
+            continue
+        payload: Dict[str, Any] = {"property": key}
+        for field in ("unit", "element", "driver"):
+            value = item.get(field)
+            if value:
+                payload[field] = value
+        value = item.get("value")
+        if value not in (None, ""):
+            payload["value"] = _parse_json_value(value)
+        value_ext = item.get("valueExt")
+        if value_ext not in (None, ""):
+            payload["valueExt"] = _parse_json_value(value_ext)
+        result.append(ServiceLevelAgreementProperty(**payload))
+    return result or None
+
+
+def _parse_expectation_value(expectation: str, value: Any) -> Any:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (list, dict, bool, int, float)):
+        return value
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if expectation in {"mustBeBetween", "mustNotBeBetween"}:
+        separators = [",", ";"]
+        for sep in separators:
+            if sep in text:
+                parts = [p.strip() for p in text.split(sep) if p.strip()]
+                break
+        else:
+            parts = [p.strip() for p in text.split() if p.strip()]
+        if len(parts) < 2:
+            raise ValueError("Data quality range requires two numeric values")
+        try:
+            return [float(parts[0]), float(parts[1])]
+        except ValueError as exc:
+            raise ValueError("Data quality range must be numeric") from exc
+    if expectation in {
+        "mustBeGreaterThan",
+        "mustBeGreaterOrEqualTo",
+        "mustBeLessThan",
+        "mustBeLessOrEqualTo",
+    }:
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise ValueError(f"Expectation {expectation} requires a numeric value") from exc
+    if expectation in {"mustBe", "mustNotBe"}:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return text
+    return text
+
+
+def _quality_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[DataQuality] | None:
+    result: List[DataQuality] = []
+    if not items:
+        return None
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        payload: Dict[str, Any] = {}
+        for field in (
+            "name",
+            "type",
+            "rule",
+            "description",
+            "dimension",
+            "severity",
+            "unit",
+            "schedule",
+            "scheduler",
+            "businessImpact",
+            "method",
+        ):
+            value = item.get(field)
+            if value not in (None, ""):
+                payload[field] = value
+        tags_value = item.get("tags")
+        if isinstance(tags_value, str):
+            tags = [t.strip() for t in tags_value.split(",") if t.strip()]
+            if tags:
+                payload["tags"] = tags
+        elif isinstance(tags_value, Iterable):
+            tags = [str(t).strip() for t in tags_value if str(t).strip()]
+            if tags:
+                payload["tags"] = tags
+        expectation = item.get("expectation")
+        if expectation:
+            payload[expectation] = _parse_expectation_value(expectation, item.get("expectationValue"))
+        implementation = item.get("implementation")
+        if implementation not in (None, ""):
+            payload["implementation"] = _parse_json_value(implementation)
+        custom_props = _custom_properties_models(item.get("customProperties"))
+        if custom_props:
+            payload["customProperties"] = custom_props
+        if payload:
+            result.append(DataQuality(**payload))
+    return result or None
+
+
+def _schema_properties_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[SchemaProperty]:
+    result: List[SchemaProperty] = []
+    if not items:
+        return result
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        name = (str(item.get("name", ""))).strip()
+        if not name:
+            continue
+        payload: Dict[str, Any] = {"name": name}
+        physical_type = item.get("physicalType")
+        if physical_type:
+            payload["physicalType"] = physical_type
+        for field in (
+            "description",
+            "businessName",
+            "classification",
+            "logicalType",
+        ):
+            value = item.get(field)
+            if value not in (None, ""):
+                payload[field] = value
+        logical_type_options = item.get("logicalTypeOptions")
+        if logical_type_options not in (None, ""):
+            payload["logicalTypeOptions"] = _parse_json_value(logical_type_options)
+        for boolean_field in ("required", "unique", "partitioned", "primaryKey"):
+            value = _as_bool(item.get(boolean_field))
+            if value is not None:
+                payload[boolean_field] = value
+        examples = item.get("examples")
+        if isinstance(examples, str):
+            values = [ex.strip() for ex in examples.splitlines() if ex.strip()]
+            if values:
+                payload["examples"] = values
+        elif isinstance(examples, Iterable):
+            values = [str(ex).strip() for ex in examples if str(ex).strip()]
+            if values:
+                payload["examples"] = values
+        custom_props = _custom_properties_models(item.get("customProperties"))
+        if custom_props:
+            payload["customProperties"] = custom_props
+        quality = _quality_models(item.get("quality"))
+        if quality:
+            payload["quality"] = quality
+        result.append(SchemaProperty(**payload))
+    return result
+
+
+def _schema_objects_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[SchemaObject]:
+    result: List[SchemaObject] = []
+    if not items:
+        return result
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        name = (str(item.get("name", ""))).strip()
+        payload: Dict[str, Any] = {}
+        if name:
+            payload["name"] = name
+        for field in ("description", "businessName", "logicalType"):
+            value = item.get(field)
+            if value not in (None, ""):
+                payload[field] = value
+        custom_props = _custom_properties_models(item.get("customProperties"))
+        if custom_props:
+            payload["customProperties"] = custom_props
+        quality = _quality_models(item.get("quality"))
+        if quality:
+            payload["quality"] = quality
+        properties = _schema_properties_models(item.get("properties"))
+        if properties:
+            name_counts = Counter(
+                prop.name for prop in properties if getattr(prop, "name", None)
+            )
+            duplicates = [name for name, count in name_counts.items() if count > 1]
+            if duplicates:
+                object_name = payload.get("name") or "schema object"
+                dup_list = ", ".join(sorted(duplicates))
+                raise ValueError(
+                    f"Duplicate field name(s) {dup_list} in {object_name}"
+                )
+        payload["properties"] = properties
+        result.append(SchemaObject(**payload))
+    return result
+
+
+def _server_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[Server] | None:
+    result: List[Server] = []
+    if not items:
+        return None
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        server_name = (str(item.get("server", ""))).strip()
+        server_type = (str(item.get("type", ""))).strip()
+        if not server_name or not server_type:
+            continue
+        payload: Dict[str, Any] = {"server": server_name, "type": server_type}
+        for field, attr in _SERVER_FIELD_MAP.items():
+            value = item.get(field)
+            if value not in (None, ""):
+                payload[attr] = value
+        port_value = item.get("port")
+        if port_value not in (None, ""):
+            payload["port"] = _as_int(port_value)
+        custom_props: List[CustomProperty] = []
+        base_custom = _custom_properties_models(item.get("customProperties"))
+        if base_custom:
+            custom_props.extend(base_custom)
+        versioning_config = item.get("versioningConfig")
+        if versioning_config not in (None, "", {}):
+            parsed_versioning = (
+                versioning_config
+                if isinstance(versioning_config, Mapping)
+                else _parse_json_value(versioning_config)
+            )
+            if not isinstance(parsed_versioning, Mapping):
+                raise ValueError("dc43.versioning must be provided as an object")
+            custom_props.append(
+                CustomProperty(property="dc43.versioning", value=parsed_versioning)
+            )
+        path_pattern = item.get("pathPattern")
+        if path_pattern not in (None, ""):
+            custom_props.append(
+                CustomProperty(property="dc43.pathPattern", value=str(path_pattern))
+            )
+        if custom_props:
+            payload["customProperties"] = custom_props
+        result.append(Server(**payload))
+    return result or None
+
+
+def _normalise_tags(value: Any) -> List[str] | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        tags = [item.strip() for item in value.split(",") if item.strip()]
+        return tags or None
+    if isinstance(value, Iterable):
+        tags = [str(item).strip() for item in value if str(item).strip()]
+        return tags or None
+    return None
+
+
+def _build_contract_from_payload(payload: Mapping[str, Any]) -> OpenDataContractStandard:
+    contract_id = (str(payload.get("id", ""))).strip()
+    if not contract_id:
+        raise ValueError("Contract ID is required")
+    version = (str(payload.get("version", ""))).strip()
+    if not version:
+        raise ValueError("Version is required")
+    name = (str(payload.get("name", "")) or contract_id).strip()
+    description = str(payload.get("description", ""))
+    kind = (str(payload.get("kind", "DataContract")) or "DataContract").strip()
+    api_version = (str(payload.get("apiVersion", "3.0.2")) or "3.0.2").strip()
+    status = str(payload.get("status", "")).strip() or None
+    domain = str(payload.get("domain", "")).strip() or None
+    data_product = str(payload.get("dataProduct", "")).strip() or None
+    tenant = str(payload.get("tenant", "")).strip() or None
+    tags = _normalise_tags(payload.get("tags"))
+    custom_props = _custom_properties_models(payload.get("customProperties"))
+    servers = _server_models(payload.get("servers"))
+    schema_objects = _schema_objects_models(payload.get("schemaObjects"))
+    if not schema_objects:
+        raise ValueError("At least one schema object with fields is required")
+    # Ensure each schema object has properties
+    for obj in schema_objects:
+        if not obj.properties:
+            raise ValueError("Each schema object must define at least one field")
+    support_entries = _support_models(payload.get("support"))
+    sla_properties = _sla_models(payload.get("slaProperties"))
+    return OpenDataContractStandard(
+        version=version,
+        kind=kind,
+        apiVersion=api_version,
+        id=contract_id,
+        name=name,
+        description=None if not description else Description(usage=description),
+        status=status,
+        domain=domain,
+        dataProduct=data_product,
+        tenant=tenant,
+        tags=tags,
+        customProperties=custom_props,
+        servers=servers,
+        schema=schema_objects,  # type: ignore[arg-type]
+        support=support_entries,
+        slaProperties=sla_properties,
+    )
+
+
 @app.get("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
 async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLResponse:
     try:
@@ -1741,23 +2608,17 @@ async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLRespon
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     new_ver = _next_version(ver)
-    server = (contract.servers or [None])[0]
-    path = getattr(server, "path", "") if server else ""
-    props = []
-    if contract.schema:
-        props = contract.schema[0].properties or []
-    columns = "\n".join(f"{p.name}:{p.physicalType}" for p in props)
-    context = {
-        "request": request,
-        "editing": True,
-        "contract_id": contract.id,
-        "contract_version": new_ver,
-        "name": contract.name,
-        "description": getattr(contract.description, "usage", ""),
-        "dataset_path": path,
-        "columns": columns,
-        "original_version": ver,
-    }
+    editor_state = _contract_editor_state(contract)
+    baseline_state = json.loads(json.dumps(editor_state))
+    editor_state["version"] = new_ver
+    context = _editor_context(
+        request,
+        editor_state=editor_state,
+        editing=True,
+        original_version=ver,
+        baseline_state=baseline_state,
+        baseline_contract=contract,
+    )
     return templates.TemplateResponse("new_contract.html", context)
 
 
@@ -1766,52 +2627,52 @@ async def save_contract_edits(
     request: Request,
     cid: str,
     ver: str,
-    contract_id: str = Form(...),
-    contract_version: str = Form(...),
-    name: str = Form(...),
-    description: str = Form(""),
-    columns: str = Form(""),
-    dataset_path: str = Form(""),
+    payload: str = Form(...),
+    original_version: str = Form(""),
 ) -> HTMLResponse:
-    path = Path(dataset_path)
+    editor_state: Dict[str, Any]
+    baseline_contract: Optional[OpenDataContractStandard] = None
+    baseline_state: Optional[Dict[str, Any]] = None
+    base_version = original_version or ver
     try:
-        props = []
-        for line in columns.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            col_name, col_type = [p.strip() for p in line.split(":", 1)]
-            props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
-        if not path.is_absolute():
-            path = (Path(DATA_DIR).parent / path).resolve()
-        model = OpenDataContractStandard(
-            version=contract_version,
-            kind="DataContract",
-            apiVersion="3.0.2",
-            id=contract_id,
-            name=name,
-            description=Description(usage=description),
-            schema=[SchemaObject(name=name, properties=props)],
-            servers=[Server(server="local", type="filesystem", path=str(path))],
-        )
-        store.put(model)
-        return RedirectResponse(url=f"/contracts/{contract_id}/{contract_version}", status_code=303)
-    except ValidationError as ve:
-        error = str(ve)
-    except Exception as exc:  # pragma: no cover - display any other error
-        error = str(exc)
-    context = {
-        "request": request,
-        "editing": True,
-        "error": error,
-        "contract_id": contract_id,
-        "contract_version": contract_version,
-        "name": name,
-        "description": description,
-        "columns": columns,
-        "dataset_path": str(path),
-        "original_version": ver,
-    }
+        baseline_contract = store.get(cid, base_version)
+        baseline_state = json.loads(json.dumps(_contract_editor_state(baseline_contract)))
+    except FileNotFoundError:
+        baseline_contract = None
+        baseline_state = None
+    try:
+        editor_state = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        error = f"Invalid editor payload: {exc.msg}"
+        editor_state = _contract_editor_state()
+        editor_state["id"] = cid
+        editor_state["version"] = _next_version(ver)
+    else:
+        try:
+            _validate_contract_payload(
+                editor_state,
+                editing=True,
+                base_contract_id=cid,
+                base_version=base_version,
+            )
+            model = _build_contract_from_payload(editor_state)
+            store.put(model)
+            return RedirectResponse(
+                url=f"/contracts/{model.id}/{model.version}", status_code=303
+            )
+        except (ValidationError, ValueError) as exc:
+            error = str(exc)
+        except Exception as exc:  # pragma: no cover - display unexpected errors
+            error = str(exc)
+    context = _editor_context(
+        request,
+        editor_state=editor_state,
+        editing=True,
+        original_version=base_version,
+        baseline_state=baseline_state,
+        baseline_contract=baseline_contract,
+        error=error,
+    )
     return templates.TemplateResponse("new_contract.html", context)
 
 
@@ -1820,63 +2681,15 @@ async def html_validate_contract(cid: str, ver: str) -> HTMLResponse:
     return RedirectResponse(url=f"/contracts/{cid}/{ver}", status_code=303)
 
 
-@app.get("/contracts/new", response_class=HTMLResponse)
-async def new_contract_form(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("new_contract.html", {"request": request})
-
-
-@app.post("/contracts/new", response_class=HTMLResponse)
-async def create_contract(
-    request: Request,
-    contract_id: str = Form(...),
-    contract_version: str = Form(...),
-    name: str = Form(...),
-    description: str = Form(""),
-    columns: str = Form(""),
-    dataset_path: str = Form(""),
-) -> HTMLResponse:
-    path = Path(dataset_path)
-    try:
-        props = []
-        for line in columns.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            col_name, col_type = [p.strip() for p in line.split(":", 1)]
-            props.append(SchemaProperty(name=col_name, physicalType=col_type, required=True))
-        if not path.is_absolute():
-            path = (Path(DATA_DIR).parent / path).resolve()
-        model = OpenDataContractStandard(
-            version=contract_version,
-            kind="DataContract",
-            apiVersion="3.0.2",
-            id=contract_id,
-            name=name,
-            description=Description(usage=description),
-            schema=[SchemaObject(name=name, properties=props)],
-            servers=[Server(server="local", type="filesystem", path=str(path))],
-        )
-        store.put(model)
-        return RedirectResponse(url="/contracts", status_code=303)
-    except ValidationError as ve:
-        error = str(ve)
-    except Exception as exc:  # pragma: no cover - display any other error
-        error = str(exc)
-    context = {
-        "request": request,
-        "error": error,
-        "contract_id": contract_id,
-        "contract_version": contract_version,
-        "name": name,
-        "description": description,
-        "columns": columns,
-        "dataset_path": str(path),
-    }
-    return templates.TemplateResponse("new_contract.html", context)
-
-
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
+    catalog = dataset_catalog(load_records())
+    context = {"request": request, "datasets": catalog}
+    return templates.TemplateResponse("datasets.html", context)
+
+
+@app.get("/pipeline-runs", response_class=HTMLResponse)
+async def list_pipeline_runs(request: Request) -> HTMLResponse:
     records = load_records()
     recs = [r.__dict__.copy() for r in records]
     scenario_rows = scenario_run_rows(records)
@@ -1896,7 +2709,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
         "message": flash_message,
         "error": flash_error,
     }
-    return templates.TemplateResponse("datasets.html", context)
+    return templates.TemplateResponse("pipeline_runs.html", context)
 
 
 @app.get("/datasets/{dataset_name}", response_class=HTMLResponse)
@@ -1942,6 +2755,112 @@ def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: st
     except Exception:
         return ""
     return ""
+
+
+def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    """Summarise known datasets and associated contract information."""
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for record in records:
+        if not record.dataset_name:
+            continue
+        bucket = grouped.setdefault(
+            record.dataset_name,
+            {"dataset_name": record.dataset_name, "records": []},
+        )
+        bucket["records"].append(record)
+
+    for contract_id in store.list_contracts():
+        for version in store.list_versions(contract_id):
+            try:
+                contract = store.get(contract_id, version)
+            except FileNotFoundError:
+                continue
+            server_info = _server_details(contract) or {}
+            dataset_id = (
+                server_info.get("dataset_id")
+                or server_info.get("dataset")
+                or contract.id
+                or contract_id
+            )
+            bucket = grouped.setdefault(
+                dataset_id,
+                {"dataset_name": dataset_id, "records": []},
+            )
+            contracts_map = bucket.setdefault("contracts_by_id", {})
+            contracts = contracts_map.setdefault(contract_id, [])
+            contracts.append(
+                {
+                    "version": version,
+                    "status": getattr(contract, "status", ""),
+                    "server": server_info,
+                }
+            )
+
+    catalog: List[Dict[str, Any]] = []
+    for dataset_name, payload in grouped.items():
+        dataset_records: List[DatasetRecord] = list(payload.get("records", []))
+        dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+        latest_record: Optional[DatasetRecord] = dataset_records[-1] if dataset_records else None
+
+        latest_status_value: Optional[str] = None
+        latest_status_label: str = ""
+        latest_status_badge: str = ""
+        latest_reason: Optional[str] = None
+        if latest_record:
+            status_raw = str(latest_record.status or "unknown")
+            latest_status_value = status_raw.lower()
+            latest_status_label = status_raw.replace("_", " ").title()
+            latest_status_badge = _DQ_STATUS_BADGES.get(latest_status_value, "bg-secondary")
+            latest_reason = latest_record.reason or None
+
+        run_drafts = sorted(
+            {rec.draft_contract_version for rec in dataset_records if rec.draft_contract_version},
+            key=_version_sort_key,
+        )
+        contracts_summary: List[Dict[str, Any]] = []
+        contracts_map: Dict[str, List[Dict[str, Any]]] = payload.get("contracts_by_id", {})
+        for contract_id, versions in contracts_map.items():
+            versions.sort(key=lambda item: _version_sort_key(item["version"]))
+            other_versions = [item["version"] for item in versions[:-1]]
+            latest_contract = versions[-1] if versions else {"version": "", "status": ""}
+            status_raw = str(latest_contract.get("status") or "unknown")
+            status_value = status_raw.lower()
+            status_label = status_raw.replace("_", " ").title()
+            draft_versions = [
+                item for item in versions if str(item.get("status", "")).lower() == "draft"
+            ]
+            latest_draft = draft_versions[-1]["version"] if draft_versions else None
+            contracts_summary.append(
+                {
+                    "id": contract_id,
+                    "latest_version": latest_contract.get("version", ""),
+                    "latest_status": status_value,
+                    "latest_status_label": status_label,
+                    "other_versions": other_versions,
+                    "drafts_count": len(draft_versions),
+                    "latest_draft_version": latest_draft,
+                }
+            )
+
+        contracts_summary.sort(key=lambda item: item["id"])
+
+        catalog.append(
+            {
+                "dataset_name": dataset_name,
+                "latest_version": latest_record.dataset_version if latest_record else "",
+                "latest_status": latest_status_value,
+                "latest_status_label": latest_status_label,
+                "latest_status_badge": latest_status_badge,
+                "latest_record_reason": latest_reason,
+                "contract_summaries": contracts_summary,
+                "run_drafts_count": len(run_drafts),
+                "run_latest_draft_version": run_drafts[-1] if run_drafts else None,
+            }
+        )
+
+    catalog.sort(key=lambda item: item["dataset_name"])
+    return catalog
 
 
 @app.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
@@ -2001,7 +2920,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         logger.exception("Pipeline run failed for scenario %s", scenario)
         token = queue_flash(error=str(exc))
         params = urlencode({"flash": token})
-    return RedirectResponse(url=f"/datasets?{params}", status_code=303)
+    return RedirectResponse(url=f"/pipeline-runs?{params}", status_code=303)
 
 
 def run() -> None:  # pragma: no cover - convenience runner
