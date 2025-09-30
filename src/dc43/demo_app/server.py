@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -146,3 +149,108 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         token = queue_flash(error=str(exc))
         params_qs = urlencode({"flash": token})
     return RedirectResponse(url=f"/pipeline-runs?{params_qs}", status_code=303)
+
+
+def run() -> None:  # pragma: no cover - convenience runner
+    """Run the pipeline demo alongside the contracts app and backend."""
+
+    import uvicorn
+
+    backend_host = os.getenv("DC43_DEMO_BACKEND_HOST", "127.0.0.1")
+    backend_port = int(os.getenv("DC43_DEMO_BACKEND_PORT", "8001"))
+    backend_url = f"http://{backend_host}:{backend_port}"
+
+    contracts_host = os.getenv("DC43_CONTRACTS_APP_HOST", "127.0.0.1")
+    contracts_port = int(os.getenv("DC43_CONTRACTS_APP_PORT", "8002"))
+    configured_contracts_url = os.getenv("DC43_CONTRACTS_APP_URL")
+    contracts_url = configured_contracts_url or f"http://{contracts_host}:{contracts_port}"
+
+    pipeline_host = os.getenv("DC43_DEMO_HOST", "0.0.0.0")
+    pipeline_port = int(os.getenv("DC43_DEMO_PORT", "8000"))
+
+    env = os.environ.copy()
+    env.setdefault("DC43_CONTRACT_STORE", str(contracts_server.CONTRACT_DIR))
+
+    backend_cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "dc43_service_backends.webapp:app",
+        "--host",
+        backend_host,
+        "--port",
+        str(backend_port),
+    ]
+    backend_log_level = os.getenv("DC43_DEMO_BACKEND_LOG")
+    if backend_log_level:
+        backend_cmd.extend(["--log-level", backend_log_level])
+
+    backend_process = subprocess.Popen(backend_cmd, env=env)
+
+    try:
+        contracts_server._wait_for_backend(backend_url)
+    except Exception:
+        backend_process.terminate()
+        with contextlib.suppress(Exception):
+            backend_process.wait(timeout=5)
+        raise
+
+    original_backend_url = os.getenv("DC43_DEMO_BACKEND_URL")
+    contracts_server._initialise_backend(base_url=backend_url)
+
+    contract_process: subprocess.Popen[bytes] | None = None
+    if configured_contracts_url is None:
+        contract_env = env.copy()
+        contract_env["DC43_DEMO_BACKEND_URL"] = backend_url
+
+        contract_cmd = [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "dc43.contracts_app.server:app",
+            "--host",
+            contracts_host,
+            "--port",
+            str(contracts_port),
+        ]
+        contracts_log_level = os.getenv("DC43_CONTRACTS_APP_LOG")
+        if contracts_log_level:
+            contract_cmd.extend(["--log-level", contracts_log_level])
+
+        contract_process = subprocess.Popen(contract_cmd, env=contract_env)
+        try:
+            contracts_server._wait_for_backend(contracts_url)
+        except Exception:
+            contract_process.terminate()
+            with contextlib.suppress(Exception):
+                contract_process.wait(timeout=5)
+            backend_process.terminate()
+            with contextlib.suppress(Exception):
+                backend_process.wait(timeout=5)
+            contracts_server._initialise_backend(base_url=original_backend_url)
+            raise
+
+    global CONTRACTS_APP_URL
+    CONTRACTS_APP_URL = contracts_url
+    if configured_contracts_url is None:
+        os.environ["DC43_CONTRACTS_APP_URL"] = contracts_url
+
+    try:
+        uvicorn.run("dc43.demo_app.server:app", host=pipeline_host, port=pipeline_port)
+    finally:
+        if configured_contracts_url is None:
+            os.environ.pop("DC43_CONTRACTS_APP_URL", None)
+        else:
+            os.environ["DC43_CONTRACTS_APP_URL"] = configured_contracts_url
+        CONTRACTS_APP_URL = configured_contracts_url
+
+        if contract_process is not None:
+            contract_process.terminate()
+            with contextlib.suppress(Exception):
+                contract_process.wait(timeout=5)
+
+        backend_process.terminate()
+        with contextlib.suppress(Exception):
+            backend_process.wait(timeout=5)
+
+        contracts_server._initialise_backend(base_url=original_backend_url)
