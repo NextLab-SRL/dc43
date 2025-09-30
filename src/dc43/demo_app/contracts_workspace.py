@@ -7,23 +7,25 @@ import shutil
 from pathlib import Path
 from typing import Tuple
 
+from importlib import import_module
+
 from open_data_contract_standard.model import OpenDataContractStandard
 
-try:  # pragma: no cover - exercised via integration when legacy wheels are present
-    from dc43_contracts_app import (
-        configure_backend,
-        configure_workspace,
-        current_workspace,
-    )
-except ImportError:  # Older distributions expose helpers only from the server module.
-    from dc43_contracts_app.server import (  # type: ignore[attr-defined]
-        configure_backend,
-        configure_workspace,
-        current_workspace,
-    )
+contracts_package = import_module("dc43_contracts_app")
+contracts_server = import_module("dc43_contracts_app.server")
+
+configure_workspace = getattr(contracts_package, "configure_workspace")
+current_workspace = getattr(contracts_package, "current_workspace")
+
+_CONFIGURE_BACKEND = getattr(contracts_package, "configure_backend", None)
+if _CONFIGURE_BACKEND is None:  # pragma: no cover - legacy wheels
+    _CONFIGURE_BACKEND = getattr(contracts_server, "configure_backend", None)
+_INITIALISE_BACKEND = getattr(contracts_server, "_initialise_backend", None)
+
+refresh_dataset_aliases = getattr(contracts_server, "refresh_dataset_aliases")
+set_active_version = getattr(contracts_server, "set_active_version")
 
 from dc43_contracts_app.workspace import ContractsAppWorkspace, workspace_from_env
-from dc43_contracts_app.server import refresh_dataset_aliases, set_active_version
 
 from .scenarios import _DEFAULT_SLICE, _INVALID_SLICE
 
@@ -83,7 +85,20 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
         except FileNotFoundError:
             continue
 
-    configure_backend()
+    backend_url = (
+        os.getenv("DC43_CONTRACTS_APP_BACKEND_URL")
+        or os.getenv("DC43_DEMO_BACKEND_URL")
+        or None
+    )
+    if callable(_CONFIGURE_BACKEND):
+        if backend_url:
+            _CONFIGURE_BACKEND(base_url=backend_url)
+        else:
+            _CONFIGURE_BACKEND()
+    elif callable(_INITIALISE_BACKEND):  # pragma: no cover - compatibility
+        _INITIALISE_BACKEND(base_url=backend_url)
+    elif backend_url:  # pragma: no cover - final fallback
+        os.environ.setdefault("DC43_CONTRACTS_APP_BACKEND_URL", backend_url)
 
     return workspace, created
 
