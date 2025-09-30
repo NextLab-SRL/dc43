@@ -15,11 +15,56 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 
-from dc43_contracts_app import (
-    configure_from_config as configure_contracts_from_config,
-    load_config as load_contracts_config,
-    server as contracts_server,
-)
+from dc43_contracts_app import load_config as load_contracts_config
+from dc43_contracts_app import server as contracts_server
+
+try:  # pragma: no cover - compatibility path exercised in integration tests
+    from dc43_contracts_app import configure_from_config as configure_contracts_from_config
+except ImportError:  # pragma: no cover - fallback for older wheels
+    try:
+        from dc43_contracts_app.server import (
+            configure_from_config as configure_contracts_from_config,
+        )
+    except ImportError:  # pragma: no cover - define a minimal fallback helper
+        configure_contracts_from_config = None  # type: ignore[assignment]
+
+
+if "configure_contracts_from_config" not in globals() or configure_contracts_from_config is None:
+    try:
+        from dc43_contracts_app.server import configure_backend as _contracts_configure_backend
+    except ImportError:  # pragma: no cover - compatibility shim
+        _contracts_configure_backend = None
+
+    try:
+        from dc43_contracts_app.server import configure_workspace as _contracts_configure_workspace
+    except ImportError:  # pragma: no cover - compatibility shim
+        _contracts_configure_workspace = None
+
+    def configure_contracts_from_config(config):  # type: ignore[no-redef]
+        """Best-effort configuration fallback for legacy contract app builds."""
+
+        if config is None:
+            return None
+
+        workspace_cfg = getattr(config, "workspace", None)
+        if workspace_cfg and _contracts_configure_workspace is not None:
+            root = getattr(workspace_cfg, "root", None)
+            if root:
+                _contracts_configure_workspace(root)
+
+        backend_cfg = getattr(config, "backend", None)
+        if backend_cfg and _contracts_configure_backend is not None:
+            mode = getattr(backend_cfg, "mode", None)
+            if mode == "remote":
+                base_url = getattr(backend_cfg, "base_url", None)
+                if base_url:
+                    _contracts_configure_backend(base_url=base_url)
+            else:
+                root = getattr(backend_cfg, "root", None)
+                if root:
+                    _contracts_configure_backend(root=root)
+
+        return config
 from .contracts_workspace import prepare_demo_workspace
 from .scenarios import SCENARIOS
 
