@@ -10,12 +10,11 @@ from typing import Tuple
 from open_data_contract_standard.model import OpenDataContractStandard
 
 from dc43_contracts_app import (
-    ContractsAppWorkspace,
     configure_backend,
     configure_workspace,
     current_workspace,
-    workspace_from_env,
 )
+from dc43_contracts_app.workspace import ContractsAppWorkspace, workspace_from_env
 from dc43_contracts_app.server import refresh_dataset_aliases, set_active_version
 
 from .scenarios import _DEFAULT_SLICE, _INVALID_SLICE
