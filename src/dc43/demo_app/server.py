@@ -15,11 +15,14 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 
 from dc43_contracts_app import server as contracts_server
+from .contracts_workspace import prepare_demo_workspace
+from .scenarios import SCENARIOS
+
+prepare_demo_workspace()
 
 logger = logging.getLogger(__name__)
 
 DatasetRecord = contracts_server.DatasetRecord
-SCENARIOS = contracts_server.SCENARIOS
 load_records = contracts_server.load_records
 save_records = contracts_server.save_records
 queue_flash = contracts_server.queue_flash
@@ -87,7 +90,7 @@ async def redirect_dataset_pages(path: str) -> RedirectResponse:
 async def list_pipeline_runs(request: Request) -> HTMLResponse:
     records = load_records()
     recs = [r.__dict__.copy() for r in records]
-    scenario_rows = scenario_run_rows(records)
+    scenario_rows = scenario_run_rows(records, SCENARIOS)
     flash_token = request.query_params.get("flash")
     flash_message: str | None = None
     flash_error: str | None = None

@@ -31,12 +31,10 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable
 from uuid import uuid4
 from threading import Lock
-from textwrap import dedent
 import json
 import os
 import re
 import shutil
-import tempfile
 from datetime import datetime
 from collections import Counter
 
@@ -55,6 +53,7 @@ from dc43_service_clients.data_quality.client.remote import RemoteDataQualitySer
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
+from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
     CustomProperty,
     DataQuality,
@@ -99,99 +98,49 @@ def _spark_session() -> Any:
     return _SPARK_SESSION
 
 BASE_DIR = Path(__file__).resolve().parent
-SAMPLE_DIR = BASE_DIR / "demo_data"
+
+_WORKSPACE_LOCK = Lock()
+_WORKSPACE: ContractsAppWorkspace | None = None
+WORK_DIR: Path
+CONTRACT_DIR: Path
+DATA_DIR: Path
+RECORDS_DIR: Path
+DATASETS_FILE: Path
+DQ_STATUS_DIR: Path
+store: FSContractStore
 
 
-def _initialise_work_dir() -> tuple[Path, bool]:
-    """Return the workspace directory for demo assets and whether it is new.
+def configure_workspace(workspace: ContractsAppWorkspace) -> None:
+    """Set the active filesystem layout for the application."""
 
-    The workspace is shared across all demo processes via the
-    ``DC43_DEMO_WORK_DIR`` environment variable so that the backend, contracts
-    app and pipeline UI operate on the same filesystem view. When unset a fresh
-    temporary directory is created for the current run.
-    """
+    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DQ_STATUS_DIR, store
 
-    work_dir_env = os.getenv("DC43_DEMO_WORK_DIR")
-    if work_dir_env:
-        work_dir = Path(work_dir_env).expanduser()
-        work_dir.mkdir(parents=True, exist_ok=True)
-        return work_dir, False
-
-    work_dir = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
-    os.environ.setdefault("DC43_DEMO_WORK_DIR", str(work_dir))
-    return work_dir, True
+    workspace.ensure()
+    WORK_DIR = workspace.root
+    CONTRACT_DIR = workspace.contracts_dir
+    DATA_DIR = workspace.data_dir
+    RECORDS_DIR = workspace.records_dir
+    DATASETS_FILE = workspace.datasets_file
+    DQ_STATUS_DIR = workspace.dq_status_dir
+    _WORKSPACE = workspace
+    store = FSContractStore(str(CONTRACT_DIR))
 
 
-WORK_DIR, WORK_DIR_CREATED = _initialise_work_dir()
-if os.getenv("SHOW_WORK_DIR") != "false":
-    if WORK_DIR_CREATED:
-        print(f"The working dir for the demo is: {WORK_DIR}")
-        import subprocess, sys
+def current_workspace() -> ContractsAppWorkspace:
+    """Return the configured workspace initialising defaults when needed."""
 
-        if sys.platform == "darwin":
-            subprocess.run(["open", WORK_DIR])
-    else:
-        print(f"Reusing demo working dir: {WORK_DIR}")
-CONTRACT_DIR = WORK_DIR / "contracts"
-DATA_DIR = WORK_DIR / "data"
-RECORDS_DIR = WORK_DIR / "records"
-DATASETS_FILE = RECORDS_DIR / "datasets.json"
-DQ_STATUS_DIR = RECORDS_DIR / "dq_state" / "status"
-
-# Copy sample data and records into a temporary working directory so the
-# application operates on absolute paths that are isolated per run. When the
-# workspace already exists (for example in child processes spawned by the
-# demo runner) the copy is skipped to avoid clobbering the shared state.
-if not DATA_DIR.exists():
-    shutil.copytree(SAMPLE_DIR / "data", DATA_DIR)
-if not RECORDS_DIR.exists():
-    shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
+    global _WORKSPACE
+    if _WORKSPACE is None:
+        with _WORKSPACE_LOCK:
+            if _WORKSPACE is None:
+                workspace, _ = workspace_from_env()
+                configure_workspace(workspace)
+    assert _WORKSPACE is not None
+    return _WORKSPACE
 
 
-_VERSION_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}(?:T[^_]+Z)?")
-_DERIVED_SUFFIXES = {"valid", "reject"}
-_VERSION_ALIASES = {
-    "partial": "2024-04-10",
-}
-
-
-def _normalise_dataset_layout(root: Path) -> None:
-    """Ensure datasets under ``root`` follow ``dataset/version/file`` layout."""
-
-    for candidate in list(root.glob("*.json")):
-        stem = candidate.stem
-        if "_" not in stem:
-            dataset_dir = root / stem
-            if dataset_dir.exists():
-                candidate.unlink()
-            continue
-
-        parts = stem.split("_")
-        suffix: Optional[str] = None
-        if parts[-1] in _DERIVED_SUFFIXES:
-            suffix = parts.pop()
-
-        version = parts[-1]
-        version = _VERSION_ALIASES.get(version, version)
-        if not _VERSION_PATTERN.fullmatch(version):
-            continue
-
-        dataset = "_".join(parts[:-1]) or parts[-1]
-        if not dataset:
-            continue
-
-        dataset_dir_name = dataset if suffix is None else f"{dataset}__{suffix}"
-        target_dir = root / dataset_dir_name / version
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        destination = target_dir / f"{dataset}.json"
-        if destination.exists():
-            candidate.unlink()
-        else:
-            candidate.rename(destination)
-
-
-_normalise_dataset_layout(DATA_DIR)
+# Ensure module-level paths are set for callers that import attributes directly.
+configure_workspace(workspace_from_env()[0])
 
 
 def _safe_fs_name(value: str) -> str:
@@ -480,33 +429,6 @@ def register_dataset_version(dataset: str, version: str, source: Path) -> None:
     _ensure_version_marker(target, version)
 
 
-refresh_dataset_aliases()
-try:
-    set_active_version("customers", "2024-01-01")
-    set_active_version("orders", "2024-01-01")
-    set_active_version("orders__valid", "2025-09-28")
-    set_active_version("orders__reject", "2025-09-28")
-except FileNotFoundError:
-    # Sample data may be absent during tests that override the workspace.
-    pass
-
-# Prepare contracts with absolute server paths pointing inside the working dir.
-for src in (SAMPLE_DIR / "contracts").rglob("*.json"):
-    model = OpenDataContractStandard.model_validate_json(src.read_text())
-    for srv in model.servers or []:
-        p = Path(srv.path or "")
-        if not p.is_absolute():
-            p = (WORK_DIR / p).resolve()
-        base = p.parent if p.suffix else p
-        base.mkdir(parents=True, exist_ok=True)
-        srv.path = str(p)
-    dest = CONTRACT_DIR / src.relative_to(SAMPLE_DIR / "contracts")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(
-        model.model_dump_json(indent=2, by_alias=True, exclude_none=True),
-        encoding="utf-8",
-    )
-
 store = FSContractStore(str(CONTRACT_DIR))
 
 
@@ -588,7 +510,16 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
     )
 
 
-_initialise_backend(base_url=os.getenv("DC43_DEMO_BACKEND_URL"))
+def configure_backend(base_url: str | None = None) -> None:
+    """Initialise service clients against the configured backend."""
+
+    target_url = base_url or os.getenv("DC43_CONTRACTS_APP_BACKEND_URL") or os.getenv(
+        "DC43_DEMO_BACKEND_URL"
+    )
+    _initialise_backend(base_url=target_url)
+
+
+configure_backend()
 
 
 def _wait_for_backend(base_url: str, timeout: float = 30.0) -> None:
@@ -618,33 +549,6 @@ async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[st
         if isinstance(key, str) and isinstance(predicate, str):
             mapping[key] = predicate
     return mapping
-
-# Populate server paths with sample datasets matching recorded versions
-_sample_records = json.loads((RECORDS_DIR / "datasets.json").read_text())
-for _r in _sample_records:
-    try:
-        _c = store.get(_r["contract_id"], _r["contract_version"])
-    except FileNotFoundError:
-        continue
-    _srv = (_c.servers or [None])[0]
-    if not _srv or not _srv.path:
-        continue
-    _dest = Path(_srv.path)
-    base = _dest.parent if _dest.suffix else _dest
-    if base.name == _r["dataset_name"]:
-        target_root = base / _r["dataset_version"]
-    else:
-        target_root = base / _r["dataset_name"] / _r["dataset_version"]
-    _base_dir = SAMPLE_DIR / "data" / _r["dataset_name"]
-    _src_dir = _base_dir / _r["dataset_version"]
-    if _src_dir.is_dir():
-        shutil.copytree(_src_dir, target_root, dirs_exist_ok=True)
-        continue
-    _src_file = SAMPLE_DIR / "data" / f"{_r['dataset_name']}.json"
-    if not _src_file.exists():
-        continue
-    target_root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_src_file, target_root / _src_file.name)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -1004,429 +908,20 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
 
 
 def load_records() -> List[DatasetRecord]:
-    raw = json.loads(DATASETS_FILE.read_text())
+    if not DATASETS_FILE.exists():
+        return []
+    try:
+        raw = json.loads(DATASETS_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
     return [DatasetRecord(**r) for r in raw]
 
 
 def save_records(records: List[DatasetRecord]) -> None:
+    DATASETS_FILE.parent.mkdir(parents=True, exist_ok=True)
     DATASETS_FILE.write_text(
         json.dumps([r.__dict__ for r in records], indent=2), encoding="utf-8"
     )
-
-
-# Default slice activations used to drive the ``latest`` aliases for scenarios.
-_DEFAULT_SLICE = {
-    "orders": "2024-01-01",
-    "customers": "2024-01-01",
-}
-
-_INVALID_SLICE = {
-    "orders": "2025-09-28",
-    "orders__valid": "2025-09-28",
-    "orders__reject": "2025-09-28",
-    "customers": "2024-01-01",
-}
-
-# Predefined pipeline scenarios exposed in the UI. Each scenario describes the
-# parameters passed to the example pipeline along with a human readable
-# description shown to the user.
-SCENARIOS: Dict[str, Dict[str, Any]] = {
-    "no-contract": {
-        "label": "No contract provided",
-        "description": (
-            "<p>Run the pipeline without supplying an output contract.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and "
-            "<code>customers:1.0.0</code> with schema validation.</li>"
-            "<li><strong>Contract:</strong> None provided, so no draft can be"
-            " created.</li>"
-            "<li><strong>Writes:</strong> Planned dataset <code>result-no-existing-contract</code>"
-            " is blocked before any files are materialised, so no version is"
-            " assigned.</li>"
-            "<li><strong>Status:</strong> The run exits with an error because the contract is"
-            " missing.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
-                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
-                    Join --> Write["Plan result-no-existing-contract\nno output contract"]
-                    Write -->|no contract| Block[Run blocked, nothing written]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_DEFAULT_SLICE),
-        "params": {
-            "contract_id": None,
-            "contract_version": None,
-            "dataset_name": "result-no-existing-contract",
-            "run_type": "enforce",
-        },
-    },
-    "ok": {
-        "label": "Existing contract OK",
-        "description": (
-            "<p>Happy path using contract <code>orders_enriched:1.0.0</code>.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
-            " <code>customers:1.0.0</code> then aligns to the target schema.</li>"
-            "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.0.0</code>"
-            " with no draft changes.</li>"
-            "<li><strong>Writes:</strong> Persists dataset <code>orders_enriched</code>"
-            " tagged with the run timestamp so repeated runs never collide.</li>"
-            "<li><strong>Status:</strong> Post-write validation reports OK.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
-                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
-                    Join --> Validate[Align to contract orders_enriched:1.0.0]
-                    Validate --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.0.0"]
-                    Write --> Status[Run status: OK]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_DEFAULT_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "1.0.0",
-            "run_type": "enforce",
-        },
-    },
-    "dq": {
-        "label": "Existing contract fails DQ",
-        "description": (
-            "<p>Demonstrates a data quality failure.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
-            " <code>customers:1.0.0</code>.</li>"
-            "<li><strong>Contract:</strong> Validates against"
-            " <code>orders_enriched:1.1.0</code> and prepares draft"
-            " <code>orders_enriched:1.2.0</code>.</li>"
-            "<li><strong>Writes:</strong> Persists"
-            " <code>orders_enriched</code> with the run timestamp before"
-            " governance flips the outcome to <code>block</code> and records"
-            " draft <code>orders_enriched:1.2.0</code>.</li>"
-            "<li><strong>Status:</strong> The enforcement run errors when rule"
-            " <code>amount &gt; 100</code> is violated.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
-                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
-                    Join --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
-                    Write --> Governance[Post-write validation]
-                    Governance --> Draft[Draft orders_enriched 1.2.0]
-                    Governance -->|violations| Block["DQ verdict: block"]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_DEFAULT_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "1.1.0",
-            "run_type": "enforce",
-            "collect_examples": True,
-            "examples_limit": 3,
-        },
-    },
-    "schema-dq": {
-        "label": "Contract fails schema and DQ",
-        "description": (
-            "<p>Shows combined schema and data quality issues.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
-            " <code>customers:1.0.0</code>.</li>"
-            "<li><strong>Contract:</strong> Targets <code>orders_enriched:2.0.0</code>"
-            " and proposes draft <code>orders_enriched:2.1.0</code>.</li>"
-            "<li><strong>Writes:</strong> Persists"
-            " <code>orders_enriched</code> with the run timestamp, then"
-            " validation downgrades the outcome to <code>block</code> while"
-            " recording draft <code>orders_enriched:2.1.0</code>.</li>"
-            "<li><strong>Status:</strong> Schema drift plus failed expectations"
-            " produce an error outcome.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
-                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
-                    Join --> Align[Schema align to contract orders_enriched:2.0.0]
-                    Align --> Write["orders_enriched «timestamp»\ncontract orders_enriched:2.0.0"]
-                    Write --> Governance[Post-write validation]
-                    Governance --> Draft[Draft orders_enriched 2.1.0]
-                    Governance -->|violations| Block["DQ verdict: block"]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_DEFAULT_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "2.0.0",
-            "run_type": "enforce",
-        },
-    },
-    "read-invalid-block": {
-        "label": "Invalid input blocked",
-        "description": (
-            "<p>Attempts to process the latest slice (→2025-09-28) flagged as invalid.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Governance records mark"
-            " <code>orders latest → 2025-09-28</code> as <code>block</code> while pointing"
-            " at curated <code>valid</code> and <code>reject</code> slices.</li>"
-            "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.1.0</code>"
-            " but enforcement aborts before writes.</li>"
-            "<li><strong>Outputs:</strong> None; the job fails fast.</li>"
-            "<li><strong>Governance:</strong> Stub DQ client returns the stored"
-            " `block` verdict and its auxiliary dataset hints.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Invalid["orders latest → 2025-09-28\ncontract orders:1.1.0\nDQ status: block"] -->|default enforcement| Halt[Read aborted]
-                    Invalid -.-> Valid["orders::valid latest__valid → 2025-09-28\ncontract orders:1.1.0"]
-                    Invalid -.-> Reject["orders::reject latest__reject → 2025-09-28\ncontract orders:1.1.0"]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_INVALID_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "1.1.0",
-            "run_type": "enforce",
-            "inputs": {
-                "orders": {
-                    "dataset_version": "latest",
-                }
-            },
-        },
-    },
-    "read-valid-subset": {
-        "label": "Prefer valid subset",
-        "description": (
-            "<p>Steers reads toward the curated valid slice.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Uses <code>orders::valid</code>"
-            " <code>latest__valid → 2025-09-28</code> alongside"
-            " <code>customers latest → 2024-01-01</code> to satisfy governance.</li>"
-            "<li><strong>Contract:</strong> Applies <code>orders_enriched:1.1.0</code>"
-            " and keeps draft creation disabled.</li>"
-            "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
-            " stamped with the run timestamp under contract"
-            " <code>orders_enriched:1.1.0</code> with a clean DQ verdict.</li>"
-            "<li><strong>Governance:</strong> Stub evaluates post-write metrics"
-            " and records an OK status.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Valid["orders::valid latest__valid → 2025-09-28\ncontract orders:1.1.0"] --> Join[Join datasets]
-                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
-                    Join --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
-                    Write --> Governance[Governance verdict ok]
-                    Governance --> Status["DQ status: ok"]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_INVALID_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "1.1.0",
-            "run_type": "observe",
-            "collect_examples": True,
-            "examples_limit": 3,
-            "inputs": {
-                "orders": {
-                    "dataset_id": "orders::valid",
-                    "dataset_version": "latest__valid",
-                }
-            },
-        },
-    },
-    "read-valid-subset-violation": {
-        "label": "Valid subset, invalid output",
-        "description": (
-            "<p>Highlights when clean inputs still breach the output contract.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Same curated"
-            " <code>orders::valid</code> <code>latest__valid → 2025-09-28</code> slice.</li>"
-            "<li><strong>Contract:</strong> Writes to"
-            " <code>orders_enriched</code> under <code>orders_enriched:1.1.0</code>.</li>"
-            "<li><strong>Outputs:</strong> Produces <code>orders_enriched</code>"
-            " (timestamped under contract <code>1.1.0</code>) but post-write checks fail because"
-            " the demo purposely lowers one amount below the"
-            " <code>&gt; 100</code> expectation.</li>"
-            "<li><strong>Governance:</strong> Stub DQ client records a blocking"
-            " verdict and drafts <code>orders_enriched:1.2.0</code>.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Valid["orders::valid latest__valid → 2025-09-28\ncontract orders:1.1.0"] --> Join[Join datasets]
-                    Join --> Adjust[Lower amount to 60]
-                    Adjust --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
-                    Write --> Governance[Governance verdict block]
-                    Governance --> Draft["Draft orders_enriched 1.2.0"]
-                    Governance --> Status["DQ status: block"]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_INVALID_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "1.1.0",
-            "run_type": "enforce",
-            "collect_examples": True,
-            "examples_limit": 3,
-            "inputs": {
-                "orders": {
-                    "dataset_id": "orders::valid",
-                    "dataset_version": "latest__valid",
-                }
-            },
-            "output_adjustment": "valid-subset-violation",
-        },
-    },
-    "read-override-full": {
-        "label": "Force blocked slice (manual override)",
-        "description": (
-            "<p>Documents what happens when the blocked data is forced through.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Reuses the blocked"
-            " <code>orders latest → 2025-09-28</code> and downgrades the read status to"
-            " <code>warn</code>.</li>"
-            "<li><strong>Override strategy:</strong> Uses"
-            " <code>allow-block</code> to document that the blocked slice was"
-            " manually forced through despite the governance verdict.</li>"
-            "<li><strong>Contract:</strong> Applies"
-            " <code>orders_enriched:1.1.0</code> and captures draft"
-            " <code>orders_enriched:1.2.0</code>.</li>"
-            "<li><strong>Outputs:</strong> Writes <code>orders_enriched</code>"
-            " (timestamped under contract <code>1.1.0</code>) while surfacing the manual override"
-            " note alongside the reject-row metrics.</li>"
-            "<li><strong>Governance:</strong> Stub records the downgrade in the"
-            " run summary alongside violation counts and the explicit override"
-            " note.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Invalid["orders latest → 2025-09-28\ncontract orders:1.1.0\nDQ status: block"] --> Override[Downgrade to warn]
-                    Override --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
-                    Write --> Governance[Governance verdict warn]
-                    Governance --> Draft["Draft orders_enriched 1.2.0"]
-                    Governance --> Status["DQ status: warn"]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_INVALID_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "1.1.0",
-            "run_type": "observe",
-            "collect_examples": True,
-            "examples_limit": 3,
-            "inputs": {
-                "orders": {
-                    "dataset_version": "latest",
-                    "status_strategy": {
-                        "name": "allow-block",
-                        "note": "Manual override: forced latest slice (→2025-09-28)",
-                        "target_status": "warn",
-                    },
-                }
-            },
-            "output_adjustment": "amplify-negative",
-        },
-    },
-    "split-lenient": {
-        "label": "Split invalid rows",
-        "description": (
-            "<p>Routes violations to dedicated datasets using the split strategy.</p>"
-            "<ul>"
-            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
-            " <code>customers:1.0.0</code> before aligning to"
-            " <code>orders_enriched:1.1.0</code>.</li>"
-            "<li><strong>Contract:</strong> Validates against"
-            " <code>orders_enriched:1.1.0</code> and stores draft"
-            " <code>orders_enriched:1.2.0</code> when rejects exist.</li>"
-            "<li><strong>Writes:</strong> Persists three datasets sharing the same"
-            " timestamp: the contracted"
-            " <code>orders_enriched</code> (full slice),"
-            " <code>orders_enriched::valid</code>, and"
-            " <code>orders_enriched::reject</code>.</li>"
-            "<li><strong>Status:</strong> Run finishes with a warning because"
-            " validation finds violations, and the UI links the auxiliary"
-            " datasets.</li>"
-            "</ul>"
-        ),
-        "diagram": (
-            "<div class=\"mermaid\">"
-            + dedent(
-                """
-                flowchart TD
-                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
-                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
-                    Join --> Validate[Validate contract orders_enriched:1.1.0]
-                    Validate --> Strategy[Split strategy]
-                    Strategy --> Full["orders_enriched «timestamp»\ncontract orders_enriched:1.1.0"]
-                    Strategy --> Valid["orders_enriched::valid «timestamp»\ncontract orders_enriched:1.1.0"]
-                    Strategy --> Reject["orders_enriched::reject «timestamp»\ncontract orders_enriched:1.1.0"]
-                """
-            ).strip()
-            + "</div>"
-        ),
-        "activate_versions": dict(_DEFAULT_SLICE),
-        "params": {
-            "contract_id": "orders_enriched",
-            "contract_version": "1.1.0",
-            "run_type": "observe",
-            "collect_examples": True,
-            "examples_limit": 3,
-            "violation_strategy": {
-                "name": "split",
-                "include_valid": True,
-                "include_reject": True,
-                "write_primary_on_violation": True,
-            },
-        },
-    },
-}
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
@@ -1444,7 +939,10 @@ def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
     return "result"
 
 
-def scenario_run_rows(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+def scenario_run_rows(
+    records: Iterable[DatasetRecord],
+    scenarios: Mapping[str, Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
     """Return scenario metadata enriched with the latest recorded run."""
 
     by_dataset: Dict[str, List[DatasetRecord]] = {}
@@ -1461,7 +959,7 @@ def scenario_run_rows(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
         entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
 
     rows: List[Dict[str, Any]] = []
-    for key, cfg in SCENARIOS.items():
+    for key, cfg in scenarios.items():
         params: Mapping[str, Any] = cfg.get("params", {})
         dataset_name = _scenario_dataset_name(params)
         dataset_records: List[DatasetRecord] = list(by_scenario.get(key, []))
@@ -2939,10 +2437,10 @@ def run() -> None:  # pragma: no cover - convenience runner
         raise
 
     try:
-        _initialise_backend(base_url=backend_url)
+        configure_backend(base_url=backend_url)
         uvicorn.run("dc43_contracts_app.server:app", host="0.0.0.0", port=8000)
     finally:
         process.terminate()
         with contextlib.suppress(Exception):
             process.wait(timeout=5)
-        _initialise_backend(base_url=os.getenv("DC43_DEMO_BACKEND_URL"))
+        configure_backend()

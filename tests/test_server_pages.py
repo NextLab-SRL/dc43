@@ -3,8 +3,10 @@ from fastapi.testclient import TestClient
 
 from dc43_contracts_app import server as contracts_server
 from dc43.demo_app import server as demo_server
+from dc43.demo_app.contracts_workspace import prepare_demo_workspace
+from dc43.demo_app.scenarios import SCENARIOS
 
-SCENARIOS = contracts_server.SCENARIOS
+prepare_demo_workspace()
 DatasetRecord = contracts_server.DatasetRecord
 _dq_version_records = contracts_server._dq_version_records
 load_records = contracts_server.load_records
@@ -154,7 +156,7 @@ def test_flash_message_consumed_once():
 
 
 def test_scenario_rows_default_mapping():
-    rows = scenario_run_rows(load_records())
+    rows = scenario_run_rows(load_records(), SCENARIOS)
     assert len(rows) == len(SCENARIOS)
     row_map = {row["key"]: row for row in rows}
 
@@ -198,7 +200,7 @@ def test_scenario_rows_tracks_latest_record():
     ]
     try:
         save_records([*original, *extra_records])
-        rows = scenario_run_rows(load_records())
+        rows = scenario_run_rows(load_records(), SCENARIOS)
         row_map = {row["key"]: row for row in rows}
         ok_row = row_map["ok"]
         base_runs = len([rec for rec in original if rec.scenario_key == "ok"])
@@ -238,7 +240,7 @@ def test_scenario_rows_isolate_runs_per_scenario():
     ]
     try:
         save_records([*original, *scenario_records])
-        rows = scenario_run_rows(load_records())
+        rows = scenario_run_rows(load_records(), SCENARIOS)
         row_map = {row["key"]: row for row in rows}
         split_row = row_map["split-lenient"]
         ok_row = row_map["ok"]
@@ -273,7 +275,7 @@ def test_scenario_rows_ignore_mismatched_scenario_runs():
         )
     ]
 
-    rows = scenario_run_rows(records)
+    rows = scenario_run_rows(records, SCENARIOS)
     row_map = {row["key"]: row for row in rows}
 
     assert row_map["ok"]["latest"] is not None

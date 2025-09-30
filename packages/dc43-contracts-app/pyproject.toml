@@ -37,7 +37,6 @@ include = ["dc43_contracts_app*"]
 
 [tool.setuptools.package-data]
 "dc43_contracts_app" = [
-  "demo_data/**/*",
   "static/**/*",
   "templates/**/*",
 ]

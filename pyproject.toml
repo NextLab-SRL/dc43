@@ -36,6 +36,7 @@ exclude = [
 "dc43.demo_app" = [
   "static/**/*",
   "templates/**/*",
+  "demo_data/**/*",
 ]
 
 [tool.pytest.ini_options]

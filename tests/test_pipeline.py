@@ -8,6 +8,9 @@ import pytest
 from pyspark.sql import SparkSession
 
 from dc43.demo_app import pipeline
+from dc43.demo_app.contracts_workspace import prepare_demo_workspace
+
+prepare_demo_workspace()
 
 
 def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
