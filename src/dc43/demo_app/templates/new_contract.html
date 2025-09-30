@@ -247,7 +247,9 @@
         <div class="d-flex justify-content-between align-items-center mb-2">
           <div>
             <h4 class="h6 mb-1 text-uppercase text-muted">dc43 versioning</h4>
-            <p class="small mb-0 text-muted">Configure how dc43 resolves dataset versions for this location.</p>
+            <p class="small mb-0 text-muted">Configure how dc43 resolves dataset versions for this location. Review the
+              <a href="https://github.com/dc43/dc43/blob/main/docs/release-versioning.md" target="_blank" rel="noopener">release versioning guide</a>
+              for strategies and sample layouts.</p>
           </div>
           <button class="btn btn-sm btn-outline-secondary clear-versioning" type="button">Clear</button>
         </div>
@@ -279,19 +281,30 @@
             <label class="form-label">Read options</label>
             <div class="key-value-rows" data-versioning-read-options></div>
             <button class="btn btn-sm btn-outline-primary mt-2" type="button" data-add-read-option>Add read option</button>
-            <div class="form-text">Pairs are stored as strings and passed to Spark readers.</div>
+            <div class="form-text">Options are stored as strings and forwarded to runtime connectors (for example Spark, dbt, or custom readers).</div>
           </div>
           <div class="col-12">
             <label class="form-label">Write options</label>
             <div class="key-value-rows" data-versioning-write-options></div>
             <button class="btn btn-sm btn-outline-primary mt-2" type="button" data-add-write-option>Add write option</button>
           </div>
+          <div class="col-12">
+            <div class="alert alert-info small mb-0">
+              <strong>Examples:</strong>
+              <ul class="mb-0 ps-3">
+                <li><code>mode = files</code> with subfolder <code>{version}</code> stores immutable releases under folders such as <code>1.3.0/</code>.</li>
+                <li><code>mode = table</code> and subfolder <code>{&lt;=version}</code> let readers automatically pick the latest compatible snapshot.</li>
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
       <div class="bg-light-subtle border rounded p-3 mt-4">
         <h4 class="h6 mb-2 text-uppercase text-muted">dc43 path pattern</h4>
         <input class="form-control" data-path-pattern placeholder="data/orders/{<=version}/orders.json"/>
-        <div class="form-text">Supports placeholders like <code>{version}</code>, <code>{&lt;=version}</code>, or <code>{dataset_id}</code>.</div>
+        <div class="form-text">Supports placeholders like <code>{version}</code>, <code>{&lt;=version}</code>, or <code>{dataset_id}</code>. See the
+          <a href="https://github.com/dc43/dc43/blob/main/docs/implementations/integration/spark-dlt.md" target="_blank" rel="noopener">integration patterns reference</a>
+          for end-to-end storage examples.</div>
       </div>
       <div class="mt-4">
         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -330,9 +343,15 @@
         </div>
       </div>
       <div class="mt-3">
-        <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-2">
           <h4 class="h6 mb-0">Fields</h4>
-          <button type="button" class="btn btn-sm btn-outline-secondary add-property">Add field</button>
+          <div class="d-flex gap-2">
+            <div class="btn-group btn-group-sm" role="group" aria-label="Toggle all fields">
+              <button type="button" class="btn btn-outline-secondary" data-expand-properties>Expand all</button>
+              <button type="button" class="btn btn-outline-secondary" data-collapse-properties>Collapse all</button>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary add-property">Add field</button>
+          </div>
         </div>
         <div class="schema-properties"></div>
       </div>
@@ -355,90 +374,103 @@
 </template>
 
 <template id="schema-property-template">
-  <div class="schema-property border rounded p-3 mb-3">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h4 class="h6 mb-0">Field</h4>
+  <div class="schema-property card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary toggle-property" aria-expanded="false">
+          <span data-property-toggle-icon aria-hidden="true">▸</span>
+          <span class="visually-hidden">Toggle field details</span>
+        </button>
+        <div>
+          <div class="fw-semibold" data-property-label>New field</div>
+          <div class="small text-muted d-none" data-property-subtitle></div>
+        </div>
+      </div>
       <button type="button" class="btn btn-sm btn-outline-danger remove-property">Remove</button>
     </div>
-    <div class="row g-3">
-      <div class="col-md-3">
-        <label class="form-label">Name</label>
-        <input class="form-control" data-field="name" placeholder="order_id"/>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Physical type</label>
-        <input class="form-control" data-field="physicalType" placeholder="integer"/>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Required</label>
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" data-field="required"/>
-          <label class="form-check-label">Field must be present</label>
+    <div class="collapse property-collapse">
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label">Name</label>
+            <input class="form-control" data-field="name" placeholder="order_id"/>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Physical type</label>
+            <input class="form-control" data-field="physicalType" placeholder="integer"/>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Required</label>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" data-field="required"/>
+              <label class="form-check-label">Field must be present</label>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Unique</label>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" data-field="unique"/>
+              <label class="form-check-label">Values must be unique</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Description</label>
+            <textarea class="form-control" rows="2" data-field="description"></textarea>
+          </div>
         </div>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Unique</label>
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" data-field="unique"/>
-          <label class="form-check-label">Values must be unique</label>
-        </div>
-      </div>
-      <div class="col-12">
-        <label class="form-label">Description</label>
-        <textarea class="form-control" rows="2" data-field="description"></textarea>
+        <details class="mt-3">
+          <summary>Advanced settings</summary>
+          <div class="row g-3 mt-2">
+            <div class="col-md-4">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" data-field="primaryKey"/>
+                <label class="form-check-label">Primary key</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" data-field="partitioned"/>
+                <label class="form-check-label">Partition key</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Classification</label>
+              <input class="form-control" data-field="classification" placeholder="confidential"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Business name</label>
+              <input class="form-control" data-field="businessName"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Logical type</label>
+              <input class="form-control" data-field="logicalType" placeholder="currency"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Logical type options (JSON)</label>
+              <textarea class="form-control" rows="2" data-field="logicalTypeOptions"></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Examples</label>
+              <textarea class="form-control" rows="2" data-field="examples" placeholder="one example per line"></textarea>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5 class="h6 mb-0">Field custom properties</h5>
+              <button type="button" class="btn btn-sm btn-outline-secondary add-property-custom">Add property</button>
+            </div>
+            <div class="property-custom-properties"></div>
+          </div>
+          <div class="mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h5 class="h6 mb-0">Data quality checks</h5>
+              <button type="button" class="btn btn-sm btn-outline-secondary add-property-quality">Add check</button>
+            </div>
+            <div class="property-quality"></div>
+          </div>
+        </details>
       </div>
     </div>
-    <details class="mt-3">
-      <summary>Advanced settings</summary>
-      <div class="row g-3 mt-2">
-        <div class="col-md-4">
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" data-field="primaryKey"/>
-            <label class="form-check-label">Primary key</label>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" data-field="partitioned"/>
-            <label class="form-check-label">Partition key</label>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Classification</label>
-          <input class="form-control" data-field="classification" placeholder="confidential"/>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Business name</label>
-          <input class="form-control" data-field="businessName"/>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Logical type</label>
-          <input class="form-control" data-field="logicalType" placeholder="currency"/>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Logical type options (JSON)</label>
-          <textarea class="form-control" rows="2" data-field="logicalTypeOptions"></textarea>
-        </div>
-        <div class="col-12">
-          <label class="form-label">Examples</label>
-          <textarea class="form-control" rows="2" data-field="examples" placeholder="one example per line"></textarea>
-        </div>
-      </div>
-      <div class="mt-3">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h5 class="h6 mb-0">Field custom properties</h5>
-          <button type="button" class="btn btn-sm btn-outline-secondary add-property-custom">Add property</button>
-        </div>
-        <div class="property-custom-properties"></div>
-      </div>
-      <div class="mt-3">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <h5 class="h6 mb-0">Data quality checks</h5>
-          <button type="button" class="btn btn-sm btn-outline-secondary add-property-quality">Add check</button>
-        </div>
-        <div class="property-quality"></div>
-      </div>
-    </details>
   </div>
 </template>
 
@@ -450,7 +482,7 @@
     </div>
     <div class="col-md-5">
       <label class="form-label">Value</label>
-      <input class="form-control" data-field="value" placeholder='{"mode": "delta"}'/>
+      <input class="form-control" data-field="value" placeholder='{"retentionDays": 90}'/>
     </div>
     <div class="col-md-2 d-flex align-items-end">
       <button type="button" class="btn btn-outline-danger remove-custom-property w-100">Remove</button>
@@ -643,6 +675,8 @@
   const form = document.getElementById('contract-form');
   let initialData = {};
   let editorMeta = {};
+  let autoIdCounter = 0;
+  const collapseApi = typeof window !== 'undefined' && window.bootstrap ? window.bootstrap.Collapse : null;
   try {
     initialData = JSON.parse(dataEl.textContent || '{}');
   } catch (err) {
@@ -654,6 +688,11 @@
   } catch (err) {
     console.warn('Unable to parse editor meta', err);
     editorMeta = {};
+  }
+
+  function nextId(prefix) {
+    autoIdCounter += 1;
+    return prefix + '-' + autoIdCounter;
   }
 
   function normaliseArray(value) {
@@ -821,6 +860,61 @@
 
   function createProperty(initial) {
     const node = createFromTemplate('schema-property-template');
+    const collapseEl = node.querySelector('.property-collapse');
+    const toggleBtn = node.querySelector('.toggle-property');
+    const toggleIcon = node.querySelector('[data-property-toggle-icon]');
+    const labelEl = node.querySelector('[data-property-label]');
+    const subtitleEl = node.querySelector('[data-property-subtitle]');
+    const collapseId = collapseEl ? nextId('schema-property') : '';
+    if (collapseEl && collapseId) {
+      collapseEl.id = collapseId;
+    }
+    if (toggleBtn && collapseId) {
+      toggleBtn.setAttribute('aria-controls', collapseId);
+    }
+    const collapseInstance = collapseEl && collapseApi
+      ? collapseApi.getOrCreateInstance(collapseEl, { toggle: false })
+      : null;
+    const setExpanded = (expanded) => {
+      if (toggleBtn) {
+        toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      }
+      if (toggleIcon) {
+        toggleIcon.textContent = expanded ? '▾' : '▸';
+      }
+    };
+    const expand = () => {
+      if (collapseInstance) {
+        collapseInstance.show();
+      } else if (collapseEl) {
+        collapseEl.classList.add('show');
+      }
+      setExpanded(true);
+    };
+    const collapse = () => {
+      if (collapseInstance) {
+        collapseInstance.hide();
+      } else if (collapseEl) {
+        collapseEl.classList.remove('show');
+      }
+      setExpanded(false);
+    };
+    node.expandProperty = expand;
+    node.collapseProperty = collapse;
+    if (collapseEl && collapseApi) {
+      collapseEl.addEventListener('shown.bs.collapse', () => setExpanded(true));
+      collapseEl.addEventListener('hidden.bs.collapse', () => setExpanded(false));
+    }
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const expanded = toggleBtn.getAttribute('aria-expanded') === 'true';
+        if (expanded) {
+          collapse();
+        } else {
+          expand();
+        }
+      });
+    }
     const simpleFields = [
       'name', 'physicalType', 'description', 'classification', 'businessName', 'logicalType', 'logicalTypeOptions', 'examples'
     ];
@@ -839,6 +933,38 @@
       if (input instanceof HTMLInputElement) {
         const value = initial && typeof initial[field] === 'boolean' ? initial[field] : false;
         input.checked = Boolean(value);
+      }
+    });
+    const nameInput = node.querySelector('input[data-field="name"]');
+    const physicalInput = node.querySelector('input[data-field="physicalType"]');
+    const descriptionInput = node.querySelector('textarea[data-field="description"]');
+    const updateSummary = () => {
+      const nameValue = nameInput ? nameInput.value.trim() : '';
+      if (labelEl) {
+        labelEl.textContent = nameValue || 'New field';
+      }
+      const subtitleParts = [];
+      const physicalValue = physicalInput ? physicalInput.value.trim() : '';
+      if (physicalValue) {
+        subtitleParts.push(physicalValue);
+      }
+      const descriptionValue = descriptionInput ? descriptionInput.value.trim() : '';
+      if (descriptionValue) {
+        subtitleParts.push(descriptionValue);
+      }
+      if (subtitleEl) {
+        if (subtitleParts.length) {
+          subtitleEl.textContent = subtitleParts.join(' • ');
+          subtitleEl.classList.remove('d-none');
+        } else {
+          subtitleEl.textContent = '';
+          subtitleEl.classList.add('d-none');
+        }
+      }
+    };
+    [nameInput, physicalInput, descriptionInput].forEach((input) => {
+      if (input) {
+        input.addEventListener('input', updateSummary);
       }
     });
     const customContainer = node.querySelector('.property-custom-properties');
@@ -868,6 +994,12 @@
     if (removeBtn) {
       removeBtn.addEventListener('click', () => node.remove());
     }
+    updateSummary();
+    if (!initial) {
+      expand();
+    } else {
+      setExpanded(Boolean(collapseEl && collapseEl.classList.contains('show')));
+    }
     return node;
   }
 
@@ -894,6 +1026,28 @@
       if (addBtn) {
         addBtn.addEventListener('click', () => {
           propertiesContainer.appendChild(createProperty());
+        });
+      }
+      const expandBtn = node.querySelector('[data-expand-properties]');
+      if (expandBtn) {
+        expandBtn.addEventListener('click', () => {
+          const cards = propertiesContainer.querySelectorAll('.schema-property');
+          cards.forEach((card) => {
+            if (typeof card.expandProperty === 'function') {
+              card.expandProperty();
+            }
+          });
+        });
+      }
+      const collapseBtn = node.querySelector('[data-collapse-properties]');
+      if (collapseBtn) {
+        collapseBtn.addEventListener('click', () => {
+          const cards = propertiesContainer.querySelectorAll('.schema-property');
+          cards.forEach((card) => {
+            if (typeof card.collapseProperty === 'function') {
+              card.collapseProperty();
+            }
+          });
         });
       }
     }
