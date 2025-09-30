@@ -2744,13 +2744,18 @@ def run() -> None:  # pragma: no cover - convenience runner
 
     import uvicorn
 
+    global _PORTAL_URL
+
     backend_host = os.getenv("DC43_DEMO_BACKEND_HOST", "127.0.0.1")
     backend_port = int(os.getenv("DC43_DEMO_BACKEND_PORT", "8001"))
     backend_url = f"http://{backend_host}:{backend_port}"
+    portal_host = os.getenv("DC43_DEMO_PORTAL_HOST", "127.0.0.1")
+    portal_port = int(os.getenv("DC43_DEMO_PORTAL_PORT", "8002"))
+    portal_url = f"http://{portal_host}:{portal_port}"
 
     env = os.environ.copy()
     env.setdefault("DC43_CONTRACT_STORE", str(CONTRACT_DIR))
-    cmd = [
+    backend_cmd = [
         sys.executable,
         "-m",
         "uvicorn",
@@ -2762,22 +2767,69 @@ def run() -> None:  # pragma: no cover - convenience runner
     ]
     log_level = os.getenv("DC43_DEMO_BACKEND_LOG")
     if log_level:
-        cmd.extend(["--log-level", log_level])
+        backend_cmd.extend(["--log-level", log_level])
 
-    process = subprocess.Popen(cmd, env=env)
-
-    try:
-        _wait_for_backend(backend_url)
-    except Exception:
-        process.terminate()
-        process.wait(timeout=5)
-        raise
+    backend_process = subprocess.Popen(backend_cmd, env=env)
+    portal_process: subprocess.Popen[bytes] | None = None
+    previous_portal_url = _PORTAL_URL
+    previous_portal_env = os.getenv("DC43_PORTAL_URL")
 
     try:
+        try:
+            _wait_for_backend(backend_url)
+        except Exception:
+            backend_process.terminate()
+            backend_process.wait(timeout=5)
+            raise
+
+        portal_env = env.copy()
+        portal_env.setdefault("DC43_PORTAL_BACKEND_URL", backend_url)
+        portal_env.setdefault("DC43_PORTAL_STORE", env["DC43_CONTRACT_STORE"])
+        portal_cmd = [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "dc43.portal_app.server:app",
+            "--host",
+            portal_host,
+            "--port",
+            str(portal_port),
+        ]
+        portal_log_level = os.getenv("DC43_DEMO_PORTAL_LOG")
+        if portal_log_level:
+            portal_cmd.extend(["--log-level", portal_log_level])
+
+        portal_process = subprocess.Popen(portal_cmd, env=portal_env)
+
+        try:
+            _wait_for_backend(portal_url)
+        except Exception:
+            portal_process.terminate()
+            with contextlib.suppress(Exception):
+                portal_process.wait(timeout=5)
+            raise
+
+        _PORTAL_URL = portal_url
+        templates.env.globals["portal_url"] = portal_url
+        os.environ["DC43_PORTAL_URL"] = portal_url
+
         _initialise_backend(base_url=backend_url)
         uvicorn.run("dc43.demo_app.server:app", host="0.0.0.0", port=8000)
     finally:
-        process.terminate()
+        if portal_process is not None:
+            portal_process.terminate()
+            with contextlib.suppress(Exception):
+                portal_process.wait(timeout=5)
+        backend_process.terminate()
         with contextlib.suppress(Exception):
-            process.wait(timeout=5)
+            backend_process.wait(timeout=5)
+        _PORTAL_URL = previous_portal_url
+        if previous_portal_url is None:
+            templates.env.globals.pop("portal_url", None)
+        else:
+            templates.env.globals["portal_url"] = previous_portal_url
+        if previous_portal_env is None:
+            os.environ.pop("DC43_PORTAL_URL", None)
+        else:
+            os.environ["DC43_PORTAL_URL"] = previous_portal_env
         _initialise_backend(base_url=os.getenv("DC43_DEMO_BACKEND_URL"))

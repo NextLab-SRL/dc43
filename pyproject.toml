@@ -39,6 +39,10 @@ exclude = [
   "static/**/*",
   "templates/**/*",
 ]
+"dc43.portal_app" = [
+  "static/**/*",
+  "templates/**/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
