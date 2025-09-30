@@ -103,6 +103,14 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         )
         response.raise_for_status()
 
+    def list_datasets(self) -> Sequence[str]:
+        response = ensure_response(self._client.get(self._request_path("/governance/datasets")))
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [str(item) for item in payload]
+        return []
+
     def evaluate_dataset(
         self,
         *,

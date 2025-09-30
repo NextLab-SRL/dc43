@@ -22,55 +22,28 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when pyspark missing
     PYSPARK_AVAILABLE = False
 
 
-def test_contracts_page():
+def test_contract_routes_require_portal_configuration():
     client = TestClient(app)
-    resp = client.get("/contracts")
-    assert resp.status_code == 200
+    for path in [
+        "/contracts",
+        "/contracts/orders",
+        "/contracts/orders/1.0.0",
+        "/contracts/orders/1.1.0/edit",
+        "/contracts/new",
+    ]:
+        response = client.get(path)
+        assert response.status_code == 404
 
 
-def test_contract_detail_page():
-    rec = load_records()[0]
+def test_dataset_routes_require_portal_configuration():
     client = TestClient(app)
-    resp = client.get(f"/contracts/{rec.contract_id}/{rec.contract_version}")
-    assert resp.status_code == 200
-    assert 'id="access-tab"' in resp.text
-    assert 'contract-data-panel' in resp.text
-
-
-def test_contract_versions_page():
-    rec = load_records()[0]
-    client = TestClient(app)
-    resp = client.get(f"/contracts/{rec.contract_id}")
-    assert resp.status_code == 200
-    assert "Open editor" in resp.text
-    assert f"/contracts/{rec.contract_id}/{rec.contract_version}/edit" in resp.text
-
-
-def test_contract_edit_form_renders_editor_sections():
-    client = TestClient(app)
-    resp = client.get("/contracts/orders/1.1.0/edit")
-    assert resp.status_code == 200
-    assert "Contract basics" in resp.text
-    assert "Servers" in resp.text
-    assert "Schema" in resp.text
-    assert "Preview changes" in resp.text
-    assert 'id="contract-data"' in resp.text
-
-
-def test_new_contract_form_defaults():
-    client = TestClient(app)
-    resp = client.get("/contracts/new")
-    assert resp.status_code == 200
-    assert "Contract basics" in resp.text
-    assert 'id="contract-data"' in resp.text
-    assert '"version":"1.0.0"' in resp.text or '"version": "1.0.0"' in resp.text
-    assert "Preview changes" in resp.text
-
-
-def test_customers_contract_versions_page():
-    client = TestClient(app)
-    resp = client.get("/contracts/customers")
-    assert resp.status_code == 200
+    for path in [
+        "/datasets",
+        "/datasets/orders",
+        "/datasets/orders/2024-01-01",
+    ]:
+        response = client.get(path)
+        assert response.status_code == 404
 
 
 def test_pipeline_runs_page_lists_scenarios():
@@ -83,58 +56,10 @@ def test_pipeline_runs_page_lists_scenarios():
             assert f'data-scenario-popover="scenario-popover-{key}"' in resp.text
 
 
-def test_dataset_detail_page():
-    rec = load_records()[0]
-    client = TestClient(app)
-    resp = client.get(f"/datasets/{rec.dataset_name}/{rec.dataset_version}")
-    assert resp.status_code == 200
-    assert "order_id" in resp.text
-
-
-def test_dataset_versions_page():
-    rec = load_records()[0]
-    client = TestClient(app)
-    resp = client.get(f"/datasets/{rec.dataset_name}")
-    assert resp.status_code == 200
-
-
-def test_datasets_page_catalog_overview():
+def test_datasets_page_catalog_overview_removed():
     client = TestClient(app)
     resp = client.get("/datasets")
-    assert resp.status_code == 200
-    assert "orders" in resp.text
-    assert "Status:" in resp.text
-    assert "Open editor" in resp.text
-
-
-def test_dataset_pages_without_contract():
-    original = load_records()
-    record = DatasetRecord(
-        contract_id="",
-        contract_version="",
-        dataset_name="missing-contract-dataset",
-        dataset_version="2024-12-01",
-        status="error",
-        dq_details={},
-        run_type="enforce",
-        violations=0,
-    )
-    save_records([*original, record])
-    client = TestClient(app)
-    try:
-        resp = client.get("/datasets")
-        assert resp.status_code == 200
-        assert "No contract" in resp.text
-
-        resp_versions = client.get("/datasets/missing-contract-dataset")
-        assert resp_versions.status_code == 200
-        assert "No contract" in resp_versions.text
-
-        resp_detail = client.get("/datasets/missing-contract-dataset/2024-12-01")
-        assert resp_detail.status_code == 200
-        assert "No contract recorded for this run" in resp_detail.text
-    finally:
-        save_records(original)
+    assert resp.status_code == 404
 
 
 def test_flash_message_consumed_once():

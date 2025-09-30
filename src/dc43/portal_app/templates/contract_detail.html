@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Contract {{ contract.id }} {{ contract.version }}</h1>
+<p><a href="/contracts/{{ contract.id }}">Back to versions</a></p>
+<p>
+  Status:
+  <span class="badge {{ contract.status_info.badge }}">{{ contract.status_info.label }}</span>
+</p>
+{% if contract.description %}
+<p>{{ contract.description }}</p>
+{% endif %}
+<h2>Servers</h2>
+{% if contract.servers %}
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th scope="col">Type</th>
+        <th scope="col">Environment</th>
+        <th scope="col">Path</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for server in contract.servers %}
+      <tr>
+        <td>{{ server.type or 'n/a' }}</td>
+        <td>{{ server.environment or 'n/a' }}</td>
+        <td>{{ server.path or server.location or 'n/a' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="text-muted">No servers recorded.</p>
+{% endif %}
+<h2>Schema Objects</h2>
+{% if contract.schemaObjects %}
+  <ul class="list-group mb-3">
+  {% for obj in contract.schemaObjects %}
+    <li class="list-group-item">
+      <div class="fw-semibold">{{ obj.name or 'Unnamed object' }}</div>
+      {% if obj.description %}<div class="text-muted">{{ obj.description }}</div>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+{% else %}
+  <p class="text-muted">No schema objects recorded.</p>
+{% endif %}
+<h2>Raw Contract</h2>
+<pre class="small bg-light p-3">{{ contract | tojson(indent=2) }}</pre>
+{% endblock %}

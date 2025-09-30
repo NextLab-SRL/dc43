@@ -39,6 +39,9 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
     ) -> None:
         self._backend.configure_auth(credentials)
 
+    def list_datasets(self) -> Sequence[str]:
+        return self._backend.list_datasets()
+
     def evaluate_dataset(
         self,
         *,

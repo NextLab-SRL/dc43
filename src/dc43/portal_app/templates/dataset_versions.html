@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dataset {{ dataset_id }}</h1>
+<p><a href="/datasets">Back to datasets</a></p>
+{% if versions %}
+<table class="table table-striped align-middle">
+  <thead>
+    <tr>
+      <th scope="col">Version</th>
+      <th scope="col">Status</th>
+      <th scope="col" class="text-end">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for entry in versions %}
+    <tr>
+      <th scope="row">{{ entry.dataset_version }}</th>
+      <td>
+        {% if entry.status %}
+          <span class="badge {{ entry.status.badge }}">{{ entry.status.label }}</span>
+        {% else %}
+          <span class="text-muted">Unknown</span>
+        {% endif %}
+      </td>
+      <td class="text-end">
+        <a class="btn btn-sm btn-outline-primary" href="/datasets/{{ dataset_id }}/{{ entry.dataset_version }}">View run details</a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted">No runs recorded for this dataset.</p>
+{% endif %}
+{% endblock %}

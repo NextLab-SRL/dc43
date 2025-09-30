@@ -91,6 +91,14 @@ class RemoteContractServiceClient(ContractServiceClient):
             return [str(item) for item in payload]
         return []
 
+    def list_contracts(self) -> Sequence[str]:
+        response = ensure_response(self._client.get(self._request_path("/contracts")))
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [str(item) for item in payload]
+        return []
+
     def link_dataset_contract(
         self,
         *,

@@ -19,9 +19,10 @@
   <div class="container-fluid">
     <a class="navbar-brand" href="/">DC43 Demo</a>
     <div class="navbar-nav">
-      <a class="nav-link" href="/contracts">Contracts</a>
-      <a class="nav-link" href="/datasets">Datasets</a>
       <a class="nav-link" href="/pipeline-runs">Pipeline Runs</a>
+      {% if portal_url %}
+        <a class="nav-link" href="{{ portal_url }}" target="_blank" rel="noopener">Services Portal</a>
+      {% endif %}
     </div>
   </div>
 </nav>

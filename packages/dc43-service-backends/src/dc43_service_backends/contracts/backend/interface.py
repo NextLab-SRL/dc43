@@ -10,6 +10,9 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 class ContractServiceBackend(Protocol):
     """Operations exposed by a contract management service runtime."""
 
+    def list_contracts(self) -> Sequence[str]:
+        ...
+
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         ...
 

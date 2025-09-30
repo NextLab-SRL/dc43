@@ -619,6 +619,18 @@ for _r in _sample_records:
 
 app = FastAPI(title="DC43 Demo")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals.setdefault("portal_url", os.getenv("DC43_PORTAL_URL"))
+
+_PORTAL_URL = os.getenv("DC43_PORTAL_URL")
+
+
+def _portal_redirect(path: str = "") -> RedirectResponse:
+    """Return a redirect response to the external services portal."""
+
+    if not _PORTAL_URL:
+        raise HTTPException(status_code=404, detail="Services portal not configured")
+    target = f"{_PORTAL_URL.rstrip('/')}{path}"
+    return RedirectResponse(url=target, status_code=307)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static"), check_dir=False), name="static")
 
 
@@ -1678,18 +1690,12 @@ async def index(request: Request) -> HTMLResponse:
 
 @app.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
-    contract_ids = store.list_contracts()
-    return templates.TemplateResponse(
-        "contracts.html", {"request": request, "contracts": contract_ids}
-    )
+    return _portal_redirect("/contracts")
 
 
 @app.get("/contracts/new", response_class=HTMLResponse)
 async def new_contract_form(request: Request) -> HTMLResponse:
-    editor_state = _contract_editor_state()
-    editor_state["version"] = editor_state.get("version") or "1.0.0"
-    context = _editor_context(request, editor_state=editor_state)
-    return templates.TemplateResponse("new_contract.html", context)
+    return _portal_redirect("/contracts")
 
 
 @app.post("/contracts/new", response_class=HTMLResponse)
@@ -1697,130 +1703,19 @@ async def create_contract(
     request: Request,
     payload: str = Form(...),
 ) -> HTMLResponse:
-    error: Optional[str] = None
-    try:
-        editor_state = json.loads(payload)
-    except json.JSONDecodeError as exc:
-        error = f"Invalid editor payload: {exc.msg}"
-        editor_state = _contract_editor_state()
-    else:
-        try:
-            _validate_contract_payload(editor_state, editing=False)
-            model = _build_contract_from_payload(editor_state)
-            store.put(model)
-            return RedirectResponse(url="/contracts", status_code=303)
-        except (ValidationError, ValueError) as exc:
-            error = str(exc)
-        except Exception as exc:  # pragma: no cover - display unexpected errors
-            error = str(exc)
-    context = _editor_context(
-        request,
-        editor_state=editor_state,
-        error=error,
-    )
-    return templates.TemplateResponse("new_contract.html", context)
+    return _portal_redirect("/contracts")
 
 
 
 
 @app.get("/contracts/{cid}", response_class=HTMLResponse)
 async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
-    versions = store.list_versions(cid)
-    if not versions:
-        raise HTTPException(status_code=404, detail="Contract not found")
-    records_by_version: Dict[str, List[DatasetRecord]] = {}
-    for record in load_records():
-        if record.contract_id != cid:
-            continue
-        records_by_version.setdefault(record.contract_version, []).append(record)
-
-    contracts = []
-    for ver in versions:
-        try:
-            contract = store.get(cid, ver)
-        except FileNotFoundError:
-            continue
-
-        status_raw = getattr(contract, "status", "") or "unknown"
-        status_value = str(status_raw).lower()
-        status_label = str(status_raw).replace("_", " ").title()
-        status_badge = _CONTRACT_STATUS_BADGES.get(status_value, "bg-secondary")
-
-        server_info = _server_details(contract)
-        dataset_hint = (
-            server_info.get("dataset_id")
-            if server_info
-            else (contract.id or cid)
-        )
-
-        latest_run: Optional[DatasetRecord] = None
-        run_entries = records_by_version.get(ver, [])
-        if run_entries:
-            run_entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
-            latest_run = run_entries[-1]
-
-        contracts.append(
-            {
-                "id": cid,
-                "version": ver,
-                "status": status_value,
-                "status_label": status_label,
-                "status_badge": status_badge,
-                "server": server_info,
-                "dataset_hint": dataset_hint,
-                "latest_run": latest_run.__dict__ if latest_run else None,
-            }
-        )
-    context = {"request": request, "contract_id": cid, "contracts": contracts}
-    return templates.TemplateResponse("contract_versions.html", context)
+    return _portal_redirect(f"/contracts/{cid}")
 
 
 @app.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
 async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
-    try:
-        contract = store.get(cid, ver)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    datasets = [r for r in load_records() if r.contract_id == cid and r.contract_version == ver]
-    field_quality = _field_quality_sections(contract)
-    dataset_quality = _dataset_quality_sections(contract)
-    change_log = _contract_change_log(contract)
-    server_info = _server_details(contract)
-    dataset_id = server_info.get("dataset_id") if server_info else contract.id or cid
-    dataset_path_hint = server_info.get("path") if server_info else None
-    version_records = _dq_version_records(
-        dataset_id or cid,
-        contract=contract,
-        dataset_path=dataset_path_hint,
-        dataset_records=datasets,
-    )
-    version_list = [entry["version"] for entry in version_records]
-    status_map = {
-        entry["version"]: {
-            "status": entry["status"],
-            "label": entry["status_label"],
-            "badge": entry["badge"],
-        }
-        for entry in version_records
-    }
-    default_index = len(version_list) - 1 if version_list else None
-    context = {
-        "request": request,
-        "contract": contract_to_dict(contract),
-        "datasets": datasets,
-        "expectations": await _expectation_predicates(contract),
-        "field_quality": field_quality,
-        "dataset_quality": dataset_quality,
-        "change_log": change_log,
-        "status_badges": _STATUS_BADGES,
-        "server_info": server_info,
-        "compatibility_versions": version_records,
-        "preview_versions": version_list,
-        "preview_status_map": status_map,
-        "preview_default_index": default_index,
-        "preview_dataset_id": dataset_id,
-    }
-    return templates.TemplateResponse("contract_detail.html", context)
+    return _portal_redirect(f"/contracts/{cid}/{ver}")
 
 
 def _next_version(ver: str) -> str:
@@ -2603,23 +2498,7 @@ def _build_contract_from_payload(payload: Mapping[str, Any]) -> OpenDataContract
 
 @app.get("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
 async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLResponse:
-    try:
-        contract = store.get(cid, ver)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    new_ver = _next_version(ver)
-    editor_state = _contract_editor_state(contract)
-    baseline_state = json.loads(json.dumps(editor_state))
-    editor_state["version"] = new_ver
-    context = _editor_context(
-        request,
-        editor_state=editor_state,
-        editing=True,
-        original_version=ver,
-        baseline_state=baseline_state,
-        baseline_contract=contract,
-    )
-    return templates.TemplateResponse("new_contract.html", context)
+    return _portal_redirect(f"/contracts/{cid}/{ver}")
 
 
 @app.post("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
@@ -2630,50 +2509,7 @@ async def save_contract_edits(
     payload: str = Form(...),
     original_version: str = Form(""),
 ) -> HTMLResponse:
-    editor_state: Dict[str, Any]
-    baseline_contract: Optional[OpenDataContractStandard] = None
-    baseline_state: Optional[Dict[str, Any]] = None
-    base_version = original_version or ver
-    try:
-        baseline_contract = store.get(cid, base_version)
-        baseline_state = json.loads(json.dumps(_contract_editor_state(baseline_contract)))
-    except FileNotFoundError:
-        baseline_contract = None
-        baseline_state = None
-    try:
-        editor_state = json.loads(payload)
-    except json.JSONDecodeError as exc:
-        error = f"Invalid editor payload: {exc.msg}"
-        editor_state = _contract_editor_state()
-        editor_state["id"] = cid
-        editor_state["version"] = _next_version(ver)
-    else:
-        try:
-            _validate_contract_payload(
-                editor_state,
-                editing=True,
-                base_contract_id=cid,
-                base_version=base_version,
-            )
-            model = _build_contract_from_payload(editor_state)
-            store.put(model)
-            return RedirectResponse(
-                url=f"/contracts/{model.id}/{model.version}", status_code=303
-            )
-        except (ValidationError, ValueError) as exc:
-            error = str(exc)
-        except Exception as exc:  # pragma: no cover - display unexpected errors
-            error = str(exc)
-    context = _editor_context(
-        request,
-        editor_state=editor_state,
-        editing=True,
-        original_version=base_version,
-        baseline_state=baseline_state,
-        baseline_contract=baseline_contract,
-        error=error,
-    )
-    return templates.TemplateResponse("new_contract.html", context)
+    return _portal_redirect(f"/contracts/{cid}/{ver}")
 
 
 @app.post("/contracts/{cid}/{ver}/validate")
@@ -2683,9 +2519,7 @@ async def html_validate_contract(cid: str, ver: str) -> HTMLResponse:
 
 @app.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
-    catalog = dataset_catalog(load_records())
-    context = {"request": request, "datasets": catalog}
-    return templates.TemplateResponse("datasets.html", context)
+    return _portal_redirect("/datasets")
 
 
 @app.get("/pipeline-runs", response_class=HTMLResponse)
@@ -2714,9 +2548,7 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
 
 @app.get("/datasets/{dataset_name}", response_class=HTMLResponse)
 async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
-    records = [r.__dict__.copy() for r in load_records() if r.dataset_name == dataset_name]
-    context = {"request": request, "dataset_name": dataset_name, "records": records}
-    return templates.TemplateResponse("dataset_versions.html", context)
+    return _portal_redirect(f"/datasets/{dataset_name}")
 
 
 def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
@@ -2865,23 +2697,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
 
 @app.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
-    for r in load_records():
-        if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
-            contract_obj: OpenDataContractStandard | None = None
-            if r.contract_id and r.contract_version:
-                try:
-                    contract_obj = store.get(r.contract_id, r.contract_version)
-                except FileNotFoundError:
-                    contract_obj = None
-            preview = _dataset_preview(contract_obj, dataset_name, dataset_version)
-            context = {
-                "request": request,
-                "record": r,
-                "contract": contract_to_dict(contract_obj) if contract_obj else None,
-                "data_preview": preview,
-            }
-            return templates.TemplateResponse("dataset_detail.html", context)
-    raise HTTPException(status_code=404, detail="Dataset not found")
+    return _portal_redirect(f"/datasets/{dataset_name}/{dataset_version}")
 
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
@@ -2891,7 +2707,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
     cfg = SCENARIOS.get(scenario)
     if not cfg:
         params = urlencode({"error": f"Unknown scenario: {scenario}"})
-        return RedirectResponse(url=f"/datasets?{params}", status_code=303)
+        return RedirectResponse(url=f"/pipeline-runs?{params}", status_code=303)
     p = cfg["params"]
     for dataset, version in cfg.get("activate_versions", {}).items():
         try:

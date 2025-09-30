@@ -2,8 +2,9 @@
 {% block content %}
 <h1>DC43 Demo</h1>
 <div class="list-group">
-  <a class="list-group-item list-group-item-action" href="/contracts">Browse Contracts</a>
-  <a class="list-group-item list-group-item-action" href="/datasets">Datasets</a>
   <a class="list-group-item list-group-item-action" href="/pipeline-runs">Pipeline Runs</a>
+  {% if portal_url %}
+  <a class="list-group-item list-group-item-action" href="{{ portal_url }}" target="_blank" rel="noopener">Open Services Portal</a>
+  {% endif %}
 </div>
 {% endblock %}

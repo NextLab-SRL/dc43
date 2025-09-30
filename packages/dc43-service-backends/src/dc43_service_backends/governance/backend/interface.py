@@ -24,6 +24,9 @@ class GovernanceServiceBackend(Protocol):
     ) -> None:
         ...
 
+    def list_datasets(self) -> Sequence[str]:
+        ...
+
     def evaluate_dataset(
         self,
         *,

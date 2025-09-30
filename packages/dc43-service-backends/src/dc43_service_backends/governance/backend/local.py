@@ -81,6 +81,9 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
     def credentials(self) -> Optional[GovernanceCredentials]:
         return self._credentials
 
+    def list_datasets(self) -> Sequence[str]:
+        return sorted(self._activity_log.keys())
+
     # ------------------------------------------------------------------
     # Governance orchestration
     # ------------------------------------------------------------------

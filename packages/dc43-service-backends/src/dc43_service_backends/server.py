@@ -122,6 +122,11 @@ def build_app(
     # ------------------------------------------------------------------
     # Contract service endpoints
     # ------------------------------------------------------------------
+    @router.get("/contracts")
+    def list_contracts() -> list[str]:
+        contracts = contract_backend.list_contracts()
+        return [str(value) for value in contracts]
+
     @router.get("/contracts/{contract_id}/versions/{contract_version}")
     def get_contract(contract_id: str, contract_version: str) -> Mapping[str, Any]:
         try:
@@ -184,6 +189,11 @@ def build_app(
     def configure_auth(payload: _AuthPayload) -> None:
         credentials = decode_credentials(payload.credentials)
         governance_backend.configure_auth(credentials)
+
+    @router.get("/governance/datasets")
+    def list_datasets() -> list[str]:
+        datasets = governance_backend.list_datasets()
+        return [str(entry) for entry in datasets]
 
     @router.post("/governance/evaluate")
     def evaluate_dataset(payload: _GovernanceEvaluatePayload) -> Mapping[str, Any]:
