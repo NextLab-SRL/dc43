@@ -3,48 +3,210 @@
 <h1>Contract {{ contract.id }} {{ contract.version }}</h1>
 <p><a href="/contracts/{{ contract.id }}">Back to versions</a></p>
 <p>
-  Status:
-  <span class="badge {{ contract.status_info.badge }}">{{ contract.status_info.label }}</span>
+  <a class="btn btn-secondary btn-sm" href="/api/contracts/{{ contract.id }}/{{ contract.version }}">Download JSON</a>
 </p>
-{% if contract.description %}
-<p>{{ contract.description }}</p>
-{% endif %}
-<h2>Servers</h2>
-{% if contract.servers %}
-  <table class="table table-sm table-striped">
-    <thead>
-      <tr>
-        <th scope="col">Type</th>
-        <th scope="col">Environment</th>
-        <th scope="col">Path</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for server in contract.servers %}
-      <tr>
-        <td>{{ server.type or 'n/a' }}</td>
-        <td>{{ server.environment or 'n/a' }}</td>
-        <td>{{ server.path or server.location or 'n/a' }}</td>
-      </tr>
+
+<ul class="nav nav-tabs" id="contractTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">Overview</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="schema-tab" data-bs-toggle="tab" data-bs-target="#schema" type="button" role="tab">Schema</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="quality-tab" data-bs-toggle="tab" data-bs-target="#quality" type="button" role="tab">Quality</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="access-tab" data-bs-toggle="tab" data-bs-target="#access" type="button" role="tab">Access</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="json-tab" data-bs-toggle="tab" data-bs-target="#json" type="button" role="tab">JSON</button>
+  </li>
+</ul>
+<div class="tab-content mt-3" id="contractTabsContent">
+  <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab">
+    <dl class="row">
+      <dt class="col-sm-3">Name</dt><dd class="col-sm-9">{{ contract.name }}</dd>
+      {% if contract.description and contract.description.usage %}
+      <dt class="col-sm-3">Description</dt><dd class="col-sm-9">{{ contract.description.usage }}</dd>
+      {% endif %}
+      {% if contract.servers %}
+      <dt class="col-sm-3">Servers</dt>
+      <dd class="col-sm-9">
+        <ul class="list-unstyled mb-0">
+        {% for s in contract.servers %}
+          <li>
+            {{ s.server }}{% if s.type %} ({{ s.type }}){% endif %}:
+            {% if s.path %}{{ s.path }}{% elif s.dataset %}{{ s.dataset }}{% endif %}
+          </li>
+        {% endfor %}
+        </ul>
+      </dd>
+      {% endif %}
+    </dl>
+    {% if datasets %}
+    <h5>Datasets</h5>
+    <ul>
+      {% for d in datasets %}
+      <li><a href="/datasets/{{ d.dataset_name }}/{{ d.dataset_version }}">{{ d.dataset_name }} {{ d.dataset_version }}</a> - {{ d.status }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  <div class="tab-pane fade" id="schema" role="tabpanel" aria-labelledby="schema-tab">
+    {% for s in schema_sections %}
+      <h5>{{ s.name }}</h5>
+      <table class="table table-sm">
+        <thead><tr><th>Name</th><th>Type</th><th>Required</th></tr></thead>
+        <tbody>
+        {% for p in s.properties %}
+        <tr><td>{{ p.name }}</td><td>{{ p.physicalType }}</td><td>{{ 'yes' if p.required else 'no' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
     {% endfor %}
-    </tbody>
-  </table>
-{% else %}
-  <p class="text-muted">No servers recorded.</p>
-{% endif %}
-<h2>Schema Objects</h2>
-{% if contract.schemaObjects %}
-  <ul class="list-group mb-3">
-  {% for obj in contract.schemaObjects %}
-    <li class="list-group-item">
-      <div class="fw-semibold">{{ obj.name or 'Unnamed object' }}</div>
-      {% if obj.description %}<div class="text-muted">{{ obj.description }}</div>{% endif %}
-    </li>
-  {% endfor %}
-  </ul>
-{% else %}
-  <p class="text-muted">No schema objects recorded.</p>
-{% endif %}
-<h2>Raw Contract</h2>
-<pre class="small bg-light p-3">{{ contract | tojson(indent=2) }}</pre>
+  </div>
+  <div class="tab-pane fade" id="quality" role="tabpanel" aria-labelledby="quality-tab">
+    {% if field_quality %}
+    <h5>Field quality rules</h5>
+    {% for field in field_quality %}
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <strong>{{ field.name }}</strong>
+          {% if field.type %}<span class="text-muted">({{ field.type }})</span>{% endif %}
+        </div>
+        <span class="badge {{ 'bg-success' if field.required else 'bg-secondary' }}">{{ 'Required' if field.required else 'Optional' }}</span>
+      </div>
+      <div class="card-body">
+        {% if field.rules %}
+          {% for rule in field.rules %}
+          <div class="mb-3">
+            <h6 class="mb-1">{{ rule.title }}</h6>
+            <ul class="small mb-2">
+              {% for text in rule.conditions %}
+              <li>{{ text }}</li>
+              {% endfor %}
+            </ul>
+            {% if rule.severity or rule.dimension %}
+            <p class="small text-muted mb-0">
+              {% if rule.severity %}<span class="me-3">Severity: {{ rule.severity }}</span>{% endif %}
+              {% if rule.dimension %}<span>Dimension: {{ rule.dimension }}</span>{% endif %}
+            </p>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">No quality rules defined for this field.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p>No field-level quality rules defined.</p>
+    {% endif %}
+
+    {% if dataset_quality %}
+    <h5>Dataset-level quality rules</h5>
+    {% for section in dataset_quality %}
+    <div class="card mb-3">
+      <div class="card-header">
+        <strong>{{ section.name }}</strong>
+      </div>
+      <div class="card-body">
+        {% for rule in section.rules %}
+        <div class="mb-3">
+          <h6 class="mb-1">{{ rule.title }}</h6>
+          <ul class="small mb-2">
+            {% for text in rule.conditions %}
+            <li>{{ text }}</li>
+            {% endfor %}
+          </ul>
+          {% if rule.severity or rule.dimension %}
+          <p class="small text-muted mb-0">
+            {% if rule.severity %}<span class="me-3">Severity: {{ rule.severity }}</span>{% endif %}
+            {% if rule.dimension %}<span>Dimension: {{ rule.dimension }}</span>{% endif %}
+          </p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if expectations %}
+    <h5>SQL predicates</h5>
+    <table class="table table-sm">
+      <thead><tr><th>Name</th><th>Predicate</th></tr></thead>
+      <tbody>
+      {% for name, expr in expectations.items() %}
+      <tr><td>{{ name }}</td><td><code>{{ expr }}</code></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  <div class="tab-pane fade" id="access" role="tabpanel" aria-labelledby="access-tab">
+    {% if server_info %}
+    <div class="card mb-3">
+      <div class="card-header">Server definition</div>
+      <div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-3">Server</dt><dd class="col-sm-9">{{ server_info.server or '—' }}</dd>
+          <dt class="col-sm-3">Type</dt><dd class="col-sm-9">{{ server_info.type or '—' }}</dd>
+          <dt class="col-sm-3">Format</dt><dd class="col-sm-9">{{ server_info.format or '—' }}</dd>
+          {% if server_info.path %}
+          <dt class="col-sm-3">Path</dt><dd class="col-sm-9"><code>{{ server_info.path }}</code></dd>
+          {% endif %}
+          {% if server_info.dataset %}
+          <dt class="col-sm-3">Dataset</dt><dd class="col-sm-9"><code>{{ server_info.dataset }}</code></dd>
+          {% endif %}
+          {% if server_info.dataset_id %}
+          <dt class="col-sm-3">Dataset ID</dt><dd class="col-sm-9"><code>{{ server_info.dataset_id }}</code></dd>
+          {% endif %}
+        </dl>
+      </div>
+      {% if server_info.path_pattern or server_info.versioning or server_info.custom %}
+      <div class="card-footer">
+        {% if server_info.path_pattern %}
+        <p class="mb-2"><strong>Path pattern:</strong> <code>{{ server_info.path_pattern }}</code></p>
+        {% endif %}
+        {% if server_info.versioning %}
+        <div class="mb-2">
+          <strong>Versioning guidance</strong>
+          <pre class="small bg-light p-2 rounded mb-0">{{ server_info.versioning | tojson(indent=2) }}</pre>
+        </div>
+        {% endif %}
+        {% if server_info.custom %}
+        <details>
+          <summary class="small text-muted">View raw custom properties</summary>
+          <pre class="small bg-light p-2 mt-2 rounded">{{ server_info.custom | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="mb-3">
+      <h5>Compatibility matrix</h5>
+      {% if compatibility_versions %}
+      <ul class="list-unstyled mb-0">
+        {% for entry in compatibility_versions %}
+        <li class="mb-2">
+          <span class="badge {{ entry.badge }}">{{ entry.status_label }}</span>
+          <a href="/datasets/{{ preview_dataset_id }}/{{ entry.version }}">{{ entry.version }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted">No dataset compatibility information available.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="tab-pane fade" id="json" role="tabpanel" aria-labelledby="json-tab">
+    <pre class="small bg-light p-3 rounded">{{ contract_json }}</pre>
+  </div>
+</div>
 {% endblock %}

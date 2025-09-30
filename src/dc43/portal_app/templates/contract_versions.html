@@ -1,37 +1,52 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Contract {{ contract_id }}</h1>
-<p><a href="/contracts">Back to contract list</a></p>
-{% if contracts %}
 <table class="table table-striped align-middle">
   <thead>
     <tr>
       <th scope="col">Version</th>
       <th scope="col">Status</th>
-      <th scope="col">Description</th>
+      <th scope="col">Server</th>
       <th scope="col" class="text-end">Actions</th>
     </tr>
   </thead>
   <tbody>
-  {% for contract in contracts %}
+  {% for c in contracts %}
     <tr>
-      <th scope="row">{{ contract.version }}</th>
+      <th scope="row">
+        <a href="/contracts/{{ contract_id }}/{{ c.version }}">{{ c.version }}</a>
+      </th>
       <td>
-        {% if contract.status %}
-          <span class="badge {{ contract.status.badge }}">{{ contract.status.label }}</span>
+        <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
+      </td>
+      <td>
+        {% if c.server %}
+          <div class="fw-semibold">{{ c.server.dataset_id or c.dataset_hint }}</div>
+          <div class="small text-muted">
+            {{ c.server.type or 'Unknown type' }}{% if c.server.format %} · {{ c.server.format | upper }}{% endif %}
+          </div>
+          {% if c.server.path %}
+            <div class="small text-muted">Path: {{ c.server.path }}</div>
+          {% endif %}
+          {% if c.server.path_pattern %}
+            <div class="small text-muted">Pattern: <code>{{ c.server.path_pattern }}</code></div>
+          {% endif %}
         {% else %}
-          <span class="text-muted">Unknown</span>
+          <span class="text-muted">No server info</span>
+        {% endif %}
+        {% if c.latest_run %}
+          <div class="small mt-2">
+            Latest run: <a href="/datasets/{{ c.latest_run.dataset_name }}/{{ c.latest_run.dataset_version }}">{{ c.latest_run.dataset_version }}</a>
+            ({{ c.latest_run.status }})
+          </div>
         {% endif %}
       </td>
-      <td>{{ contract.description or '' }}</td>
       <td class="text-end">
-        <a class="btn btn-sm btn-outline-primary" href="/contracts/{{ contract_id }}/{{ contract.version }}">View details</a>
+        <a class="btn btn-sm btn-outline-primary" href="/contracts/{{ contract_id }}/{{ c.version }}">View</a>
       </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-{% else %}
-<p class="text-muted">No versions recorded yet.</p>
-{% endif %}
+{% if not contracts %}<p>No versions found.</p>{% endif %}
 {% endblock %}

@@ -1,38 +1,59 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>{{ record.dataset_id }} {{ record.dataset_version }}</h1>
+<h1>Dataset {{ record.dataset_id }} {{ record.dataset_version }}</h1>
 <p><a href="/datasets/{{ record.dataset_id }}">Back to versions</a></p>
-<p>
-  Status:
-  <span class="badge {{ status.badge }}">{{ status.label }}</span>
-  {% if linked_contract %}
-    <span class="ms-3 text-muted">Linked contract {{ linked_contract }}</span>
-  {% endif %}
-</p>
-<h2>Events</h2>
-{% if record.events %}
-  <div class="list-group mb-3">
-  {% for event in record.events %}
-    <div class="list-group-item">
-      <div class="d-flex justify-content-between">
-        <div>
-          <div class="fw-semibold">{{ event.operation or 'unknown' }}</div>
-          {% if event.dq_status %}
-            <span class="badge {{ event.status_info.badge }} text-uppercase">{{ event.status_info.label }}</span>
-          {% endif %}
+<div class="row">
+  <div class="col-lg-8">
+    <h5>Events</h5>
+    {% if record.events %}
+      <div class="timeline">
+        {% for event in record.events %}
+        <div class="card mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+              <strong>{{ event.status_info.label }}</strong>
+              {% if event.status_info.recorded_at %}
+              <span class="text-muted ms-2">{{ event.status_info.recorded_at }}</span>
+              {% endif %}
+            </div>
+            <span class="badge {{ event.status_info.badge }}">{{ event.status_info.label }}</span>
+          </div>
+          <div class="card-body">
+            {% if event.reason %}
+            <p class="mb-2">Reason: {{ event.reason }}</p>
+            {% endif %}
+            {% if event.metrics %}
+            <div class="mb-2">
+              <h6>Metrics</h6>
+              <pre class="small bg-light p-2 rounded">{{ event.metrics | tojson(indent=2) }}</pre>
+            </div>
+            {% endif %}
+            {% if event.details %}
+            <div>
+              <h6>Details</h6>
+              <pre class="small bg-light p-2 rounded">{{ event.details | tojson(indent=2) }}</pre>
+            </div>
+            {% endif %}
+          </div>
         </div>
-        <div class="text-muted small">{{ event.recorded_at or 'unknown time' }}</div>
+        {% endfor %}
       </div>
-      {% if event.pipeline_context %}
-        <pre class="small bg-light p-2 mt-2">{{ event.pipeline_context | tojson(indent=2) }}</pre>
-      {% endif %}
-      {% if event.dq_details %}
-        <pre class="small bg-light p-2 mt-2">{{ event.dq_details | tojson(indent=2) }}</pre>
-      {% endif %}
-    </div>
-  {% endfor %}
+    {% else %}
+      <p>No recorded events for this version.</p>
+    {% endif %}
   </div>
-{% else %}
-  <p class="text-muted">No events recorded.</p>
-{% endif %}
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header">Status summary</div>
+      <div class="card-body">
+        <p>
+          <span class="badge {{ status.badge }}">{{ status.label }}</span>
+        </p>
+        {% if linked_contract %}
+        <p class="mb-0">Linked contract: <a href="/contracts/{{ linked_contract.contract_id }}/{{ linked_contract.contract_version }}">{{ linked_contract.contract_id }} {{ linked_contract.contract_version }}</a></p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

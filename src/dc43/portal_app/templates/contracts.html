@@ -1,41 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Contracts</h1>
-<p class="text-muted">Contracts are retrieved from the configured dc43 service backend.</p>
-<table class="table table-striped align-middle">
-  <thead>
+<table class="table table-striped">
+    <thead><tr><th>Contract ID</th></tr></thead>
+    <tbody>
+    {% for cid in contracts %}
     <tr>
-      <th scope="col">Contract</th>
-      <th scope="col">Versions</th>
-      <th scope="col">Latest status</th>
+      <td><a href="/contracts/{{ cid }}">{{ cid }}</a></td>
     </tr>
-  </thead>
-  <tbody>
-  {% for contract in contracts %}
-    <tr>
-      <th scope="row">
-        <a href="/contracts/{{ contract.id }}">{{ contract.id }}</a>
-      </th>
-      <td>
-        {% if contract.versions %}
-          {{ contract.versions | length }}
-        {% else %}
-          <span class="text-muted">None</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if contract.latest %}
-          <span class="badge {{ contract.latest.badge }}">{{ contract.latest.label }}</span>
-          <span class="ms-2 text-muted">v{{ contract.latest.version }}</span>
-        {% else %}
-          <span class="text-muted">No versions recorded</span>
-        {% endif %}
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
+    {% endfor %}
+    </tbody>
 </table>
-{% if not contracts %}
-<p class="text-muted">No contracts have been registered yet.</p>
-{% endif %}
+{% if not contracts %}<p>No contracts have been registered yet.</p>{% endif %}
 {% endblock %}

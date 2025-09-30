@@ -1,43 +1,35 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Datasets</h1>
-<p class="text-muted">Dataset activity is provided by the governance service backend.</p>
-<table class="table table-striped align-middle">
+<table class="table table-striped">
   <thead>
     <tr>
-      <th scope="col">Dataset</th>
-      <th scope="col">Known versions</th>
+      <th scope="col">Dataset ID</th>
       <th scope="col">Latest status</th>
+      <th scope="col">Latest version</th>
     </tr>
   </thead>
   <tbody>
   {% for dataset in datasets %}
     <tr>
-      <th scope="row">
-        <a href="/datasets/{{ dataset.id }}">{{ dataset.id }}</a>
-      </th>
-      <td>
-        {% if dataset.versions %}
-          {{ dataset.versions | length }}
-        {% else %}
-          <span class="text-muted">None</span>
-        {% endif %}
-      </td>
+      <th scope="row"><a href="/datasets/{{ dataset.id }}">{{ dataset.id }}</a></th>
       <td>
         {% if dataset.latest %}
           <span class="badge {{ dataset.latest.badge }}">{{ dataset.latest.label }}</span>
-          {% if dataset.latest.recorded_at %}
-            <div class="small text-muted">Last event {{ dataset.latest.recorded_at }}</div>
-          {% endif %}
         {% else %}
-          <span class="text-muted">No activity</span>
+          <span class="text-muted">Unknown</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if dataset.versions %}
+          {{ dataset.versions[-1] }}
+        {% else %}
+          <span class="text-muted">—</span>
         {% endif %}
       </td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-{% if not datasets %}
-<p class="text-muted">No dataset activity has been recorded.</p>
-{% endif %}
+{% if not datasets %}<p>No dataset activity has been recorded.</p>{% endif %}
 {% endblock %}

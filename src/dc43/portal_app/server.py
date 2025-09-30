@@ -11,17 +11,23 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from httpx import ASGITransport
 from packaging.version import InvalidVersion, Version
 
+from dc43.odcs import custom_properties_dict
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_backends.web import build_local_app
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from dc43_service_clients._http_sync import close_client
+from open_data_contract_standard.model import (  # type: ignore
+    DataQuality,
+    OpenDataContractStandard,
+    Server,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -46,6 +52,18 @@ _DATASET_STATUS_BADGES = {
     "warn": "bg-warning text-dark",
     "block": "bg-danger",
     "unknown": "bg-secondary",
+}
+
+_STATUS_BADGES = {
+    "kept": "bg-success",
+    "updated": "bg-primary",
+    "relaxed": "bg-warning text-dark",
+    "removed": "bg-danger",
+    "added": "bg-info text-dark",
+    "missing": "bg-secondary",
+    "error": "bg-danger",
+    "warning": "bg-warning text-dark",
+    "not_nullable": "bg-info text-dark",
 }
 
 _backend_app: FastAPI | None = None
@@ -123,13 +141,11 @@ def _sort_versions(values: Iterable[str]) -> List[str]:
     return sorted(items, key=_key)
 
 
-def _status_payload(status: str | None) -> Dict[str, str]:
-    normalised = (status or "unknown").lower()
-    return {
-        "value": normalised,
-        "label": normalised.replace("_", " ").title() or "Unknown",
-        "badge": _CONTRACT_STATUS_BADGES.get(normalised, "bg-secondary"),
-    }
+def _key_version(value: str) -> tuple[int, Any]:
+    try:
+        return (0, Version(value))
+    except InvalidVersion:
+        return (1, value)
 
 
 def _dataset_status_payload(status: str | None) -> Dict[str, str]:
@@ -139,43 +155,6 @@ def _dataset_status_payload(status: str | None) -> Dict[str, str]:
         "label": normalised.replace("_", " ").title() or "Unknown",
         "badge": _DATASET_STATUS_BADGES.get(normalised, "bg-secondary"),
     }
-
-
-async def _latest_contract_status(contract_id: str, versions: Sequence[str]) -> Dict[str, str] | None:
-    if not versions:
-        return None
-    latest_version = _sort_versions(versions)[-1]
-
-    def _load() -> Optional[Mapping[str, Any]]:
-        model = contract_service.get(contract_id, latest_version)
-        return {
-            "version": latest_version,
-            "status": getattr(model, "status", None),
-            "description": getattr(model, "description", ""),
-        }
-
-    payload = await asyncio.to_thread(_load)
-    if payload is None:
-        return None
-    status_info = _status_payload(payload.get("status"))
-    status_info["version"] = latest_version
-    status_info["description"] = str(payload.get("description") or "")
-    return status_info
-
-
-async def _summarise_contract(contract_id: str) -> Mapping[str, Any]:
-    versions = await asyncio.to_thread(contract_service.list_versions, contract_id)
-    versions = _sort_versions(versions)
-    latest = await _latest_contract_status(contract_id, versions)
-    return {
-        "id": contract_id,
-        "versions": versions,
-        "latest": latest,
-    }
-
-
-def _contract_status(contract: Mapping[str, Any]) -> Dict[str, str]:
-    return _status_payload(str(contract.get("status", "")))
 
 
 def _normalise_event(event: Mapping[str, Any]) -> Dict[str, Any]:
@@ -247,6 +226,133 @@ async def _dataset_version_activity(dataset_id: str, dataset_version: str) -> Ma
     }
 
 
+def _server_details(contract: OpenDataContractStandard) -> Optional[Dict[str, Any]]:
+    if not contract.servers:
+        return None
+    first = contract.servers[0]
+    custom = custom_properties_dict(first)
+    dataset_id = contract.id or getattr(first, "dataset", None) or ""
+    info: Dict[str, Any] = {
+        "server": getattr(first, "server", "") or "",
+        "type": getattr(first, "type", "") or "",
+        "format": getattr(first, "format", "") or "",
+        "path": getattr(first, "path", "") or "",
+        "dataset": getattr(first, "dataset", "") or "",
+        "dataset_id": dataset_id or getattr(first, "dataset", ""),
+    }
+    if custom:
+        info["custom"] = custom
+        if "dc43.versioning" in custom:
+            info["versioning"] = custom.get("dc43.versioning")
+        if "dc43.pathPattern" in custom:
+            info["path_pattern"] = custom.get("dc43.pathPattern")
+    return info
+
+
+def _quality_rule_summary(dq: DataQuality) -> Dict[str, Any]:
+    conditions: List[str] = []
+    if dq.description:
+        conditions.append(str(dq.description))
+    if dq.mustBeGreaterThan is not None:
+        conditions.append(f"Value must be greater than {dq.mustBeGreaterThan}")
+    if dq.mustBeGreaterOrEqualTo is not None:
+        conditions.append(
+            f"Value must be greater than or equal to {dq.mustBeGreaterOrEqualTo}"
+        )
+    if dq.mustBeLessThan is not None:
+        conditions.append(f"Value must be less than {dq.mustBeLessThan}")
+    if dq.mustBeLessOrEqualTo is not None:
+        conditions.append(
+            f"Value must be less than or equal to {dq.mustBeLessOrEqualTo}"
+        )
+    if dq.mustBeBetween:
+        low, high = dq.mustBeBetween
+        conditions.append(f"Value must be between {low} and {high}")
+    if dq.mustNotBeBetween:
+        low, high = dq.mustNotBeBetween
+        conditions.append(f"Value must not be between {low} and {high}")
+    if dq.mustBe is not None:
+        conditions.append(f"Value must be {dq.mustBe}")
+    if dq.mustNotBe is not None:
+        conditions.append(f"Value must not be {dq.mustNotBe}")
+    return {
+        "title": dq.title or dq.rule or "Rule",
+        "conditions": conditions or ["Condition not specified"],
+        "severity": dq.severity or "",
+        "dimension": dq.dimension or "",
+    }
+
+
+def _field_quality_sections(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:
+    sections: List[Dict[str, Any]] = []
+    for obj in contract.schema_ or []:
+        for prop in getattr(obj, "properties", []) or []:
+            quality_rules = [
+                _quality_rule_summary(rule)
+                for rule in getattr(prop, "quality", []) or []
+                if isinstance(rule, DataQuality)
+            ]
+            sections.append(
+                {
+                    "name": getattr(prop, "name", ""),
+                    "type": getattr(prop, "physicalType", ""),
+                    "required": bool(getattr(prop, "required", False)),
+                    "rules": quality_rules,
+                }
+            )
+    return sections
+
+
+def _dataset_quality_sections(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:
+    sections: List[Dict[str, Any]] = []
+    for obj in contract.schema_ or []:
+        section_rules = [
+            _quality_rule_summary(rule)
+            for rule in getattr(obj, "quality", []) or []
+            if isinstance(rule, DataQuality)
+        ]
+        if section_rules:
+            sections.append({"name": getattr(obj, "name", ""), "rules": section_rules})
+    return sections
+
+
+def _schema_sections(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:
+    sections: List[Dict[str, Any]] = []
+    for obj in contract.schema_ or []:
+        properties: List[Dict[str, Any]] = []
+        for prop in getattr(obj, "properties", []) or []:
+            properties.append(
+                {
+                    "name": getattr(prop, "name", ""),
+                    "physicalType": getattr(prop, "physicalType", ""),
+                    "required": bool(getattr(prop, "required", False)),
+                }
+            )
+        sections.append({"name": getattr(obj, "name", ""), "properties": properties})
+    return sections
+
+
+def _compatibility_entries(dataset_id: str, records: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    for record in records:
+        version = str(record.get("dataset_version", ""))
+        status = str(record.get("status", "unknown") or "unknown")
+        entries.append(
+            {
+                "version": version,
+                "status": status,
+                "status_label": status.replace("_", " ").title(),
+                "badge": _DATASET_STATUS_BADGES.get(status, "bg-secondary"),
+            }
+        )
+    entries.sort(key=lambda item: _key_version(item["version"]))
+    return entries
+
+
+def _contract_json(contract: OpenDataContractStandard) -> str:
+    return contract.model_dump_json(indent=2, by_alias=True, exclude_none=True)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="DC43 Services Portal")
 
@@ -264,10 +370,8 @@ def create_app() -> FastAPI:
     @app.get("/contracts", response_class=HTMLResponse)
     async def list_contracts(request: Request) -> HTMLResponse:
         contract_ids = await asyncio.to_thread(contract_service.list_contracts)
-        summaries: List[Mapping[str, Any]] = []
-        for cid in _sort_versions(contract_ids):
-            summaries.append(await _summarise_contract(cid))
-        context = {"request": request, "contracts": summaries}
+        ordered = sorted({str(cid) for cid in contract_ids})
+        context = {"request": request, "contracts": ordered}
         return TEMPLATES.TemplateResponse("contracts.html", context)
 
     @app.get("/contracts/{contract_id}", response_class=HTMLResponse)
@@ -275,11 +379,55 @@ def create_app() -> FastAPI:
         versions = await asyncio.to_thread(contract_service.list_versions, contract_id)
         versions = _sort_versions(versions)
         contracts: List[Mapping[str, Any]] = []
+        dataset_id: Optional[str] = None
+        dataset_activity: List[Mapping[str, Any]] = []
+        if versions:
+            first = await asyncio.to_thread(contract_service.get, contract_id, versions[-1])
+            server_info = _server_details(first)
+            dataset_id = server_info.get("dataset_id") if server_info else contract_id
+            if dataset_id:
+                dataset_activity = list(
+                    await asyncio.to_thread(
+                        _governance_service.get_pipeline_activity, dataset_id=dataset_id
+                    )
+                )
         for version in versions:
             model = await asyncio.to_thread(contract_service.get, contract_id, version)
-            payload = model.model_dump(by_alias=True, exclude_none=True)
-            payload["status"] = _contract_status(payload)
-            contracts.append(payload)
+            status_value = str(getattr(model, "status", "unknown") or "unknown").lower()
+            status_payload = {
+                "status": status_value,
+                "status_label": status_value.replace("_", " ").title() or "Unknown",
+                "badge": _CONTRACT_STATUS_BADGES.get(status_value, "bg-secondary"),
+            }
+            server_info = _server_details(model)
+            latest_run: Optional[Dict[str, Any]] = None
+            if dataset_id:
+                for entry in dataset_activity:
+                    if str(entry.get("contract_version", "")) != version:
+                        continue
+                    dataset_version = str(entry.get("dataset_version", ""))
+                    events = entry.get("events")
+                    status = "unknown"
+                    if isinstance(events, list) and events:
+                        latest_event = events[-1]
+                        if isinstance(latest_event, Mapping):
+                            status = str(latest_event.get("dq_status", "unknown") or "unknown")
+                    latest_run = {
+                        "dataset_name": dataset_id,
+                        "dataset_version": dataset_version,
+                        "status": status,
+                    }
+                    break
+            contracts.append(
+                {
+                    "version": version,
+                    "status_badge": status_payload["badge"],
+                    "status_label": status_payload["status_label"],
+                    "server": server_info,
+                    "dataset_hint": server_info.get("dataset") if server_info else "",
+                    "latest_run": latest_run,
+                }
+            )
         context = {
             "request": request,
             "contract_id": contract_id,
@@ -297,21 +445,75 @@ def create_app() -> FastAPI:
             contract = await asyncio.to_thread(contract_service.get, contract_id, contract_version)
         except Exception as exc:  # pragma: no cover - propagated as HTTP error
             raise HTTPException(status_code=404, detail=str(exc))
-        payload = contract.model_dump(by_alias=True, exclude_none=True)
-        payload["status_info"] = _contract_status(payload)
-        servers = payload.get("servers")
-        if isinstance(servers, list):
-            payload["servers"] = [dict(server) for server in servers if isinstance(server, Mapping)]
-        schema_objects = payload.get("schemaObjects")
-        if isinstance(schema_objects, list):
-            payload["schemaObjects"] = [
-                dict(obj) for obj in schema_objects if isinstance(obj, Mapping)
-            ]
+        server_info = _server_details(contract)
+        dataset_id = server_info.get("dataset_id") if server_info else contract.id or contract_id
+        dataset_activity: List[Mapping[str, Any]] = []
+        if dataset_id:
+            dataset_activity = list(
+                await asyncio.to_thread(
+                    _governance_service.get_pipeline_activity, dataset_id=dataset_id
+                )
+            )
+        dataset_records: List[Dict[str, Any]] = []
+        compatibility_source: List[Mapping[str, Any]] = []
+        for entry in dataset_activity:
+            dataset_version = str(entry.get("dataset_version", ""))
+            events = entry.get("events")
+            status_value = "unknown"
+            recorded_at: Optional[str] = None
+            if isinstance(events, list) and events:
+                latest_event = events[-1]
+                if isinstance(latest_event, Mapping):
+                    status_value = str(latest_event.get("dq_status", "unknown") or "unknown")
+                    recorded_at = latest_event.get("recorded_at") or latest_event.get("timestamp")
+            dataset_records.append(
+                {
+                    "dataset_name": dataset_id,
+                    "dataset_version": dataset_version,
+                    "status": status_value.replace("_", " ").title() or "Unknown",
+                }
+            )
+            compatibility_source.append(
+                {"dataset_version": dataset_version, "status": status_value, "recorded_at": recorded_at}
+            )
+        compatibility_versions = []
+        for entry in compatibility_source:
+            version = str(entry.get("dataset_version", ""))
+            status_value = str(entry.get("status", "unknown") or "unknown")
+            compatibility_versions.append(
+                {
+                    "version": version,
+                    "status": status_value,
+                    "status_label": status_value.replace("_", " ").title() or "Unknown",
+                    "badge": _DATASET_STATUS_BADGES.get(status_value, "bg-secondary"),
+                }
+            )
+        compatibility_versions.sort(key=lambda item: _key_version(item["version"]))
         context = {
             "request": request,
-            "contract": payload,
+            "contract": contract,
+            "datasets": dataset_records,
+            "expectations": {},
+            "field_quality": _field_quality_sections(contract),
+            "dataset_quality": _dataset_quality_sections(contract),
+            "schema_sections": _schema_sections(contract),
+            "change_log": [],
+            "status_badges": _STATUS_BADGES,
+            "server_info": server_info,
+            "compatibility_versions": compatibility_versions,
+            "preview_dataset_id": dataset_id,
+            "contract_json": _contract_json(contract),
         }
         return TEMPLATES.TemplateResponse("contract_detail.html", context)
+
+    @app.get("/api/contracts/{contract_id}/{contract_version}")
+    async def contract_json_endpoint(contract_id: str, contract_version: str) -> JSONResponse:
+        try:
+            contract = await asyncio.to_thread(contract_service.get, contract_id, contract_version)
+        except Exception as exc:  # pragma: no cover - forwarded as HTTP error
+            raise HTTPException(status_code=404, detail=str(exc))
+        payload = contract.model_dump(by_alias=True, exclude_none=True)
+        return JSONResponse(content=payload)
 
     @app.get("/datasets", response_class=HTMLResponse)
     async def list_datasets(request: Request) -> HTMLResponse:
@@ -353,12 +555,6 @@ def create_app() -> FastAPI:
             "versions": ordered,
         }
         return TEMPLATES.TemplateResponse("dataset_versions.html", context)
-
-    def _key_version(value: str) -> tuple[int, Any]:  # helper scoped for dataset_versions
-        try:
-            return (0, Version(value))
-        except InvalidVersion:
-            return (1, value)
 
     @app.get(
         "/datasets/{dataset_id}/{dataset_version}",
