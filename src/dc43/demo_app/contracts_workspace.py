@@ -5,27 +5,27 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import Tuple
-
-from importlib import import_module
+from typing import Callable, Optional, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard
 
-contracts_package = import_module("dc43_contracts_app")
-contracts_server = import_module("dc43_contracts_app.server")
-
-configure_workspace = getattr(contracts_package, "configure_workspace")
-current_workspace = getattr(contracts_package, "current_workspace")
-
-_CONFIGURE_BACKEND = getattr(contracts_package, "configure_backend", None)
-if _CONFIGURE_BACKEND is None:  # pragma: no cover - legacy wheels
-    _CONFIGURE_BACKEND = getattr(contracts_server, "configure_backend", None)
-_INITIALISE_BACKEND = getattr(contracts_server, "_initialise_backend", None)
-
-refresh_dataset_aliases = getattr(contracts_server, "refresh_dataset_aliases")
-set_active_version = getattr(contracts_server, "set_active_version")
-
+from dc43_contracts_app import configure_workspace, current_workspace
+from dc43_contracts_app.server import (
+    configure_backend as _server_configure_backend,
+    refresh_dataset_aliases,
+    set_active_version,
+)
 from dc43_contracts_app.workspace import ContractsAppWorkspace, workspace_from_env
+
+try:  # pragma: no cover - import-time compatibility with older wheels
+    from dc43_contracts_app import configure_backend as _package_configure_backend
+except ImportError:  # pragma: no cover - attribute missing on legacy builds
+    _package_configure_backend = None  # type: ignore[assignment]
+
+if _package_configure_backend is not None:
+    _CONFIGURE_BACKEND: Optional[Callable[..., None]] = _package_configure_backend
+else:  # pragma: no cover - legacy behaviour
+    _CONFIGURE_BACKEND = _server_configure_backend
 
 from .scenarios import _DEFAULT_SLICE, _INVALID_SLICE
 
@@ -95,8 +95,6 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
             _CONFIGURE_BACKEND(base_url=backend_url)
         else:
             _CONFIGURE_BACKEND()
-    elif callable(_INITIALISE_BACKEND):  # pragma: no cover - compatibility
-        _INITIALISE_BACKEND(base_url=backend_url)
     elif backend_url:  # pragma: no cover - final fallback
         os.environ.setdefault("DC43_CONTRACTS_APP_BACKEND_URL", backend_url)
 
