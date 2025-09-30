@@ -170,6 +170,7 @@ def run() -> None:  # pragma: no cover - convenience runner
 
     env = os.environ.copy()
     env.setdefault("DC43_CONTRACT_STORE", str(contracts_server.CONTRACT_DIR))
+    env.setdefault("DC43_DEMO_WORK_DIR", str(contracts_server.WORK_DIR))
 
     backend_cmd = [
         sys.executable,
@@ -202,6 +203,7 @@ def run() -> None:  # pragma: no cover - convenience runner
     if configured_contracts_url is None:
         contract_env = env.copy()
         contract_env["DC43_DEMO_BACKEND_URL"] = backend_url
+        contract_env.setdefault("DC43_DEMO_WORK_DIR", str(contracts_server.WORK_DIR))
 
         contract_cmd = [
             sys.executable,

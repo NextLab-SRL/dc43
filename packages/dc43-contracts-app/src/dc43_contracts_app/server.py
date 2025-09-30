@@ -100,7 +100,29 @@ def _spark_session() -> Any:
 
 BASE_DIR = Path(__file__).resolve().parent
 SAMPLE_DIR = BASE_DIR / "demo_data"
-WORK_DIR = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
+
+
+def _initialise_work_dir() -> Path:
+    """Return the workspace directory for demo assets.
+
+    The workspace is shared across all demo processes via the
+    ``DC43_DEMO_WORK_DIR`` environment variable so that the backend, contracts
+    app and pipeline UI operate on the same filesystem view. When unset a fresh
+    temporary directory is created for the current run.
+    """
+
+    work_dir_env = os.getenv("DC43_DEMO_WORK_DIR")
+    if work_dir_env:
+        work_dir = Path(work_dir_env).expanduser()
+        work_dir.mkdir(parents=True, exist_ok=True)
+        return work_dir
+
+    work_dir = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
+    os.environ.setdefault("DC43_DEMO_WORK_DIR", str(work_dir))
+    return work_dir
+
+
+WORK_DIR = _initialise_work_dir()
 if not os.getenv("SHOW_WORK_DIR") == "false":
     print(f"The working dir for the demo is: {WORK_DIR}")
     import subprocess, sys
@@ -113,9 +135,13 @@ DATASETS_FILE = RECORDS_DIR / "datasets.json"
 DQ_STATUS_DIR = RECORDS_DIR / "dq_state" / "status"
 
 # Copy sample data and records into a temporary working directory so the
-# application operates on absolute paths that are isolated per run.
-shutil.copytree(SAMPLE_DIR / "data", DATA_DIR)
-shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
+# application operates on absolute paths that are isolated per run. When the
+# workspace already exists (for example in child processes spawned by the
+# demo runner) the copy is skipped to avoid clobbering the shared state.
+if not DATA_DIR.exists():
+    shutil.copytree(SAMPLE_DIR / "data", DATA_DIR)
+if not RECORDS_DIR.exists():
+    shutil.copytree(SAMPLE_DIR / "records", RECORDS_DIR)
 
 
 _VERSION_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}(?:T[^_]+Z)?")
