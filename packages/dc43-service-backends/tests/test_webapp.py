@@ -40,6 +40,16 @@ def test_create_app_uses_environment(tmp_path):
     assert response.status_code == 404
 
 
+def test_root_redirects_to_docs(tmp_path):
+    app = _reload_webapp(tmp_path, token=None)
+    client = TestClient(app)
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code in {302, 307}
+    assert response.headers["location"] in {app.docs_url, app.openapi_url}
+
+
 def test_authentication_dependency(tmp_path):
     app = _reload_webapp(tmp_path, token="secret-token")
 
