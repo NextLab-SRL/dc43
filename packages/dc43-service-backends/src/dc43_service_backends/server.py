@@ -6,6 +6,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 try:  # pragma: no cover - import guard exercised in packaging contexts
     from fastapi import APIRouter, FastAPI, HTTPException, Response
+    from fastapi.responses import RedirectResponse
     from fastapi.encoders import jsonable_encoder
 except ModuleNotFoundError as exc:  # pragma: no cover - raised when optional deps missing
     raise ModuleNotFoundError(
@@ -107,6 +108,16 @@ def build_app(
     app = FastAPI(title="dc43 service backends")
     router_dependencies = list(dependencies) if dependencies else None
     router = APIRouter(dependencies=router_dependencies)
+
+    @app.get("/", include_in_schema=False)
+    def docs_redirect() -> Response:
+        """Expose the interactive API documentation at the application root."""
+
+        if app.docs_url:
+            return RedirectResponse(url=app.docs_url)
+        if app.openapi_url:
+            return RedirectResponse(url=app.openapi_url)
+        return Response(status_code=204)
 
     # ------------------------------------------------------------------
     # Contract service endpoints
