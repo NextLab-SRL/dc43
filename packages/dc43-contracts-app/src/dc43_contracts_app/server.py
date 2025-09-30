@@ -102,8 +102,8 @@ BASE_DIR = Path(__file__).resolve().parent
 SAMPLE_DIR = BASE_DIR / "demo_data"
 
 
-def _initialise_work_dir() -> Path:
-    """Return the workspace directory for demo assets.
+def _initialise_work_dir() -> tuple[Path, bool]:
+    """Return the workspace directory for demo assets and whether it is new.
 
     The workspace is shared across all demo processes via the
     ``DC43_DEMO_WORK_DIR`` environment variable so that the backend, contracts
@@ -115,19 +115,23 @@ def _initialise_work_dir() -> Path:
     if work_dir_env:
         work_dir = Path(work_dir_env).expanduser()
         work_dir.mkdir(parents=True, exist_ok=True)
-        return work_dir
+        return work_dir, False
 
     work_dir = Path(tempfile.mkdtemp(prefix="dc43_demo_"))
     os.environ.setdefault("DC43_DEMO_WORK_DIR", str(work_dir))
-    return work_dir
+    return work_dir, True
 
 
-WORK_DIR = _initialise_work_dir()
-if not os.getenv("SHOW_WORK_DIR") == "false":
-    print(f"The working dir for the demo is: {WORK_DIR}")
-    import subprocess, sys
-    if sys.platform == "darwin":
-        subprocess.run(["open", WORK_DIR])
+WORK_DIR, WORK_DIR_CREATED = _initialise_work_dir()
+if os.getenv("SHOW_WORK_DIR") != "false":
+    if WORK_DIR_CREATED:
+        print(f"The working dir for the demo is: {WORK_DIR}")
+        import subprocess, sys
+
+        if sys.platform == "darwin":
+            subprocess.run(["open", WORK_DIR])
+    else:
+        print(f"Reusing demo working dir: {WORK_DIR}")
 CONTRACT_DIR = WORK_DIR / "contracts"
 DATA_DIR = WORK_DIR / "data"
 RECORDS_DIR = WORK_DIR / "records"
