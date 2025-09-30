@@ -13,6 +13,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
     ) from exc
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+from dc43_service_clients._http_sync import ensure_response, close_client
 from .interface import ContractServiceClient
 
 
@@ -23,7 +24,7 @@ class RemoteContractServiceClient(ContractServiceClient):
         self,
         *,
         base_url: str = "http://localhost:8000",
-        client: httpx.Client | None = None,
+        client: httpx.Client | httpx.AsyncClient | None = None,
         transport: httpx.BaseTransport | None = None,
         headers: Mapping[str, str] | None = None,
         auth: httpx.Auth | tuple[str, str] | None = None,
@@ -55,7 +56,7 @@ class RemoteContractServiceClient(ContractServiceClient):
 
     def close(self) -> None:
         if self._owns_client:
-            self._client.close()
+            close_client(self._client)
 
     def _request_path(self, path: str) -> str:
         if self._base_url and not path.startswith("http"):
@@ -63,21 +64,27 @@ class RemoteContractServiceClient(ContractServiceClient):
         return path
 
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
-        response = self._client.get(
-            self._request_path(f"/contracts/{contract_id}/versions/{contract_version}"),
+        response = ensure_response(
+            self._client.get(
+                self._request_path(f"/contracts/{contract_id}/versions/{contract_version}"),
+            )
         )
         response.raise_for_status()
         return OpenDataContractStandard.model_validate(response.json())
 
     def latest(self, contract_id: str) -> Optional[OpenDataContractStandard]:
-        response = self._client.get(self._request_path(f"/contracts/{contract_id}/latest"))
+        response = ensure_response(
+            self._client.get(self._request_path(f"/contracts/{contract_id}/latest"))
+        )
         if response.status_code == 404:
             return None
         response.raise_for_status()
         return OpenDataContractStandard.model_validate(response.json())
 
     def list_versions(self, contract_id: str) -> Sequence[str]:
-        response = self._client.get(self._request_path(f"/contracts/{contract_id}/versions"))
+        response = ensure_response(
+            self._client.get(self._request_path(f"/contracts/{contract_id}/versions"))
+        )
         response.raise_for_status()
         payload = response.json()
         if isinstance(payload, list):
@@ -92,14 +99,16 @@ class RemoteContractServiceClient(ContractServiceClient):
         contract_id: str,
         contract_version: str,
     ) -> None:
-        response = self._client.post(
-            self._request_path("/contracts/link"),
-            json={
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-                "contract_id": contract_id,
-                "contract_version": contract_version,
-            },
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/contracts/link"),
+                json={
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                },
+            )
         )
         response.raise_for_status()
 
@@ -110,9 +119,11 @@ class RemoteContractServiceClient(ContractServiceClient):
         dataset_version: Optional[str] = None,
     ) -> Optional[str]:
         params = {"dataset_version": dataset_version} if dataset_version is not None else None
-        response = self._client.get(
-            self._request_path(f"/contracts/datasets/{dataset_id}/linked"),
-            params=params,
+        response = ensure_response(
+            self._client.get(
+                self._request_path(f"/contracts/datasets/{dataset_id}/linked"),
+                params=params,
+            )
         )
         if response.status_code == 404:
             return None

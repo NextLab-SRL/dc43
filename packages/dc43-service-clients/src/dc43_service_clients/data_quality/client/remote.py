@@ -13,6 +13,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover
     ) from exc
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+from dc43_service_clients._http_sync import ensure_response, close_client
 from dc43_service_clients.data_quality.models import ObservationPayload, ValidationResult
 from dc43_service_clients.data_quality.transport import (
     decode_validation_result,
@@ -28,7 +29,7 @@ class RemoteDataQualityServiceClient(DataQualityServiceClient):
         self,
         *,
         base_url: str = "http://localhost:8000",
-        client: httpx.Client | None = None,
+        client: httpx.Client | httpx.AsyncClient | None = None,
         transport: httpx.BaseTransport | None = None,
         headers: Mapping[str, str] | None = None,
         auth: httpx.Auth | tuple[str, str] | None = None,
@@ -60,7 +61,7 @@ class RemoteDataQualityServiceClient(DataQualityServiceClient):
 
     def close(self) -> None:
         if self._owns_client:
-            self._client.close()
+            close_client(self._client)
 
     def _request_path(self, path: str) -> str:
         if self._base_url and not path.startswith("http"):
@@ -73,12 +74,14 @@ class RemoteDataQualityServiceClient(DataQualityServiceClient):
         contract: OpenDataContractStandard,
         payload: ObservationPayload,
     ) -> ValidationResult:
-        response = self._client.post(
-            self._request_path("/data-quality/evaluate"),
-            json={
-                "contract": contract.model_dump(by_alias=True, exclude_none=True),
-                "payload": encode_observation_payload(payload),
-            },
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/data-quality/evaluate"),
+                json={
+                    "contract": contract.model_dump(by_alias=True, exclude_none=True),
+                    "payload": encode_observation_payload(payload),
+                },
+            )
         )
         response.raise_for_status()
         return decode_validation_result(response.json()) or ValidationResult()
@@ -88,9 +91,11 @@ class RemoteDataQualityServiceClient(DataQualityServiceClient):
         *,
         contract: OpenDataContractStandard,
     ) -> list[dict[str, object]]:
-        response = self._client.post(
-            self._request_path("/data-quality/expectations"),
-            json={"contract": contract.model_dump(by_alias=True, exclude_none=True)},
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/data-quality/expectations"),
+                json={"contract": contract.model_dump(by_alias=True, exclude_none=True)},
+            )
         )
         response.raise_for_status()
         payload = response.json()
