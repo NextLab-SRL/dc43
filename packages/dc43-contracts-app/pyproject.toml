@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dc43-contracts-app"
+version = "0.8.0.0"
+description = "FastAPI portal for browsing and editing DC43 contracts and datasets"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Andy Petrella" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "dc43-service-clients>=0.8.0.0",
+  "dc43-service-backends>=0.8.0.0",
+  "fastapi>=0.118.0",
+  "jinja2>=3.1.0",
+  "python-multipart>=0.0.5",
+  "httpx>=0.24",
+]
+
+[project.optional-dependencies]
+spark = ["dc43-integrations[spark]>=0.8.0.0"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dc43_contracts_app*"]
+
+[tool.setuptools.package-data]
+"dc43_contracts_app" = [
+  "demo_data/**/*",
+  "static/**/*",
+  "templates/**/*",
+]

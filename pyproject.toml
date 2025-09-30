@@ -38,11 +38,6 @@ exclude = [
   "static/**/*",
   "templates/**/*",
 ]
-"dc43.contracts_app" = [
-  "demo_data/**/*",
-  "static/**/*",
-  "templates/**/*",
-]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

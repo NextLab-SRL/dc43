@@ -19,14 +19,16 @@ if [[ "$install_deps" == true ]]; then
     python -m pip install -e "packages/dc43-service-clients[http]"
     python -m pip install -e "packages/dc43-service-backends[http]"
     python -m pip install -e "packages/dc43-integrations"
+    python -m pip install -e "packages/dc43-contracts-app[spark]"
     python -m pip install -e ".[test]"
 fi
 
 pytest_targets=(
-  packages/dc43-service-clients/tests
-  packages/dc43-service-backends/tests
-  packages/dc43-integrations/tests
-  tests
+    packages/dc43-service-clients/tests
+    packages/dc43-service-backends/tests
+    packages/dc43-integrations/tests
+    packages/dc43-contracts-app/tests
+    tests
 )
 
 pytest_cmd=(pytest -q)

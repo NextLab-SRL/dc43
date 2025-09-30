@@ -17,6 +17,7 @@ _INTERNAL_DEPENDENCIES = [
     "dc43-service-clients",
     "dc43-service-backends",
     "dc43-integrations",
+    "dc43-contracts-app",
 ]
 
 _PACKAGE_VERSIONS = load_versions(_INTERNAL_DEPENDENCIES)
@@ -41,12 +42,14 @@ extras_require = {
         "jinja2",
         "python-multipart",
         "httpx",
+        f"dc43-contracts-app[spark]=={_PACKAGE_VERSIONS['dc43-contracts-app']}",
     ],
     "demo": [
         "fastapi",
         "uvicorn",
         "jinja2",
         "python-multipart",
+        f"dc43-contracts-app[spark]=={_PACKAGE_VERSIONS['dc43-contracts-app']}",
         f"dc43-integrations[spark]=={_PACKAGE_VERSIONS['dc43-integrations']}",
     ],
 }

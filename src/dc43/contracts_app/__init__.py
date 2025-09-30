@@ -1,25 +1,19 @@
-"""Contract management web application components for DC43."""
+"""Compatibility wrapper for the external contracts app package."""
 
-from .server import (
-    SCENARIOS,
-    DatasetRecord,
-    app,
-    create_app,
-    load_records,
-    queue_flash,
-    save_records,
-    scenario_run_rows,
-    store,
-)
+from __future__ import annotations
 
-__all__ = [
-    "SCENARIOS",
-    "DatasetRecord",
-    "app",
-    "create_app",
-    "load_records",
-    "queue_flash",
-    "save_records",
-    "scenario_run_rows",
-    "store",
-]
+from importlib import import_module
+import sys
+from types import ModuleType
+
+
+def _load_server() -> ModuleType:
+    """Import and return the contracts app server module."""
+
+    module = import_module("dc43_contracts_app.server")
+    sys.modules.setdefault(__name__ + ".server", module)
+    return module
+
+
+server = _load_server()
+__all__ = ["server"]

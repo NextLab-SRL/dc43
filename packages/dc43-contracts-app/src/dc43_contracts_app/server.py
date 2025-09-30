@@ -53,8 +53,8 @@ from dc43_service_backends.web import build_local_app
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
-from dc43.odcs import custom_properties_dict, normalise_custom_properties
-from dc43.versioning import SemVer
+from ._odcs import custom_properties_dict, normalise_custom_properties
+from ._versioning import SemVer
 from open_data_contract_standard.model import (
     CustomProperty,
     DataQuality,
