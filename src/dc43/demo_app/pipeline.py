@@ -11,18 +11,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
-from dc43.demo_app.server import (
-    store,
+from dc43.contracts_app.server import (
     DATASETS_FILE,
     DATA_DIR,
     DatasetRecord,
-    load_records,
-    save_records,
-    set_active_version,
-    register_dataset_version,
     contract_service,
     dq_service,
     governance_service,
+    load_records,
+    register_dataset_version,
+    save_records,
+    set_active_version,
+    store,
 )
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,

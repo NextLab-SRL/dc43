@@ -35,6 +35,10 @@ exclude = [
 
 [tool.setuptools.package-data]
 "dc43.demo_app" = [
+  "static/**/*",
+  "templates/**/*",
+]
+"dc43.contracts_app" = [
   "demo_data/**/*",
   "static/**/*",
   "templates/**/*",
