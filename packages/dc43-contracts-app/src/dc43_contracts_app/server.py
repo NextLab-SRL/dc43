@@ -36,6 +36,7 @@ import json
 import os
 import re
 import shutil
+import textwrap
 from datetime import datetime
 from collections import Counter
 
@@ -1202,6 +1203,579 @@ def contract_to_dict(c: OpenDataContractStandard) -> Dict[str, Any]:
         return c.dict(by_alias=True, exclude_none=True)  # type: ignore[call-arg]
 
 
+def _flatten_schema_entries(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:
+    """Return a flattened list of schema properties for UI displays."""
+
+    entries: List[Dict[str, Any]] = []
+    for obj in getattr(contract, "schema_", None) or []:
+        object_name = str(getattr(obj, "name", "") or "")
+        prefix = f"{object_name}." if object_name else ""
+        for prop in getattr(obj, "properties", None) or []:
+            field_name = str(getattr(prop, "name", "") or "")
+            full_name = f"{prefix}{field_name}".strip(".")
+            entries.append(
+                {
+                    "field": full_name,
+                    "object": object_name,
+                    "name": field_name,
+                    "physicalType": getattr(prop, "physicalType", "") or "",
+                    "logicalType": getattr(prop, "logicalType", "") or "",
+                    "required": bool(getattr(prop, "required", False)),
+                    "description": getattr(prop, "description", "") or "",
+                    "businessName": getattr(prop, "businessName", "") or "",
+                }
+            )
+    return entries
+
+
+def _integration_catalog() -> List[Dict[str, Any]]:
+    """Return basic metadata for all stored contracts."""
+
+    catalog: List[Dict[str, Any]] = []
+    for cid in sorted(store.list_contracts()):
+        try:
+            versions = store.list_versions(cid)
+        except FileNotFoundError:
+            continue
+        sorted_versions = _sorted_versions(versions)
+        if not sorted_versions:
+            continue
+        latest_contract: Optional[OpenDataContractStandard] = None
+        for version in reversed(sorted_versions):
+            try:
+                latest_contract = store.get(cid, version)
+                break
+            except FileNotFoundError:
+                continue
+        description = ""
+        status = ""
+        name = ""
+        if latest_contract is not None:
+            name = getattr(latest_contract, "name", "") or ""
+            if getattr(latest_contract, "description", None):
+                description = getattr(latest_contract.description, "usage", "") or ""
+            status = getattr(latest_contract, "status", "") or ""
+        catalog.append(
+            {
+                "id": cid,
+                "name": name or cid,
+                "description": description,
+                "versions": sorted_versions,
+                "latestVersion": sorted_versions[-1],
+                "status": status,
+            }
+        )
+    return catalog
+
+
+@dataclass
+class IntegrationContractContext:
+    """Container storing contract objects alongside serialized metadata."""
+
+    contract: OpenDataContractStandard
+    summary: Dict[str, Any]
+
+
+async def _load_integration_contract(cid: str, ver: str) -> IntegrationContractContext:
+    """Return the contract and summary information for helper endpoints."""
+
+    try:
+        contract = store.get(cid, ver)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    expectations = await _expectation_predicates(contract)
+    server_info = _server_details(contract)
+    description = ""
+    if getattr(contract, "description", None):
+        description = getattr(contract.description, "usage", "") or ""
+    schema_entries = _flatten_schema_entries(contract)
+    summary: Dict[str, Any] = {
+        "id": cid,
+        "version": ver,
+        "name": getattr(contract, "name", "") or cid,
+        "description": description,
+        "server": jsonable_encoder(server_info) if server_info else None,
+        "expectations": expectations,
+        "schemaEntries": schema_entries,
+        "fieldCount": len(schema_entries),
+        "datasetId": (server_info.get("dataset_id") if server_info else contract.id or cid),
+    }
+    return IntegrationContractContext(contract=contract, summary=summary)
+
+
+def _normalise_selection(entries: Iterable[Mapping[str, Any]]) -> List[Dict[str, str]]:
+    """Normalise payload selections into ``contract_id``/``version`` pairs."""
+
+    result: List[Dict[str, str]] = []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        cid = entry.get("contract_id") or entry.get("contractId") or entry.get("id")
+        ver = entry.get("version")
+        if not cid or not ver:
+            raise HTTPException(status_code=422, detail="contract_id and version are required")
+        result.append({"contract_id": str(cid), "version": str(ver)})
+    return result
+
+
+_IDENTIFIER_SANITISER = re.compile(r"[^0-9A-Za-z_]")
+
+
+def _sanitise_identifier(value: str, default: str) -> str:
+    """Return a Python identifier derived from ``value``."""
+
+    candidate = _IDENTIFIER_SANITISER.sub("_", value)
+    candidate = re.sub(r"_+", "_", candidate).strip("_")
+    if not candidate:
+        candidate = default
+    if candidate[0].isdigit():
+        candidate = f"{default}_{candidate}"
+    return candidate.lower()
+
+
+def _summarise_predicates(expectations: Mapping[str, str]) -> str:
+    """Return a human-friendly summary of SQL predicates."""
+
+    if not expectations:
+        return ""
+    parts = [f"{key}: {value}" for key, value in expectations.items()]
+    return textwrap.shorten("; ".join(parts), width=160, placeholder=" …")
+
+
+def _normalise_read_strategy(payload: Mapping[str, Any] | None) -> Dict[str, Any]:
+    """Validate and normalise the requested read strategy."""
+
+    raw_mode = (payload or {}).get("mode")
+    mode = str(raw_mode or "status").lower()
+    if mode not in {"status", "strict"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported read strategy: {mode}")
+    return {"mode": mode}
+
+
+def _normalise_write_strategy(payload: Mapping[str, Any] | None) -> Dict[str, Any]:
+    """Validate and normalise the requested write strategy."""
+
+    data = dict(payload or {})
+    mode_raw = data.get("mode")
+    mode = str(mode_raw or "split").lower()
+    if mode == "noop":
+        return {"mode": "noop"}
+
+    include_valid = bool(data.get("include_valid", True))
+    include_reject = bool(data.get("include_reject", True))
+    if not include_valid and not include_reject:
+        include_valid = True
+    if mode == "split":
+        return {
+            "mode": "split",
+            "include_valid": include_valid,
+            "include_reject": include_reject,
+        }
+    if mode == "strict":
+        return {
+            "mode": "strict",
+            "include_valid": include_valid,
+            "include_reject": include_reject,
+            "fail_on_warnings": bool(data.get("fail_on_warnings", False)),
+        }
+    raise HTTPException(status_code=400, detail=f"Unsupported write strategy: {mode}")
+
+
+def _spark_stub_for_selection(
+    inputs: List[Dict[str, str]],
+    outputs: List[Dict[str, str]],
+    context_map: Mapping[Tuple[str, str], IntegrationContractContext],
+    *,
+    read_strategy: Mapping[str, Any],
+    write_strategy: Mapping[str, Any],
+) -> str:
+    """Return a Spark pipeline stub tailored to the selected contracts."""
+
+    read_mode = str(read_strategy.get("mode") or "status").lower()
+    write_mode = str(write_strategy.get("mode") or "split").lower()
+
+    violation_imports: List[str] = []
+    if outputs:
+        if write_mode == "noop":
+            violation_imports.append("NoOpWriteViolationStrategy")
+        else:
+            violation_imports.append("SplitWriteViolationStrategy")
+            if write_mode == "strict":
+                violation_imports.append("StrictWriteViolationStrategy")
+
+    lines: List[str] = [
+        "from pyspark.sql import SparkSession",
+        "from dc43_integrations.spark.io import read_with_contract, write_with_contract",
+    ]
+    if violation_imports:
+        unique_violation_imports = ", ".join(dict.fromkeys(violation_imports))
+        lines.append(
+            "from dc43_integrations.spark.violation_strategy import "
+            + unique_violation_imports
+        )
+    lines.extend(
+        [
+            "from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient",
+            "from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient",
+            "from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient",
+            "",
+            "# Generated by the DC43 integration helper",
+            'BASE_URL = "http://dc43-services"',
+            "",
+            "contract_client = RemoteContractServiceClient(base_url=BASE_URL)",
+            "dq_client = RemoteDataQualityServiceClient(base_url=BASE_URL)",
+            "governance_client = RemoteGovernanceServiceClient(base_url=BASE_URL)",
+            "",
+            'spark = SparkSession.builder.appName("dc43-pipeline").getOrCreate()',
+        ]
+    )
+
+    if outputs:
+        lines.append("")
+        if write_mode == "noop":
+            lines.extend(
+                [
+                    "# NoOpWriteViolationStrategy keeps writes in a single target dataset.",
+                    "write_strategy = NoOpWriteViolationStrategy()",
+                ]
+            )
+        else:
+            include_valid = bool(write_strategy.get("include_valid", True))
+            include_reject = bool(write_strategy.get("include_reject", True))
+            include_valid_flag = "True" if include_valid else "False"
+            include_reject_flag = "True" if include_reject else "False"
+            lines.extend(
+                [
+                    "# SplitWriteViolationStrategy routes rows based on the contract predicates.",
+                    "split_strategy = SplitWriteViolationStrategy(",
+                    '    valid_suffix="valid",',
+                    '    reject_suffix="reject",',
+                    f"    include_valid={include_valid_flag},",
+                    f"    include_reject={include_reject_flag},",
+                    ")",
+                ]
+            )
+            if write_mode == "strict":
+                fail_on_warnings = bool(write_strategy.get("fail_on_warnings", False))
+                fail_flag = "True" if fail_on_warnings else "False"
+                lines.extend(
+                    [
+                        "",
+                        "# StrictWriteViolationStrategy escalates contract issues to failures.",
+                        "write_strategy = StrictWriteViolationStrategy(",
+                        "    base=split_strategy,",
+                        f"    fail_on_warnings={fail_flag},",
+                        ")",
+                    ]
+                )
+            else:
+                lines.extend(["", "write_strategy = split_strategy"])
+
+    input_vars: List[str] = []
+    for index, entry in enumerate(inputs, start=1):
+        key = (entry["contract_id"], entry["version"])
+        ctx = context_map[key]
+        summary = ctx.summary
+        server_raw = summary.get("server") or {}
+        server = dict(server_raw) if isinstance(server_raw, Mapping) else {}
+        location = server.get("path") or server.get("dataset")
+        fmt = server.get("format")
+        base_name = _sanitise_identifier(summary["id"], f"input{index}")
+        df_var = f"{base_name}_df"
+        status_var = f"{base_name}_status"
+        input_vars.append(df_var)
+
+        lines.extend(
+            [
+                "",
+                f"# Input: {summary['id']} {summary['version']} ({summary['datasetId']})",
+            ]
+        )
+        if location:
+            lines.append(f"#   Location: {location}")
+        if fmt:
+            lines.append(f"#   Format: {fmt}")
+        lines.extend(
+            [
+                f"{df_var}, {status_var} = read_with_contract(",
+                "    spark,",
+                f"    contract_id={summary['id']!r},",
+                f"    expected_contract_version=\"=={summary['version']}\",",
+                "    contract_service=contract_client,",
+                "    data_quality_service=dq_client,",
+            ]
+        )
+        if fmt:
+            lines.append(f"    format={fmt!r},")
+        if server.get("dataset"):
+            lines.append(f"    table={server['dataset']!r},")
+        lines.extend(
+            [
+                "    enforce=True,",
+                "    auto_cast=True,",
+                "    return_status=True,",
+                ")",
+                "",
+            ]
+        )
+        if read_mode == "strict":
+            lines.extend(
+                [
+                    f"if {status_var} and {status_var}.status != \"ok\":",
+                    "    raise RuntimeError(",
+                    f"        f\"{summary['id']} status: {{{status_var}.status}} {{{status_var}.reason or ''}}\"",
+                    "    )",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"if {status_var} and {status_var}.status != \"ok\":",
+                    f"    print(\"{summary['id']} status:\", {status_var}.status, {status_var}.reason or \"\")",
+                ]
+            )
+
+    if input_vars:
+        primary_df = input_vars[0]
+        lines.extend(
+            [
+                "",
+                "# TODO: implement business logic for the loaded dataframes",
+            ]
+        )
+        if len(input_vars) > 1:
+            lines.append("# Available inputs: " + ", ".join(input_vars))
+        lines.append(f"transformed_df = {primary_df}  # replace with your transformations")
+    else:
+        lines.extend(
+            [
+                "",
+                "# TODO: create a dataframe that matches the output contract schema",
+                "transformed_df = spark.createDataFrame([], schema=None)",
+            ]
+        )
+
+    for index, entry in enumerate(outputs, start=1):
+        key = (entry["contract_id"], entry["version"])
+        ctx = context_map[key]
+        summary = ctx.summary
+        server_raw = summary.get("server") or {}
+        server = dict(server_raw) if isinstance(server_raw, Mapping) else {}
+        fmt = server.get("format")
+        base_name = _sanitise_identifier(summary["id"], f"output{index}")
+        validation_var = f"{base_name}_validation"
+        status_var = f"{base_name}_status"
+        location = server.get("path") or server.get("dataset")
+
+        lines.extend(
+            [
+                "",
+                f"# Output: {summary['id']} {summary['version']} ({summary['datasetId']})",
+            ]
+        )
+        if location:
+            lines.append(f"#   Location: {location}")
+        if fmt:
+            lines.append(f"#   Format: {fmt}")
+        lines.extend(
+            [
+                f"{validation_var}, {status_var} = write_with_contract(",
+                "    df=transformed_df,  # TODO: replace with dataframe for this output",
+                f"    contract_id={summary['id']!r},",
+                f"    expected_contract_version=\"=={summary['version']}\",",
+                "    contract_service=contract_client,",
+                "    data_quality_service=dq_client,",
+                "    governance_service=governance_client,",
+            ]
+        )
+        if fmt:
+            lines.append(f"    format={fmt!r},")
+        if server.get("dataset"):
+            lines.append(f"    table={server['dataset']!r},")
+        lines.extend(
+            [
+                "    violation_strategy=write_strategy,",
+                "    return_status=True,",
+                ")",
+                "",
+                f"if {status_var}:",
+                f"    print(\"{summary['id']} governance status:\", {status_var}.status)",
+                f"print(\"{summary['id']} write validation ok:\", {validation_var}.ok)",
+            ]
+        )
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _read_strategy_notes(
+    selections: List[Dict[str, str]],
+    context_map: Mapping[Tuple[str, str], IntegrationContractContext],
+    strategy: Mapping[str, Any],
+) -> List[Dict[str, str]]:
+    """Describe how read strategies are applied for the helper UI."""
+
+    mode = str(strategy.get("mode") or "status").lower()
+    if mode == "strict":
+        intro = (
+            "read_with_contract(... return_status=True) enforces schema alignment and the stub "
+            "raises a RuntimeError whenever validation verdicts are not OK."
+        )
+    else:
+        intro = (
+            "read_with_contract(... return_status=True) enforces schema alignment and logs non-OK "
+            "statuses so orchestration can branch on data quality verdicts."
+        )
+    notes: List[Dict[str, str]] = [
+        {
+            "title": "Contract-aware reads",
+            "description": intro,
+        }
+    ]
+    for entry in selections:
+        key = (entry["contract_id"], entry["version"])
+        ctx = context_map[key]
+        summary = ctx.summary
+        server = summary.get("server") or {}
+        location = server.get("path") or server.get("dataset")
+        location_clause = f"Source location: {location}." if location else ""
+        predicate_summary = _summarise_predicates(summary.get("expectations") or {})
+        if predicate_summary:
+            predicate_clause = f"Valid if {predicate_summary}."
+        else:
+            predicate_clause = "Valid if the contract schema and recorded rules pass."
+        action_clause = (
+            "Validation failures raise RuntimeError so the pipeline stops."
+            if mode == "strict"
+            else "Validation verdicts are logged for orchestration decisions."
+        )
+        description = " ".join(
+            part for part in (location_clause, predicate_clause, action_clause) if part
+        )
+        notes.append(
+            {
+                "title": f"{summary['id']} {summary['version']} read",
+                "description": description,
+            }
+        )
+    return notes
+
+
+def _write_strategy_notes(
+    selections: List[Dict[str, str]],
+    context_map: Mapping[Tuple[str, str], IntegrationContractContext],
+    strategy: Mapping[str, Any],
+) -> List[Dict[str, str]]:
+    """Describe write strategies recommended for the helper UI."""
+
+    mode = str(strategy.get("mode") or "split").lower()
+    include_valid = bool(strategy.get("include_valid", True))
+    include_reject = bool(strategy.get("include_reject", True))
+    fail_on_warnings = bool(strategy.get("fail_on_warnings", False))
+
+    notes: List[Dict[str, str]] = [
+        {
+            "title": "Governance hand-off",
+            "description": (
+                "write_with_contract(... return_status=True) records validation results and relays "
+                "dataset versions to the governance client so each pipeline run is traceable."
+            ),
+        }
+    ]
+
+    if mode == "noop":
+        notes.append(
+            {
+                "title": "Primary dataset only",
+                "description": (
+                    "NoOpWriteViolationStrategy keeps all rows in the primary dataset while still "
+                    "capturing validation metadata."
+                ),
+            }
+        )
+    else:
+        if include_valid and include_reject:
+            split_desc = (
+                "SplitWriteViolationStrategy writes passing rows to '<dataset>::valid' and rejected "
+                "rows to '<dataset>::reject', preserving failed samples for triage."
+            )
+        elif include_valid:
+            split_desc = (
+                "SplitWriteViolationStrategy emits '<dataset>::valid' while violations stay with the "
+                "primary dataset for follow-up."
+            )
+        elif include_reject:
+            split_desc = (
+                "SplitWriteViolationStrategy routes violations to '<dataset>::reject' and keeps valid "
+                "rows in the primary dataset."
+            )
+        else:
+            split_desc = "SplitWriteViolationStrategy keeps the primary dataset intact."
+        description = split_desc
+        if mode == "strict":
+            strict_clause = " StrictWriteViolationStrategy raises when validation is not OK."
+            if fail_on_warnings:
+                strict_clause += " Warnings are treated as failures."
+            description += strict_clause
+        notes.append(
+            {
+                "title": "Split rejected rows" if mode == "split" else "Split & fail on violations",
+                "description": description,
+            }
+        )
+    for entry in selections:
+        key = (entry["contract_id"], entry["version"])
+        ctx = context_map[key]
+        summary = ctx.summary
+        dataset = summary.get("datasetId") or summary["id"]
+        predicate_summary = _summarise_predicates(summary.get("expectations") or {})
+        location = summary.get("server", {}).get("path") or summary.get("server", {}).get("dataset")
+        location_clause = f"Target location: {location}." if location else ""
+        if predicate_summary:
+            predicate_clause = f"Valid if {predicate_summary}."
+        else:
+            predicate_clause = "Valid if the contract schema passes."
+        if mode == "noop":
+            routing_clause = f"All rows remain in '{dataset}' while validation metadata is captured."
+        else:
+            valid_target = f"'{dataset}::valid'" if include_valid else None
+            reject_target = f"'{dataset}::reject'" if include_reject else None
+            if include_valid and include_reject:
+                routing_clause = (
+                    f"Rows meeting the predicates flow to {valid_target} while violations route to {reject_target}."
+                )
+            elif include_valid:
+                routing_clause = (
+                    f"Rows meeting the predicates flow to {valid_target}; violations stay with '{dataset}'."
+                )
+            elif include_reject:
+                routing_clause = (
+                    f"Violations route to {reject_target} while passing rows remain in '{dataset}'."
+                )
+            else:
+                routing_clause = f"Rows remain in '{dataset}'."
+        extra_clause = ""
+        if mode == "strict":
+            if fail_on_warnings:
+                extra_clause = " Validation errors or warnings raise RuntimeError so the run stops."
+            else:
+                extra_clause = " Validation errors raise RuntimeError so the run stops."
+        notes.append(
+            {
+                "title": f"{summary['id']} {summary['version']} write",
+                "description": " ".join(
+                    part
+                    for part in (
+                        location_clause,
+                        predicate_clause,
+                        routing_clause,
+                        extra_clause.strip(),
+                    )
+                    if part
+                ),
+            }
+        )
+    return notes
+
 @router.get("/api/contracts")
 async def api_contracts() -> List[Dict[str, Any]]:
     return load_contract_meta()
@@ -1339,9 +1913,100 @@ async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
     raise HTTPException(status_code=404, detail="Dataset not found")
 
 
+@router.get("/api/integration-helper/contracts")
+async def api_integration_contracts() -> Dict[str, Any]:
+    """Return catalog metadata for the integration helper UI."""
+
+    return {"contracts": _integration_catalog()}
+
+
+@router.get("/api/integration-helper/contracts/{cid}/{ver}")
+async def api_integration_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
+    """Return contract details enriched for the integration helper."""
+
+    context = await _load_integration_contract(cid, ver)
+    return {
+        "contract": contract_to_dict(context.contract),
+        "summary": jsonable_encoder(context.summary),
+    }
+
+
+@router.post("/api/integration-helper/stub")
+async def api_integration_stub(request: Request) -> Dict[str, Any]:
+    """Return a generated stub and strategy notes for an integration selection."""
+
+    payload = await request.json()
+    integration = str(payload.get("integration") or "spark").lower()
+    if integration != "spark":
+        raise HTTPException(status_code=400, detail=f"Unsupported integration: {integration}")
+
+    inputs = _normalise_selection(payload.get("inputs") or [])
+    outputs = _normalise_selection(payload.get("outputs") or [])
+    if not inputs:
+        raise HTTPException(status_code=422, detail="At least one input contract is required")
+    if not outputs:
+        raise HTTPException(status_code=422, detail="At least one output contract is required")
+
+    read_strategy = _normalise_read_strategy(payload.get("read_strategy") or {})
+    write_strategy = _normalise_write_strategy(payload.get("write_strategy") or {})
+
+    context_map: Dict[Tuple[str, str], IntegrationContractContext] = {}
+    for entry in inputs + outputs:
+        key = (entry["contract_id"], entry["version"])
+        if key not in context_map:
+            context_map[key] = await _load_integration_contract(*key)
+
+    stub_text = _spark_stub_for_selection(
+        inputs,
+        outputs,
+        context_map,
+        read_strategy=read_strategy,
+        write_strategy=write_strategy,
+    )
+    read_notes = _read_strategy_notes(inputs, context_map, read_strategy)
+    write_notes = _write_strategy_notes(outputs, context_map, write_strategy)
+
+    return {
+        "integration": integration,
+        "stub": stub_text,
+        "strategies": {
+            "read": read_notes,
+            "write": write_notes,
+        },
+        "selected_strategies": {
+            "read": read_strategy,
+            "write": write_strategy,
+        },
+        "contracts": {
+            "inputs": [
+                jsonable_encoder(context_map[(item["contract_id"], item["version"])].summary)
+                for item in inputs
+            ],
+            "outputs": [
+                jsonable_encoder(context_map[(item["contract_id"], item["version"])].summary)
+                for item in outputs
+            ],
+        },
+    }
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@router.get("/integration-helper", response_class=HTMLResponse)
+async def integration_helper(request: Request) -> HTMLResponse:
+    """Render the contract integration helper interface."""
+
+    context = {
+        "request": request,
+        "catalog": _integration_catalog(),
+        "integration_options": [
+            {"value": "spark", "label": "Spark (PySpark / Delta Lake)"},
+        ],
+    }
+    return templates.TemplateResponse("integration_helper.html", context)
 
 
 @router.get("/contracts", response_class=HTMLResponse)

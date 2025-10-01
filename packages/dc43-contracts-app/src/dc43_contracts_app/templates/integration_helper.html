@@ -1,0 +1,2929 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  body.integration-helper-page .container {
+    max-width: 100%;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+  .helper-layout {
+    min-height: 70vh;
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: minmax(19rem, 22rem) minmax(48rem, 1fr);
+    align-items: start;
+  }
+  .helper-main {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .helper-sidebar {
+    position: sticky;
+    top: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    max-height: calc(100vh - 6rem);
+    align-self: start;
+  }
+  .helper-panel .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .contract-search-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  #contractResults {
+    max-height: calc(100vh - 18rem);
+    overflow-y: auto;
+  }
+  .helper-pipeline .card-body {
+    gap: 1rem;
+  }
+  .helper-pipeline .pipeline-workspace {
+    flex: 1 1 auto;
+  }
+  .pipeline-wrapper {
+    min-height: 36rem;
+  }
+  .pipeline-canvas {
+    position: relative;
+    min-height: 36rem;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.03),
+        rgba(0, 0, 0, 0.03) 1px,
+        transparent 1px,
+        transparent 32px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        rgba(0, 0, 0, 0.03),
+        rgba(0, 0, 0, 0.03) 1px,
+        transparent 1px,
+        transparent 32px
+      );
+    border-radius: var(--bs-border-radius-lg);
+    border: 1px dashed rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+  }
+  .pipeline-workspace {
+    display: grid;
+    grid-template-columns: minmax(26rem, 1fr) minmax(19rem, 22rem);
+    align-items: stretch;
+    gap: 1.5rem;
+  }
+  .selection-panel {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    background: var(--bs-body-bg);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-height: calc(100vh - 14rem);
+    min-height: 16rem;
+    overflow-y: auto;
+  }
+  .selection-panel h3 {
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+  }
+  .selection-panel .selection-meta {
+    font-size: 0.85rem;
+    color: var(--bs-secondary-color);
+  }
+  .selection-panel .selection-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .selection-panel details {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.75rem 0.75rem 0;
+    background: rgba(var(--bs-primary-rgb), 0.03);
+  }
+  .selection-panel details > summary {
+    cursor: pointer;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .selection-panel details > summary::marker,
+  .selection-panel details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .selection-panel details > summary .chevron {
+    transition: transform 0.2s ease-in-out;
+  }
+  .selection-panel details[open] > summary .chevron {
+    transform: rotate(90deg);
+  }
+  .selection-panel .field-table-wrapper {
+    max-height: 14rem;
+    overflow-y: auto;
+    margin: 0 -0.75rem;
+    padding: 0 0.75rem 0.75rem;
+  }
+  .selection-empty {
+    text-align: center;
+    color: var(--bs-secondary-color);
+    margin-top: 2rem;
+    font-size: 0.9rem;
+  }
+  .pipeline-canvas.is-panning {
+    cursor: grabbing;
+  }
+  .pipeline-stage {
+    position: absolute;
+    inset: 0;
+    transform-origin: top left;
+    z-index: 2;
+  }
+  .pipeline-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--bs-secondary-color);
+    pointer-events: none;
+    padding: 2rem;
+  }
+  .pipeline-node {
+    position: absolute;
+    min-width: 18rem;
+    max-width: 22rem;
+    background: var(--bs-body-bg);
+    border-radius: var(--bs-border-radius-lg);
+    border: 1px solid var(--bs-border-color);
+    box-shadow: 0 0.25rem 0.75rem rgba(15, 23, 42, 0.15);
+    cursor: default;
+  }
+  .pipeline-node.is-selected {
+    border-color: rgba(var(--bs-primary-rgb), 0.9);
+    box-shadow: 0 0.5rem 1.25rem rgba(var(--bs-primary-rgb), 0.25);
+  }
+  .pipeline-node .node-header {
+    border-bottom: 1px solid var(--bs-border-color);
+    padding: 0.75rem 0.75rem 0.5rem;
+    cursor: grab;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    user-select: none;
+    touch-action: none;
+  }
+  .pipeline-node .node-header.is-dragging {
+    cursor: grabbing;
+  }
+  .pipeline-node .node-body {
+    padding: 0.75rem;
+  }
+  .pipeline-node .node-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .pipeline-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .pipeline-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .pipeline-controls .btn-group + .btn-group {
+    margin-left: 0.5rem;
+  }
+  .pipeline-zoom-indicator {
+    font-variant-numeric: tabular-nums;
+    min-width: 3.5rem;
+    text-align: right;
+    color: var(--bs-secondary-color);
+  }
+  .pipeline-status {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+    min-height: 1.25rem;
+  }
+  .pipeline-node .handle-input,
+  .pipeline-node .handle-output {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: var(--bs-primary);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.15);
+    cursor: grab;
+    z-index: 4;
+  }
+  .pipeline-node .handle-input {
+    left: -0.65rem;
+  }
+  .pipeline-node .handle-output {
+    right: -0.65rem;
+  }
+  .pipeline-node .handle-input::after,
+  .pipeline-node .handle-output::after {
+    content: "";
+  }
+  .pipeline-node .handle-input:hover,
+  .pipeline-node .handle-output:hover {
+    background: var(--bs-primary-dark, #0a58ca);
+  }
+  .pipeline-node .handle-input[data-role="drop"] {
+    background: var(--bs-success);
+    cursor: copy;
+  }
+  .pipeline-node .handle-output[data-role="start"] {
+    cursor: crosshair;
+  }
+  .pipeline-node .connector-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .connector-chip {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(var(--bs-primary-rgb), 0.03);
+    position: relative;
+  }
+  .connector-chip-output {
+    padding-right: 0.25rem;
+  }
+  .connector-chip-output .connector-anchor {
+    margin-left: auto;
+  }
+  .connector-chip .connector-anchor {
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 999px;
+    background: var(--bs-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.65rem;
+    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.15);
+  }
+  .connector-chip .connector-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 0.25rem;
+  }
+  .connector-empty {
+    padding: 0.5rem;
+    border: 1px dashed var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+    text-align: center;
+  }
+  .contract-node details {
+    margin-top: 0.5rem;
+  }
+  .contract-node summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .contract-node summary::marker,
+  .contract-node summary::-webkit-details-marker {
+    display: none;
+  }
+  .contract-node summary .chevron {
+    transition: transform 0.2s ease-in-out;
+  }
+  .contract-node details[open] summary .chevron {
+    transform: rotate(90deg);
+  }
+  .contract-node .field-list {
+    list-style: none;
+    padding-left: 1.25rem;
+    margin-bottom: 0;
+    max-height: 12rem;
+    overflow-y: auto;
+    font-size: 0.85rem;
+  }
+  .pipeline-connections {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .pipeline-connections path {
+    fill: none;
+    stroke: var(--bs-primary);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .pipeline-connections path[data-kind="output"] {
+    stroke: var(--bs-teal);
+  }
+  .transformation-summary {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    padding: 1rem;
+    background: rgba(var(--bs-primary-rgb), 0.02);
+  }
+  .transformation-summary + .transformation-summary {
+    margin-top: 1.5rem;
+  }
+  .transformation-config {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--bs-border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .transformation-config-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  }
+  .transformation-config .form-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    letter-spacing: 0.04em;
+  }
+  .transformation-config .form-select,
+  .transformation-config .form-check-input {
+    font-size: 0.875rem;
+  }
+  .transformation-config .strategy-description {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+    margin-top: 0.35rem;
+  }
+  .transformation-config .write-toggle-field {
+    display: none;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .transformation-config .write-toggle-field.is-visible {
+    display: flex;
+  }
+  .transformation-config .switch-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+  }
+  .strategy-section,
+  .code-section {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    background: var(--bs-body-bg);
+    margin-top: 1rem;
+    overflow: hidden;
+  }
+  .strategy-section summary,
+  .code-section summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+  }
+  .strategy-section summary::marker,
+  .strategy-section summary::-webkit-details-marker,
+  .code-section summary::marker,
+  .code-section summary::-webkit-details-marker {
+    display: none;
+  }
+  .strategy-section summary::after,
+  .code-section summary::after {
+    content: "\25BC";
+    font-size: 0.75rem;
+    transition: transform 0.2s ease-in-out;
+  }
+  .strategy-section[open] summary::after,
+  .code-section[open] summary::after {
+    transform: rotate(180deg);
+  }
+  .strategy-section .strategy-note-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .strategy-section .strategy-note-list li {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.75rem 1rem;
+    background: rgba(var(--bs-primary-rgb), 0.03);
+  }
+  .strategy-note-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+  .strategy-note-description {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+    line-height: 1.5;
+  }
+  .code-section .code-toolbar {
+    padding: 0 1rem 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+  }
+  .code-section pre {
+    margin: 0;
+    padding: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: #282c34;
+    border-radius: 0 0 var(--bs-border-radius-lg) var(--bs-border-radius-lg);
+    color: #abb2bf;
+  }
+  .code-section pre code {
+    font-size: 0.875rem;
+    color: inherit;
+    display: block;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", ui-monospace, monospace;
+  }
+  @media (max-width: 1400px) {
+    .helper-layout {
+      grid-template-columns: minmax(18rem, 20rem) minmax(32rem, 1fr);
+    }
+  }
+  @media (max-width: 991.98px) {
+    body.integration-helper-page .container {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+    .helper-layout {
+      grid-template-columns: 1fr;
+    }
+    .helper-main {
+      gap: 1.25rem;
+    }
+    .helper-sidebar {
+      position: static;
+      max-height: none;
+    }
+    #contractResults {
+      max-height: 20rem;
+    }
+    .pipeline-workspace {
+      grid-template-columns: 1fr;
+    }
+    .selection-panel {
+      max-height: none;
+    }
+  }
+</style>
+<div class="helper-layout align-items-start">
+  <div class="card shadow-sm helper-sidebar">
+    <div class="card-header border-bottom">
+      <h1 class="h5 mb-0">Integration helper</h1>
+    </div>
+    <div class="card-body contract-search-body">
+      <p class="text-muted small mb-0">
+        Search for contracts, drag them into the canvas, then connect them through transformation
+        nodes to build a lineage. Configure integrations per transformation and generate stubs tailored to the selected strategies.
+      </p>
+      <div>
+        <label for="contractSearch" class="form-label">Search contracts</label>
+        <input type="search" class="form-control" id="contractSearch" placeholder="Filter by id, name, version"/>
+      </div>
+      <div>
+        <h2 class="h6 text-uppercase text-muted mb-2">Results</h2>
+        <div id="contractResults" class="list-group"></div>
+        <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
+      </div>
+    </div>
+  </div>
+  <div class="helper-main">
+    <div class="card shadow-sm helper-panel helper-pipeline">
+      <div class="card-body">
+        <div class="d-flex flex-column gap-3">
+          <div class="d-flex flex-column gap-2">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+              <div>
+                <h2 class="h5 mb-1">Pipeline builder</h2>
+                <p class="text-muted small mb-0">Drag contracts and transformations to organise inputs and outputs.</p>
+              </div>
+              <div class="pipeline-toolbar">
+                <div class="pipeline-controls">
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Zoom controls">
+                    <button type="button" class="btn btn-outline-secondary" id="zoomOutBtn" title="Zoom out">&minus;</button>
+                    <button type="button" class="btn btn-outline-secondary" id="zoomInBtn" title="Zoom in">+</button>
+                  </div>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Viewport controls">
+                    <button type="button" class="btn btn-outline-secondary" id="fitViewBtn" title="Fit to contents">Fit</button>
+                    <button type="button" class="btn btn-outline-secondary" id="viewResetBtn" title="Reset view">Reset</button>
+                  </div>
+                  <span class="pipeline-zoom-indicator" id="zoomIndicator">100%</span>
+                </div>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Pipeline actions">
+                  <button type="button" class="btn btn-outline-secondary" id="screenshotBtn" title="Save pipeline snapshot">Snapshot</button>
+                  <button type="button" class="btn btn-outline-primary" id="addTransformationBtn">Add transform</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pipeline-workspace">
+            <div class="pipeline-wrapper">
+              <div class="pipeline-canvas" id="pipelineCanvas">
+                <div class="pipeline-stage" id="pipelineStage"></div>
+                <svg class="pipeline-connections" id="pipelineConnections"></svg>
+                <div class="pipeline-placeholder" id="pipelinePlaceholder">
+                  <div>
+                    <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
+                    <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <aside class="selection-panel" id="selectionPanel">
+              <div class="selection-empty">Select a contract or transformation to see its details.</div>
+            </aside>
+          </div>
+          <div class="pipeline-status" id="pipelineStatus"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card shadow-sm helper-panel helper-stubs">
+    <div class="card-body" id="transformationPanel">
+      <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+          <h2 class="h5 mb-1">Integration stubs</h2>
+          <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
+        </div>
+      </div>
+      <div id="transformationList" class="d-flex flex-column gap-3 flex-grow-1"></div>
+      <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
+    </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="contractPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title h5" id="contractPreviewTitle">Contract preview</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="contractPreviewBody" class="d-flex flex-column gap-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="transformationConfigModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title h5" id="transformationModalTitle">Configure transformation</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="transformationForm" class="needs-validation" novalidate>
+          <div class="mb-3">
+            <label for="transformationIntegration" class="form-label">Integration</label>
+            <select id="transformationIntegration" class="form-select"></select>
+          </div>
+          <div class="row g-4">
+            <div class="col-md-6">
+              <h3 class="h6 mb-2">Read strategy</h3>
+              <div id="transformationReadStrategies" class="list-group list-group-flush"></div>
+            </div>
+            <div class="col-md-6">
+              <h3 class="h6 mb-2">Write strategy</h3>
+              <div id="transformationWriteStrategies" class="list-group list-group-flush mb-3"></div>
+              <div id="transformationWriteToggles" class="vstack gap-2"></div>
+            </div>
+          </div>
+        </form>
+        <div class="alert alert-info small mt-3" id="transformationStrategyNotes"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="saveTransformationConfig">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const catalogData = {{ catalog | tojson }};
+  const integrationOptionsData = {{ integration_options | tojson }};
+
+  document.body.classList.add("integration-helper-page");
+
+  function createId(prefix) {
+    if (window.crypto && window.crypto.randomUUID) {
+      return `${prefix}-${window.crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  const READ_STRATEGY_OPTIONS = [
+    {
+      value: "status",
+      label: "Status aware",
+      description: "Log validation verdicts and let orchestration branch on return_status results.",
+    },
+    {
+      value: "strict",
+      label: "Strict failure",
+      description: "Raise runtime errors when validation verdicts are not OK.",
+    },
+  ];
+
+  const WRITE_STRATEGY_OPTIONS = [
+    {
+      value: "split",
+      label: "Split dataset",
+      description: "Route rows into valid/reject datasets based on predicates.",
+    },
+    {
+      value: "strict",
+      label: "Strict split",
+      description: "Escalate warnings to failures on top of the split strategy.",
+    },
+    {
+      value: "noop",
+      label: "No-op",
+      description: "Keep all rows in the target dataset while still publishing status.",
+    },
+  ];
+
+  const CODE_LANGUAGE_OPTIONS = [
+    { value: "python", label: "Python" },
+    { value: "scala", label: "Scala" },
+    { value: "sql", label: "SQL" },
+    { value: "java", label: "Java" },
+    { value: "plaintext", label: "Plain text" },
+  ];
+
+  let domToImagePromise = null;
+
+  const ZOOM_MIN = 0.35;
+  const ZOOM_MAX = 2;
+  const ZOOM_STEP = 0.15;
+  const VIEWPORT_PADDING = 96;
+
+  const contractCache = new Map();
+  const state = {
+    catalog: catalogData || [],
+    filter: "",
+    contractNodes: [],
+    transformations: [],
+    selection: null,
+    activePreview: null,
+    editingTransformationId: null,
+    activeConnection: null,
+    hoverHandle: null,
+    zoom: 1,
+    pan: { x: 0, y: 0 },
+    isPanning: false,
+    panPointerId: null,
+    panOrigin: { x: 0, y: 0 },
+    highlightWaiters: [],
+    highlightCheckScheduled: false,
+    screenshotStatusTimeout: null,
+  };
+
+  const dom = {
+    contractResults: document.getElementById("contractResults"),
+    contractResultsEmpty: document.getElementById("contractResultsEmpty"),
+    contractSearch: document.getElementById("contractSearch"),
+    pipelineCanvas: document.getElementById("pipelineCanvas"),
+    pipelineStage: document.getElementById("pipelineStage"),
+    pipelineConnections: document.getElementById("pipelineConnections"),
+    pipelinePlaceholder: document.getElementById("pipelinePlaceholder"),
+    addTransformationBtn: document.getElementById("addTransformationBtn"),
+    zoomOutBtn: document.getElementById("zoomOutBtn"),
+    zoomInBtn: document.getElementById("zoomInBtn"),
+    fitViewBtn: document.getElementById("fitViewBtn"),
+    viewResetBtn: document.getElementById("viewResetBtn"),
+    zoomIndicator: document.getElementById("zoomIndicator"),
+    screenshotBtn: document.getElementById("screenshotBtn"),
+    pipelineStatus: document.getElementById("pipelineStatus"),
+    selectionPanel: document.getElementById("selectionPanel"),
+    transformationList: document.getElementById("transformationList"),
+    transformationEmpty: document.getElementById("transformationEmpty"),
+    contractPreviewModal: document.getElementById("contractPreviewModal"),
+    contractPreviewBody: document.getElementById("contractPreviewBody"),
+    contractPreviewTitle: document.getElementById("contractPreviewTitle"),
+    transformationConfigModal: document.getElementById("transformationConfigModal"),
+    transformationIntegration: document.getElementById("transformationIntegration"),
+    transformationReadStrategies: document.getElementById("transformationReadStrategies"),
+    transformationWriteStrategies: document.getElementById("transformationWriteStrategies"),
+    transformationWriteToggles: document.getElementById("transformationWriteToggles"),
+    transformationStrategyNotes: document.getElementById("transformationStrategyNotes"),
+    saveTransformationConfig: document.getElementById("saveTransformationConfig"),
+  };
+
+  const bootstrapModal = {
+    preview: null,
+    transformation: null,
+  };
+
+  function ensureBootstrapModal(key) {
+    const lib = window.bootstrap;
+    if (!lib) {
+      return null;
+    }
+    if (key === "preview" && dom.contractPreviewModal) {
+      if (!bootstrapModal.preview) {
+        bootstrapModal.preview = lib.Modal.getOrCreateInstance(dom.contractPreviewModal);
+      }
+      return bootstrapModal.preview;
+    }
+    if (key === "transformation" && dom.transformationConfigModal) {
+      if (!bootstrapModal.transformation) {
+        bootstrapModal.transformation = lib.Modal.getOrCreateInstance(dom.transformationConfigModal);
+      }
+      return bootstrapModal.transformation;
+    }
+    return null;
+  }
+
+  function clampZoom(value) {
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+  }
+
+  function updateZoomControls() {
+    if (dom.zoomIndicator) {
+      dom.zoomIndicator.textContent = `${Math.round(state.zoom * 100)}%`;
+    }
+    if (dom.zoomOutBtn) {
+      dom.zoomOutBtn.disabled = state.zoom <= ZOOM_MIN + 0.01;
+    }
+    if (dom.zoomInBtn) {
+      dom.zoomInBtn.disabled = state.zoom >= ZOOM_MAX - 0.01;
+    }
+    if (dom.viewResetBtn) {
+      const panNearOrigin = Math.abs(state.pan.x) < 1 && Math.abs(state.pan.y) < 1;
+      dom.viewResetBtn.disabled = Math.abs(state.zoom - 1) < 0.01 && panNearOrigin;
+    }
+  }
+
+  function setPipelineStatus(message, tone = "muted", options = {}) {
+    if (!dom.pipelineStatus) {
+      return;
+    }
+    const duration = typeof options.duration === "number" ? options.duration : 2500;
+    dom.pipelineStatus.textContent = message || "";
+    dom.pipelineStatus.classList.remove("text-danger", "text-success", "text-muted");
+    const toneClass = tone === "danger" ? "text-danger" : tone === "success" ? "text-success" : "text-muted";
+    dom.pipelineStatus.classList.add(toneClass);
+    if (state.screenshotStatusTimeout) {
+      clearTimeout(state.screenshotStatusTimeout);
+      state.screenshotStatusTimeout = null;
+    }
+    if (message && duration > 0) {
+      state.screenshotStatusTimeout = setTimeout(() => {
+        dom.pipelineStatus.textContent = "";
+        dom.pipelineStatus.classList.remove("text-danger", "text-success");
+        dom.pipelineStatus.classList.add("text-muted");
+        state.screenshotStatusTimeout = null;
+      }, duration);
+    }
+  }
+
+  function applyViewport() {
+    if (dom.pipelineStage) {
+      dom.pipelineStage.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`;
+    }
+    updateZoomControls();
+    requestAnimationFrame(renderConnections);
+  }
+
+  function setPan(x, y) {
+    state.pan.x = x;
+    state.pan.y = y;
+    applyViewport();
+  }
+
+  function resetViewport() {
+    state.pan.x = 0;
+    state.pan.y = 0;
+    state.zoom = 1;
+    applyViewport();
+  }
+
+  function setZoom(value, options = {}) {
+    const clamped = clampZoom(value);
+    const anchor = options.anchor || null;
+    if (!dom.pipelineCanvas) {
+      state.zoom = clamped;
+      updateZoomControls();
+      return;
+    }
+    if (anchor) {
+      const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+      const relative = {
+        x: (anchor.x - canvasRect.left - state.pan.x) / state.zoom,
+        y: (anchor.y - canvasRect.top - state.pan.y) / state.zoom,
+      };
+      state.zoom = clamped;
+      state.pan.x = anchor.x - canvasRect.left - relative.x * state.zoom;
+      state.pan.y = anchor.y - canvasRect.top - relative.y * state.zoom;
+      applyViewport();
+      return;
+    }
+    if (Math.abs(clamped - state.zoom) < 0.001) {
+      state.zoom = clamped;
+      updateZoomControls();
+      return;
+    }
+    state.zoom = clamped;
+    applyViewport();
+  }
+
+  function escapeHtml(value) {
+    return (value ?? "")
+      .toString()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function integrationLabel(value) {
+    const found = (integrationOptionsData || []).find((item) => item.value === value);
+    return found ? found.label : value;
+  }
+
+  function integrationDefaultLanguage(value) {
+    switch ((value || "").toLowerCase()) {
+      case "spark":
+        return "python";
+      default:
+        return "plaintext";
+    }
+  }
+
+  function findContractNode(nodeId) {
+    return state.contractNodes.find((node) => node.id === nodeId) || null;
+  }
+
+  function findTransformation(transformationId) {
+    return state.transformations.find((item) => item.id === transformationId) || null;
+  }
+
+  function nodeSummary(node) {
+    if (!node || !node.summary) {
+      return { id: node?.contractId || "", version: node?.version || "" };
+    }
+    return node.summary;
+  }
+
+  function renderCatalogList() {
+    const query = state.filter.trim().toLowerCase();
+    const items = state.catalog.filter((item) => {
+      if (!query) {
+        return true;
+      }
+      const haystack = [item.id, item.name, item.description, item.status]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (haystack.includes(query)) {
+        return true;
+      }
+      return (item.versions || []).some((ver) => String(ver).toLowerCase().includes(query));
+    });
+
+    dom.contractResults.innerHTML = "";
+    dom.contractResultsEmpty.classList.toggle("d-none", items.length > 0);
+
+    items.forEach((item) => {
+      const group = document.createElement("div");
+      group.className = "list-group-item";
+      const latest = item.latestVersion || (item.versions || [])[0] || "";
+      const versionOptions = (item.versions || [])
+        .map((ver) => `<option value="${escapeHtml(ver)}" ${ver === latest ? "selected" : ""}>v${escapeHtml(ver)}</option>`)
+        .join("");
+      group.innerHTML = `
+        <div class="d-flex flex-column gap-2">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
+              <div class="small text-muted">${escapeHtml(item.id)}</div>
+              ${item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : ""}
+            </div>
+            <div class="text-end">
+              <select class="form-select form-select-sm" data-role="version-picker">${versionOptions}</select>
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
+            <button type="button" class="btn btn-primary btn-sm" data-action="add">Add to pipeline</button>
+          </div>
+        </div>
+      `;
+      const versionSelect = group.querySelector('[data-role="version-picker"]');
+      const previewButton = group.querySelector('[data-action="preview"]');
+      const addButton = group.querySelector('[data-action="add"]');
+      previewButton.addEventListener("click", () => {
+        const ver = versionSelect.value || latest;
+        previewContract(item.id, ver);
+      });
+      addButton.addEventListener("click", () => {
+        const ver = versionSelect.value || latest;
+        addContractToPipeline(item.id, ver);
+      });
+      dom.contractResults.appendChild(group);
+    });
+  }
+
+  function schemaListMarkup(entries) {
+    if (!entries || !entries.length) {
+      return '<li class="text-muted">No fields declared.</li>';
+    }
+    return entries
+      .slice(0, 20)
+      .map((entry) => {
+        const name = entry.field || entry.name || "";
+        const logical = entry.logicalType ? `${entry.logicalType}` : "";
+        const physical = entry.physicalType ? `${entry.physicalType}` : "";
+        const type = [logical, physical].filter(Boolean).join(" · ");
+        const requirement = entry.required ? "required" : "optional";
+        return `<li><code>${escapeHtml(name)}</code> <span class="text-muted">${escapeHtml(type)} · ${requirement}</span></li>`;
+      })
+      .join("");
+  }
+
+  function nodeFieldsMarkup(summary) {
+    const count = summary.fieldCount ?? (summary.schemaEntries ? summary.schemaEntries.length : 0) ?? 0;
+    const list = schemaListMarkup(summary.schemaEntries || []);
+    return `
+      <details>
+        <summary>
+          <span class="chevron">▸</span>
+          <span class="fw-semibold">Fields</span>
+          <span class="badge text-bg-light">${count} field${count === 1 ? "" : "s"}</span>
+        </summary>
+        <ul class="field-list">${list}</ul>
+      </details>
+    `;
+  }
+
+  function updateSelectionHighlight() {
+    if (!dom.pipelineStage) {
+      return;
+    }
+    const activeId = state.selection?.nodeId || null;
+    dom.pipelineStage.querySelectorAll(".pipeline-node").forEach((element) => {
+      element.classList.toggle("is-selected", element.dataset.nodeId === activeId);
+    });
+  }
+
+  function renderSelectionPanel() {
+    if (!dom.selectionPanel) {
+      return;
+    }
+    const panel = dom.selectionPanel;
+    panel.innerHTML = "";
+    const selection = state.selection;
+    let rendered = false;
+    if (selection?.kind === "contract") {
+      rendered = renderContractSelection(panel, selection.nodeId);
+    } else if (selection?.kind === "transformation") {
+      rendered = renderTransformationSelection(panel, selection.nodeId);
+    }
+    if (!rendered) {
+      panel.innerHTML = '<div class="selection-empty">Select a contract or transformation to see its details.</div>';
+    }
+    updateSelectionHighlight();
+  }
+
+  function setSelection(next) {
+    if (!next) {
+      state.selection = null;
+      renderSelectionPanel();
+      return;
+    }
+    if (next.kind === "contract" && !findContractNode(next.nodeId)) {
+      state.selection = null;
+      renderSelectionPanel();
+      return;
+    }
+    if (next.kind === "transformation" && !findTransformation(next.nodeId)) {
+      state.selection = null;
+      renderSelectionPanel();
+      return;
+    }
+    state.selection = { kind: next.kind, nodeId: next.nodeId };
+    renderSelectionPanel();
+  }
+
+  function ensureSelectionValid() {
+    if (!state.selection) {
+      renderSelectionPanel();
+      return;
+    }
+    const { kind, nodeId } = state.selection;
+    if ((kind === "contract" && !findContractNode(nodeId)) || (kind === "transformation" && !findTransformation(nodeId))) {
+      state.selection = null;
+    }
+    renderSelectionPanel();
+  }
+
+  function renderContractSelection(panel, nodeId) {
+    const node = findContractNode(nodeId);
+    if (!node) {
+      return false;
+    }
+    const summary = nodeSummary(node);
+    const heading = document.createElement("h3");
+    heading.textContent = summary.name || summary.id || node.contractId;
+    panel.appendChild(heading);
+
+    const meta = document.createElement("div");
+    meta.className = "selection-meta";
+    const metaBits = [`${node.contractId}`, `v${node.version}`];
+    if (summary.datasetId) {
+      metaBits.push(summary.datasetId);
+    }
+    meta.textContent = metaBits.join(" · ");
+    panel.appendChild(meta);
+
+    if (summary.description) {
+      const description = document.createElement("p");
+      description.className = "mb-0";
+      description.textContent = summary.description;
+      panel.appendChild(description);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "selection-actions";
+    const previewButton = document.createElement("button");
+    previewButton.type = "button";
+    previewButton.className = "btn btn-outline-primary btn-sm";
+    previewButton.textContent = "Preview";
+    previewButton.addEventListener("click", () => previewContract(node.contractId, node.version));
+    actions.appendChild(previewButton);
+
+    const focusButton = document.createElement("button");
+    focusButton.type = "button";
+    focusButton.className = "btn btn-outline-secondary btn-sm";
+    focusButton.textContent = "Focus";
+    focusButton.addEventListener("click", () => focusNode(node.id));
+    actions.appendChild(focusButton);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "btn btn-outline-danger btn-sm";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => removeContractNode(node.id));
+    actions.appendChild(removeButton);
+    panel.appendChild(actions);
+
+    if (summary.schemaEntries && summary.schemaEntries.length) {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = nodeFieldsMarkup(summary);
+      const details = wrapper.firstElementChild;
+      if (details) {
+        const badge = details.querySelector(".badge");
+        if (badge && summary.schemaEntries.length > 20) {
+          badge.textContent = `${summary.schemaEntries.length} fields (showing 20)`;
+        }
+        if (summary.schemaEntries.length <= 12) {
+          details.open = true;
+        }
+        panel.appendChild(details);
+      }
+    } else {
+      const emptySchema = document.createElement("div");
+      emptySchema.className = "text-muted small";
+      emptySchema.textContent = "No schema entries available.";
+      panel.appendChild(emptySchema);
+    }
+
+    if (summary.expectations && Object.keys(summary.expectations).length) {
+      const expectations = document.createElement("details");
+      expectations.open = false;
+      const summaryEl = document.createElement("summary");
+      summaryEl.innerHTML = '<span class="chevron">▸</span><span class="fw-semibold">Quality predicates</span>';
+      expectations.appendChild(summaryEl);
+      const list = document.createElement("ul");
+      list.className = "small mb-0";
+      Object.entries(summary.expectations).forEach(([name, predicate]) => {
+        const item = document.createElement("li");
+        const strong = document.createElement("span");
+        strong.className = "fw-semibold";
+        strong.textContent = name;
+        const code = document.createElement("code");
+        code.textContent = predicate;
+        item.appendChild(strong);
+        item.appendChild(document.createTextNode(": "));
+        item.appendChild(code);
+        list.appendChild(item);
+      });
+      const wrapper = document.createElement("div");
+      wrapper.className = "pb-3";
+      wrapper.appendChild(list);
+      expectations.appendChild(wrapper);
+      panel.appendChild(expectations);
+    }
+    return true;
+  }
+
+  function renderTransformationSelection(panel, transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return false;
+    }
+    const heading = document.createElement("h3");
+    heading.textContent = transformation.name;
+    panel.appendChild(heading);
+
+    const integrationMeta = document.createElement("div");
+    integrationMeta.className = "selection-meta";
+    integrationMeta.textContent = integrationLabel(transformation.integration);
+    panel.appendChild(integrationMeta);
+
+    const strategyMeta = document.createElement("div");
+    strategyMeta.className = "selection-meta";
+    const readLabel = READ_STRATEGY_OPTIONS.find((opt) => opt.value === transformation.readStrategy)?.label ||
+      transformation.readStrategy;
+    const writeLabel = WRITE_STRATEGY_OPTIONS.find((opt) => opt.value === transformation.writeStrategy.mode)?.label ||
+      transformation.writeStrategy.mode;
+    strategyMeta.textContent = `${readLabel} read · ${writeLabel} write`;
+    panel.appendChild(strategyMeta);
+
+    const status = document.createElement("div");
+    status.className = "selection-meta";
+    if (transformation.error) {
+      status.textContent = `Status: ${transformation.error}`;
+      status.classList.add("text-danger");
+    } else if (transformation.isGenerating) {
+      status.textContent = "Status: Generating stub…";
+    } else if (transformation.stub) {
+      status.textContent = "Status: Stub generated";
+      status.classList.add("text-success");
+    } else {
+      status.textContent = "Status: Awaiting generation";
+    }
+    panel.appendChild(status);
+
+    const actions = document.createElement("div");
+    actions.className = "selection-actions";
+    const configureButton = document.createElement("button");
+    configureButton.type = "button";
+    configureButton.className = "btn btn-outline-primary btn-sm";
+    configureButton.textContent = "Configure";
+    configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
+    actions.appendChild(configureButton);
+
+    const regenerateButton = document.createElement("button");
+    regenerateButton.type = "button";
+    regenerateButton.className = "btn btn-outline-secondary btn-sm";
+    regenerateButton.textContent = "Regenerate";
+    regenerateButton.addEventListener("click", () => generateTransformationStub(transformation.id, { auto: false }));
+    actions.appendChild(regenerateButton);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "btn btn-outline-danger btn-sm";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => removeTransformation(transformation.id));
+    actions.appendChild(removeButton);
+    panel.appendChild(actions);
+
+    const inputDetails = document.createElement("details");
+    inputDetails.open = true;
+    const inputSummary = document.createElement("summary");
+    inputSummary.innerHTML = '<span class="chevron">▸</span><span class="fw-semibold">Inputs</span>';
+    inputDetails.appendChild(inputSummary);
+    const inputList = document.createElement("ul");
+    inputList.className = "list-unstyled small mb-0";
+    if (transformation.inputs.length) {
+      transformation.inputs.forEach((conn) => {
+        const contractNode = findContractNode(conn.contractNodeId);
+        if (!contractNode) {
+          return;
+        }
+        const summary = nodeSummary(contractNode);
+        const item = document.createElement("li");
+        item.className = "d-flex justify-content-between align-items-center gap-2 py-1";
+        const label = document.createElement("div");
+        label.innerHTML = `<span class="fw-semibold">${escapeHtml(summary.id || contractNode.contractId)}</span> <span class="text-muted">v${escapeHtml(summary.version || contractNode.version)}</span>`;
+        item.appendChild(label);
+        const buttons = document.createElement("div");
+        buttons.className = "btn-group btn-group-sm";
+        const focusBtn = document.createElement("button");
+        focusBtn.type = "button";
+        focusBtn.className = "btn btn-outline-secondary";
+        focusBtn.textContent = "Focus";
+        focusBtn.addEventListener("click", () => {
+          setSelection({ kind: "contract", nodeId: contractNode.id });
+          focusNode(contractNode.id);
+        });
+        buttons.appendChild(focusBtn);
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn btn-outline-danger";
+        removeBtn.textContent = "Remove";
+        removeBtn.addEventListener("click", () => removeTransformationConnection(transformation.id, conn.id, "inputs"));
+        buttons.appendChild(removeBtn);
+        item.appendChild(buttons);
+        inputList.appendChild(item);
+      });
+    } else {
+      const empty = document.createElement("li");
+      empty.className = "text-muted";
+      empty.textContent = "No inputs linked.";
+      inputList.appendChild(empty);
+    }
+    inputDetails.appendChild(inputList);
+    panel.appendChild(inputDetails);
+
+    const outputDetails = document.createElement("details");
+    outputDetails.open = true;
+    const outputSummary = document.createElement("summary");
+    outputSummary.innerHTML = '<span class="chevron">▸</span><span class="fw-semibold">Outputs</span>';
+    outputDetails.appendChild(outputSummary);
+    const outputList = document.createElement("ul");
+    outputList.className = "list-unstyled small mb-0";
+    if (transformation.outputs.length) {
+      transformation.outputs.forEach((conn) => {
+        const contractNode = findContractNode(conn.contractNodeId);
+        if (!contractNode) {
+          return;
+        }
+        const summary = nodeSummary(contractNode);
+        const item = document.createElement("li");
+        item.className = "d-flex justify-content-between align-items-center gap-2 py-1";
+        const label = document.createElement("div");
+        label.innerHTML = `<span class="fw-semibold">${escapeHtml(summary.id || contractNode.contractId)}</span> <span class="text-muted">v${escapeHtml(summary.version || contractNode.version)}</span>`;
+        item.appendChild(label);
+        const buttons = document.createElement("div");
+        buttons.className = "btn-group btn-group-sm";
+        const focusBtn = document.createElement("button");
+        focusBtn.type = "button";
+        focusBtn.className = "btn btn-outline-secondary";
+        focusBtn.textContent = "Focus";
+        focusBtn.addEventListener("click", () => {
+          setSelection({ kind: "contract", nodeId: contractNode.id });
+          focusNode(contractNode.id);
+        });
+        buttons.appendChild(focusBtn);
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn btn-outline-danger";
+        removeBtn.textContent = "Remove";
+        removeBtn.addEventListener("click", () => removeTransformationConnection(transformation.id, conn.id, "outputs"));
+        buttons.appendChild(removeBtn);
+        item.appendChild(buttons);
+        outputList.appendChild(item);
+      });
+    } else {
+      const empty = document.createElement("li");
+      empty.className = "text-muted";
+      empty.textContent = "No outputs linked.";
+      outputList.appendChild(empty);
+    }
+    outputDetails.appendChild(outputList);
+    panel.appendChild(outputDetails);
+
+    if (transformation.strategies) {
+      const sections = [];
+      if (transformation.strategies.read && transformation.strategies.read.length) {
+        sections.push(buildStrategySection("Read guidance", transformation.strategies.read));
+      }
+      if (transformation.strategies.write && transformation.strategies.write.length) {
+        sections.push(buildStrategySection("Write guidance", transformation.strategies.write));
+      }
+      if (sections.length) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "d-flex flex-column gap-2";
+        wrapper.innerHTML = sections.join("");
+        panel.appendChild(wrapper);
+      }
+    }
+    return true;
+  }
+
+  function addContractToPipeline(contractId, version) {
+    const existing = state.contractNodes.find((node) => node.contractId === contractId && node.version === version);
+    if (existing) {
+      focusNode(existing.id);
+      setSelection({ kind: "contract", nodeId: existing.id });
+      return;
+    }
+    const position = {
+      x: 80 + state.contractNodes.length * 40,
+      y: 80 + state.contractNodes.length * 60,
+    };
+    loadContractSummary(contractId, version).then((summary) => {
+      const node = {
+        id: createId("contract"),
+        type: "contract",
+        contractId,
+        version,
+        position,
+        summary,
+        size: { width: 260, height: 200 },
+      };
+      state.contractNodes.push(node);
+      renderPipeline();
+      renderTransformations();
+      setSelection({ kind: "contract", nodeId: node.id });
+    });
+  }
+
+  function removeContractNode(nodeId) {
+    const node = findContractNode(nodeId);
+    if (!node) {
+      return;
+    }
+    state.contractNodes = state.contractNodes.filter((item) => item.id !== nodeId);
+    state.transformations.forEach((tf) => {
+      const beforeInputs = tf.inputs.length;
+      tf.inputs = tf.inputs.filter((conn) => conn.contractNodeId !== nodeId);
+      const beforeOutputs = tf.outputs.length;
+      tf.outputs = tf.outputs.filter((conn) => conn.contractNodeId !== nodeId);
+      if (tf.inputs.length !== beforeInputs || tf.outputs.length !== beforeOutputs) {
+        markTransformationDirty(tf.id);
+      }
+    });
+    renderPipeline();
+    renderTransformations();
+    ensureSelectionValid();
+  }
+
+  async function loadContractSummary(contractId, version) {
+    const key = `${contractId}@@${version}`;
+    if (contractCache.has(key)) {
+      return contractCache.get(key);
+    }
+    const response = await fetch(`/api/integration-helper/contracts/${encodeURIComponent(contractId)}/${encodeURIComponent(version)}`);
+    if (!response.ok) {
+      throw new Error(`Failed to load contract ${contractId} v${version}`);
+    }
+    const data = await response.json();
+    const summary = data.summary || { id: contractId, version };
+    contractCache.set(key, summary);
+    return summary;
+  }
+
+  async function previewContract(contractId, version) {
+    try {
+      const summary = await loadContractSummary(contractId, version);
+      if (!summary) {
+        return;
+      }
+      dom.contractPreviewTitle.textContent = `${summary.id || contractId} · v${summary.version || version}`;
+      const body = document.createElement("div");
+      body.innerHTML = `
+        <div>
+          <h2 class="h6 mb-1">${escapeHtml(summary.name || summary.id || "")}</h2>
+          <p class="text-muted small mb-0">${escapeHtml(summary.description || "No description provided.")}</p>
+        </div>
+      `;
+      if (summary.server) {
+        const server = summary.server || {};
+        const access = document.createElement("dl");
+        access.className = "row small mt-3";
+        Object.entries(server).forEach(([key, value]) => {
+          const dt = document.createElement("dt");
+          dt.className = "col-sm-4";
+          dt.textContent = key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+          const dd = document.createElement("dd");
+          dd.className = "col-sm-8";
+          dd.textContent = String(value);
+          access.appendChild(dt);
+          access.appendChild(dd);
+        });
+        body.appendChild(access);
+      }
+      if (summary.schemaEntries && summary.schemaEntries.length) {
+        const schema = document.createElement("div");
+        schema.innerHTML = `
+          <h3 class="h6 mt-3">Schema</h3>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${summary.schemaEntries
+                  .map((entry) => {
+                    const type = [entry.logicalType, entry.physicalType].filter(Boolean).join(" · ");
+                    return `
+                      <tr>
+                        <td><code>${escapeHtml(entry.field || entry.name || "")}</code></td>
+                        <td>${escapeHtml(type)}</td>
+                        <td>${escapeHtml(entry.description || "")}</td>
+                      </tr>
+                    `;
+                  })
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+        body.appendChild(schema);
+      }
+      if (summary.expectations && Object.keys(summary.expectations).length) {
+        const expectations = document.createElement("div");
+        expectations.innerHTML = `
+          <h3 class="h6 mt-3">Quality predicates</h3>
+          <ul class="small mb-0">
+            ${Object.entries(summary.expectations)
+              .map(([name, predicate]) => `<li><span class="fw-semibold">${escapeHtml(name)}:</span> <code>${escapeHtml(predicate)}</code></li>`)
+              .join("")}
+          </ul>
+        `;
+        body.appendChild(expectations);
+      }
+      dom.contractPreviewBody.innerHTML = "";
+      dom.contractPreviewBody.appendChild(body);
+      const modal = ensureBootstrapModal("preview");
+      if (modal) {
+        modal.show();
+      }
+    } catch (error) {
+      dom.contractPreviewBody.innerHTML = `<div class="alert alert-danger">${escapeHtml(error.message || String(error))}</div>`;
+      const modal = ensureBootstrapModal("preview");
+      if (modal) {
+        modal.show();
+      }
+    }
+  }
+
+  function focusNode(nodeId) {
+    const element = dom.pipelineStage?.querySelector(`[data-node-id="${nodeId}"]`);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      element.classList.add("border-primary");
+      setTimeout(() => element.classList.remove("border-primary"), 1200);
+    }
+  }
+
+  function ensurePlaceholder() {
+    const hasNodes = state.contractNodes.length > 0 || state.transformations.length > 0;
+    dom.pipelinePlaceholder.classList.toggle("d-none", hasNodes);
+  }
+
+  function buildContractNodeElement(node) {
+    const summary = node.summary || {};
+    const element = document.createElement("div");
+    element.className = "pipeline-node contract-node";
+    element.dataset.nodeId = node.id;
+    element.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
+    const dataset = summary.datasetId ? `<div class="small text-muted">${escapeHtml(summary.datasetId)}</div>` : "";
+    const description = summary.description ? `<p class="text-muted small mb-0">${escapeHtml(summary.description)}</p>` : "";
+    element.innerHTML = `
+      <div class="node-header" data-role="drag-handle">
+        <div>
+          <div class="fw-semibold">${escapeHtml(summary.name || summary.id || node.contractId)}</div>
+          <div class="small text-muted">${escapeHtml(node.contractId)} · v${escapeHtml(node.version)}</div>
+        </div>
+      </div>
+      <div class="node-body">
+        ${dataset}
+        ${description}
+        ${nodeFieldsMarkup(summary)}
+        <div class="node-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
+      </div>
+    `;
+    const previewButton = element.querySelector('[data-action="preview"]');
+    const removeButton = element.querySelector('[data-action="remove"]');
+    previewButton.addEventListener("click", () => previewContract(node.contractId, node.version));
+    removeButton.addEventListener("click", () => removeContractNode(node.id));
+    attachNodeDragBehaviour(element, node.id);
+    element.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        return;
+      }
+      if (event.target.closest(".handle-input, .handle-output")) {
+        return;
+      }
+      setSelection({ kind: "contract", nodeId: node.id });
+    });
+    return element;
+  }
+
+  function buildTransformationNodeElement(transformation) {
+    const element = document.createElement("div");
+    element.className = "pipeline-node transformation-node";
+    element.dataset.transformationId = transformation.id;
+    element.dataset.nodeId = transformation.id;
+    element.style.transform = `translate(${transformation.position.x}px, ${transformation.position.y}px)`;
+    element.innerHTML = `
+      <div class="handle-input" data-role="drop" data-transformation-id="${transformation.id}" title="Drop contract output here">&#x25C0;</div>
+      <div class="handle-output" data-role="start" data-transformation-id="${transformation.id}" title="Drag to a contract input">&#x25B6;</div>
+      <div class="node-header" data-role="drag-handle">
+        <div>
+          <div class="fw-semibold">${escapeHtml(transformation.name)}</div>
+          <div class="small text-muted">${escapeHtml(integrationLabel(transformation.integration))}</div>
+        </div>
+      </div>
+      <div class="node-body">
+        <div class="mb-3">
+          <h3 class="h6 text-uppercase text-muted">Inputs</h3>
+          <div class="connector-list" data-role="inputs"></div>
+          <div class="connector-empty small" data-role="input-placeholder">Drop contract outputs onto the left handle.</div>
+        </div>
+        <div>
+          <h3 class="h6 text-uppercase text-muted">Outputs</h3>
+          <div class="connector-list" data-role="outputs"></div>
+          <div class="connector-empty small" data-role="output-placeholder">Drag from the right handle into a contract input.</div>
+        </div>
+        <div class="node-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Configure</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
+      </div>
+    `;
+    const configureButton = element.querySelector('[data-action="configure"]');
+    const removeButton = element.querySelector('[data-action="remove"]');
+    configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
+    removeButton.addEventListener("click", () => removeTransformation(transformation.id));
+    attachNodeDragBehaviour(element, transformation.id);
+    const startHandle = element.querySelector('.handle-output[data-role="start"]');
+    const dropHandle = element.querySelector('.handle-input[data-role="drop"]');
+    if (startHandle) {
+      startHandle.addEventListener("pointerdown", (event) => beginConnection(event, {
+        kind: "transformation-output",
+        transformationId: transformation.id,
+        element: startHandle,
+      }));
+      startHandle.addEventListener("pointerenter", () => setHoverHandle(startHandle));
+      startHandle.addEventListener("pointerleave", () => clearHoverHandle(startHandle));
+    }
+    if (dropHandle) {
+      dropHandle.addEventListener("pointerenter", () => setHoverHandle(dropHandle));
+      dropHandle.addEventListener("pointerleave", () => clearHoverHandle(dropHandle));
+    }
+    renderTransformationConnectorLists(element, transformation);
+    element.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        return;
+      }
+      if (event.target.closest(".handle-input, .handle-output")) {
+        return;
+      }
+      setSelection({ kind: "transformation", nodeId: transformation.id });
+    });
+    return element;
+  }
+
+  function renderTransformationConnectorLists(element, transformation) {
+    const inputList = element.querySelector('[data-role="inputs"]');
+    const outputList = element.querySelector('[data-role="outputs"]');
+    const inputPlaceholder = element.querySelector('[data-role="input-placeholder"]');
+    const outputPlaceholder = element.querySelector('[data-role="output-placeholder"]');
+    inputList.innerHTML = "";
+    outputList.innerHTML = "";
+    inputPlaceholder.classList.toggle("d-none", transformation.inputs.length > 0);
+    outputPlaceholder.classList.toggle("d-none", transformation.outputs.length > 0);
+    transformation.inputs.forEach((conn, index) => {
+      const contractNode = findContractNode(conn.contractNodeId);
+      if (!contractNode) {
+        return;
+      }
+      const summary = nodeSummary(contractNode);
+      const item = document.createElement("div");
+      item.className = "connector-chip";
+      item.dataset.connectionId = conn.id;
+      item.innerHTML = `
+        <span class="connector-anchor" title="Linked input">${index + 1}</span>
+        <div>
+          <div class="fw-semibold small">${escapeHtml(summary.id || contractNode.contractId)}</div>
+          <div class="text-muted small">v${escapeHtml(summary.version || contractNode.version)}</div>
+        </div>
+        <div class="connector-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Config</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
+      `;
+      const configure = item.querySelector('[data-action="configure"]');
+      const remove = item.querySelector('[data-action="remove"]');
+      configure.addEventListener("click", () => openTransformationModal(transformation.id));
+      remove.addEventListener("click", () => {
+        removeTransformationConnection(transformation.id, conn.id, "inputs");
+      });
+      item.addEventListener("pointerenter", () => setHoverHandle(item.querySelector(".connector-anchor")));
+      item.addEventListener("pointerleave", () => clearHoverHandle(item.querySelector(".connector-anchor")));
+      inputList.appendChild(item);
+    });
+    transformation.outputs.forEach((conn, index) => {
+      const contractNode = findContractNode(conn.contractNodeId);
+      if (!contractNode) {
+        return;
+      }
+      const summary = nodeSummary(contractNode);
+      const item = document.createElement("div");
+      item.className = "connector-chip connector-chip-output";
+      item.dataset.connectionId = conn.id;
+      item.innerHTML = `
+        <div>
+          <div class="fw-semibold small">${escapeHtml(summary.id || contractNode.contractId)}</div>
+          <div class="text-muted small">v${escapeHtml(summary.version || contractNode.version)}</div>
+        </div>
+        <div class="connector-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Config</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
+        <span class="connector-anchor" title="Linked output">${index + 1}</span>
+      `;
+      const configure = item.querySelector('[data-action="configure"]');
+      const remove = item.querySelector('[data-action="remove"]');
+      configure.addEventListener("click", () => openTransformationModal(transformation.id));
+      remove.addEventListener("click", () => {
+        removeTransformationConnection(transformation.id, conn.id, "outputs");
+      });
+      item.addEventListener("pointerenter", () => setHoverHandle(item.querySelector(".connector-anchor")));
+      item.addEventListener("pointerleave", () => clearHoverHandle(item.querySelector(".connector-anchor")));
+      outputList.appendChild(item);
+    });
+  }
+
+  function attachNodeDragBehaviour(element, nodeId) {
+    const handle = element.querySelector('[data-role="drag-handle"]');
+    if (!handle) {
+      return;
+    }
+    let activePointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let baseX = 0;
+    let baseY = 0;
+
+    const updatePosition = (event) => {
+      if (event.pointerId !== activePointerId) {
+        return;
+      }
+      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      if (!node) {
+        return;
+      }
+      const scale = state.zoom || 1;
+      const deltaX = (event.clientX - startX) / scale;
+      const deltaY = (event.clientY - startY) / scale;
+      node.position.x = Math.max(16, baseX + deltaX);
+      node.position.y = Math.max(16, baseY + deltaY);
+      element.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
+      requestAnimationFrame(renderConnections);
+    };
+
+    const endDrag = (event) => {
+      if (event.pointerId !== activePointerId) {
+        return;
+      }
+      activePointerId = null;
+      handle.classList.remove("is-dragging");
+      element.classList.remove("is-dragging");
+      window.removeEventListener("pointermove", updatePosition);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+      if (element.hasPointerCapture && element.hasPointerCapture(event.pointerId)) {
+        element.releasePointerCapture(event.pointerId);
+      }
+      requestAnimationFrame(renderConnections);
+    };
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button && event.button !== 0) {
+        return;
+      }
+      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      if (!node) {
+        return;
+      }
+      activePointerId = event.pointerId;
+      startX = event.clientX;
+      startY = event.clientY;
+      baseX = node.position.x;
+      baseY = node.position.y;
+      if (element.setPointerCapture) {
+        element.setPointerCapture(event.pointerId);
+      }
+      handle.classList.add("is-dragging");
+      element.classList.add("is-dragging");
+      window.addEventListener("pointermove", updatePosition);
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
+      event.preventDefault();
+    });
+    element.addEventListener("lostpointercapture", (event) => {
+      if (activePointerId !== null) {
+        endDrag(event);
+      }
+    });
+  }
+
+  function setHoverHandle(handle) {
+    state.hoverHandle = handle;
+  }
+
+  function clearHoverHandle(handle) {
+    if (state.hoverHandle === handle) {
+      state.hoverHandle = null;
+    }
+  }
+
+  function beginConnection(event, payload) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = payload.element.getBoundingClientRect();
+    const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+    const start = {
+      x: rect.left + rect.width / 2 - canvasRect.left,
+      y: rect.top + rect.height / 2 - canvasRect.top,
+    };
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line.setAttribute("stroke-dasharray", "6 4");
+    dom.pipelineConnections.appendChild(line);
+    state.activeConnection = {
+      payload,
+      line,
+      start,
+    };
+    const onMove = (moveEvent) => {
+      if (!state.activeConnection) {
+        return;
+      }
+      const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+      const point = {
+        x: moveEvent.clientX - canvasRect.left,
+        y: moveEvent.clientY - canvasRect.top,
+      };
+      drawConnectionPath(line, state.activeConnection.start, point);
+    };
+    const onEnd = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onEnd);
+      if (state.activeConnection) {
+        dom.pipelineConnections.removeChild(state.activeConnection.line);
+        const target = state.hoverHandle;
+        if (target) {
+          completeConnection(state.activeConnection.payload, target);
+        }
+        state.activeConnection = null;
+      }
+      renderConnections();
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onEnd);
+  }
+
+  function drawConnectionPath(pathElement, start, end) {
+    const dx = Math.abs(end.x - start.x) * 0.5;
+    const c1x = start.x + dx;
+    const c2x = end.x - dx;
+    const d = `M ${start.x} ${start.y} C ${c1x} ${start.y}, ${c2x} ${end.y}, ${end.x} ${end.y}`;
+    pathElement.setAttribute("d", d);
+  }
+
+  function completeConnection(source, target) {
+    const targetNode = target.closest(".pipeline-node");
+    if (!targetNode) {
+      return;
+    }
+    const targetNodeId = targetNode.dataset.nodeId;
+    if (!targetNodeId) {
+      return;
+    }
+    if (source.kind === "contract-output") {
+      if (target.dataset.role !== "drop") {
+        return;
+      }
+      const transformation = findTransformation(targetNodeId);
+      if (!transformation) {
+        return;
+      }
+      const contractNode = findContractNode(source.contractNodeId);
+      if (!contractNode) {
+        return;
+      }
+      addTransformationConnection(transformation.id, contractNode.id, "inputs");
+    } else if (source.kind === "transformation-output") {
+      if (target.dataset.role !== "input") {
+        return;
+      }
+      const contractNode = findContractNode(targetNodeId);
+      if (!contractNode) {
+        return;
+      }
+      const transformation = findTransformation(source.transformationId);
+      if (!transformation) {
+        return;
+      }
+      addTransformationConnection(transformation.id, contractNode.id, "outputs");
+    }
+  }
+
+  function addTransformationConnection(transformationId, contractNodeId, kind) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    const list = kind === "inputs" ? transformation.inputs : transformation.outputs;
+    if (list.some((conn) => conn.contractNodeId === contractNodeId)) {
+      return;
+    }
+    list.push({ id: createId("link"), contractNodeId });
+    renderPipeline();
+    markTransformationDirty(transformationId);
+  }
+
+  function removeTransformationConnection(transformationId, connectionId, kind) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    const list = kind === "inputs" ? transformation.inputs : transformation.outputs;
+    const next = list.filter((conn) => conn.id !== connectionId);
+    if (next.length === list.length) {
+      return;
+    }
+    if (kind === "inputs") {
+      transformation.inputs = next;
+    } else {
+      transformation.outputs = next;
+    }
+    renderPipeline();
+    markTransformationDirty(transformationId);
+  }
+
+  function removeTransformation(transformationId) {
+    const target = findTransformation(transformationId);
+    if (target && target.pendingTimeout) {
+      clearTimeout(target.pendingTimeout);
+      target.pendingTimeout = null;
+    }
+    state.transformations = state.transformations.filter((item) => item.id !== transformationId);
+    renderPipeline();
+    renderTransformations();
+    ensureSelectionValid();
+  }
+
+  function renderPipeline() {
+    ensurePlaceholder();
+    if (!dom.pipelineStage) {
+      return;
+    }
+    dom.pipelineStage.querySelectorAll(".pipeline-node").forEach((node) => node.remove());
+    state.contractNodes.forEach((node) => {
+      const element = buildContractNodeElement(node);
+      dom.pipelineStage.appendChild(element);
+      const outputHandle = document.createElement("div");
+      outputHandle.className = "handle-output";
+      outputHandle.dataset.role = "start";
+      outputHandle.title = "Drag to a transformation input";
+      outputHandle.innerHTML = "&#x25B6;";
+      element.appendChild(outputHandle);
+      outputHandle.addEventListener("pointerdown", (event) => beginConnection(event, {
+        kind: "contract-output",
+        contractNodeId: node.id,
+        element: outputHandle,
+      }));
+      outputHandle.addEventListener("pointerenter", () => setHoverHandle(outputHandle));
+      outputHandle.addEventListener("pointerleave", () => clearHoverHandle(outputHandle));
+      const inputHandle = document.createElement("div");
+      inputHandle.className = "handle-input";
+      inputHandle.dataset.role = "input";
+      inputHandle.title = "Drop transformation outputs here";
+      inputHandle.innerHTML = "&#x25C0;";
+      element.appendChild(inputHandle);
+      inputHandle.addEventListener("pointerenter", () => setHoverHandle(inputHandle));
+      inputHandle.addEventListener("pointerleave", () => clearHoverHandle(inputHandle));
+    });
+    state.transformations.forEach((transformation) => {
+      const element = buildTransformationNodeElement(transformation);
+      dom.pipelineStage.appendChild(element);
+    });
+    applyViewport();
+    requestAnimationFrame(measurePipelineNodes);
+    updateSelectionHighlight();
+  }
+
+  function renderConnections() {
+    if (!dom.pipelineCanvas || !dom.pipelineConnections) {
+      return;
+    }
+    const svg = dom.pipelineConnections;
+    const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+    svg.setAttribute("width", canvasRect.width);
+    svg.setAttribute("height", canvasRect.height);
+    svg.setAttribute("viewBox", `0 0 ${canvasRect.width} ${canvasRect.height}`);
+    svg.innerHTML = "";
+    const positionFor = (element) => {
+      if (!element) {
+        return null;
+      }
+      const rect = element.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2 - canvasRect.left,
+        y: rect.top + rect.height / 2 - canvasRect.top,
+      };
+    };
+    state.transformations.forEach((transformation) => {
+      transformation.inputs.forEach((conn) => {
+        const contractElement = dom.pipelineStage?.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-output`);
+        const targetAnchor = dom.pipelineStage?.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
+        const start = positionFor(contractElement);
+        const end = positionFor(targetAnchor);
+        if (!start || !end) {
+          return;
+        }
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        drawConnectionPath(path, start, end);
+        path.dataset.kind = "input";
+        svg.appendChild(path);
+      });
+      transformation.outputs.forEach((conn) => {
+        const sourceAnchor = dom.pipelineStage?.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
+        const targetElement = dom.pipelineStage?.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-input`);
+        const start = positionFor(sourceAnchor);
+        const end = positionFor(targetElement);
+        if (!start || !end) {
+          return;
+        }
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        drawConnectionPath(path, start, end);
+        path.dataset.kind = "output";
+        svg.appendChild(path);
+      });
+    });
+  }
+
+  function measurePipelineNodes() {
+    if (!dom.pipelineStage) {
+      return;
+    }
+    const elements = dom.pipelineStage.querySelectorAll(".pipeline-node");
+    elements.forEach((element) => {
+      const nodeId = element.dataset.nodeId;
+      if (!nodeId) {
+        return;
+      }
+      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      if (!node) {
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      const width = rect.width / state.zoom;
+      const height = rect.height / state.zoom;
+      node.size = { width, height };
+    });
+  }
+
+  function computePipelineBounds() {
+    const segments = [];
+    const collect = (node) => {
+      if (!node) {
+        return;
+      }
+      const size = node.size || { width: 260, height: 200 };
+      segments.push({
+        minX: node.position.x,
+        minY: node.position.y,
+        maxX: node.position.x + size.width,
+        maxY: node.position.y + size.height,
+      });
+    };
+    state.contractNodes.forEach(collect);
+    state.transformations.forEach(collect);
+    if (!segments.length) {
+      return null;
+    }
+    const minX = Math.min(...segments.map((seg) => seg.minX));
+    const minY = Math.min(...segments.map((seg) => seg.minY));
+    const maxX = Math.max(...segments.map((seg) => seg.maxX));
+    const maxY = Math.max(...segments.map((seg) => seg.maxY));
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+  }
+
+  function fitPipeline() {
+    const bounds = computePipelineBounds();
+    if (!bounds) {
+      setPipelineStatus("Add contracts and transformations to fit the view.");
+      return;
+    }
+    if (!dom.pipelineCanvas) {
+      return;
+    }
+    const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+    const availableWidth = Math.max(200, canvasRect.width - VIEWPORT_PADDING);
+    const availableHeight = Math.max(200, canvasRect.height - VIEWPORT_PADDING);
+    const scaleX = availableWidth / Math.max(bounds.width, 1);
+    const scaleY = availableHeight / Math.max(bounds.height, 1);
+    const targetZoom = clampZoom(Math.min(scaleX, scaleY));
+    const centerX = bounds.minX + bounds.width / 2;
+    const centerY = bounds.minY + bounds.height / 2;
+    state.zoom = targetZoom;
+    state.pan.x = canvasRect.width / 2 - centerX * state.zoom;
+    state.pan.y = canvasRect.height / 2 - centerY * state.zoom;
+    applyViewport();
+    setPipelineStatus("Viewport fitted to pipeline.", "success");
+  }
+
+  function startCanvasPan(event) {
+    if (!dom.pipelineCanvas || state.activeConnection) {
+      return;
+    }
+    if (event.target.closest(".pipeline-node")) {
+      return;
+    }
+    state.isPanning = true;
+    state.panPointerId = event.pointerId;
+    state.panOrigin.x = event.clientX - state.pan.x;
+    state.panOrigin.y = event.clientY - state.pan.y;
+    dom.pipelineCanvas.classList.add("is-panning");
+    if (dom.pipelineCanvas.setPointerCapture) {
+      try {
+        dom.pipelineCanvas.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // ignore
+      }
+    }
+    event.preventDefault();
+  }
+
+  function moveCanvasPan(event) {
+    if (!state.isPanning || event.pointerId !== state.panPointerId) {
+      return;
+    }
+    const nextX = event.clientX - state.panOrigin.x;
+    const nextY = event.clientY - state.panOrigin.y;
+    setPan(nextX, nextY);
+  }
+
+  function endCanvasPan(event) {
+    if (event.pointerId !== state.panPointerId) {
+      return;
+    }
+    state.isPanning = false;
+    state.panPointerId = null;
+    dom.pipelineCanvas.classList.remove("is-panning");
+    if (dom.pipelineCanvas.releasePointerCapture) {
+      try {
+        dom.pipelineCanvas.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        // ignore
+      }
+    }
+  }
+
+  function ensureDomToImage() {
+    if (window.domtoimage) {
+      return Promise.resolve(window.domtoimage);
+    }
+    if (!domToImagePromise) {
+      domToImagePromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/dom-to-image-more@2.8.0/dist/dom-to-image-more.min.js";
+        script.async = true;
+        script.onload = () => resolve(window.domtoimage);
+        script.onerror = () => reject(new Error("Unable to load screenshot helper."));
+        document.body.appendChild(script);
+      });
+    }
+    return domToImagePromise;
+  }
+
+  async function capturePipelineScreenshot() {
+    if (!dom.pipelineCanvas) {
+      return;
+    }
+    try {
+      setPipelineStatus("Preparing screenshot…", "muted", { duration: 0 });
+      const lib = await ensureDomToImage();
+      if (!lib) {
+        throw new Error("Screenshot support unavailable.");
+      }
+      const background = getComputedStyle(document.body).backgroundColor || "#ffffff";
+      const dataUrl = await lib.toPng(dom.pipelineCanvas, {
+        cacheBust: true,
+        quality: 0.95,
+        bgcolor: background,
+      });
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `pipeline-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setPipelineStatus("Screenshot downloaded.", "success");
+    } catch (error) {
+      console.error(error);
+      setPipelineStatus(error.message || "Failed to capture screenshot.", "danger", { duration: 4000 });
+    }
+  }
+
+  function addTransformation() {
+    const initialIntegration = integrationOptionsData.length ? integrationOptionsData[0].value : "spark";
+    const transformation = {
+      id: createId("transformation"),
+      name: `Transformation ${state.transformations.length + 1}`,
+      position: {
+        x: 320 + state.transformations.length * 60,
+        y: 120 + state.transformations.length * 80,
+      },
+      integration: initialIntegration,
+      readStrategy: "status",
+      writeStrategy: {
+        mode: "split",
+        includeValid: true,
+        includeReject: true,
+        failOnWarnings: false,
+      },
+      size: { width: 320, height: 260 },
+      inputs: [],
+      outputs: [],
+      stub: "",
+      strategies: null,
+      selectedStrategies: null,
+      isGenerating: false,
+      error: null,
+      dirty: true,
+      pendingTimeout: null,
+      stubLanguage: integrationDefaultLanguage(initialIntegration),
+      stubLanguageManual: false,
+    };
+    state.transformations.push(transformation);
+    renderPipeline();
+    renderTransformations();
+    setSelection({ kind: "transformation", nodeId: transformation.id });
+  }
+
+  function buildStrategySection(title, items) {
+    if (!items || !items.length) {
+      return "";
+    }
+    const notes = items
+      .map((item) => {
+        const description = escapeHtml(item.description).replace(/\n/g, "<br />");
+        return `
+          <li>
+            <div class="strategy-note-title">${escapeHtml(item.title)}</div>
+            <p class="strategy-note-description">${description}</p>
+          </li>
+        `;
+      })
+      .join("");
+    return `
+      <details class="strategy-section" open>
+        <summary>${escapeHtml(title)}</summary>
+        <ul class="strategy-note-list">${notes}</ul>
+      </details>
+    `;
+  }
+
+  function ensureHighlightReady(callback) {
+    if (typeof callback !== "function") {
+      return;
+    }
+    if (window.hljs && window.hljs.highlightElement) {
+      callback();
+      return;
+    }
+    state.highlightWaiters.push(callback);
+    if (state.highlightCheckScheduled) {
+      return;
+    }
+    state.highlightCheckScheduled = true;
+    const poll = () => {
+      if (window.hljs && window.hljs.highlightElement) {
+        state.highlightCheckScheduled = false;
+        const tasks = [...state.highlightWaiters];
+        state.highlightWaiters.length = 0;
+        tasks.forEach((task) => {
+          try {
+            task();
+          } catch (error) {
+            console.error(error);
+          }
+        });
+        return;
+      }
+      setTimeout(poll, 120);
+    };
+    poll();
+  }
+
+  function applyCodeHighlight(codeElement, language, source) {
+    if (!codeElement) {
+      return;
+    }
+    const requestedLanguage = language || "plaintext";
+    const rawSource = typeof source === "string" ? source : codeElement.textContent || "";
+    const highlightLanguages = CODE_LANGUAGE_OPTIONS.map((option) => option.value).filter(Boolean);
+
+    const runHighlight = () => {
+      const hljs = window.hljs;
+      let finalLanguage = requestedLanguage;
+      if (!hljs) {
+        codeElement.textContent = rawSource;
+      } else {
+        try {
+          let result;
+          if (requestedLanguage && hljs.getLanguage(requestedLanguage)) {
+            result = hljs.highlight(rawSource, {
+              language: requestedLanguage,
+              ignoreIllegals: true,
+            });
+          } else {
+            result = hljs.highlightAuto(rawSource, highlightLanguages);
+          }
+          codeElement.innerHTML = result.value;
+          if (result.language) {
+            finalLanguage = result.language;
+          }
+        } catch (error) {
+          console.warn("Failed to highlight code", error);
+          codeElement.textContent = rawSource;
+        }
+      }
+      codeElement.className = "hljs";
+      codeElement.dataset.language = finalLanguage;
+      if (finalLanguage) {
+        codeElement.classList.add(`language-${finalLanguage}`);
+      } else {
+        codeElement.classList.add("language-plaintext");
+      }
+    };
+
+    if (window.hljs) {
+      runHighlight();
+    } else {
+      codeElement.textContent = rawSource;
+      ensureHighlightReady(runHighlight);
+    }
+  }
+
+  function buildCodeSection(transformation) {
+    const language = transformation.stubLanguage || integrationDefaultLanguage(transformation.integration);
+    const selectId = `${transformation.id}-language`;
+    const section = document.createElement("details");
+    section.className = "code-section";
+    section.open = true;
+    section.innerHTML = `
+      <summary>Generated code</summary>
+      <div class="code-toolbar">
+        <label class="form-label small mb-0" for="${selectId}">Highlight as</label>
+        <select class="form-select form-select-sm w-auto" id="${selectId}" data-role="language">
+          ${CODE_LANGUAGE_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === language ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-action="copy">Copy</button>
+      </div>
+      <pre class="mb-0"><code data-role="code" class="language-${language}">${escapeHtml(transformation.stub)}</code></pre>
+    `;
+    const languageSelect = section.querySelector('[data-role="language"]');
+    const copyButton = section.querySelector('[data-action="copy"]');
+    const codeElement = section.querySelector("code");
+    if (languageSelect) {
+      languageSelect.addEventListener("pointerdown", (event) => event.stopPropagation());
+      languageSelect.addEventListener("change", (event) => {
+        event.stopPropagation();
+        const value = languageSelect.value || "plaintext";
+        transformation.stubLanguage = value;
+        transformation.stubLanguageManual = value !== integrationDefaultLanguage(transformation.integration);
+        applyCodeHighlight(codeElement, value, transformation.stub);
+      });
+    }
+    if (copyButton) {
+      copyButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+      copyButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        copyStub(transformation.stub, copyButton);
+      });
+    }
+    applyCodeHighlight(codeElement, language, transformation.stub);
+    return section;
+  }
+
+  function renderTransformations() {
+    dom.transformationList.innerHTML = "";
+    dom.transformationEmpty.classList.toggle("d-none", state.transformations.length > 0);
+    state.transformations.forEach((transformation) => {
+      if (!transformation.stubLanguage) {
+        transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
+      }
+      if (typeof transformation.stubLanguageManual !== "boolean") {
+        transformation.stubLanguageManual = false;
+      }
+      const summary = document.createElement("div");
+      summary.className = "transformation-summary";
+      const inputs = transformation.inputs
+        .map((conn) => {
+          const node = findContractNode(conn.contractNodeId);
+          const meta = nodeSummary(node);
+          return `${meta.id || node.contractId} v${meta.version || node.version}`;
+        })
+        .join(", ");
+      const outputs = transformation.outputs
+        .map((conn) => {
+          const node = findContractNode(conn.contractNodeId);
+          const meta = nodeSummary(node);
+          return `${meta.id || node.contractId} v${meta.version || node.version}`;
+        })
+        .join(", ");
+      const readLabel = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy)?.label || transformation.readStrategy;
+      const writeLabel = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode)?.label || transformation.writeStrategy.mode;
+      const integrationSelectId = `${transformation.id}-integration-select`;
+      const readSelectId = `${transformation.id}-read-select`;
+      const writeSelectId = `${transformation.id}-write-select`;
+      const integrationChoices = Array.isArray(integrationOptionsData) && integrationOptionsData.length
+        ? [...integrationOptionsData]
+        : [{ value: transformation.integration, label: integrationLabel(transformation.integration) || transformation.integration }];
+      if (!integrationChoices.some((option) => option.value === transformation.integration)) {
+        integrationChoices.push({ value: transformation.integration, label: integrationLabel(transformation.integration) || transformation.integration });
+      }
+      const integrationOptions = integrationChoices
+        .map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === transformation.integration ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+        .join("");
+      const readOptions = READ_STRATEGY_OPTIONS
+        .map((option) => `<option value="${option.value}" ${option.value === transformation.readStrategy ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+        .join("");
+      const writeOptions = WRITE_STRATEGY_OPTIONS
+        .map((option) => `<option value="${option.value}" ${option.value === transformation.writeStrategy.mode ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+        .join("");
+      const readOption = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy) || null;
+      const writeOption = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode) || null;
+      const readDescriptionMarkup = readOption?.description
+        ? `<div class="strategy-description" data-role="read-description">${escapeHtml(readOption.description)}</div>`
+        : '<div class="strategy-description d-none" data-role="read-description"></div>';
+      const writeDescriptionMarkup = writeOption?.description
+        ? `<div class="strategy-description" data-role="write-description">${escapeHtml(writeOption.description)}</div>`
+        : '<div class="strategy-description d-none" data-role="write-description"></div>';
+      summary.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start gap-3">
+          <div>
+            <h3 class="h6 mb-1">${escapeHtml(transformation.name)}</h3>
+            <p class="text-muted small mb-2">${escapeHtml(integrationLabel(transformation.integration))}</p>
+            <p class="text-muted small mb-1"><span class="fw-semibold">Inputs:</span> ${inputs || "None"}</p>
+            <p class="text-muted small mb-1"><span class="fw-semibold">Outputs:</span> ${outputs || "None"}</p>
+            <p class="text-muted small mb-0"><span class="fw-semibold">Strategies:</span> ${escapeHtml(readLabel)} read · ${escapeHtml(writeLabel)} write</p>
+          </div>
+          <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-primary" data-action="configure">Configure</button>
+            <button type="button" class="btn btn-outline-secondary" data-action="refresh">Regenerate</button>
+            <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
+          </div>
+        </div>
+        <div class="transformation-config">
+          <div class="transformation-config-grid">
+            <div>
+              <label class="form-label" for="${integrationSelectId}">Integration</label>
+              <select class="form-select form-select-sm" id="${integrationSelectId}" data-role="integration">${integrationOptions}</select>
+            </div>
+            <div>
+              <label class="form-label" for="${readSelectId}">Read strategy</label>
+              <select class="form-select form-select-sm" id="${readSelectId}" data-role="read-strategy">${readOptions}</select>
+              ${readDescriptionMarkup}
+            </div>
+            <div>
+              <label class="form-label" for="${writeSelectId}">Write strategy</label>
+              <select class="form-select form-select-sm" id="${writeSelectId}" data-role="write-strategy">${writeOptions}</select>
+              ${writeDescriptionMarkup}
+            </div>
+          </div>
+          <div class="write-toggle-field" data-role="write-toggle-field">
+            <span class="form-label d-block">Write options</span>
+            <div class="switch-group" data-role="write-toggle-list"></div>
+          </div>
+        </div>
+        <div class="mt-3" data-role="status"></div>
+        <div class="mt-3" data-role="strategy-notes"></div>
+        <div class="mt-3" data-role="stub"></div>
+      `;
+      const statusContainer = summary.querySelector('[data-role="status"]');
+      const strategyContainer = summary.querySelector('[data-role="strategy-notes"]');
+      const stubContainer = summary.querySelector('[data-role="stub"]');
+      const configureButton = summary.querySelector('[data-action="configure"]');
+      const refreshButton = summary.querySelector('[data-action="refresh"]');
+      const removeButton = summary.querySelector('[data-action="remove"]');
+      const integrationSelect = summary.querySelector('[data-role="integration"]');
+      const readSelect = summary.querySelector('[data-role="read-strategy"]');
+      const writeSelect = summary.querySelector('[data-role="write-strategy"]');
+      const writeToggleField = summary.querySelector('[data-role="write-toggle-field"]');
+      const writeToggleList = summary.querySelector('[data-role="write-toggle-list"]');
+      const readDescriptionEl = summary.querySelector('[data-role="read-description"]');
+      const writeDescriptionEl = summary.querySelector('[data-role="write-description"]');
+      configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
+      refreshButton.addEventListener("click", () => generateTransformationStub(transformation.id, { auto: false }));
+      removeButton.addEventListener("click", () => removeTransformation(transformation.id));
+      if (integrationSelect) {
+        integrationSelect.addEventListener("change", () => {
+          const value = integrationSelect.value || transformation.integration;
+          if (!value) {
+            return;
+          }
+          const previous = transformation.integration;
+          transformation.integration = value;
+          if (previous !== value && !transformation.stubLanguageManual) {
+            transformation.stubLanguage = integrationDefaultLanguage(value);
+          }
+          markTransformationDirty(transformation.id);
+        });
+      }
+      if (readSelect) {
+        readSelect.addEventListener("change", () => {
+          const value = readSelect.value || transformation.readStrategy;
+          if (!READ_STRATEGY_OPTIONS.some((option) => option.value === value)) {
+            return;
+          }
+          transformation.readStrategy = value;
+          const option = READ_STRATEGY_OPTIONS.find((item) => item.value === value) || null;
+          if (readDescriptionEl) {
+            if (option?.description) {
+              readDescriptionEl.textContent = option.description;
+              readDescriptionEl.classList.remove("d-none");
+            } else {
+              readDescriptionEl.textContent = "";
+              readDescriptionEl.classList.add("d-none");
+            }
+          }
+          markTransformationDirty(transformation.id);
+        });
+      }
+      if (writeSelect) {
+        writeSelect.addEventListener("change", () => {
+          const value = writeSelect.value || transformation.writeStrategy.mode;
+          if (!WRITE_STRATEGY_OPTIONS.some((option) => option.value === value)) {
+            return;
+          }
+          transformation.writeStrategy.mode = value;
+          if (value === "noop") {
+            transformation.writeStrategy.includeValid = false;
+            transformation.writeStrategy.includeReject = false;
+            transformation.writeStrategy.failOnWarnings = false;
+          } else if (value !== "strict") {
+            transformation.writeStrategy.failOnWarnings = false;
+          }
+          const option = WRITE_STRATEGY_OPTIONS.find((item) => item.value === value) || null;
+          if (writeDescriptionEl) {
+            if (option?.description) {
+              writeDescriptionEl.textContent = option.description;
+              writeDescriptionEl.classList.remove("d-none");
+            } else {
+              writeDescriptionEl.textContent = "";
+              writeDescriptionEl.classList.add("d-none");
+            }
+          }
+          renderInlineWriteToggles(writeToggleList, writeToggleField, transformation);
+          markTransformationDirty(transformation.id);
+        });
+      }
+      renderInlineWriteToggles(writeToggleList, writeToggleField, transformation);
+      if (!transformation.inputs.length || !transformation.outputs.length) {
+        statusContainer.innerHTML = '<div class="alert alert-warning small mb-0">Connect at least one input and one output contract to generate code.</div>';
+      } else if (transformation.error) {
+        statusContainer.innerHTML = `<div class="alert alert-danger small mb-0">${escapeHtml(transformation.error)}</div>`;
+      } else if (transformation.isGenerating) {
+        statusContainer.innerHTML = '<div class="text-muted small">Generating stub…</div>';
+      } else if (transformation.stub) {
+        statusContainer.innerHTML = '<div class="text-success small">Stub generated.</div>';
+      } else {
+        statusContainer.innerHTML = '<div class="text-muted small">Awaiting generation.</div>';
+      }
+      if (transformation.strategies) {
+        const sections = [];
+        if (transformation.strategies.read && transformation.strategies.read.length) {
+          sections.push(buildStrategySection("Read guidance", transformation.strategies.read));
+        }
+        if (transformation.strategies.write && transformation.strategies.write.length) {
+          sections.push(buildStrategySection("Write guidance", transformation.strategies.write));
+        }
+        strategyContainer.innerHTML = sections.join("");
+      } else {
+        strategyContainer.innerHTML = "";
+      }
+      stubContainer.innerHTML = "";
+      if (transformation.stub) {
+        if (!transformation.stubLanguage) {
+          transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
+        }
+        const section = buildCodeSection(transformation);
+        stubContainer.appendChild(section);
+      }
+      dom.transformationList.appendChild(summary);
+      if (transformation.dirty && transformation.inputs.length && transformation.outputs.length && !transformation.isGenerating) {
+        scheduleStubRefresh(transformation.id);
+      }
+    });
+    renderSelectionPanel();
+  }
+
+  function copyStub(text, button) {
+    if (!text) {
+      return;
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      const original = button.textContent;
+      button.textContent = "Copied!";
+      setTimeout(() => {
+        button.textContent = original;
+      }, 1500);
+    });
+  }
+
+  function openTransformationModal(transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    state.editingTransformationId = transformationId;
+    dom.transformationIntegration.innerHTML = (integrationOptionsData || [])
+      .map((option) => `<option value="${option.value}" ${option.value === transformation.integration ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+      .join("");
+    renderStrategyGroup(dom.transformationReadStrategies, READ_STRATEGY_OPTIONS, transformation.readStrategy, "readStrategy");
+    renderStrategyGroup(dom.transformationWriteStrategies, WRITE_STRATEGY_OPTIONS, transformation.writeStrategy.mode, "writeStrategy");
+    renderWriteToggles(transformation);
+    renderStrategyReminder(transformation);
+    const modal = ensureBootstrapModal("transformation");
+    if (modal) {
+      modal.show();
+    }
+  }
+
+  function renderStrategyGroup(container, options, selectedValue, groupName) {
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const label = document.createElement("label");
+      label.className = `list-group-item d-flex align-items-start gap-2 ${option.value === selectedValue ? "active" : ""}`;
+      label.innerHTML = `
+        <input class="form-check-input mt-1" type="radio" name="${groupName}" value="${option.value}" ${option.value === selectedValue ? "checked" : ""} />
+        <div>
+          <div class="fw-semibold">${escapeHtml(option.label)}</div>
+          <div class="text-muted small">${escapeHtml(option.description)}</div>
+        </div>
+      `;
+      container.appendChild(label);
+    });
+  }
+
+  function renderWriteToggles(transformation) {
+    const toggle = dom.transformationWriteToggles;
+    toggle.innerHTML = "";
+    if (transformation.writeStrategy.mode !== "noop") {
+      toggle.innerHTML = `
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="toggleIncludeValid" ${transformation.writeStrategy.includeValid ? "checked" : ""}>
+          <label class="form-check-label" for="toggleIncludeValid">Emit valid subset</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="toggleIncludeReject" ${transformation.writeStrategy.includeReject ? "checked" : ""}>
+          <label class="form-check-label" for="toggleIncludeReject">Emit reject subset</label>
+        </div>
+      `;
+      if (transformation.writeStrategy.mode === "strict") {
+        toggle.innerHTML += `
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="toggleFailWarnings" ${transformation.writeStrategy.failOnWarnings ? "checked" : ""}>
+            <label class="form-check-label" for="toggleFailWarnings">Fail on warnings</label>
+          </div>
+        `;
+      }
+    }
+  }
+
+  function renderInlineWriteToggles(container, field, transformation) {
+    if (!container || !field || !transformation || !transformation.writeStrategy) {
+      return;
+    }
+    if (transformation.writeStrategy.mode === "noop") {
+      container.innerHTML = "";
+      field.classList.remove("is-visible");
+      return;
+    }
+    field.classList.add("is-visible");
+    const validId = `${transformation.id}-inline-valid`;
+    const rejectId = `${transformation.id}-inline-reject`;
+    const toggles = [
+      `
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="${escapeHtml(validId)}" data-role="toggle-valid" ${transformation.writeStrategy.includeValid ? "checked" : ""}>
+          <label class="form-check-label" for="${escapeHtml(validId)}">Emit valid subset</label>
+        </div>
+      `,
+      `
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="${escapeHtml(rejectId)}" data-role="toggle-reject" ${transformation.writeStrategy.includeReject ? "checked" : ""}>
+          <label class="form-check-label" for="${escapeHtml(rejectId)}">Emit reject subset</label>
+        </div>
+      `,
+    ];
+    if (transformation.writeStrategy.mode === "strict") {
+      const failId = `${transformation.id}-inline-fail`;
+      toggles.push(`
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="${escapeHtml(failId)}" data-role="toggle-fail" ${transformation.writeStrategy.failOnWarnings ? "checked" : ""}>
+          <label class="form-check-label" for="${escapeHtml(failId)}">Fail on warnings</label>
+        </div>
+      `);
+    }
+    container.innerHTML = toggles.join("");
+    const validToggle = container.querySelector('[data-role="toggle-valid"]');
+    const rejectToggle = container.querySelector('[data-role="toggle-reject"]');
+    const failToggle = container.querySelector('[data-role="toggle-fail"]');
+    if (validToggle) {
+      validToggle.addEventListener("change", () => {
+        transformation.writeStrategy.includeValid = validToggle.checked;
+        markTransformationDirty(transformation.id);
+      });
+    }
+    if (rejectToggle) {
+      rejectToggle.addEventListener("change", () => {
+        transformation.writeStrategy.includeReject = rejectToggle.checked;
+        markTransformationDirty(transformation.id);
+      });
+    }
+    if (failToggle) {
+      failToggle.addEventListener("change", () => {
+        transformation.writeStrategy.failOnWarnings = failToggle.checked;
+        markTransformationDirty(transformation.id);
+      });
+    }
+  }
+
+  function renderStrategyReminder(transformation) {
+    const readLabel = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy)?.label || transformation.readStrategy;
+    const writeLabel = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode)?.label || transformation.writeStrategy.mode;
+    dom.transformationStrategyNotes.textContent = `Current selection: ${readLabel} read · ${writeLabel} write.`;
+  }
+
+  function saveTransformationConfig() {
+    const transformation = findTransformation(state.editingTransformationId);
+    if (!transformation) {
+      return;
+    }
+    const previousIntegration = transformation.integration;
+    transformation.integration = dom.transformationIntegration.value || transformation.integration;
+    const readSelection = dom.transformationReadStrategies.querySelector('input[name="readStrategy"]:checked');
+    const writeSelection = dom.transformationWriteStrategies.querySelector('input[name="writeStrategy"]:checked');
+    if (readSelection) {
+      transformation.readStrategy = readSelection.value;
+    }
+    if (writeSelection) {
+      transformation.writeStrategy.mode = writeSelection.value;
+    }
+    if (transformation.writeStrategy.mode !== "noop") {
+      const includeValid = document.getElementById("toggleIncludeValid");
+      const includeReject = document.getElementById("toggleIncludeReject");
+      transformation.writeStrategy.includeValid = includeValid ? includeValid.checked : transformation.writeStrategy.includeValid;
+      transformation.writeStrategy.includeReject = includeReject ? includeReject.checked : transformation.writeStrategy.includeReject;
+    }
+    if (transformation.writeStrategy.mode === "strict") {
+      const fail = document.getElementById("toggleFailWarnings");
+      transformation.writeStrategy.failOnWarnings = fail ? fail.checked : transformation.writeStrategy.failOnWarnings;
+    } else {
+      transformation.writeStrategy.failOnWarnings = false;
+    }
+    if (previousIntegration !== transformation.integration && !transformation.stubLanguageManual) {
+      transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
+    }
+    markTransformationDirty(transformation.id);
+    renderTransformations();
+    const modal = ensureBootstrapModal("transformation");
+    if (modal) {
+      modal.hide();
+    }
+  }
+
+  function markTransformationDirty(transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    transformation.dirty = true;
+    transformation.error = null;
+    renderTransformations();
+  }
+
+  function scheduleStubRefresh(transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation || transformation.pendingTimeout) {
+      return;
+    }
+    transformation.pendingTimeout = setTimeout(() => {
+      transformation.pendingTimeout = null;
+      generateTransformationStub(transformationId, { auto: true });
+    }, 400);
+  }
+
+  function applyServerStrategies(transformation, selected) {
+    if (!selected) {
+      return;
+    }
+    if (selected.read && READ_STRATEGY_OPTIONS.some((option) => option.value === selected.read.mode)) {
+      transformation.readStrategy = selected.read.mode;
+    }
+    if (selected.write && WRITE_STRATEGY_OPTIONS.some((option) => option.value === selected.write.mode)) {
+      transformation.writeStrategy.mode = selected.write.mode;
+      if (Object.prototype.hasOwnProperty.call(selected.write, "include_valid")) {
+        transformation.writeStrategy.includeValid = !!selected.write.include_valid;
+      }
+      if (Object.prototype.hasOwnProperty.call(selected.write, "include_reject")) {
+        transformation.writeStrategy.includeReject = !!selected.write.include_reject;
+      }
+      if (Object.prototype.hasOwnProperty.call(selected.write, "fail_on_warnings")) {
+        transformation.writeStrategy.failOnWarnings = !!selected.write.fail_on_warnings;
+      }
+    }
+  }
+
+  async function generateTransformationStub(transformationId, { auto }) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    if (!transformation.inputs.length || !transformation.outputs.length) {
+      transformation.dirty = false;
+      renderTransformations();
+      return;
+    }
+    if (transformation.isGenerating) {
+      return;
+    }
+    transformation.isGenerating = true;
+    transformation.error = null;
+    renderTransformations();
+    const payload = {
+      integration: transformation.integration,
+      inputs: transformation.inputs.map((conn) => {
+        const node = findContractNode(conn.contractNodeId);
+        return { contract_id: node?.contractId || "", version: node?.version || "" };
+      }),
+      outputs: transformation.outputs.map((conn) => {
+        const node = findContractNode(conn.contractNodeId);
+        return { contract_id: node?.contractId || "", version: node?.version || "" };
+      }),
+      read_strategy: { mode: transformation.readStrategy },
+      write_strategy: {
+        mode: transformation.writeStrategy.mode,
+      },
+    };
+    if (transformation.writeStrategy.mode !== "noop") {
+      payload.write_strategy.include_valid = !!transformation.writeStrategy.includeValid;
+      payload.write_strategy.include_reject = !!transformation.writeStrategy.includeReject;
+    }
+    if (transformation.writeStrategy.mode === "strict") {
+      payload.write_strategy.fail_on_warnings = !!transformation.writeStrategy.failOnWarnings;
+    }
+    try {
+      const response = await fetch("/api/integration-helper/stub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Request failed with status ${response.status}`);
+      }
+      const data = await response.json();
+      transformation.stub = data.stub || "";
+      transformation.strategies = data.strategies || null;
+      transformation.selectedStrategies = data.selected_strategies || null;
+      applyServerStrategies(transformation, transformation.selectedStrategies);
+      transformation.dirty = false;
+    } catch (error) {
+      transformation.error = error.message || String(error);
+    } finally {
+      transformation.isGenerating = false;
+      renderTransformations();
+    }
+  }
+
+  function registerEventListeners() {
+    if (dom.contractSearch) {
+      dom.contractSearch.addEventListener("input", () => {
+        state.filter = dom.contractSearch.value || "";
+        renderCatalogList();
+      });
+    }
+    if (dom.addTransformationBtn) {
+      dom.addTransformationBtn.addEventListener("click", addTransformation);
+    }
+    if (dom.saveTransformationConfig) {
+      dom.saveTransformationConfig.addEventListener("click", saveTransformationConfig);
+    }
+    if (dom.zoomOutBtn) {
+      dom.zoomOutBtn.addEventListener("click", () => setZoom(state.zoom - ZOOM_STEP));
+    }
+    if (dom.zoomInBtn) {
+      dom.zoomInBtn.addEventListener("click", () => setZoom(state.zoom + ZOOM_STEP));
+    }
+    if (dom.viewResetBtn) {
+      dom.viewResetBtn.addEventListener("click", () => {
+        resetViewport();
+        setPipelineStatus("Viewport reset.", "success");
+      });
+    }
+    if (dom.fitViewBtn) {
+      dom.fitViewBtn.addEventListener("click", () => fitPipeline());
+    }
+    if (dom.screenshotBtn) {
+      dom.screenshotBtn.addEventListener("click", () => capturePipelineScreenshot());
+    }
+    if (dom.pipelineCanvas) {
+      dom.pipelineCanvas.addEventListener(
+        "wheel",
+        (event) => {
+          if (!event.ctrlKey && !event.metaKey) {
+            return;
+          }
+          event.preventDefault();
+          const direction = event.deltaY < 0 ? 1 : -1;
+          setZoom(state.zoom + direction * ZOOM_STEP, { anchor: { x: event.clientX, y: event.clientY } });
+        },
+        { passive: false }
+      );
+      dom.pipelineCanvas.addEventListener("pointerdown", (event) => {
+        if (event.button === 0) {
+          startCanvasPan(event);
+        }
+      });
+      dom.pipelineCanvas.addEventListener("pointermove", moveCanvasPan);
+      dom.pipelineCanvas.addEventListener("pointerup", endCanvasPan);
+      dom.pipelineCanvas.addEventListener("pointercancel", endCanvasPan);
+      dom.pipelineCanvas.addEventListener("lostpointercapture", endCanvasPan);
+      dom.pipelineCanvas.addEventListener("click", (event) => {
+        if (event.target.closest(".pipeline-node")) {
+          return;
+        }
+        if (state.isPanning) {
+          return;
+        }
+        setSelection(null);
+      });
+    }
+    window.addEventListener("resize", () => {
+      requestAnimationFrame(() => {
+        renderConnections();
+        measurePipelineNodes();
+      });
+    });
+  }
+
+  window.addEventListener("load", () => {
+    ensureBootstrapModal("preview");
+    ensureBootstrapModal("transformation");
+  });
+
+  function initialise() {
+    renderCatalogList();
+    renderPipeline();
+    renderTransformations();
+    renderSelectionPanel();
+    registerEventListeners();
+    setPipelineStatus("", "muted", { duration: 0 });
+  }
+
+  initialise();
+</script>
+{% endblock %}
