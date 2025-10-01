@@ -17,6 +17,7 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
+  "dc43>=0.8.0.0",
   "dc43-service-clients>=0.0.3",
   "open-data-contract-standard==3.0.2",
 ]

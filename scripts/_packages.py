@@ -55,12 +55,12 @@ PACKAGES = {
 }
 
 DEFAULT_RELEASE_ORDER = [
+    "dc43",
     "dc43-service-clients",
     "dc43-service-backends",
     "dc43-integrations",
     "dc43-contracts-app",
     "dc43-demo-app",
-    "dc43",
 ]
 
 INTERNAL_PACKAGE_NAMES = set(PACKAGES)
