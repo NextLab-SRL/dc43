@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable
 from uuid import uuid4
 from threading import Lock
+import threading
 import json
 import os
 import re
@@ -49,6 +50,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_backends.web import build_local_app
+from dc43_service_clients._http_sync import close_client
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
@@ -474,6 +476,10 @@ _VERSIONING_MODES: List[Tuple[str, str]] = [
 _backend_app: FastAPI | None = None
 _backend_transport: ASGITransport | None = None
 _backend_client: httpx.AsyncClient | None = None
+_backend_base_url: str = "http://dc43-services"
+_backend_mode: str = "embedded"
+_backend_token: str = ""
+_THREAD_CLIENTS = threading.local()
 contract_service: RemoteContractServiceClient
 dq_service: RemoteDataQualityServiceClient
 governance_service: RemoteGovernanceServiceClient
@@ -497,13 +503,84 @@ def _close_backend_client() -> None:
     _backend_client = None
 
 
+def _clear_thread_clients() -> None:
+    """Dispose of thread-local HTTP clients for the current thread."""
+
+    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
+    if bundle is None:
+        return
+    try:
+        close_client(bundle["http_client"])
+    except Exception:  # pragma: no cover - defensive guard
+        logger.exception("Failed to close thread-local backend client")
+    finally:
+        _THREAD_CLIENTS.bundle = None
+
+
+def _thread_service_clients() -> tuple[
+    RemoteContractServiceClient,
+    RemoteDataQualityServiceClient,
+    RemoteGovernanceServiceClient,
+]:
+    """Return backend service clients scoped to the current thread."""
+
+    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
+    if bundle is not None and bundle.get("token") == _backend_token:
+        return (
+            bundle["contract"],
+            bundle["dq"],
+            bundle["governance"],
+        )
+
+    if bundle is not None:
+        try:
+            close_client(bundle["http_client"])
+        except Exception:  # pragma: no cover - defensive guard
+            logger.exception("Failed to recycle thread-local backend client")
+
+    if _backend_mode == "remote":
+        http_client: httpx.Client | httpx.AsyncClient = httpx.Client(
+            base_url=_backend_base_url or None,
+        )
+    else:
+        assert _backend_app is not None
+        http_client = httpx.AsyncClient(
+            transport=ASGITransport(app=_backend_app),
+            base_url=_backend_base_url or None,
+        )
+
+    contract = RemoteContractServiceClient(
+        base_url=_backend_base_url,
+        client=http_client,
+    )
+    dq = RemoteDataQualityServiceClient(
+        base_url=_backend_base_url,
+        client=http_client,
+    )
+    governance = RemoteGovernanceServiceClient(
+        base_url=_backend_base_url,
+        client=http_client,
+    )
+
+    _THREAD_CLIENTS.bundle = {
+        "token": _backend_token,
+        "http_client": http_client,
+        "contract": contract,
+        "dq": dq,
+        "governance": governance,
+    }
+    return contract, dq, governance
+
+
 def _initialise_backend(*, base_url: str | None = None) -> None:
     """Configure service clients against an in-process or remote backend."""
 
     global _backend_app, _backend_transport, _backend_client
     global contract_service, dq_service, governance_service
+    global _backend_base_url, _backend_mode, _backend_token
 
     _close_backend_client()
+    _clear_thread_clients()
 
     client_base_url = (base_url.rstrip("/") if base_url else "http://dc43-services")
 
@@ -511,6 +588,7 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
         _backend_app = None
         _backend_transport = None
         _backend_client = httpx.AsyncClient(base_url=client_base_url)
+        _backend_mode = "remote"
     else:
         _backend_app = build_local_app(store)
         _backend_transport = ASGITransport(app=_backend_app)
@@ -518,6 +596,10 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
             transport=_backend_transport,
             base_url=client_base_url,
         )
+        _backend_mode = "embedded"
+
+    _backend_base_url = client_base_url
+    _backend_token = uuid4().hex
 
     contract_service = RemoteContractServiceClient(
         base_url=client_base_url,
@@ -1182,6 +1264,7 @@ async def api_contract_preview(
 
     try:
         def _load_preview() -> tuple[list[Mapping[str, Any]], list[str]]:
+            local_contract_service, local_dq_service, _ = _thread_service_clients()
             spark = _spark_session()
             locator = ContractVersionLocator(
                 dataset_version=selected_version,
@@ -1190,12 +1273,12 @@ async def api_contract_preview(
             df = read_with_contract(  # type: ignore[misc]
                 spark,
                 contract_id=cid,
-                contract_service=contract_service,
+                contract_service=local_contract_service,
                 expected_contract_version=f"=={ver}",
                 dataset_locator=locator,
                 enforce=False,
                 auto_cast=False,
-                data_quality_service=dq_service,
+                data_quality_service=local_dq_service,
                 return_status=False,
             )
             rows_raw = [row.asDict(recursive=True) for row in df.limit(limit).collect()]
