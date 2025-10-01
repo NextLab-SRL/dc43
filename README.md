@@ -260,9 +260,9 @@ if status and status.status == "block":
 
 ## Demo application
 
-A Vue-powered FastAPI application in ``dc43_demo_app`` offers a visual way to
-explore contracts, datasets and data quality results. Install the optional
-dependencies and launch the app with:
+A Vue-powered FastAPI application packaged as ``dc43-demo-app`` (module
+``dc43_demo_app``) offers a visual way to explore contracts, datasets and data
+quality results. Install the optional dependencies and launch the app with:
 
 ```bash
 pip install ".[demo]"

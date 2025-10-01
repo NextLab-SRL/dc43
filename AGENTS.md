@@ -9,16 +9,18 @@
   ```
 - Run tests with `pytest -q` after making changes.
 - Keep code small, readable, and documented.
-- The demo application now lives in `src/dc43_demo_app`. When updating
-  documentation, integration tests, or packaging metadata, ensure references use
-  the `dc43_demo_app` import path.
+- The demo application now lives under `packages/dc43-demo-app/src/dc43_demo_app`.
+  When updating documentation, integration tests, or packaging metadata, ensure
+  references use the `dc43_demo_app` import path and include the dedicated
+  package in release metadata where relevant.
 
 ## Release process
 - Package release automation reads package definitions from `scripts/_packages.py`.
   When adding, moving, or renaming source packages (including subpackages within
   the main `dc43` distribution), update the relevant `paths` list so the release
-  tooling detects changes. The `dc43` entry must include both `src/dc43` and
-  `src/dc43_demo_app` along with `pyproject.toml`.
+  tooling detects changes. The `dc43` entry must include `src/dc43` along with
+  `pyproject.toml`, and the demo package is tracked separately under
+  `packages/dc43-demo-app`.
 - Use `python scripts/release.py` to preview releases and `python
   scripts/release.py --apply --push` to publish tags once validated.
 - Internal packages live under `packages/` and rely on their own `pyproject.toml`

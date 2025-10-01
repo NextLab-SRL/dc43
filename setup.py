@@ -14,14 +14,20 @@ if str(SCRIPT_DIR) not in sys.path:
 from _internal_dependency_versions import load_versions
 
 
-_INTERNAL_DEPENDENCIES = [
+_INTERNAL_CORE_DEPENDENCIES = [
     "dc43-service-clients",
     "dc43-service-backends",
     "dc43-integrations",
     "dc43-contracts-app",
 ]
 
-_LOCAL_FALLBACK_PACKAGES = set(_INTERNAL_DEPENDENCIES)
+_OPTIONAL_INTERNAL_DEPENDENCIES = [
+    "dc43-demo-app",
+]
+
+_ALL_INTERNAL_PACKAGES = _INTERNAL_CORE_DEPENDENCIES + _OPTIONAL_INTERNAL_DEPENDENCIES
+
+_LOCAL_FALLBACK_PACKAGES = set(_ALL_INTERNAL_PACKAGES)
 
 
 def _use_pypi_versions() -> bool:
@@ -43,11 +49,11 @@ def _dependency(name: str, *, extras: str | None = None) -> str:
         return f"{name}{suffix} @ {candidate.resolve().as_uri()}"
     return f"{name}{suffix}=={version}"
 
-_PACKAGE_VERSIONS = load_versions(_INTERNAL_DEPENDENCIES)
+_PACKAGE_VERSIONS = load_versions(_ALL_INTERNAL_PACKAGES)
 
 
 install_requires = [
-    _dependency(name) for name in _INTERNAL_DEPENDENCIES
+    _dependency(name) for name in _INTERNAL_CORE_DEPENDENCIES
 ]
 install_requires += [
     "packaging>=21.0",
@@ -74,6 +80,7 @@ extras_require = {
         "python-multipart",
         _dependency("dc43-contracts-app", extras="spark"),
         _dependency("dc43-integrations", extras="spark"),
+        _dependency("dc43-demo-app"),
     ],
 }
 
