@@ -1,0 +1,682 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h1 class="h4 mb-3">Integration helper</h1>
+        <p class="text-muted mb-4">
+          Select contract versions for your pipeline inputs and outputs, review their
+          schema and quality rules, then generate Spark-ready code snippets with
+          recommended read/write strategies.
+        </p>
+        <div class="mb-3">
+          <label for="integrationSelect" class="form-label">Integration</label>
+          <select id="integrationSelect" class="form-select">
+            {% for item in integration_options %}
+            <option value="{{ item.value }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label for="contractSearch" class="form-label">Search contracts</label>
+          <input type="search" id="contractSearch" class="form-control" placeholder="Filter by id, name, or version"/>
+        </div>
+      </div>
+    </div>
+    <div class="mt-4">
+      <div class="list-group" id="contractList"></div>
+      <p class="text-muted small mt-2" id="contractListEmpty">No contracts found.</p>
+    </div>
+  </div>
+  <div class="col-lg-8">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <div id="contractDetailPlaceholder" class="text-muted">Select a contract version to view details.</div>
+        <div class="alert alert-warning d-none" id="contractDetailError"></div>
+        <div id="contractDetail" class="d-none">
+          <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+            <div>
+              <h2 class="h5 mb-1" id="contractTitle"></h2>
+              <p class="small text-muted mb-2" id="contractName"></p>
+              <p class="text-muted" id="contractDescription"></p>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-outline-primary btn-sm" id="addInputBtn">Add as input</button>
+              <button class="btn btn-primary btn-sm" id="addOutputBtn">Add as output</button>
+            </div>
+          </div>
+          <div class="mt-3">
+            <h3 class="h6">Access</h3>
+            <dl class="row small mb-0" id="contractAccess"></dl>
+          </div>
+          <div class="mt-4">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h3 class="h6 mb-0">Schema</h3>
+              <span class="badge text-bg-light" id="schemaCount">0 fields</span>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th scope="col">Field</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Required</th>
+                    <th scope="col">Description</th>
+                  </tr>
+                </thead>
+                <tbody id="schemaTableBody"></tbody>
+              </table>
+            </div>
+            <p class="text-muted small" id="schemaEmpty">No schema fields declared.</p>
+            <nav aria-label="Schema pagination">
+              <ul class="pagination pagination-sm" id="schemaPagination"></ul>
+            </nav>
+          </div>
+          <div class="mt-4">
+            <h3 class="h6">Quality predicates</h3>
+            <div class="list-group" id="expectationList"></div>
+            <p class="text-muted small" id="expectationEmpty">No SQL predicates recorded for this contract.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+          <div>
+            <h2 class="h5 mb-1">Selected contracts</h2>
+            <p class="small text-muted mb-0">Inputs and outputs will appear in the diagram below.</p>
+          </div>
+          <div class="text-muted small" id="selectionFeedback">Select at least one input and one output.</div>
+        </div>
+        <div class="row mt-3 g-3">
+          <div class="col-md-6">
+            <h3 class="h6">Inputs</h3>
+            <div class="vstack gap-2" id="selectedInputs"></div>
+          </div>
+          <div class="col-md-6">
+            <h3 class="h6">Outputs</h3>
+            <div class="vstack gap-2" id="selectedOutputs"></div>
+          </div>
+        </div>
+        <div class="mt-4">
+          <h3 class="h6">Flow overview</h3>
+          <pre class="mermaid" id="integrationDiagram">flowchart LR
+    placeholder([Select inputs and outputs])
+</pre>
+        </div>
+        <div class="mt-4 d-flex flex-column flex-md-row gap-2 justify-content-between align-items-md-center">
+          <button class="btn btn-primary" id="generateStubBtn" disabled>Generate stub</button>
+          <div class="small text-muted" id="diagramHint">Diagram updates as selections change.</div>
+        </div>
+      </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h5">Recommended strategies</h2>
+        <div class="mt-3" id="strategyList">
+          <p class="text-muted mb-0">Generate a stub to review read/write strategy guidance.</p>
+        </div>
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2 class="h5 mb-0">Generated Spark stub</h2>
+          <button class="btn btn-outline-secondary btn-sm" id="copyStubBtn" disabled>Copy</button>
+        </div>
+        <div class="alert alert-danger d-none" id="stubError"></div>
+        <pre class="bg-light p-3 rounded small" id="stubOutput"><code class="language-python text-body"># Generate a stub to preview integration-ready code.</code></pre>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="application/json" id="integrationCatalog">{{ catalog | tojson }}</script>
+<script type="application/json" id="integrationOptions">{{ integration_options | tojson }}</script>
+<script>
+  const catalogElement = document.getElementById("integrationCatalog");
+  const optionsElement = document.getElementById("integrationOptions");
+  const catalogData = catalogElement ? JSON.parse(catalogElement.textContent || "[]") : [];
+  const integrationOptionsData = optionsElement ? JSON.parse(optionsElement.textContent || "[]") : [];
+  const contractCache = new Map();
+  const state = {
+    catalog: catalogData,
+    filter: "",
+    integration: integrationOptionsData.length ? integrationOptionsData[0].value : "spark",
+    inputs: [],
+    outputs: [],
+    detail: null,
+    detailKey: null,
+    detailPage: 1,
+    stub: null,
+    strategies: null,
+  };
+
+  const dom = {
+    contractList: document.getElementById("contractList"),
+    contractListEmpty: document.getElementById("contractListEmpty"),
+    contractSearch: document.getElementById("contractSearch"),
+    integrationSelect: document.getElementById("integrationSelect"),
+    contractDetail: document.getElementById("contractDetail"),
+    contractDetailPlaceholder: document.getElementById("contractDetailPlaceholder"),
+    contractDetailError: document.getElementById("contractDetailError"),
+    contractTitle: document.getElementById("contractTitle"),
+    contractName: document.getElementById("contractName"),
+    contractDescription: document.getElementById("contractDescription"),
+    contractAccess: document.getElementById("contractAccess"),
+    schemaTableBody: document.getElementById("schemaTableBody"),
+    schemaEmpty: document.getElementById("schemaEmpty"),
+    schemaPagination: document.getElementById("schemaPagination"),
+    schemaCount: document.getElementById("schemaCount"),
+    expectationList: document.getElementById("expectationList"),
+    expectationEmpty: document.getElementById("expectationEmpty"),
+    addInputBtn: document.getElementById("addInputBtn"),
+    addOutputBtn: document.getElementById("addOutputBtn"),
+    selectedInputs: document.getElementById("selectedInputs"),
+    selectedOutputs: document.getElementById("selectedOutputs"),
+    selectionFeedback: document.getElementById("selectionFeedback"),
+    generateStubBtn: document.getElementById("generateStubBtn"),
+    copyStubBtn: document.getElementById("copyStubBtn"),
+    stubOutput: document.getElementById("stubOutput"),
+    stubError: document.getElementById("stubError"),
+    strategyList: document.getElementById("strategyList"),
+    integrationDiagram: document.getElementById("integrationDiagram"),
+    diagramHint: document.getElementById("diagramHint"),
+  };
+
+  function keyFor(id, version) {
+    return `${id}@@${version}`;
+  }
+
+  function escapeMermaid(value) {
+    return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  function renderCatalogList() {
+    const query = state.filter.trim().toLowerCase();
+    const items = state.catalog.filter((item) => {
+      if (!query) {
+        return true;
+      }
+      const haystack = [item.id, item.name, item.description, (item.status || "")].join(" ").toLowerCase();
+      if (haystack.includes(query)) {
+        return true;
+      }
+      return (item.versions || []).some((ver) => String(ver).toLowerCase().includes(query));
+    });
+
+    dom.contractList.innerHTML = "";
+    if (!items.length) {
+      dom.contractListEmpty.classList.remove("d-none");
+      return;
+    }
+    dom.contractListEmpty.classList.add("d-none");
+
+    items.forEach((item) => {
+      const container = document.createElement("div");
+      container.className = "list-group-item list-group-item-action";
+      container.dataset.contractId = item.id;
+      const latestLabel = item.latestVersion ? `v${item.latestVersion}` : "";
+      container.innerHTML = `
+        <div class="d-flex w-100 justify-content-between align-items-start gap-2">
+          <div>
+            <div class="fw-semibold">${item.name || item.id}</div>
+            <div class="small text-muted">${item.id}</div>
+            ${item.description ? `<div class="small text-muted">${item.description}</div>` : ""}
+          </div>
+          <div class="text-end">
+            ${latestLabel ? `<div class="badge text-bg-light">${latestLabel}</div>` : ""}
+            <button type="button" class="btn btn-outline-primary btn-sm mt-2" data-action="view">View</button>
+          </div>
+        </div>
+        <div class="mt-2">
+          <label class="form-label small text-muted mb-1">Version</label>
+          <select class="form-select form-select-sm" data-role="version-select">
+            ${(item.versions || []).map((ver) => `<option value="${ver}" ${ver === item.latestVersion ? "selected" : ""}>${ver}</option>`).join("")}
+          </select>
+        </div>
+      `;
+      const viewButton = container.querySelector('[data-action="view"]');
+      const versionSelect = container.querySelector('[data-role="version-select"]');
+      function resolveVersion() {
+        return versionSelect.value || item.latestVersion || (item.versions || [])[0] || "";
+      }
+      viewButton.addEventListener("click", () => {
+        const targetVersion = resolveVersion();
+        if (targetVersion) {
+          focusContract(item.id, targetVersion);
+        }
+      });
+      versionSelect.addEventListener("change", () => {
+        const targetVersion = resolveVersion();
+        if (targetVersion) {
+          focusContract(item.id, targetVersion);
+        }
+      });
+      dom.contractList.appendChild(container);
+    });
+  }
+
+  function renderAccess(server, datasetId) {
+    dom.contractAccess.innerHTML = "";
+    if (!server && !datasetId) {
+      dom.contractAccess.innerHTML = '<div class="text-muted">No server metadata recorded.</div>';
+      return;
+    }
+    const entries = [];
+    if (datasetId) {
+      entries.push(["Dataset ID", datasetId]);
+    }
+    if (server) {
+      const serverName = server.server || "";
+      if (serverName) {
+        entries.push(["Server", serverName]);
+      }
+      if (server.type) {
+        entries.push(["Type", server.type]);
+      }
+      if (server.format) {
+        entries.push(["Format", server.format]);
+      }
+      if (server.path) {
+        entries.push(["Path", server.path]);
+      }
+      if (server.dataset) {
+        entries.push(["Dataset", server.dataset]);
+      }
+    }
+    entries.forEach(([label, value]) => {
+      const dt = document.createElement("dt");
+      dt.className = "col-sm-4";
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.className = "col-sm-8";
+      dd.textContent = value;
+      dom.contractAccess.append(dt, dd);
+    });
+  }
+
+  function renderSchema(entries) {
+    const pageSize = 8;
+    const totalPages = Math.max(1, Math.ceil((entries || []).length / pageSize));
+    if (state.detailPage > totalPages) {
+      state.detailPage = totalPages;
+    }
+    const currentPage = Math.max(1, Math.min(state.detailPage, totalPages));
+    state.detailPage = currentPage;
+    dom.schemaTableBody.innerHTML = "";
+    dom.schemaEmpty.classList.toggle("d-none", !!entries.length);
+    const start = (currentPage - 1) * pageSize;
+    const slice = entries.slice(start, start + pageSize);
+    slice.forEach((entry) => {
+      const row = document.createElement("tr");
+      const requiredBadge = entry.required ? '<span class="badge text-bg-success">Yes</span>' : '<span class="badge text-bg-secondary">No</span>';
+      row.innerHTML = `
+        <td>${entry.field || entry.name}</td>
+        <td>${[entry.logicalType, entry.physicalType].filter(Boolean).join(" · ")}</td>
+        <td>${requiredBadge}</td>
+        <td>${entry.description || ""}</td>
+      `;
+      dom.schemaTableBody.appendChild(row);
+    });
+    dom.schemaCount.textContent = `${entries.length} field${entries.length === 1 ? "" : "s"}`;
+
+    dom.schemaPagination.innerHTML = "";
+    if (totalPages <= 1) {
+      return;
+    }
+    const prevLi = document.createElement("li");
+    prevLi.className = `page-item ${currentPage === 1 ? "disabled" : ""}`;
+    prevLi.innerHTML = '<button class="page-link" type="button">Prev</button>';
+    prevLi.addEventListener("click", () => {
+      if (state.detailPage > 1) {
+        state.detailPage -= 1;
+        renderContractDetail();
+      }
+    });
+    dom.schemaPagination.appendChild(prevLi);
+    for (let page = 1; page <= totalPages; page += 1) {
+      const li = document.createElement("li");
+      li.className = `page-item ${page === currentPage ? "active" : ""}`;
+      li.innerHTML = `<button class="page-link" type="button">${page}</button>`;
+      li.addEventListener("click", () => {
+        state.detailPage = page;
+        renderContractDetail();
+      });
+      dom.schemaPagination.appendChild(li);
+    }
+    const nextLi = document.createElement("li");
+    nextLi.className = `page-item ${currentPage === totalPages ? "disabled" : ""}`;
+    nextLi.innerHTML = '<button class="page-link" type="button">Next</button>';
+    nextLi.addEventListener("click", () => {
+      if (state.detailPage < totalPages) {
+        state.detailPage += 1;
+        renderContractDetail();
+      }
+    });
+    dom.schemaPagination.appendChild(nextLi);
+  }
+
+  function renderExpectations(expectations) {
+    const entries = Object.entries(expectations || {});
+    dom.expectationList.innerHTML = "";
+    dom.expectationEmpty.classList.toggle("d-none", entries.length > 0);
+    if (!entries.length) {
+      return;
+    }
+    entries.forEach(([name, predicate]) => {
+      const item = document.createElement("div");
+      item.className = "list-group-item small";
+      item.innerHTML = `<div class="fw-semibold">${name}</div><code class="d-block">${predicate}</code>`;
+      dom.expectationList.appendChild(item);
+    });
+  }
+
+  function renderContractDetail() {
+    const detail = state.detail;
+    if (!detail) {
+      dom.contractDetail.classList.add("d-none");
+      dom.contractDetailPlaceholder.classList.remove("d-none");
+      return;
+    }
+    dom.contractDetailPlaceholder.classList.add("d-none");
+    dom.contractDetail.classList.remove("d-none");
+    dom.contractDetailError.classList.add("d-none");
+    const summary = detail.summary || {};
+    dom.contractTitle.textContent = `${summary.id || ""} · v${summary.version || ""}`;
+    dom.contractName.textContent = summary.name || "";
+    dom.contractDescription.textContent = summary.description || "";
+    renderAccess(summary.server || null, summary.datasetId || "");
+    renderSchema(summary.schemaEntries || []);
+    renderExpectations(summary.expectations || {});
+    dom.addInputBtn.onclick = () => addSelection("inputs", summary);
+    dom.addOutputBtn.onclick = () => addSelection("outputs", summary);
+  }
+
+  function updateSelectionCollections(kind, collection) {
+    state[kind] = collection.map((item) => ({ ...item, key: keyFor(item.id, item.version) }));
+  }
+
+  function addSelection(kind, summary) {
+    if (!summary) {
+      return;
+    }
+    const key = keyFor(summary.id, summary.version);
+    if (state[kind].some((entry) => entry.key === key)) {
+      return;
+    }
+    const enriched = { ...summary, key };
+    state[kind].push(enriched);
+    state.stub = null;
+    state.strategies = null;
+    renderSelection();
+    renderStrategies();
+    renderStub();
+  }
+
+  function removeSelection(kind, key) {
+    state[kind] = state[kind].filter((entry) => entry.key !== key);
+    state.stub = null;
+    state.strategies = null;
+    renderSelection();
+    renderStrategies();
+    renderStub();
+  }
+
+  function renderSelectionList(container, items, kind) {
+    container.innerHTML = "";
+    if (!items.length) {
+      const placeholder = document.createElement("div");
+      placeholder.className = "text-muted small";
+      placeholder.textContent = "None selected.";
+      container.appendChild(placeholder);
+      return;
+    }
+    items.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "border rounded p-2 bg-light";
+      card.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <div class="fw-semibold">${item.id}</div>
+            <div class="small text-muted">v${item.version}</div>
+            ${item.datasetId ? `<div class="small text-muted">${item.datasetId}</div>` : ""}
+          </div>
+          <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-secondary" data-action="view">View</button>
+            <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
+          </div>
+        </div>
+      `;
+      const viewButton = card.querySelector('[data-action="view"]');
+      const removeButton = card.querySelector('[data-action="remove"]');
+      viewButton.addEventListener("click", () => focusContract(item.id, item.version));
+      removeButton.addEventListener("click", () => removeSelection(kind, item.key));
+      container.appendChild(card);
+    });
+  }
+
+  function renderDiagram() {
+    const el = dom.integrationDiagram;
+    if (!el) {
+      return;
+    }
+    if (!state.inputs.length && !state.outputs.length) {
+      el.textContent = "flowchart LR\n    placeholder([Select inputs and outputs])";
+      if (window.mermaid && window.mermaid.run) {
+        window.mermaid.run({ nodes: [el] });
+      }
+      return;
+    }
+    const lines = ["flowchart LR"];
+    if (state.inputs.length) {
+      lines.push("    subgraph Inputs");
+      state.inputs.forEach((item, index) => {
+        const nodeId = `in_${index}`;
+        const parts = [item.id, `v${item.version}`];
+        const location = (item.server && (item.server.path || item.server.dataset)) || "";
+        if (location) {
+          parts.push(location);
+        }
+        lines.push(`    ${nodeId}["${escapeMermaid(parts.join("\\n"))}"]`);
+        lines.push(`    ${nodeId} --> spark`);
+      });
+      lines.push("    end");
+    }
+    lines.push("    spark((Spark integration))");
+    if (state.outputs.length) {
+      lines.push("    subgraph Outputs");
+      state.outputs.forEach((item, index) => {
+        const nodeId = `out_${index}`;
+        const parts = [item.id, `v${item.version}`];
+        const location = (item.server && (item.server.path || item.server.dataset)) || "";
+        if (location) {
+          parts.push(location);
+        }
+        lines.push(`    ${nodeId}["${escapeMermaid(parts.join("\\n"))}"]`);
+        lines.push(`    spark --> ${nodeId}`);
+      });
+      lines.push("    end");
+    }
+    el.textContent = lines.join("\n");
+    if (window.mermaid && window.mermaid.run) {
+      window.mermaid.run({ nodes: [el] });
+    }
+  }
+
+  function renderSelection() {
+    renderSelectionList(dom.selectedInputs, state.inputs, "inputs");
+    renderSelectionList(dom.selectedOutputs, state.outputs, "outputs");
+    const ready = state.inputs.length > 0 && state.outputs.length > 0;
+    dom.generateStubBtn.disabled = !ready;
+    dom.selectionFeedback.textContent = ready
+      ? `Ready to generate a ${state.integration.toUpperCase()} stub for ${state.inputs.length} input(s) and ${state.outputs.length} output(s).`
+      : "Select at least one input and one output.";
+    renderDiagram();
+  }
+
+  function renderStrategies() {
+    dom.strategyList.innerHTML = "";
+    if (!state.strategies) {
+      dom.strategyList.innerHTML = '<p class="text-muted mb-0">Generate a stub to review read/write strategy guidance.</p>';
+      return;
+    }
+    const categories = [
+      { title: "Read", items: state.strategies.read || [] },
+      { title: "Write", items: state.strategies.write || [] },
+    ];
+    categories.forEach((category) => {
+      if (!category.items.length) {
+        return;
+      }
+      const section = document.createElement("div");
+      section.className = "mb-3";
+      section.innerHTML = `<h3 class="h6">${category.title}</h3>`;
+      category.items.forEach((item) => {
+        const card = document.createElement("div");
+        card.className = "border rounded p-2 mb-2 bg-light";
+        card.innerHTML = `<div class="fw-semibold">${item.title}</div><p class="small mb-0">${item.description}</p>`;
+        section.appendChild(card);
+      });
+      dom.strategyList.appendChild(section);
+    });
+  }
+
+  function renderStub() {
+    if (!state.stub) {
+      dom.stubOutput.textContent = "# Generate a stub to preview integration-ready code.";
+      dom.copyStubBtn.disabled = true;
+      dom.stubError.classList.add("d-none");
+      return;
+    }
+    dom.stubOutput.textContent = state.stub;
+    dom.copyStubBtn.disabled = false;
+  }
+
+  async function focusContract(contractId, version) {
+    if (!contractId || !version) {
+      return;
+    }
+    const key = keyFor(contractId, version);
+    if (contractCache.has(key)) {
+      state.detail = contractCache.get(key);
+      state.detailKey = key;
+      state.detailPage = 1;
+      renderContractDetail();
+      return;
+    }
+    dom.contractDetailPlaceholder.textContent = "Loading contract details…";
+    dom.contractDetail.classList.add("d-none");
+    dom.contractDetailPlaceholder.classList.remove("d-none");
+    dom.contractDetailError.classList.add("d-none");
+    try {
+      const response = await fetch(`/api/integration-helper/contracts/${encodeURIComponent(contractId)}/${encodeURIComponent(version)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load contract: ${response.status}`);
+      }
+      const data = await response.json();
+      const detail = { summary: data.summary || {}, contract: data.contract || {} };
+      contractCache.set(key, detail);
+      state.detail = detail;
+      state.detailKey = key;
+      state.detailPage = 1;
+      renderContractDetail();
+    } catch (error) {
+      dom.contractDetailError.textContent = error.message || String(error);
+      dom.contractDetailError.classList.remove("d-none");
+      dom.contractDetailPlaceholder.classList.remove("d-none");
+    }
+  }
+
+  async function generateStub() {
+    if (!state.inputs.length || !state.outputs.length) {
+      return;
+    }
+    dom.generateStubBtn.disabled = true;
+    const originalLabel = dom.generateStubBtn.textContent;
+    dom.generateStubBtn.textContent = "Generating…";
+    dom.stubError.classList.add("d-none");
+    try {
+      const payload = {
+        integration: state.integration,
+        inputs: state.inputs.map((item) => ({ contract_id: item.id, version: item.version })),
+        outputs: state.outputs.map((item) => ({ contract_id: item.id, version: item.version })),
+      };
+      const response = await fetch("/api/integration-helper/stub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Request failed with status ${response.status}`);
+      }
+      const data = await response.json();
+      state.stub = data.stub || "";
+      state.strategies = data.strategies || null;
+      if (data.contracts) {
+        if (data.contracts.inputs) {
+          updateSelectionCollections("inputs", data.contracts.inputs);
+        }
+        if (data.contracts.outputs) {
+          updateSelectionCollections("outputs", data.contracts.outputs);
+        }
+      }
+      renderSelection();
+      renderStrategies();
+      renderStub();
+    } catch (error) {
+      dom.stubError.textContent = error.message || String(error);
+      dom.stubError.classList.remove("d-none");
+    } finally {
+      dom.generateStubBtn.disabled = !(state.inputs.length && state.outputs.length);
+      dom.generateStubBtn.textContent = originalLabel;
+    }
+  }
+
+  async function copyStub() {
+    if (!state.stub) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(state.stub);
+      dom.copyStubBtn.textContent = "Copied!";
+      setTimeout(() => {
+        dom.copyStubBtn.textContent = "Copy";
+      }, 1500);
+    } catch (error) {
+      dom.stubError.textContent = "Failed to copy stub to clipboard.";
+      dom.stubError.classList.remove("d-none");
+    }
+  }
+
+  dom.contractSearch.addEventListener("input", (event) => {
+    state.filter = event.target.value || "";
+    renderCatalogList();
+  });
+
+  dom.integrationSelect.addEventListener("change", (event) => {
+    state.integration = event.target.value;
+    state.stub = null;
+    state.strategies = null;
+    renderSelection();
+    renderStrategies();
+    renderStub();
+  });
+
+  dom.generateStubBtn.addEventListener("click", generateStub);
+  dom.copyStubBtn.addEventListener("click", copyStub);
+
+  renderCatalogList();
+  renderSelection();
+  renderStrategies();
+  renderStub();
+{% if catalog %}
+  const firstContract = catalogData[0];
+  if (firstContract) {
+    focusContract(firstContract.id, firstContract.latestVersion || (firstContract.versions || [])[0]);
+  }
+{% endif %}
+</script>
+{% endblock %}
