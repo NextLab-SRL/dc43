@@ -3,13 +3,29 @@
 <style>
   .helper-layout {
     min-height: 70vh;
+    display: flex;
+    gap: 1.5rem;
     align-items: stretch;
   }
   .helper-sidebar {
     position: sticky;
     top: 1rem;
+    flex: 0 0 clamp(15rem, 20%, 20rem);
+    max-width: 22rem;
     display: flex;
     flex-direction: column;
+    height: fit-content;
+  }
+  .helper-main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .helper-panel .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
   }
   .contract-search-body {
     display: flex;
@@ -21,31 +37,33 @@
     overflow-y: auto;
   }
   .pipeline-wrapper {
-    min-height: 32rem;
-  }
-  .pipeline-shell {
-    height: 100%;
+    min-height: 36rem;
   }
   .pipeline-canvas {
     position: relative;
-    min-height: 32rem;
+    min-height: 36rem;
     background: repeating-linear-gradient(
-      0deg,
-      rgba(0, 0, 0, 0.03),
-      rgba(0, 0, 0, 0.03) 1px,
-      transparent 1px,
-      transparent 32px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      rgba(0, 0, 0, 0.03),
-      rgba(0, 0, 0, 0.03) 1px,
-      transparent 1px,
-      transparent 32px
-    );
+        0deg,
+        rgba(0, 0, 0, 0.03),
+        rgba(0, 0, 0, 0.03) 1px,
+        transparent 1px,
+        transparent 32px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        rgba(0, 0, 0, 0.03),
+        rgba(0, 0, 0, 0.03) 1px,
+        transparent 1px,
+        transparent 32px
+      );
     border-radius: var(--bs-border-radius-lg);
     border: 1px dashed rgba(0, 0, 0, 0.15);
     overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+  }
+  .pipeline-canvas.is-panning {
+    cursor: grabbing;
   }
   .pipeline-stage {
     position: absolute;
@@ -97,18 +115,32 @@
     gap: 0.5rem;
     flex-wrap: wrap;
   }
+  .pipeline-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+  }
   .pipeline-controls {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
-    justify-content: flex-end;
+  }
+  .pipeline-controls .btn-group + .btn-group {
+    margin-left: 0.5rem;
   }
   .pipeline-zoom-indicator {
     font-variant-numeric: tabular-nums;
     min-width: 3.5rem;
     text-align: right;
     color: var(--bs-secondary-color);
+  }
+  .pipeline-status {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+    min-height: 1.25rem;
   }
   .pipeline-node .handle-input,
   .pipeline-node .handle-output {
@@ -246,11 +278,44 @@
   .transformation-summary + .transformation-summary {
     margin-top: 1.5rem;
   }
+  .transformation-quick-config {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    background: var(--bs-body-bg);
+    margin-top: 1.25rem;
+    overflow: hidden;
+  }
+  .transformation-quick-config > summary {
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-weight: 600;
+  }
+  .transformation-quick-config > summary::marker,
+  .transformation-quick-config > summary::-webkit-details-marker {
+    display: none;
+  }
+  .transformation-quick-config > summary::after {
+    content: "\25BC";
+    font-size: 0.75rem;
+    transition: transform 0.2s ease-in-out;
+  }
+  .transformation-quick-config[open] > summary::after {
+    transform: rotate(180deg);
+  }
+  .transformation-quick-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
   .transformation-controls {
     display: flex;
     flex-wrap: wrap;
     gap: 1rem;
-    margin-top: 1.5rem;
   }
   .transformation-controls .control-field {
     min-width: 10rem;
@@ -347,9 +412,9 @@
     margin: 0;
     padding: 1rem;
     border-top: 1px solid var(--bs-border-color);
-    background: #0f172a;
+    background: #f8fafc;
     border-radius: 0 0 var(--bs-border-radius-lg) var(--bs-border-radius-lg);
-    color: #e2e8f0;
+    color: var(--bs-body-color);
   }
   .code-section pre code {
     font-size: 0.875rem;
@@ -358,8 +423,13 @@
     overflow-x: auto;
   }
   @media (max-width: 991.98px) {
+    .helper-layout {
+      flex-direction: column;
+    }
     .helper-sidebar {
       position: static;
+      width: 100%;
+      max-width: none;
     }
     #contractResults {
       max-height: 20rem;
@@ -369,79 +439,82 @@
     }
   }
 </style>
-<div class="row g-4 helper-layout align-items-start">
-  <div class="col-12 col-xl-3">
-    <div class="card shadow-sm helper-sidebar h-100">
-      <div class="card-header border-bottom">
-        <h1 class="h5 mb-0">Integration helper</h1>
+<div class="helper-layout align-items-start">
+  <div class="card shadow-sm helper-sidebar">
+    <div class="card-header border-bottom">
+      <h1 class="h5 mb-0">Integration helper</h1>
+    </div>
+    <div class="card-body contract-search-body">
+      <p class="text-muted small mb-0">
+        Search for contracts, drag them into the canvas, then connect them through transformation
+        nodes to build a lineage. Configure integrations per transformation and generate stubs tailored to the selected strategies.
+      </p>
+      <div>
+        <label for="contractSearch" class="form-label">Search contracts</label>
+        <input type="search" class="form-control" id="contractSearch" placeholder="Filter by id, name, version"/>
       </div>
-      <div class="card-body contract-search-body">
-        <p class="text-muted small mb-0">
-          Search for contracts, drag them into the canvas, then connect them through transformation
-          nodes to build a lineage. Configure integrations per transformation and generate stubs tailored to the selected strategies.
-        </p>
-        <div>
-          <label for="contractSearch" class="form-label">Search contracts</label>
-          <input type="search" class="form-control" id="contractSearch" placeholder="Filter by id, name, version"/>
-        </div>
-        <div>
-          <h2 class="h6 text-uppercase text-muted mb-2">Results</h2>
-          <div id="contractResults" class="list-group"></div>
-          <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
-        </div>
+      <div>
+        <h2 class="h6 text-uppercase text-muted mb-2">Results</h2>
+        <div id="contractResults" class="list-group"></div>
+        <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
       </div>
     </div>
   </div>
-  <div class="col-12 col-xl-9">
-    <div class="row g-4 align-items-stretch">
-      <div class="col-12 col-xxl-7">
-        <div class="card shadow-sm h-100">
-          <div class="card-body d-flex flex-column gap-3">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+  <div class="helper-main">
+    <div class="card shadow-sm helper-panel">
+      <div class="card-body">
+        <div class="d-flex flex-column gap-3">
+          <div class="d-flex flex-column gap-2">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
               <div>
                 <h2 class="h5 mb-1">Pipeline builder</h2>
                 <p class="text-muted small mb-0">Drag contracts and transformations to organise inputs and outputs.</p>
               </div>
-              <div class="d-flex align-items-center gap-3 flex-wrap justify-content-end">
+              <div class="pipeline-toolbar">
                 <div class="pipeline-controls">
                   <div class="btn-group btn-group-sm" role="group" aria-label="Zoom controls">
                     <button type="button" class="btn btn-outline-secondary" id="zoomOutBtn" title="Zoom out">&minus;</button>
-                    <button type="button" class="btn btn-outline-secondary" id="zoomResetBtn" title="Reset zoom">Reset</button>
                     <button type="button" class="btn btn-outline-secondary" id="zoomInBtn" title="Zoom in">+</button>
+                  </div>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Viewport controls">
+                    <button type="button" class="btn btn-outline-secondary" id="fitViewBtn" title="Fit to contents">Fit</button>
+                    <button type="button" class="btn btn-outline-secondary" id="viewResetBtn" title="Reset view">Reset</button>
                   </div>
                   <span class="pipeline-zoom-indicator" id="zoomIndicator">100%</span>
                 </div>
-                <button type="button" class="btn btn-outline-primary btn-sm" id="addTransformationBtn">Add transformation</button>
-              </div>
-            </div>
-            <div class="pipeline-wrapper pipeline-shell">
-              <div class="pipeline-canvas" id="pipelineCanvas">
-                <div class="pipeline-stage" id="pipelineStage"></div>
-                <svg class="pipeline-connections" id="pipelineConnections"></svg>
-                <div class="pipeline-placeholder" id="pipelinePlaceholder">
-                  <div>
-                    <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
-                    <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
-                  </div>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Pipeline actions">
+                  <button type="button" class="btn btn-outline-secondary" id="screenshotBtn" title="Save pipeline snapshot">Screenshot</button>
+                  <button type="button" class="btn btn-outline-primary" id="addTransformationBtn">Add transformation</button>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="col-12 col-xxl-5">
-        <div class="card shadow-sm h-100">
-          <div class="card-body d-flex flex-column" id="transformationPanel">
-            <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
-              <div>
-                <h2 class="h5 mb-1">Integration stubs</h2>
-                <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
+          <div class="pipeline-wrapper">
+            <div class="pipeline-canvas" id="pipelineCanvas">
+              <div class="pipeline-stage" id="pipelineStage"></div>
+              <svg class="pipeline-connections" id="pipelineConnections"></svg>
+              <div class="pipeline-placeholder" id="pipelinePlaceholder">
+                <div>
+                  <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
+                  <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
+                </div>
               </div>
             </div>
-            <div id="transformationList" class="d-flex flex-column gap-3 flex-grow-1"></div>
-            <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
+          </div>
+          <div class="pipeline-status" id="pipelineStatus"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card shadow-sm helper-panel">
+      <div class="card-body" id="transformationPanel">
+        <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+          <div>
+            <h2 class="h5 mb-1">Integration stubs</h2>
+            <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
           </div>
         </div>
+        <div id="transformationList" class="d-flex flex-column gap-3 flex-grow-1"></div>
+        <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
       </div>
     </div>
   </div>
@@ -549,9 +622,12 @@
     { value: "plaintext", label: "Plain text" },
   ];
 
-  const ZOOM_MIN = 0.5;
-  const ZOOM_MAX = 1.75;
+  let domToImagePromise = null;
+
+  const ZOOM_MIN = 0.35;
+  const ZOOM_MAX = 2;
   const ZOOM_STEP = 0.15;
+  const VIEWPORT_PADDING = 96;
 
   const contractCache = new Map();
   const state = {
@@ -564,6 +640,13 @@
     activeConnection: null,
     hoverHandle: null,
     zoom: 1,
+    pan: { x: 0, y: 0 },
+    isPanning: false,
+    panPointerId: null,
+    panOrigin: { x: 0, y: 0 },
+    highlightWaiters: [],
+    highlightCheckScheduled: false,
+    screenshotStatusTimeout: null,
   };
 
   const dom = {
@@ -576,9 +659,12 @@
     pipelinePlaceholder: document.getElementById("pipelinePlaceholder"),
     addTransformationBtn: document.getElementById("addTransformationBtn"),
     zoomOutBtn: document.getElementById("zoomOutBtn"),
-    zoomResetBtn: document.getElementById("zoomResetBtn"),
     zoomInBtn: document.getElementById("zoomInBtn"),
+    fitViewBtn: document.getElementById("fitViewBtn"),
+    viewResetBtn: document.getElementById("viewResetBtn"),
     zoomIndicator: document.getElementById("zoomIndicator"),
+    screenshotBtn: document.getElementById("screenshotBtn"),
+    pipelineStatus: document.getElementById("pipelineStatus"),
     transformationList: document.getElementById("transformationList"),
     transformationEmpty: document.getElementById("transformationEmpty"),
     contractPreviewModal: document.getElementById("contractPreviewModal"),
@@ -632,28 +718,83 @@
     if (dom.zoomInBtn) {
       dom.zoomInBtn.disabled = state.zoom >= ZOOM_MAX - 0.01;
     }
-    if (dom.zoomResetBtn) {
-      dom.zoomResetBtn.disabled = Math.abs(state.zoom - 1) < 0.01;
+    if (dom.viewResetBtn) {
+      const panNearOrigin = Math.abs(state.pan.x) < 1 && Math.abs(state.pan.y) < 1;
+      dom.viewResetBtn.disabled = Math.abs(state.zoom - 1) < 0.01 && panNearOrigin;
     }
   }
 
-  function applyZoom() {
+  function setPipelineStatus(message, tone = "muted", options = {}) {
+    if (!dom.pipelineStatus) {
+      return;
+    }
+    const duration = typeof options.duration === "number" ? options.duration : 2500;
+    dom.pipelineStatus.textContent = message || "";
+    dom.pipelineStatus.classList.remove("text-danger", "text-success", "text-muted");
+    const toneClass = tone === "danger" ? "text-danger" : tone === "success" ? "text-success" : "text-muted";
+    dom.pipelineStatus.classList.add(toneClass);
+    if (state.screenshotStatusTimeout) {
+      clearTimeout(state.screenshotStatusTimeout);
+      state.screenshotStatusTimeout = null;
+    }
+    if (message && duration > 0) {
+      state.screenshotStatusTimeout = setTimeout(() => {
+        dom.pipelineStatus.textContent = "";
+        dom.pipelineStatus.classList.remove("text-danger", "text-success");
+        dom.pipelineStatus.classList.add("text-muted");
+        state.screenshotStatusTimeout = null;
+      }, duration);
+    }
+  }
+
+  function applyViewport() {
     if (dom.pipelineStage) {
-      dom.pipelineStage.style.transform = `scale(${state.zoom})`;
+      dom.pipelineStage.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`;
     }
     updateZoomControls();
+    requestAnimationFrame(renderConnections);
   }
 
-  function setZoom(value) {
+  function setPan(x, y) {
+    state.pan.x = x;
+    state.pan.y = y;
+    applyViewport();
+  }
+
+  function resetViewport() {
+    state.pan.x = 0;
+    state.pan.y = 0;
+    state.zoom = 1;
+    applyViewport();
+  }
+
+  function setZoom(value, options = {}) {
     const clamped = clampZoom(value);
+    const anchor = options.anchor || null;
+    if (!dom.pipelineCanvas) {
+      state.zoom = clamped;
+      updateZoomControls();
+      return;
+    }
+    if (anchor) {
+      const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+      const relative = {
+        x: (anchor.x - canvasRect.left - state.pan.x) / state.zoom,
+        y: (anchor.y - canvasRect.top - state.pan.y) / state.zoom,
+      };
+      state.zoom = clamped;
+      state.pan.x = anchor.x - canvasRect.left - relative.x * state.zoom;
+      state.pan.y = anchor.y - canvasRect.top - relative.y * state.zoom;
+      applyViewport();
+      return;
+    }
     if (Math.abs(clamped - state.zoom) < 0.001) {
       state.zoom = clamped;
       updateZoomControls();
       return;
     }
     state.zoom = clamped;
-    applyZoom();
-    requestAnimationFrame(renderConnections);
+    applyViewport();
   }
 
   function escapeHtml(value) {
@@ -804,6 +945,7 @@
         version,
         position,
         summary,
+        size: { width: 260, height: 200 },
       };
       state.contractNodes.push(node);
       renderPipeline();
@@ -1362,8 +1504,8 @@
       const element = buildTransformationNodeElement(transformation);
       dom.pipelineStage.appendChild(element);
     });
-    applyZoom();
-    requestAnimationFrame(renderConnections);
+    applyViewport();
+    requestAnimationFrame(measurePipelineNodes);
   }
 
   function renderConnections() {
@@ -1416,6 +1558,170 @@
     });
   }
 
+  function measurePipelineNodes() {
+    if (!dom.pipelineStage) {
+      return;
+    }
+    const elements = dom.pipelineStage.querySelectorAll(".pipeline-node");
+    elements.forEach((element) => {
+      const nodeId = element.dataset.nodeId;
+      if (!nodeId) {
+        return;
+      }
+      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      if (!node) {
+        return;
+      }
+      const rect = element.getBoundingClientRect();
+      const width = rect.width / state.zoom;
+      const height = rect.height / state.zoom;
+      node.size = { width, height };
+    });
+  }
+
+  function computePipelineBounds() {
+    const segments = [];
+    const collect = (node) => {
+      if (!node) {
+        return;
+      }
+      const size = node.size || { width: 260, height: 200 };
+      segments.push({
+        minX: node.position.x,
+        minY: node.position.y,
+        maxX: node.position.x + size.width,
+        maxY: node.position.y + size.height,
+      });
+    };
+    state.contractNodes.forEach(collect);
+    state.transformations.forEach(collect);
+    if (!segments.length) {
+      return null;
+    }
+    const minX = Math.min(...segments.map((seg) => seg.minX));
+    const minY = Math.min(...segments.map((seg) => seg.minY));
+    const maxX = Math.max(...segments.map((seg) => seg.maxX));
+    const maxY = Math.max(...segments.map((seg) => seg.maxY));
+    return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+  }
+
+  function fitPipeline() {
+    const bounds = computePipelineBounds();
+    if (!bounds) {
+      setPipelineStatus("Add contracts and transformations to fit the view.");
+      return;
+    }
+    if (!dom.pipelineCanvas) {
+      return;
+    }
+    const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+    const availableWidth = Math.max(200, canvasRect.width - VIEWPORT_PADDING);
+    const availableHeight = Math.max(200, canvasRect.height - VIEWPORT_PADDING);
+    const scaleX = availableWidth / Math.max(bounds.width, 1);
+    const scaleY = availableHeight / Math.max(bounds.height, 1);
+    const targetZoom = clampZoom(Math.min(scaleX, scaleY));
+    const centerX = bounds.minX + bounds.width / 2;
+    const centerY = bounds.minY + bounds.height / 2;
+    state.zoom = targetZoom;
+    state.pan.x = canvasRect.width / 2 - centerX * state.zoom;
+    state.pan.y = canvasRect.height / 2 - centerY * state.zoom;
+    applyViewport();
+    setPipelineStatus("Viewport fitted to pipeline.", "success");
+  }
+
+  function startCanvasPan(event) {
+    if (!dom.pipelineCanvas || state.activeConnection) {
+      return;
+    }
+    if (event.target.closest(".pipeline-node")) {
+      return;
+    }
+    state.isPanning = true;
+    state.panPointerId = event.pointerId;
+    state.panOrigin.x = event.clientX - state.pan.x;
+    state.panOrigin.y = event.clientY - state.pan.y;
+    dom.pipelineCanvas.classList.add("is-panning");
+    if (dom.pipelineCanvas.setPointerCapture) {
+      try {
+        dom.pipelineCanvas.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // ignore
+      }
+    }
+    event.preventDefault();
+  }
+
+  function moveCanvasPan(event) {
+    if (!state.isPanning || event.pointerId !== state.panPointerId) {
+      return;
+    }
+    const nextX = event.clientX - state.panOrigin.x;
+    const nextY = event.clientY - state.panOrigin.y;
+    setPan(nextX, nextY);
+  }
+
+  function endCanvasPan(event) {
+    if (event.pointerId !== state.panPointerId) {
+      return;
+    }
+    state.isPanning = false;
+    state.panPointerId = null;
+    dom.pipelineCanvas.classList.remove("is-panning");
+    if (dom.pipelineCanvas.releasePointerCapture) {
+      try {
+        dom.pipelineCanvas.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        // ignore
+      }
+    }
+  }
+
+  function ensureDomToImage() {
+    if (window.domtoimage) {
+      return Promise.resolve(window.domtoimage);
+    }
+    if (!domToImagePromise) {
+      domToImagePromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/dom-to-image-more@2.8.0/dist/dom-to-image-more.min.js";
+        script.async = true;
+        script.onload = () => resolve(window.domtoimage);
+        script.onerror = () => reject(new Error("Unable to load screenshot helper."));
+        document.body.appendChild(script);
+      });
+    }
+    return domToImagePromise;
+  }
+
+  async function capturePipelineScreenshot() {
+    if (!dom.pipelineCanvas) {
+      return;
+    }
+    try {
+      setPipelineStatus("Preparing screenshot…", "muted", { duration: 0 });
+      const lib = await ensureDomToImage();
+      if (!lib) {
+        throw new Error("Screenshot support unavailable.");
+      }
+      const background = getComputedStyle(document.body).backgroundColor || "#ffffff";
+      const dataUrl = await lib.toPng(dom.pipelineCanvas, {
+        cacheBust: true,
+        quality: 0.95,
+        bgcolor: background,
+      });
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `pipeline-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setPipelineStatus("Screenshot downloaded.", "success");
+    } catch (error) {
+      console.error(error);
+      setPipelineStatus(error.message || "Failed to capture screenshot.", "danger", { duration: 4000 });
+    }
+  }
+
   function addTransformation() {
     const initialIntegration = integrationOptionsData.length ? integrationOptionsData[0].value : "spark";
     const transformation = {
@@ -1433,6 +1739,7 @@
         includeReject: true,
         failOnWarnings: false,
       },
+      size: { width: 320, height: 260 },
       inputs: [],
       outputs: [],
       stub: "",
@@ -1473,6 +1780,38 @@
     `;
   }
 
+  function ensureHighlightReady(callback) {
+    if (typeof callback !== "function") {
+      return;
+    }
+    if (window.hljs && window.hljs.highlightElement) {
+      callback();
+      return;
+    }
+    state.highlightWaiters.push(callback);
+    if (state.highlightCheckScheduled) {
+      return;
+    }
+    state.highlightCheckScheduled = true;
+    const poll = () => {
+      if (window.hljs && window.hljs.highlightElement) {
+        state.highlightCheckScheduled = false;
+        const tasks = [...state.highlightWaiters];
+        state.highlightWaiters.length = 0;
+        tasks.forEach((task) => {
+          try {
+            task();
+          } catch (error) {
+            console.error(error);
+          }
+        });
+        return;
+      }
+      setTimeout(poll, 120);
+    };
+    poll();
+  }
+
   function applyCodeHighlight(codeElement, language, source) {
     if (!codeElement) {
       return;
@@ -1483,12 +1822,19 @@
     }
     codeElement.removeAttribute("data-highlighted");
     codeElement.className = "";
-    codeElement.classList.add(`language-${lang}`);
+    codeElement.classList.add("hljs", `language-${lang}`);
+    const runHighlight = () => {
+      if (window.hljs && window.hljs.highlightElement) {
+        window.hljs.highlightElement(codeElement);
+      }
+      if (!codeElement.classList.contains("hljs")) {
+        codeElement.classList.add("hljs");
+      }
+    };
     if (window.hljs && window.hljs.highlightElement) {
-      window.hljs.highlightElement(codeElement);
-    }
-    if (!codeElement.classList.contains("hljs")) {
-      codeElement.classList.add("hljs");
+      runHighlight();
+    } else {
+      ensureHighlightReady(runHighlight);
     }
   }
 
@@ -1594,28 +1940,37 @@
             <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
           </div>
         </div>
-        <div class="transformation-controls">
-          <div class="control-field">
-            <label class="form-label" for="${integrationSelectId}">Integration</label>
-            <select class="form-select form-select-sm" id="${integrationSelectId}" data-role="integration">${integrationOptions}</select>
+        <details class="transformation-quick-config">
+          <summary>
+            <span>Quick configuration</span>
+            <span class="text-muted small">Integration & strategies</span>
+          </summary>
+          <div class="transformation-quick-body">
+            <div class="transformation-controls">
+              <div class="control-field">
+                <label class="form-label" for="${integrationSelectId}">Integration</label>
+                <select class="form-select form-select-sm" id="${integrationSelectId}" data-role="integration">${integrationOptions}</select>
+              </div>
+              <div class="control-field">
+                <label class="form-label" for="${readSelectId}">Read strategy</label>
+                <select class="form-select form-select-sm" id="${readSelectId}" data-role="read-strategy">${readOptions}</select>
+              </div>
+              <div class="control-field">
+                <label class="form-label" for="${writeSelectId}">Write strategy</label>
+                <select class="form-select form-select-sm" id="${writeSelectId}" data-role="write-strategy">${writeOptions}</select>
+              </div>
+              <div class="control-field flex-grow-1 d-none" data-role="write-toggle-field">
+                <span class="form-label d-block">Write options</span>
+                <div class="switch-group" data-role="write-toggle-list"></div>
+              </div>
+            </div>
           </div>
-          <div class="control-field">
-            <label class="form-label" for="${readSelectId}">Read strategy</label>
-            <select class="form-select form-select-sm" id="${readSelectId}" data-role="read-strategy">${readOptions}</select>
-          </div>
-          <div class="control-field">
-            <label class="form-label" for="${writeSelectId}">Write strategy</label>
-            <select class="form-select form-select-sm" id="${writeSelectId}" data-role="write-strategy">${writeOptions}</select>
-          </div>
-          <div class="control-field flex-grow-1 d-none" data-role="write-toggle-field">
-            <span class="form-label d-block">Write options</span>
-            <div class="switch-group" data-role="write-toggle-list"></div>
-          </div>
-        </div>
+        </details>
         <div class="mt-3" data-role="status"></div>
         <div class="mt-3" data-role="strategy-notes"></div>
         <div class="mt-3" data-role="stub"></div>
       `;
+      const quickConfig = summary.querySelector(".transformation-quick-config");
       const statusContainer = summary.querySelector('[data-role="status"]');
       const strategyContainer = summary.querySelector('[data-role="strategy-notes"]');
       const stubContainer = summary.querySelector('[data-role="stub"]');
@@ -1627,6 +1982,9 @@
       const writeSelect = summary.querySelector('[data-role="write-strategy"]');
       const writeToggleField = summary.querySelector('[data-role="write-toggle-field"]');
       const writeToggleList = summary.querySelector('[data-role="write-toggle-list"]');
+      if (quickConfig && (!transformation.stub || transformation.error || transformation.dirty)) {
+        quickConfig.open = true;
+      }
       configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
       refreshButton.addEventListener("click", () => generateTransformationStub(transformation.id, { auto: false }));
       removeButton.addEventListener("click", () => removeTransformation(transformation.id));
@@ -2011,8 +2369,17 @@
     if (dom.zoomInBtn) {
       dom.zoomInBtn.addEventListener("click", () => setZoom(state.zoom + ZOOM_STEP));
     }
-    if (dom.zoomResetBtn) {
-      dom.zoomResetBtn.addEventListener("click", () => setZoom(1));
+    if (dom.viewResetBtn) {
+      dom.viewResetBtn.addEventListener("click", () => {
+        resetViewport();
+        setPipelineStatus("Viewport reset.", "success");
+      });
+    }
+    if (dom.fitViewBtn) {
+      dom.fitViewBtn.addEventListener("click", () => fitPipeline());
+    }
+    if (dom.screenshotBtn) {
+      dom.screenshotBtn.addEventListener("click", () => capturePipelineScreenshot());
     }
     if (dom.pipelineCanvas) {
       dom.pipelineCanvas.addEventListener(
@@ -2023,12 +2390,26 @@
           }
           event.preventDefault();
           const direction = event.deltaY < 0 ? 1 : -1;
-          setZoom(state.zoom + direction * ZOOM_STEP);
+          setZoom(state.zoom + direction * ZOOM_STEP, { anchor: { x: event.clientX, y: event.clientY } });
         },
         { passive: false }
       );
+      dom.pipelineCanvas.addEventListener("pointerdown", (event) => {
+        if (event.button === 0) {
+          startCanvasPan(event);
+        }
+      });
+      dom.pipelineCanvas.addEventListener("pointermove", moveCanvasPan);
+      dom.pipelineCanvas.addEventListener("pointerup", endCanvasPan);
+      dom.pipelineCanvas.addEventListener("pointercancel", endCanvasPan);
+      dom.pipelineCanvas.addEventListener("lostpointercapture", endCanvasPan);
     }
-    window.addEventListener("resize", () => requestAnimationFrame(renderConnections));
+    window.addEventListener("resize", () => {
+      requestAnimationFrame(() => {
+        renderConnections();
+        measurePipelineNodes();
+      });
+    });
   }
 
   window.addEventListener("load", () => {
@@ -2041,6 +2422,7 @@
     renderPipeline();
     renderTransformations();
     registerEventListeners();
+    setPipelineStatus("", "muted", { duration: 0 });
   }
 
   initialise();
