@@ -19,7 +19,7 @@ classifiers = [
 dynamic = ["dependencies", "optional-dependencies"]
 
 [project.scripts]
-dc43-demo = "dc43.demo_app.server:run"
+dc43-demo = "dc43.demo_app.runner:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

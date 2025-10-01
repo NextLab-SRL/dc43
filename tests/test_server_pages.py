@@ -2,18 +2,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dc43_contracts_app import server as contracts_server
+from dc43.demo_app import contracts_records as demo_records
 from dc43.demo_app import server as demo_server
 from dc43.demo_app.contracts_workspace import prepare_demo_workspace
 from dc43.demo_app.scenarios import SCENARIOS
 
 prepare_demo_workspace()
-DatasetRecord = contracts_server.DatasetRecord
-_dq_version_records = contracts_server._dq_version_records
-load_records = contracts_server.load_records
-queue_flash = contracts_server.queue_flash
-save_records = contracts_server.save_records
-scenario_run_rows = contracts_server.scenario_run_rows
-store = contracts_server.store
+DatasetRecord = demo_records.DatasetRecord
+load_records = demo_records.load_records
+queue_flash = demo_records.queue_flash
+save_records = demo_records.save_records
+dq_version_records = demo_records.dq_version_records
+scenario_run_rows = demo_records.scenario_run_rows
+store = demo_records.get_store()
 
 contracts_app = contracts_server.app
 demo_app = demo_server.app
@@ -303,7 +304,7 @@ def test_dq_version_records_scoped_to_contract_runs():
         for record in load_records()
         if record.contract_id == "orders" and record.contract_version == "1.0.0"
     ]
-    entries = _dq_version_records(
+    entries = dq_version_records(
         "orders",
         contract=contract,
         dataset_records=scoped_records,
@@ -321,7 +322,7 @@ def test_dq_version_records_excludes_other_contract_versions():
         for record in load_records()
         if record.contract_id == "orders" and record.contract_version == "1.1.0"
     ]
-    entries = _dq_version_records(
+    entries = dq_version_records(
         "orders",
         contract=contract,
         dataset_records=scoped_records,

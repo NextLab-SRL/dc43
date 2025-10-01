@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
-from dc43_contracts_app import server as contracts_server
+from . import contracts_api as contracts_server
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
     expectation_specs,
