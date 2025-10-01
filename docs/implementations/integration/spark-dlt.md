@@ -105,7 +105,7 @@ touching application code.
 
 ODCS 3.x servers expose a `customProperties` array that dc43 now uses to keep the
 filesystem layout self-describing.  When a server declares the
-`dc43.versioning` property the integration layer inspects the metadata to
+`dc43.core.versioning` property the integration layer inspects the metadata to
 materialise concrete paths before the Spark read takes place.  The following
 fields are supported:
 
@@ -121,7 +121,7 @@ fields are supported:
 
 Contracts can still include a human-readable pattern such as
 `dc43.pathPattern: data/orders/{<=version}/orders.json` so that implementers see
-how the layout works, while dc43's runtime uses the structured `dc43.versioning`
+how the layout works, while dc43's runtime uses the structured `dc43.core.versioning`
 payload to glob the correct files.  Output contracts can annotate Delta tables
 with `{"mode": "delta", "timeTravel": "versionAsOf"}` to document that the
 dataset version aligns with Delta Lake time-travel semantics.

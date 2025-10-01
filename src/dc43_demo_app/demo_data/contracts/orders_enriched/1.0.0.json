@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "1.0.0",
   "kind": "DataContract",
   "apiVersion": "3.0.2",
   "id": "orders_enriched",
@@ -14,7 +14,7 @@
       "format": "parquet",
       "customProperties": [
         {
-          "property": "dc43.versioning",
+          "property": "dc43.core.versioning",
           "value": {
             "mode": "delta",
             "timeTravel": "versionAsOf",
@@ -36,10 +36,9 @@
         {"name": "customer_id", "physicalType": "integer", "required": true},
         {"name": "order_ts", "physicalType": "string", "required": true},
         {"name": "amount", "physicalType": "double", "required": true,
-         "quality": [{"mustBeGreaterThan": 100}]},
+         "quality": [{"mustBeGreaterThan": 0}]},
         {"name": "currency", "physicalType": "string", "required": true},
-        {"name": "customer_name", "physicalType": "string", "required": true},
-        {"name": "customer_segment", "physicalType": "string", "required": true}
+        {"name": "customer_name", "physicalType": "string", "required": true}
       ]
     }
   ]

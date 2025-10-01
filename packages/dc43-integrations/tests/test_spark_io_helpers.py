@@ -29,7 +29,7 @@ def test_contract_locator_extracts_versioning_options():
     contract = _dummy_contract(
         [
             {
-                "property": "dc43.versioning",
+                "property": "dc43.core.versioning",
                 "value": {
                     "readOptions": {"recursiveFileLookup": True},
                     "writeOptions": {"mergeSchema": False},
@@ -48,7 +48,7 @@ def test_contract_locator_extracts_versioning_options():
     )
 
     assert resolution.custom_properties == {
-        "dc43.versioning": {
+        "dc43.core.versioning": {
             "readOptions": {"recursiveFileLookup": True},
             "writeOptions": {"mergeSchema": False},
         },

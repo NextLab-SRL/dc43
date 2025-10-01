@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "DataContract",
   "apiVersion": "3.0.2",
   "id": "orders",
@@ -14,7 +14,7 @@
       "format": "json",
       "customProperties": [
         {
-          "property": "dc43.versioning",
+          "property": "dc43.core.versioning",
           "value": {
             "mode": "delta",
             "includePriorVersions": true,
@@ -36,6 +36,7 @@
       "properties": [
         {"name": "order_id", "physicalType": "integer", "required": true, "unique": true},
         {"name": "customer_id", "physicalType": "integer", "required": true},
+        {"name": "order_ts", "physicalType": "string", "required": true},
         {
           "name": "amount",
           "physicalType": "double",
@@ -43,7 +44,8 @@
           "quality": [
             {"mustBeGreaterThan": 0}
           ]
-        }
+        },
+        {"name": "currency", "physicalType": "string", "required": true}
       ]
     }
   ]

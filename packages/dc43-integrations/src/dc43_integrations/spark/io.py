@@ -38,8 +38,8 @@ from .data_quality import (
     collect_observations,
 )
 from .validation import apply_contract
-from dc43.odcs import contract_identity, custom_properties_dict, ensure_version
-from dc43.versioning import SemVer
+from dc43.core.odcs import contract_identity, custom_properties_dict, ensure_version
+from dc43.core.versioning import SemVer
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
 
 from .violation_strategy import (
@@ -388,7 +388,7 @@ class ContractVersionLocator:
     subpath: Optional[str] = None
     base: DatasetLocatorStrategy = field(default_factory=ContractFirstDatasetLocator)
 
-    VERSIONING_PROPERTY = "dc43.versioning"
+    VERSIONING_PROPERTY = "dc43.core.versioning"
 
     @staticmethod
     def _version_key(value: str) -> tuple[int, Tuple[int, int, int] | float | str, str]:

@@ -489,7 +489,7 @@ def run_pipeline(
 
     run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     base_pipeline_context: dict[str, Any] = {
-        "pipeline": "dc43.demo_app.pipeline.run_pipeline",
+        "pipeline": "dc43_demo_app.pipeline.run_pipeline",
         "run_id": run_timestamp,
         "run_type": run_type,
     }

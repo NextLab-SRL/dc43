@@ -10,7 +10,7 @@ metadata lives in a JSON file.
 
 Run the UI directly with::
 
-    uvicorn dc43.demo_app.server:app --reload
+    uvicorn dc43_demo_app.server:app --reload
 
 or start the full demo (UI + HTTP backend) with::
 
@@ -762,8 +762,8 @@ def _server_details(contract: OpenDataContractStandard) -> Optional[Dict[str, An
     }
     if custom:
         info["custom"] = custom
-        if "dc43.versioning" in custom:
-            info["versioning"] = custom.get("dc43.versioning")
+        if "dc43.core.versioning" in custom:
+            info["versioning"] = custom.get("dc43.core.versioning")
         if "dc43.pathPattern" in custom:
             info["path_pattern"] = custom.get("dc43.pathPattern")
     return info
@@ -1603,7 +1603,7 @@ def _server_state(server: Server) -> Dict[str, Any]:
             value = getattr(item, "value", None)
         if not key:
             continue
-        if str(key) == "dc43.versioning":
+        if str(key) == "dc43.core.versioning":
             versioning_value = value
             continue
         if str(key) == "dc43.pathPattern":
@@ -2104,9 +2104,9 @@ def _server_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[Server]
                 else _parse_json_value(versioning_config)
             )
             if not isinstance(parsed_versioning, Mapping):
-                raise ValueError("dc43.versioning must be provided as an object")
+                raise ValueError("dc43.core.versioning must be provided as an object")
             custom_props.append(
-                CustomProperty(property="dc43.versioning", value=parsed_versioning)
+                CustomProperty(property="dc43.core.versioning", value=parsed_versioning)
             )
         path_pattern = item.get("pathPattern")
         if path_pattern not in (None, ""):

@@ -2,10 +2,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dc43_contracts_app import server as contracts_server
-from dc43.demo_app import contracts_records as demo_records
-from dc43.demo_app import server as demo_server
-from dc43.demo_app.contracts_workspace import prepare_demo_workspace
-from dc43.demo_app.scenarios import SCENARIOS
+from dc43_demo_app import contracts_records as demo_records
+from dc43_demo_app import server as demo_server
+from dc43_demo_app.contracts_workspace import prepare_demo_workspace
+from dc43_demo_app.scenarios import SCENARIOS
 
 prepare_demo_workspace()
 DatasetRecord = demo_records.DatasetRecord

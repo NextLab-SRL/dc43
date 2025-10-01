@@ -10,7 +10,7 @@ except Exception:  # pragma: no cover
     SparkSession = object  # type: ignore
 
 from .interface import ContractStore
-from dc43.odcs import as_odcs_dict, ensure_version, contract_identity, fingerprint, to_model
+from dc43.core.odcs import as_odcs_dict, ensure_version, contract_identity, fingerprint, to_model
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 

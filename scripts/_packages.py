@@ -8,7 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 PACKAGES = {
     "dc43": {
-        "paths": [ROOT / "src" / "dc43", ROOT / "pyproject.toml"],
+        "paths": [
+            ROOT / "src" / "dc43",
+            ROOT / "src" / "dc43_demo_app",
+            ROOT / "pyproject.toml",
+        ],
         "pyproject": ROOT / "pyproject.toml",
         "pypi": "dc43",
         "tag_prefix": "dc43",
