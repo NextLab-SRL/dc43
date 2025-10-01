@@ -260,9 +260,9 @@ if status and status.status == "block":
 
 ## Demo application
 
-A Vue-powered FastAPI application in ``dc43.demo_app`` offers a visual way to
-explore contracts, datasets and data quality results. Install the optional
-dependencies and launch the app with:
+A Vue-powered FastAPI application packaged as ``dc43-demo-app`` (module
+``dc43_demo_app``) offers a visual way to explore contracts, datasets and data
+quality results. Install the optional dependencies and launch the app with:
 
 ```bash
 pip install ".[demo]"
@@ -282,7 +282,7 @@ An additional Reveal.js presentation is available at
 contract lifecycle and automation steps.
 
 The application also exposes an example Spark pipeline in
-``dc43.demo_app.pipeline`` used when registering new dataset versions. The
+``dc43_demo_app.pipeline`` used when registering new dataset versions. The
 preconfigured scenarios are documented in
 [`docs/demo-pipeline-scenarios.md`](docs/demo-pipeline-scenarios.md) including
 the new split strategy example that writes ``orders_enriched::valid`` and

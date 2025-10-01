@@ -189,7 +189,7 @@ def main() -> None:  # pragma: no cover - convenience runner
         os.environ["DC43_CONTRACTS_APP_URL"] = contracts_url
 
     try:
-        uvicorn.run("dc43.demo_app.server:app", host=pipeline_host, port=pipeline_port)
+        uvicorn.run("dc43_demo_app.server:app", host=pipeline_host, port=pipeline_port)
     finally:
         if configured_contracts_url is None:
             os.environ.pop("DC43_CONTRACTS_APP_URL", None)

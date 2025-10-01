@@ -15,9 +15,9 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
-from dc43.odcs import as_odcs_dict, contract_identity, normalise_custom_properties, to_model
+from dc43.core.odcs import as_odcs_dict, contract_identity, normalise_custom_properties, to_model
 from dc43_service_clients.data_quality import ValidationResult
-from dc43.versioning import SemVer
+from dc43.core.versioning import SemVer
 
 
 _INVALID_IDENTIFIER = re.compile(r"[^0-9A-Za-z-]+")

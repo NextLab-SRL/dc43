@@ -13,19 +13,15 @@ from importlib import resources
 
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 
+from .contracts_api import set_active_version
 from .contracts_records import (
-    DatasetRecord,
     load_records,
     pop_flash,
     queue_flash,
     save_records,
     scenario_run_rows,
 )
-from .contracts_workspace import (
-    current_workspace,
-    prepare_demo_workspace,
-    set_active_version,
-)
+from .contracts_workspace import prepare_demo_workspace
 from .scenarios import SCENARIOS
 
 prepare_demo_workspace()

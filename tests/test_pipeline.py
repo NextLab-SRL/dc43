@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from pyspark.sql import SparkSession
 
-from dc43.demo_app import pipeline
-from dc43.demo_app.contracts_workspace import prepare_demo_workspace
+from dc43_demo_app import pipeline
+from dc43_demo_app.contracts_workspace import prepare_demo_workspace
 
 prepare_demo_workspace()
 
@@ -59,8 +59,8 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
             for entry in payload.get("customProperties", [])
         }
         context = properties.get("draft_context") or {}
-        assert context.get("pipeline") == "dc43.demo_app.pipeline.run_pipeline"
-        assert context.get("module") == "dc43.demo_app.pipeline"
+        assert context.get("pipeline") == "dc43_demo_app.pipeline.run_pipeline"
+        assert context.get("module") == "dc43_demo_app.pipeline"
         assert context.get("function") == "run_pipeline"
         assert context.get("dataset_id") == "orders_enriched"
         assert context.get("dataset_version") == last.dataset_version

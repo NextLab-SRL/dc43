@@ -14,7 +14,7 @@
       "format": "json",
       "customProperties": [
         {
-          "property": "dc43.versioning",
+          "property": "dc43.core.versioning",
           "value": {
             "mode": "snapshot",
             "includePriorVersions": false,

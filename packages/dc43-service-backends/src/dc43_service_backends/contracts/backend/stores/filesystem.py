@@ -10,7 +10,7 @@ import os
 from typing import List
 
 from .interface import ContractStore
-from dc43.odcs import as_odcs_dict, ensure_version, contract_identity, to_model
+from dc43.core.odcs import as_odcs_dict, ensure_version, contract_identity, to_model
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 logger = logging.getLogger(__name__)

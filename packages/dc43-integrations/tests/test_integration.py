@@ -576,7 +576,7 @@ def test_contract_version_locator_expands_versioning_paths(tmp_path: Path) -> No
         dataset_id="orders",
         dataset_version=None,
         custom_properties={
-            "dc43.versioning": {
+            "dc43.core.versioning": {
                 "mode": "delta",
                 "includePriorVersions": True,
                 "subfolder": "{version}",
@@ -617,7 +617,7 @@ def test_contract_version_locator_snapshot_paths(tmp_path: Path) -> None:
         dataset_id="customers",
         dataset_version=None,
         custom_properties={
-            "dc43.versioning": {
+            "dc43.core.versioning": {
                 "mode": "snapshot",
                 "includePriorVersions": False,
                 "subfolder": "{version}",
@@ -656,7 +656,7 @@ def test_contract_version_locator_latest_respects_active_alias(tmp_path: Path) -
         dataset_id="orders",
         dataset_version=None,
         custom_properties={
-            "dc43.versioning": {
+            "dc43.core.versioning": {
                 "mode": "delta",
                 "includePriorVersions": True,
                 "subfolder": "{version}",

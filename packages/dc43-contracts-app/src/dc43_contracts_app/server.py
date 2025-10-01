@@ -10,7 +10,7 @@ metadata lives in a JSON file.
 
 Run the UI directly with::
 
-    uvicorn dc43.demo_app.server:app --reload
+    uvicorn dc43_demo_app.server:app --reload
 
 or start the full demo (UI + HTTP backend) with::
 
@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable
 from uuid import uuid4
 from threading import Lock
+import threading
 import json
 import os
 import re
@@ -45,9 +46,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
 from httpx import ASGITransport
+from fastapi.concurrency import run_in_threadpool
 
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_backends.web import build_local_app
+from dc43_service_clients._http_sync import close_client
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
@@ -473,6 +476,10 @@ _VERSIONING_MODES: List[Tuple[str, str]] = [
 _backend_app: FastAPI | None = None
 _backend_transport: ASGITransport | None = None
 _backend_client: httpx.AsyncClient | None = None
+_backend_base_url: str = "http://dc43-services"
+_backend_mode: str = "embedded"
+_backend_token: str = ""
+_THREAD_CLIENTS = threading.local()
 contract_service: RemoteContractServiceClient
 dq_service: RemoteDataQualityServiceClient
 governance_service: RemoteGovernanceServiceClient
@@ -496,13 +503,84 @@ def _close_backend_client() -> None:
     _backend_client = None
 
 
+def _clear_thread_clients() -> None:
+    """Dispose of thread-local HTTP clients for the current thread."""
+
+    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
+    if bundle is None:
+        return
+    try:
+        close_client(bundle["http_client"])
+    except Exception:  # pragma: no cover - defensive guard
+        logger.exception("Failed to close thread-local backend client")
+    finally:
+        _THREAD_CLIENTS.bundle = None
+
+
+def _thread_service_clients() -> tuple[
+    RemoteContractServiceClient,
+    RemoteDataQualityServiceClient,
+    RemoteGovernanceServiceClient,
+]:
+    """Return backend service clients scoped to the current thread."""
+
+    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
+    if bundle is not None and bundle.get("token") == _backend_token:
+        return (
+            bundle["contract"],
+            bundle["dq"],
+            bundle["governance"],
+        )
+
+    if bundle is not None:
+        try:
+            close_client(bundle["http_client"])
+        except Exception:  # pragma: no cover - defensive guard
+            logger.exception("Failed to recycle thread-local backend client")
+
+    if _backend_mode == "remote":
+        http_client: httpx.Client | httpx.AsyncClient = httpx.Client(
+            base_url=_backend_base_url or None,
+        )
+    else:
+        assert _backend_app is not None
+        http_client = httpx.AsyncClient(
+            transport=ASGITransport(app=_backend_app),
+            base_url=_backend_base_url or None,
+        )
+
+    contract = RemoteContractServiceClient(
+        base_url=_backend_base_url,
+        client=http_client,
+    )
+    dq = RemoteDataQualityServiceClient(
+        base_url=_backend_base_url,
+        client=http_client,
+    )
+    governance = RemoteGovernanceServiceClient(
+        base_url=_backend_base_url,
+        client=http_client,
+    )
+
+    _THREAD_CLIENTS.bundle = {
+        "token": _backend_token,
+        "http_client": http_client,
+        "contract": contract,
+        "dq": dq,
+        "governance": governance,
+    }
+    return contract, dq, governance
+
+
 def _initialise_backend(*, base_url: str | None = None) -> None:
     """Configure service clients against an in-process or remote backend."""
 
     global _backend_app, _backend_transport, _backend_client
     global contract_service, dq_service, governance_service
+    global _backend_base_url, _backend_mode, _backend_token
 
     _close_backend_client()
+    _clear_thread_clients()
 
     client_base_url = (base_url.rstrip("/") if base_url else "http://dc43-services")
 
@@ -510,6 +588,7 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
         _backend_app = None
         _backend_transport = None
         _backend_client = httpx.AsyncClient(base_url=client_base_url)
+        _backend_mode = "remote"
     else:
         _backend_app = build_local_app(store)
         _backend_transport = ASGITransport(app=_backend_app)
@@ -517,6 +596,10 @@ def _initialise_backend(*, base_url: str | None = None) -> None:
             transport=_backend_transport,
             base_url=client_base_url,
         )
+        _backend_mode = "embedded"
+
+    _backend_base_url = client_base_url
+    _backend_token = uuid4().hex
 
     contract_service = RemoteContractServiceClient(
         base_url=client_base_url,
@@ -762,8 +845,8 @@ def _server_details(contract: OpenDataContractStandard) -> Optional[Dict[str, An
     }
     if custom:
         info["custom"] = custom
-        if "dc43.versioning" in custom:
-            info["versioning"] = custom.get("dc43.versioning")
+        if "dc43.core.versioning" in custom:
+            info["versioning"] = custom.get("dc43.core.versioning")
         if "dc43.pathPattern" in custom:
             info["path_pattern"] = custom.get("dc43.pathPattern")
     return info
@@ -1181,6 +1264,7 @@ async def api_contract_preview(
 
     try:
         def _load_preview() -> tuple[list[Mapping[str, Any]], list[str]]:
+            local_contract_service, local_dq_service, _ = _thread_service_clients()
             spark = _spark_session()
             locator = ContractVersionLocator(
                 dataset_version=selected_version,
@@ -1189,21 +1273,28 @@ async def api_contract_preview(
             df = read_with_contract(  # type: ignore[misc]
                 spark,
                 contract_id=cid,
-                contract_service=contract_service,
+                contract_service=local_contract_service,
                 expected_contract_version=f"=={ver}",
                 dataset_locator=locator,
                 enforce=False,
                 auto_cast=False,
-                data_quality_service=dq_service,
+                data_quality_service=local_dq_service,
                 return_status=False,
             )
             rows_raw = [row.asDict(recursive=True) for row in df.limit(limit).collect()]
             return rows_raw, list(df.columns)
 
-        rows_raw, columns = await asyncio.to_thread(_load_preview)
+        rows_raw, columns = await run_in_threadpool(_load_preview)
         rows = jsonable_encoder(rows_raw)
     except Exception as exc:  # pragma: no cover - defensive guard for preview errors
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception(
+            "Failed to load preview for %s@%s dataset %s version %s",
+            cid,
+            ver,
+            effective_dataset_id,
+            selected_version,
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to load preview: {exc}")
 
     status_payload = _dq_status_payload(effective_dataset_id, selected_version)
     status_value = str(status_payload.get("status", "unknown")) if status_payload else "unknown"
@@ -1603,7 +1694,7 @@ def _server_state(server: Server) -> Dict[str, Any]:
             value = getattr(item, "value", None)
         if not key:
             continue
-        if str(key) == "dc43.versioning":
+        if str(key) == "dc43.core.versioning":
             versioning_value = value
             continue
         if str(key) == "dc43.pathPattern":
@@ -2104,9 +2195,9 @@ def _server_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List[Server]
                 else _parse_json_value(versioning_config)
             )
             if not isinstance(parsed_versioning, Mapping):
-                raise ValueError("dc43.versioning must be provided as an object")
+                raise ValueError("dc43.core.versioning must be provided as an object")
             custom_props.append(
-                CustomProperty(property="dc43.versioning", value=parsed_versioning)
+                CustomProperty(property="dc43.core.versioning", value=parsed_versioning)
             )
         path_pattern = item.get("pathPattern")
         if path_pattern not in (None, ""):

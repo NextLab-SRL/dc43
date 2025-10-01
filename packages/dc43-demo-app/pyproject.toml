@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dc43-demo-app"
+version = "0.8.0.0"
+description = "End-to-end FastAPI and Spark demo for dc43"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Andy Petrella" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "dc43-service-clients>=0.8.0.0",
+  "dc43-service-backends>=0.8.0.0",
+  "dc43-integrations[spark]>=0.8.0.0",
+  "dc43-contracts-app[spark]>=0.8.0.0",
+  "fastapi>=0.118.0",
+  "uvicorn>=0.30.0",
+  "jinja2>=3.1.0",
+  "python-multipart>=0.0.5",
+]
+
+[project.scripts]
+dc43-demo = "dc43_demo_app.runner:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dc43_demo_app*"]
+
+[tool.setuptools.package-data]
+"dc43_demo_app" = [
+  "static/**/*",
+  "templates/**/*",
+  "demo_data/**/*",
+]
