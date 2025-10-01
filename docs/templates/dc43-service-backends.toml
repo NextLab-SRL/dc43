@@ -1,0 +1,14 @@
+# Example configuration for the dc43 service backends package.
+# Copy this file to a writable location (e.g. /etc/dc43/service-backends.toml)
+# and adjust the values to match your environment.
+
+[contract_store]
+# Absolute or relative path to the contract store directory. The application
+# creates the directory when it does not exist. Use "~" to reference the
+# current user's home directory.
+root = "./contracts"
+
+[auth]
+# Optional bearer token that clients must supply via the Authorization header.
+# Leave blank to disable token authentication during development.
+token = "change-me"
