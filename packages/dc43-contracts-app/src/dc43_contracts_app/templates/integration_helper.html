@@ -10,8 +10,13 @@
     min-height: 70vh;
     display: grid;
     gap: 1.5rem;
-    grid-template-columns: minmax(19rem, 21rem) minmax(40rem, 1fr) minmax(22rem, 26rem);
+    grid-template-columns: minmax(19rem, 22rem) minmax(48rem, 1fr);
     align-items: start;
+  }
+  .helper-main {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
   }
   .helper-sidebar {
     position: sticky;
@@ -355,70 +360,46 @@
   .transformation-summary + .transformation-summary {
     margin-top: 1.5rem;
   }
-  .transformation-quick-config {
-    border: 1px solid var(--bs-border-color);
-    border-radius: var(--bs-border-radius-lg);
-    background: var(--bs-body-bg);
+  .transformation-config {
     margin-top: 1.25rem;
-    overflow: hidden;
-  }
-  .transformation-quick-config > summary {
-    cursor: pointer;
-    padding: 0.75rem 1rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    font-weight: 600;
-  }
-  .transformation-quick-config > summary::marker,
-  .transformation-quick-config > summary::-webkit-details-marker {
-    display: none;
-  }
-  .transformation-quick-config > summary::after {
-    content: "\25BC";
-    font-size: 0.75rem;
-    transition: transform 0.2s ease-in-out;
-  }
-  .transformation-quick-config[open] > summary::after {
-    transform: rotate(180deg);
-  }
-  .transformation-quick-body {
-    padding: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--bs-border-color);
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
-  }
-  .transformation-controls {
-    display: flex;
-    flex-wrap: wrap;
     gap: 1rem;
   }
-  .transformation-controls .control-field {
-    min-width: 10rem;
+  .transformation-config-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   }
-  .transformation-controls .form-label {
+  .transformation-config .form-label {
     font-size: 0.75rem;
     text-transform: uppercase;
     color: var(--bs-secondary-color);
     letter-spacing: 0.04em;
   }
-  .transformation-controls .form-select,
-  .transformation-controls .form-check-input {
+  .transformation-config .form-select,
+  .transformation-config .form-check-input {
     font-size: 0.875rem;
   }
-  .transformation-controls .form-check-label {
+  .transformation-config .strategy-description {
     font-size: 0.8rem;
     color: var(--bs-secondary-color);
+    margin-top: 0.35rem;
   }
-  .transformation-controls .switch-group {
+  .transformation-config .write-toggle-field {
+    display: none;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .transformation-config .write-toggle-field.is-visible {
     display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    flex-wrap: wrap;
   }
-  .transformation-controls .switch-group .form-check {
-    margin-bottom: 0;
+  .transformation-config .switch-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
   }
   .strategy-section,
   .code-section {
@@ -502,10 +483,7 @@
   }
   @media (max-width: 1400px) {
     .helper-layout {
-      grid-template-columns: minmax(19rem, 21rem) minmax(32rem, 1fr);
-    }
-    .helper-layout > .helper-panel:last-of-type {
-      grid-column: 1 / -1;
+      grid-template-columns: minmax(18rem, 20rem) minmax(32rem, 1fr);
     }
   }
   @media (max-width: 991.98px) {
@@ -515,6 +493,9 @@
     }
     .helper-layout {
       grid-template-columns: 1fr;
+    }
+    .helper-main {
+      gap: 1.25rem;
     }
     .helper-sidebar {
       position: static;
@@ -552,7 +533,8 @@
       </div>
     </div>
   </div>
-  <div class="card shadow-sm helper-panel helper-pipeline">
+  <div class="helper-main">
+    <div class="card shadow-sm helper-panel helper-pipeline">
       <div class="card-body">
         <div class="d-flex flex-column gap-3">
           <div class="d-flex flex-column gap-2">
@@ -601,7 +583,7 @@
         </div>
       </div>
     </div>
-  <div class="card shadow-sm helper-panel helper-stubs">
+    <div class="card shadow-sm helper-panel helper-stubs">
     <div class="card-body" id="transformationPanel">
       <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
         <div>
@@ -611,6 +593,7 @@
       </div>
       <div id="transformationList" class="d-flex flex-column gap-3 flex-grow-1"></div>
       <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
+    </div>
     </div>
   </div>
 </div>
@@ -2385,6 +2368,14 @@
       const writeOptions = WRITE_STRATEGY_OPTIONS
         .map((option) => `<option value="${option.value}" ${option.value === transformation.writeStrategy.mode ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
         .join("");
+      const readOption = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy) || null;
+      const writeOption = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode) || null;
+      const readDescriptionMarkup = readOption?.description
+        ? `<div class="strategy-description" data-role="read-description">${escapeHtml(readOption.description)}</div>`
+        : '<div class="strategy-description d-none" data-role="read-description"></div>';
+      const writeDescriptionMarkup = writeOption?.description
+        ? `<div class="strategy-description" data-role="write-description">${escapeHtml(writeOption.description)}</div>`
+        : '<div class="strategy-description d-none" data-role="write-description"></div>';
       summary.innerHTML = `
         <div class="d-flex justify-content-between align-items-start gap-3">
           <div>
@@ -2400,37 +2391,32 @@
             <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
           </div>
         </div>
-        <details class="transformation-quick-config">
-          <summary>
-            <span>Quick configuration</span>
-            <span class="text-muted small">Integration & strategies</span>
-          </summary>
-          <div class="transformation-quick-body">
-            <div class="transformation-controls">
-              <div class="control-field">
-                <label class="form-label" for="${integrationSelectId}">Integration</label>
-                <select class="form-select form-select-sm" id="${integrationSelectId}" data-role="integration">${integrationOptions}</select>
-              </div>
-              <div class="control-field">
-                <label class="form-label" for="${readSelectId}">Read strategy</label>
-                <select class="form-select form-select-sm" id="${readSelectId}" data-role="read-strategy">${readOptions}</select>
-              </div>
-              <div class="control-field">
-                <label class="form-label" for="${writeSelectId}">Write strategy</label>
-                <select class="form-select form-select-sm" id="${writeSelectId}" data-role="write-strategy">${writeOptions}</select>
-              </div>
-              <div class="control-field flex-grow-1 d-none" data-role="write-toggle-field">
-                <span class="form-label d-block">Write options</span>
-                <div class="switch-group" data-role="write-toggle-list"></div>
-              </div>
+        <div class="transformation-config">
+          <div class="transformation-config-grid">
+            <div>
+              <label class="form-label" for="${integrationSelectId}">Integration</label>
+              <select class="form-select form-select-sm" id="${integrationSelectId}" data-role="integration">${integrationOptions}</select>
+            </div>
+            <div>
+              <label class="form-label" for="${readSelectId}">Read strategy</label>
+              <select class="form-select form-select-sm" id="${readSelectId}" data-role="read-strategy">${readOptions}</select>
+              ${readDescriptionMarkup}
+            </div>
+            <div>
+              <label class="form-label" for="${writeSelectId}">Write strategy</label>
+              <select class="form-select form-select-sm" id="${writeSelectId}" data-role="write-strategy">${writeOptions}</select>
+              ${writeDescriptionMarkup}
             </div>
           </div>
-        </details>
+          <div class="write-toggle-field" data-role="write-toggle-field">
+            <span class="form-label d-block">Write options</span>
+            <div class="switch-group" data-role="write-toggle-list"></div>
+          </div>
+        </div>
         <div class="mt-3" data-role="status"></div>
         <div class="mt-3" data-role="strategy-notes"></div>
         <div class="mt-3" data-role="stub"></div>
       `;
-      const quickConfig = summary.querySelector(".transformation-quick-config");
       const statusContainer = summary.querySelector('[data-role="status"]');
       const strategyContainer = summary.querySelector('[data-role="strategy-notes"]');
       const stubContainer = summary.querySelector('[data-role="stub"]');
@@ -2442,9 +2428,8 @@
       const writeSelect = summary.querySelector('[data-role="write-strategy"]');
       const writeToggleField = summary.querySelector('[data-role="write-toggle-field"]');
       const writeToggleList = summary.querySelector('[data-role="write-toggle-list"]');
-      if (quickConfig && (!transformation.stub || transformation.error || transformation.dirty)) {
-        quickConfig.open = true;
-      }
+      const readDescriptionEl = summary.querySelector('[data-role="read-description"]');
+      const writeDescriptionEl = summary.querySelector('[data-role="write-description"]');
       configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
       refreshButton.addEventListener("click", () => generateTransformationStub(transformation.id, { auto: false }));
       removeButton.addEventListener("click", () => removeTransformation(transformation.id));
@@ -2469,6 +2454,16 @@
             return;
           }
           transformation.readStrategy = value;
+          const option = READ_STRATEGY_OPTIONS.find((item) => item.value === value) || null;
+          if (readDescriptionEl) {
+            if (option?.description) {
+              readDescriptionEl.textContent = option.description;
+              readDescriptionEl.classList.remove("d-none");
+            } else {
+              readDescriptionEl.textContent = "";
+              readDescriptionEl.classList.add("d-none");
+            }
+          }
           markTransformationDirty(transformation.id);
         });
       }
@@ -2486,6 +2481,17 @@
           } else if (value !== "strict") {
             transformation.writeStrategy.failOnWarnings = false;
           }
+          const option = WRITE_STRATEGY_OPTIONS.find((item) => item.value === value) || null;
+          if (writeDescriptionEl) {
+            if (option?.description) {
+              writeDescriptionEl.textContent = option.description;
+              writeDescriptionEl.classList.remove("d-none");
+            } else {
+              writeDescriptionEl.textContent = "";
+              writeDescriptionEl.classList.add("d-none");
+            }
+          }
+          renderInlineWriteToggles(writeToggleList, writeToggleField, transformation);
           markTransformationDirty(transformation.id);
         });
       }
@@ -2608,12 +2614,10 @@
     }
     if (transformation.writeStrategy.mode === "noop") {
       container.innerHTML = "";
-      field.classList.add("d-none");
-      field.classList.remove("d-flex", "flex-column", "gap-2");
+      field.classList.remove("is-visible");
       return;
     }
-    field.classList.remove("d-none");
-    field.classList.add("d-flex", "flex-column", "gap-2");
+    field.classList.add("is-visible");
     const validId = `${transformation.id}-inline-valid`;
     const rejectId = `${transformation.id}-inline-reject`;
     const toggles = [
