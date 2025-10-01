@@ -2,3 +2,4 @@ include scripts/*.py
 include packages/dc43-service-clients/pyproject.toml
 include packages/dc43-service-backends/pyproject.toml
 include packages/dc43-integrations/pyproject.toml
+include packages/dc43-contracts-app/pyproject.toml

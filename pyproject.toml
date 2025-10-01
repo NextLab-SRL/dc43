@@ -19,8 +19,7 @@ classifiers = [
 dynamic = ["dependencies", "optional-dependencies"]
 
 [project.scripts]
-dc43 = "dc43.cli:main"
-dc43-demo = "dc43.demo_app.server:run"
+dc43-demo = "dc43.demo_app.runner:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -35,9 +34,9 @@ exclude = [
 
 [tool.setuptools.package-data]
 "dc43.demo_app" = [
-  "demo_data/**/*",
   "static/**/*",
   "templates/**/*",
+  "demo_data/**/*",
 ]
 
 [tool.pytest.ini_options]

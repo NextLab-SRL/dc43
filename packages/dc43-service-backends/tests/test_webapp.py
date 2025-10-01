@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -13,19 +14,32 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
-def _reload_webapp(tmp_path: Path, token: str | None) -> FastAPI:
-    os.environ["DC43_CONTRACT_STORE"] = str(tmp_path / "contracts")
-    if token is None:
-        os.environ.pop("DC43_BACKEND_TOKEN", None)
-    else:
-        os.environ["DC43_BACKEND_TOKEN"] = token
+def _write_config(tmp_path: Path, token: str | None) -> Path:
+    config_path = tmp_path / "backends.toml"
+    lines = [
+        "[contract_store]",
+        f"root = {json.dumps(str(tmp_path / 'contracts'))}",
+    ]
+    if token is not None:
+        lines.extend(
+            [
+                "",
+                "[auth]",
+                f"token = {json.dumps(token)}",
+            ]
+        )
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return config_path
 
+
+def _reload_webapp(tmp_path: Path, token: str | None) -> FastAPI:
+    config_path = _write_config(tmp_path, token)
+    os.environ["DC43_SERVICE_BACKENDS_CONFIG"] = str(config_path)
     sys.modules.pop("dc43_service_backends.webapp", None)
     module = importlib.import_module("dc43_service_backends.webapp")
 
     # Clean up for callers so subsequent tests can choose their own settings.
-    os.environ.pop("DC43_CONTRACT_STORE", None)
-    os.environ.pop("DC43_BACKEND_TOKEN", None)
+    os.environ.pop("DC43_SERVICE_BACKENDS_CONFIG", None)
 
     return module.app  # type: ignore[return-value]
 

@@ -11,19 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
-from dc43.demo_app.server import (
-    store,
-    DATASETS_FILE,
-    DATA_DIR,
-    DatasetRecord,
-    load_records,
-    save_records,
-    set_active_version,
-    register_dataset_version,
-    contract_service,
-    dq_service,
-    governance_service,
-)
+from . import contracts_api as contracts_server
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
     expectation_specs,
@@ -87,7 +75,7 @@ def _resolve_output_path(
 ) -> Path:
     """Return output path for dataset relative to contract servers."""
     server = (contract.servers or [None])[0] if contract else None
-    data_root = Path(DATA_DIR).parent
+    data_root = Path(contracts_server.DATA_DIR).parent
     server_path = Path(getattr(server, "path", "")) if server else data_root
     if server_path.suffix:
         base_path = server_path.parent / server_path.stem
@@ -409,7 +397,7 @@ def _resolve_dataset_name_hint(
         return dataset_name
     if contract_id and contract_version:
         try:
-            contract = contract_service.get(contract_id, contract_version)
+            contract = contracts_server.contract_service.get(contract_id, contract_version)
         except FileNotFoundError:
             return contract_id
         dataset_id = getattr(contract, "id", None)
@@ -451,8 +439,8 @@ def _record_blocked_read_failure(
             if isinstance(violations_value, (int, float)):
                 violations_total += int(violations_value)
 
-    records = load_records()
-    record = DatasetRecord(
+    records = contracts_server.load_records()
+    record = contracts_server.DatasetRecord(
         contract_id or "",
         contract_version or "",
         dataset_name_hint,
@@ -465,7 +453,7 @@ def _record_blocked_read_failure(
     )
     record.reason = error_message
     records.append(record)
-    save_records(records)
+    contracts_server.save_records(records)
 
 
 def run_pipeline(
@@ -482,7 +470,7 @@ def run_pipeline(
     *,
     scenario_key: str | None = None,
 ) -> tuple[str, str]:
-    """Run an example pipeline using the stored contract.
+    """Run an example pipeline using the configured contract store.
 
     When an output contract is supplied the dataset name is derived from the
     contract identifier so the recorded runs and filesystem layout match the
@@ -497,7 +485,7 @@ def run_pipeline(
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
-    governance = governance_service
+    governance = contracts_server.governance_service
 
     run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     base_pipeline_context: dict[str, Any] = {
@@ -559,10 +547,10 @@ def run_pipeline(
     orders_df, orders_status = read_with_contract(
         spark,
         contract_id="orders",
-        contract_service=contract_service,
+        contract_service=contracts_server.contract_service,
         expected_contract_version="==1.1.0",
         governance_service=governance,
-        data_quality_service=dq_service,
+        data_quality_service=contracts_server.dq_service,
         dataset_locator=orders_locator,
         status_strategy=orders_strategy,
         enforce=orders_enforce,
@@ -621,10 +609,10 @@ def run_pipeline(
     customers_df, customers_status = read_with_contract(
         spark,
         contract_id="customers",
-        contract_service=contract_service,
+        contract_service=contracts_server.contract_service,
         expected_contract_version="==1.0.0",
         governance_service=governance,
-        data_quality_service=dq_service,
+        data_quality_service=contracts_server.dq_service,
         dataset_locator=customers_locator,
         status_strategy=customers_strategy,
         enforce=customers_enforce,
@@ -658,9 +646,9 @@ def run_pipeline(
 
     df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
 
-    records = load_records()
+    records = contracts_server.load_records()
     output_contract = (
-        store.get(contract_id, contract_version) if contract_id and contract_version else None
+        contracts_server.store.get(contract_id, contract_version) if contract_id and contract_version else None
     )
     if output_contract and getattr(output_contract, "id", None):
         # Align dataset naming with the contract so recorded versions and paths
@@ -698,12 +686,12 @@ def run_pipeline(
     result, output_status = write_with_contract(
         df=df,
         contract_id=contract_id_ref,
-        contract_service=contract_service if contract_id_ref else None,
+        contract_service=contracts_server.contract_service if contract_id_ref else None,
         path=None if contract_id_ref else str(output_path),
         format=None if contract_id_ref else getattr(server, "format", "parquet"),
         mode="overwrite",
         enforce=False,
-        data_quality_service=dq_service if contract_id_ref else None,
+        data_quality_service=contracts_server.dq_service if contract_id_ref else None,
         governance_service=governance,
         dataset_locator=locator,
         expected_contract_version=expected_version,
@@ -869,7 +857,7 @@ def run_pipeline(
 
     if dataset_name and dataset_version:
         try:
-            set_active_version(dataset_name, dataset_version)
+            contracts_server.set_active_version(dataset_name, dataset_version)
         except FileNotFoundError:
             pass
         else:
@@ -880,8 +868,8 @@ def run_pipeline(
                     continue
                 alias = dataset_ref.replace("::", "__")
                 try:
-                    register_dataset_version(alias, dataset_version, Path(path_ref))
-                    set_active_version(alias, dataset_version)
+                    contracts_server.register_dataset_version(alias, dataset_version, Path(path_ref))
+                    contracts_server.set_active_version(alias, dataset_version)
                 except FileNotFoundError:
                     continue
 
@@ -1031,7 +1019,7 @@ def run_pipeline(
     elif severity >= 2:
         status_value = "error"
     records.append(
-        DatasetRecord(
+        contracts_server.DatasetRecord(
             contract_id or "",
             contract_version or "",
             dataset_name,
@@ -1044,9 +1032,28 @@ def run_pipeline(
             scenario_key=scenario_key,
         )
     )
-    save_records(records)
+    contracts_server.save_records(records)
     if not existing_session:
         spark.stop()
     if error:
         raise error
     return dataset_name, dataset_version
+
+
+def __getattr__(name: str) -> Any:
+    delegated = {
+        "DATASETS_FILE",
+        "DATA_DIR",
+        "DatasetRecord",
+        "load_records",
+        "save_records",
+        "register_dataset_version",
+        "set_active_version",
+        "store",
+        "contract_service",
+        "dq_service",
+        "governance_service",
+    }
+    if name in delegated:
+        return getattr(contracts_server, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

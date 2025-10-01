@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dc43-service-backends"
+name = "dc43-contracts-app"
 version = "0.8.0.0"
-description = "Backend service implementations for dc43"
+description = "FastAPI portal for browsing and editing DC43 contracts and datasets"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -17,24 +17,27 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-service-clients>=0.0.3",
-  "open-data-contract-standard==3.0.2",
+  "dc43-service-clients>=0.8.0.0",
+  "dc43-service-backends>=0.8.0.0",
+  "fastapi>=0.118.0",
+  "jinja2>=3.1.0",
+  "python-multipart>=0.0.5",
+  "httpx>=0.24",
 ]
 
 [project.optional-dependencies]
-spark = ["pyspark>=3.4"]
-http = [
-  "fastapi>=0.118.0",
-]
+spark = ["dc43-integrations[spark]>=0.8.0.0"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["dc43_service_backends*"]
+include = ["dc43_contracts_app*"]
 
 [tool.setuptools.package-data]
-"dc43_service_backends" = [
+"dc43_contracts_app" = [
+  "static/**/*",
+  "templates/**/*",
   "config/*.toml",
 ]
