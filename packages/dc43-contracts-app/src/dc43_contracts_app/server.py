@@ -1505,8 +1505,6 @@ def _spark_stub_for_selection(
                 "    data_quality_service=dq_client,",
             ]
         )
-        if fmt:
-            lines.append(f"    format={fmt!r},")
         if server.get("dataset"):
             lines.append(f"    table={server['dataset']!r},")
         lines.extend(
@@ -1588,8 +1586,6 @@ def _spark_stub_for_selection(
                 "    governance_service=governance_client,",
             ]
         )
-        if fmt:
-            lines.append(f"    format={fmt!r},")
         if server.get("dataset"):
             lines.append(f"    table={server['dataset']!r},")
         lines.extend(
