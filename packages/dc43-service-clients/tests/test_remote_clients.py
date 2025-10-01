@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import json
+from collections.abc import Mapping
 
 import pytest
 
@@ -15,18 +16,38 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
-from httpx import ASGITransport, BaseTransport
-
-from dc43_service_backends.auth import bearer_token_dependency
-from dc43_service_backends.contracts.backend.local import LocalContractServiceBackend
-from dc43_service_backends.contracts.backend.stores import FSContractStore
-from dc43_service_backends.data_quality.backend.local import LocalDataQualityServiceBackend
-from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
-from dc43_service_backends.server import build_app
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality import ObservationPayload
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
+from dc43_service_clients.data_quality.models import ValidationResult
+from dc43_service_clients.data_quality.transport import encode_validation_result
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
+
+
+def _build_validation(payload: Mapping[str, object] | None) -> ValidationResult:
+    metrics: Mapping[str, object] | None = None
+    schema_raw: Mapping[str, Mapping[str, object]] | None = None
+    reused = False
+    if isinstance(payload, Mapping):
+        metrics = payload.get("metrics") if isinstance(payload.get("metrics"), Mapping) else None
+        schema_candidate = payload.get("schema")
+        if isinstance(schema_candidate, Mapping):
+            schema_raw = {
+                key: dict(value) if isinstance(value, Mapping) else {}
+                for key, value in schema_candidate.items()
+            }
+        reused = bool(payload.get("reused", False))
+    return ValidationResult(
+        ok=True,
+        metrics=dict(metrics or {}),
+        schema=dict(schema_raw or {}),
+        status="ok",
+        details={"reused": reused},
+    )
+
+
+def _contract_payload(contract: OpenDataContractStandard) -> dict[str, object]:
+    return contract.model_dump(by_alias=True, exclude_none=True)
 
 
 def _sample_contract(version: str = "1.0.0") -> OpenDataContractStandard:
@@ -51,72 +72,214 @@ def _sample_contract(version: str = "1.0.0") -> OpenDataContractStandard:
     )
 
 
-class _SyncASGITransport(BaseTransport):
-    def __init__(self, app):
-        self._transport = ASGITransport(app=app)
+class _ServiceBackendMock:
+    def __init__(self, contract: OpenDataContractStandard, *, token: str) -> None:
+        self._contract = contract
+        self._token = token
+        self._contracts = {contract.version: contract}
+        self._dataset_links: dict[tuple[str, str], str] = {}
+        self._governance_status: dict[tuple[str, str], ValidationResult] = {}
+        self._pipeline_activity: list[dict[str, object]] = []
 
-    def handle_request(self, request):  # type: ignore[override]
-        async def _dispatch() -> httpx.Response:
-            response = await self._transport.handle_async_request(request)
-            content = await response.aread()
-            return httpx.Response(
-                status_code=response.status_code,
-                headers=response.headers,
-                content=content,
-                request=request,
-                extensions=response.extensions,
+    def __call__(self, request: "httpx.Request") -> "httpx.Response":  # pragma: no cover - exercised in tests
+        auth_error = self._require_token(request)
+        if auth_error is not None:
+            return auth_error
+        method = request.method
+        path = request.url.path
+
+        if path.startswith("/contracts/"):
+            return self._handle_contracts(request, method, path)
+        if path.startswith("/data-quality/"):
+            return self._handle_data_quality(request, method, path)
+        if path.startswith("/governance/"):
+            return self._handle_governance(request, method, path)
+        return httpx.Response(status_code=404, json={"detail": "Not Found"})
+
+    def _require_token(self, request: "httpx.Request") -> "httpx.Response | None":
+        authorization = request.headers.get("Authorization")
+        expected = f"Bearer {self._token}"
+        if authorization != expected:
+            return httpx.Response(status_code=401, json={"detail": "Unauthorized"})
+        return None
+
+    def _handle_contracts(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
+        segments = path.strip("/").split("/")
+        if len(segments) >= 4 and segments[2] == "versions" and method == "GET":
+            contract_id, contract_version = segments[1], segments[3]
+            if not self._ensure_contract(contract_id, contract_version):
+                return httpx.Response(status_code=404, json={"detail": "Unknown contract"})
+            contract = self._contracts[contract_version]
+            return httpx.Response(status_code=200, json=_contract_payload(contract))
+        if len(segments) == 3 and segments[2] == "versions" and method == "GET":
+            contract_id = segments[1]
+            if not self._ensure_contract(contract_id):
+                return httpx.Response(status_code=404, json={"detail": "Unknown contract"})
+            return httpx.Response(status_code=200, json=list(self._contracts.keys()))
+        if len(segments) == 3 and segments[2] == "latest" and method == "GET":
+            contract_id = segments[1]
+            if not self._ensure_contract(contract_id):
+                return httpx.Response(status_code=404, json={"detail": "Unknown contract"})
+            return httpx.Response(status_code=200, json=_contract_payload(self._contract))
+        if path == "/contracts/link" and method == "POST":
+            payload = self._read_json(request)
+            required = {"dataset_id", "dataset_version", "contract_id", "contract_version"}
+            if not required.issubset(payload):
+                return httpx.Response(status_code=400, json={"detail": "Missing linkage fields"})
+            contract_id = str(payload["contract_id"])
+            contract_version = str(payload["contract_version"])
+            if not self._ensure_contract(contract_id, contract_version):
+                return httpx.Response(status_code=404, json={"detail": "Unknown contract"})
+            dataset_key = (str(payload["dataset_id"]), str(payload["dataset_version"]))
+            self._dataset_links[dataset_key] = f"{contract_id}:{contract_version}"
+            return httpx.Response(status_code=204)
+        if len(segments) == 4 and segments[2] == "datasets" and method == "GET":
+            dataset_id = segments[3]
+            dataset_version = request.url.params.get("dataset_version")
+            if dataset_version is None:
+                return httpx.Response(status_code=404, json={"detail": "Missing dataset version"})
+            key = (dataset_id, dataset_version)
+            if key not in self._dataset_links:
+                return httpx.Response(status_code=404, json={"detail": "Dataset not linked"})
+            contract_reference = self._dataset_links[key]
+            _, _, version = contract_reference.partition(":")
+            return httpx.Response(status_code=200, json={"contract_version": version})
+        return httpx.Response(status_code=404, json={"detail": "Unknown contract endpoint"})
+
+    def _handle_data_quality(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
+        if path == "/data-quality/evaluate" and method == "POST":
+            payload = self._read_json(request)
+            dq_payload = payload.get("payload") if isinstance(payload, Mapping) else None
+            result = _build_validation(dq_payload if isinstance(dq_payload, Mapping) else None)
+            return httpx.Response(status_code=200, json=encode_validation_result(result) or {})
+        if path == "/data-quality/expectations" and method == "POST":
+            expectations = [
+                {"expectation": "row_count", "description": "Row count must be non-negative"},
+                {"expectation": "not_null", "description": "order_id should be present"},
+            ]
+            return httpx.Response(status_code=200, json=expectations)
+        return httpx.Response(status_code=404, json={"detail": "Unknown data-quality endpoint"})
+
+    def _handle_governance(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
+        if path == "/governance/evaluate" and method == "POST":
+            payload = self._read_json(request)
+            dataset_id = payload.get("dataset_id")
+            dataset_version = payload.get("dataset_version")
+            if dataset_id is None or dataset_version is None:
+                return httpx.Response(status_code=400, json={"detail": "Missing dataset identifiers"})
+            observations = payload.get("observations") if isinstance(payload, Mapping) else None
+            validation_result = _build_validation(observations if isinstance(observations, Mapping) else None)
+            key = (str(dataset_id), str(dataset_version))
+            self._governance_status[key] = validation_result
+            self._pipeline_activity.append(
+                {"event": "governance.evaluate", "dataset_id": str(dataset_id), "dataset_version": str(dataset_version)}
             )
+            reused = bool(observations.get("reused", False)) if isinstance(observations, Mapping) else False
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "status": encode_validation_result(validation_result),
+                    "draft": None,
+                    "observations_reused": reused,
+                },
+            )
+        if path == "/governance/status" and method == "GET":
+            params = request.url.params
+            contract_id = params.get("contract_id")
+            contract_version = params.get("contract_version")
+            dataset_id = params.get("dataset_id")
+            dataset_version = params.get("dataset_version")
+            if not self._ensure_contract(contract_id or "", contract_version or ""):
+                return httpx.Response(status_code=404, json={"detail": "Unknown contract"})
+            key = (dataset_id, dataset_version)
+            if None in key or key not in self._governance_status:
+                return httpx.Response(status_code=404, json={"detail": "No status recorded"})
+            return httpx.Response(status_code=200, json=encode_validation_result(self._governance_status[key]) or {})
+        if path == "/governance/link" and method == "POST":
+            payload = self._read_json(request)
+            required = {"dataset_id", "dataset_version", "contract_id", "contract_version"}
+            if not required.issubset(payload):
+                return httpx.Response(status_code=400, json={"detail": "Missing linkage fields"})
+            contract_id = str(payload["contract_id"])
+            contract_version = str(payload["contract_version"])
+            if not self._ensure_contract(contract_id, contract_version):
+                return httpx.Response(status_code=404, json={"detail": "Unknown contract"})
+            dataset_key = (str(payload["dataset_id"]), str(payload["dataset_version"]))
+            self._dataset_links[dataset_key] = f"{contract_id}:{contract_version}"
+            self._pipeline_activity.append(
+                {
+                    "event": "governance.link",
+                    "dataset_id": dataset_key[0],
+                    "dataset_version": dataset_key[1],
+                }
+            )
+            return httpx.Response(status_code=204)
+        if path == "/governance/linked" and method == "GET":
+            dataset_id = request.url.params.get("dataset_id")
+            dataset_version = request.url.params.get("dataset_version")
+            if dataset_id is None or dataset_version is None:
+                return httpx.Response(status_code=404, json={"detail": "Missing dataset version"})
+            key = (dataset_id, dataset_version)
+            if key not in self._dataset_links:
+                return httpx.Response(status_code=404, json={"detail": "Dataset not linked"})
+            return httpx.Response(status_code=200, json={"contract_version": self._dataset_links[key]})
+        if path == "/governance/activity" and method == "GET":
+            dataset_id = request.url.params.get("dataset_id")
+            dataset_version = request.url.params.get("dataset_version")
+            activities = [
+                item
+                for item in self._pipeline_activity
+                if item["dataset_id"] == dataset_id
+                and (dataset_version is None or item["dataset_version"] == dataset_version)
+            ]
+            return httpx.Response(status_code=200, json=activities)
+        if path == "/governance/auth" and method == "POST":  # pragma: no cover - smoke path
+            return httpx.Response(status_code=204)
+        return httpx.Response(status_code=404, json={"detail": "Unknown governance endpoint"})
 
-        return asyncio.run(_dispatch())
+    def _ensure_contract(self, contract_id: str, contract_version: str | None = None) -> bool:
+        if contract_id != self._contract.id:
+            return False
+        if contract_version is not None and contract_version not in self._contracts:
+            return False
+        return True
 
-    def close(self) -> None:  # type: ignore[override]
-        asyncio.run(self._transport.aclose())
+    def _read_json(self, request: "httpx.Request") -> Mapping[str, object]:
+        if not request.content:
+            return {}
+        try:
+            return json.loads(request.content.decode())
+        except json.JSONDecodeError:  # pragma: no cover - guard path
+            return {}
 
 
 @pytest.fixture()
-def service_app(tmp_path):
-    store = FSContractStore(str(tmp_path / "contracts"))
+def service_backend():
     contract = _sample_contract()
-    store.put(contract)
-
-    contract_backend = LocalContractServiceBackend(store)
-    dq_backend = LocalDataQualityServiceBackend()
-    governance_backend = LocalGovernanceServiceBackend(
-        contract_client=contract_backend,
-        dq_client=dq_backend,
-        draft_store=store,
-    )
-
     token = "super-secret"
-    app = build_app(
-        contract_backend=contract_backend,
-        dq_backend=dq_backend,
-        governance_backend=governance_backend,
-        dependencies=[bearer_token_dependency(token)],
-    )
-
-    return {"app": app, "contract": contract, "token": token}
+    backend = _ServiceBackendMock(contract, token=token)
+    return {"backend": backend, "contract": contract, "token": token}
 
 
 @pytest.fixture()
-def http_clients(service_app):
-    app = service_app["app"]
-    contract = service_app["contract"]
-    token = service_app["token"]
+def http_clients(service_backend):
+    backend = service_backend["backend"]
+    contract = service_backend["contract"]
+    token = service_backend["token"]
 
     contract_client = RemoteContractServiceClient(
         base_url="http://dc43-services",
-        transport=_SyncASGITransport(app),
+        transport=httpx.MockTransport(backend),
         token=token,
     )
     dq_client = RemoteDataQualityServiceClient(
         base_url="http://dc43-services",
-        transport=_SyncASGITransport(app),
+        transport=httpx.MockTransport(backend),
         token=token,
     )
     governance_client = RemoteGovernanceServiceClient(
         base_url="http://dc43-services",
-        transport=_SyncASGITransport(app),
+        transport=httpx.MockTransport(backend),
         token=token,
     )
 
@@ -125,7 +288,7 @@ def http_clients(service_app):
         "dq": dq_client,
         "governance": governance_client,
         "contract_model": contract,
-        "app": app,
+        "backend": backend,
         "token": token,
     }
     try:
@@ -228,13 +391,13 @@ def test_remote_governance_client(http_clients):
     assert activity
 
 
-def test_http_clients_require_authentication(service_app):
-    app = service_app["app"]
-    contract = service_app["contract"]
+def test_http_clients_require_authentication(service_backend):
+    backend = service_backend["backend"]
+    contract = service_backend["contract"]
 
     client = RemoteContractServiceClient(
         base_url="http://dc43-services",
-        transport=_SyncASGITransport(app),
+        transport=httpx.MockTransport(backend),
     )
     try:
         with pytest.raises(httpx.HTTPStatusError):
