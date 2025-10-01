@@ -1,26 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
+  body.integration-helper-page .container {
+    max-width: 100%;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
   .helper-layout {
     min-height: 70vh;
-    display: flex;
+    display: grid;
     gap: 1.5rem;
-    align-items: stretch;
+    grid-template-columns: minmax(19rem, 21rem) minmax(40rem, 1fr) minmax(22rem, 26rem);
+    align-items: start;
   }
   .helper-sidebar {
     position: sticky;
-    top: 1rem;
-    flex: 0 0 clamp(15rem, 20%, 20rem);
-    max-width: 22rem;
+    top: 1.5rem;
     display: flex;
     flex-direction: column;
-    height: fit-content;
-  }
-  .helper-main {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.25rem;
+    max-height: calc(100vh - 6rem);
+    align-self: start;
   }
   .helper-panel .card-body {
     display: flex;
@@ -33,8 +33,14 @@
     gap: 1.25rem;
   }
   #contractResults {
-    max-height: 60vh;
+    max-height: calc(100vh - 18rem);
     overflow-y: auto;
+  }
+  .helper-pipeline .card-body {
+    gap: 1rem;
+  }
+  .helper-pipeline .pipeline-workspace {
+    flex: 1 1 auto;
   }
   .pipeline-wrapper {
     min-height: 36rem;
@@ -61,6 +67,73 @@
     overflow: hidden;
     cursor: grab;
     touch-action: none;
+  }
+  .pipeline-workspace {
+    display: grid;
+    grid-template-columns: minmax(26rem, 1fr) minmax(19rem, 22rem);
+    align-items: stretch;
+    gap: 1.5rem;
+  }
+  .selection-panel {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    background: var(--bs-body-bg);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-height: calc(100vh - 14rem);
+    min-height: 16rem;
+    overflow-y: auto;
+  }
+  .selection-panel h3 {
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
+  }
+  .selection-panel .selection-meta {
+    font-size: 0.85rem;
+    color: var(--bs-secondary-color);
+  }
+  .selection-panel .selection-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .selection-panel details {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.75rem 0.75rem 0;
+    background: rgba(var(--bs-primary-rgb), 0.03);
+  }
+  .selection-panel details > summary {
+    cursor: pointer;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .selection-panel details > summary::marker,
+  .selection-panel details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .selection-panel details > summary .chevron {
+    transition: transform 0.2s ease-in-out;
+  }
+  .selection-panel details[open] > summary .chevron {
+    transform: rotate(90deg);
+  }
+  .selection-panel .field-table-wrapper {
+    max-height: 14rem;
+    overflow-y: auto;
+    margin: 0 -0.75rem;
+    padding: 0 0.75rem 0.75rem;
+  }
+  .selection-empty {
+    text-align: center;
+    color: var(--bs-secondary-color);
+    margin-top: 2rem;
+    font-size: 0.9rem;
   }
   .pipeline-canvas.is-panning {
     cursor: grabbing;
@@ -91,6 +164,10 @@
     border: 1px solid var(--bs-border-color);
     box-shadow: 0 0.25rem 0.75rem rgba(15, 23, 42, 0.15);
     cursor: default;
+  }
+  .pipeline-node.is-selected {
+    border-color: rgba(var(--bs-primary-rgb), 0.9);
+    box-shadow: 0 0.5rem 1.25rem rgba(var(--bs-primary-rgb), 0.25);
   }
   .pipeline-node .node-header {
     border-bottom: 1px solid var(--bs-border-color);
@@ -411,31 +488,46 @@
   .code-section pre {
     margin: 0;
     padding: 1rem;
-    border-top: 1px solid var(--bs-border-color);
-    background: #f8fafc;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0d1117;
     border-radius: 0 0 var(--bs-border-radius-lg) var(--bs-border-radius-lg);
-    color: var(--bs-body-color);
+    color: #c9d1d9;
   }
   .code-section pre code {
     font-size: 0.875rem;
     color: inherit;
     display: block;
     overflow-x: auto;
+    font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", ui-monospace, monospace;
+  }
+  @media (max-width: 1400px) {
+    .helper-layout {
+      grid-template-columns: minmax(19rem, 21rem) minmax(32rem, 1fr);
+    }
+    .helper-layout > .helper-panel:last-of-type {
+      grid-column: 1 / -1;
+    }
   }
   @media (max-width: 991.98px) {
+    body.integration-helper-page .container {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
     .helper-layout {
-      flex-direction: column;
+      grid-template-columns: 1fr;
     }
     .helper-sidebar {
       position: static;
-      width: 100%;
-      max-width: none;
+      max-height: none;
     }
     #contractResults {
       max-height: 20rem;
     }
-    .pipeline-node {
-      min-width: 16rem;
+    .pipeline-workspace {
+      grid-template-columns: 1fr;
+    }
+    .selection-panel {
+      max-height: none;
     }
   }
 </style>
@@ -460,8 +552,7 @@
       </div>
     </div>
   </div>
-  <div class="helper-main">
-    <div class="card shadow-sm helper-panel">
+  <div class="card shadow-sm helper-panel helper-pipeline">
       <div class="card-body">
         <div class="d-flex flex-column gap-3">
           <div class="d-flex flex-column gap-2">
@@ -483,39 +574,43 @@
                   <span class="pipeline-zoom-indicator" id="zoomIndicator">100%</span>
                 </div>
                 <div class="btn-group btn-group-sm" role="group" aria-label="Pipeline actions">
-                  <button type="button" class="btn btn-outline-secondary" id="screenshotBtn" title="Save pipeline snapshot">Screenshot</button>
-                  <button type="button" class="btn btn-outline-primary" id="addTransformationBtn">Add transformation</button>
+                  <button type="button" class="btn btn-outline-secondary" id="screenshotBtn" title="Save pipeline snapshot">Snapshot</button>
+                  <button type="button" class="btn btn-outline-primary" id="addTransformationBtn">Add transform</button>
                 </div>
               </div>
             </div>
           </div>
-          <div class="pipeline-wrapper">
-            <div class="pipeline-canvas" id="pipelineCanvas">
-              <div class="pipeline-stage" id="pipelineStage"></div>
-              <svg class="pipeline-connections" id="pipelineConnections"></svg>
-              <div class="pipeline-placeholder" id="pipelinePlaceholder">
-                <div>
-                  <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
-                  <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
+          <div class="pipeline-workspace">
+            <div class="pipeline-wrapper">
+              <div class="pipeline-canvas" id="pipelineCanvas">
+                <div class="pipeline-stage" id="pipelineStage"></div>
+                <svg class="pipeline-connections" id="pipelineConnections"></svg>
+                <div class="pipeline-placeholder" id="pipelinePlaceholder">
+                  <div>
+                    <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
+                    <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
+                  </div>
                 </div>
               </div>
             </div>
+            <aside class="selection-panel" id="selectionPanel">
+              <div class="selection-empty">Select a contract or transformation to see its details.</div>
+            </aside>
           </div>
           <div class="pipeline-status" id="pipelineStatus"></div>
         </div>
       </div>
     </div>
-    <div class="card shadow-sm helper-panel">
-      <div class="card-body" id="transformationPanel">
-        <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
-          <div>
-            <h2 class="h5 mb-1">Integration stubs</h2>
-            <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
-          </div>
+  <div class="card shadow-sm helper-panel helper-stubs">
+    <div class="card-body" id="transformationPanel">
+      <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+        <div>
+          <h2 class="h5 mb-1">Integration stubs</h2>
+          <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
         </div>
-        <div id="transformationList" class="d-flex flex-column gap-3 flex-grow-1"></div>
-        <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
       </div>
+      <div id="transformationList" class="d-flex flex-column gap-3 flex-grow-1"></div>
+      <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
     </div>
   </div>
 </div>
@@ -576,6 +671,8 @@
   const catalogData = {{ catalog | tojson }};
   const integrationOptionsData = {{ integration_options | tojson }};
 
+  document.body.classList.add("integration-helper-page");
+
   function createId(prefix) {
     if (window.crypto && window.crypto.randomUUID) {
       return `${prefix}-${window.crypto.randomUUID()}`;
@@ -635,6 +732,7 @@
     filter: "",
     contractNodes: [],
     transformations: [],
+    selection: null,
     activePreview: null,
     editingTransformationId: null,
     activeConnection: null,
@@ -665,6 +763,7 @@
     zoomIndicator: document.getElementById("zoomIndicator"),
     screenshotBtn: document.getElementById("screenshotBtn"),
     pipelineStatus: document.getElementById("pipelineStatus"),
+    selectionPanel: document.getElementById("selectionPanel"),
     transformationList: document.getElementById("transformationList"),
     transformationEmpty: document.getElementById("transformationEmpty"),
     contractPreviewModal: document.getElementById("contractPreviewModal"),
@@ -927,10 +1026,348 @@
     `;
   }
 
+  function updateSelectionHighlight() {
+    if (!dom.pipelineStage) {
+      return;
+    }
+    const activeId = state.selection?.nodeId || null;
+    dom.pipelineStage.querySelectorAll(".pipeline-node").forEach((element) => {
+      element.classList.toggle("is-selected", element.dataset.nodeId === activeId);
+    });
+  }
+
+  function renderSelectionPanel() {
+    if (!dom.selectionPanel) {
+      return;
+    }
+    const panel = dom.selectionPanel;
+    panel.innerHTML = "";
+    const selection = state.selection;
+    let rendered = false;
+    if (selection?.kind === "contract") {
+      rendered = renderContractSelection(panel, selection.nodeId);
+    } else if (selection?.kind === "transformation") {
+      rendered = renderTransformationSelection(panel, selection.nodeId);
+    }
+    if (!rendered) {
+      panel.innerHTML = '<div class="selection-empty">Select a contract or transformation to see its details.</div>';
+    }
+    updateSelectionHighlight();
+  }
+
+  function setSelection(next) {
+    if (!next) {
+      state.selection = null;
+      renderSelectionPanel();
+      return;
+    }
+    if (next.kind === "contract" && !findContractNode(next.nodeId)) {
+      state.selection = null;
+      renderSelectionPanel();
+      return;
+    }
+    if (next.kind === "transformation" && !findTransformation(next.nodeId)) {
+      state.selection = null;
+      renderSelectionPanel();
+      return;
+    }
+    state.selection = { kind: next.kind, nodeId: next.nodeId };
+    renderSelectionPanel();
+  }
+
+  function ensureSelectionValid() {
+    if (!state.selection) {
+      renderSelectionPanel();
+      return;
+    }
+    const { kind, nodeId } = state.selection;
+    if ((kind === "contract" && !findContractNode(nodeId)) || (kind === "transformation" && !findTransformation(nodeId))) {
+      state.selection = null;
+    }
+    renderSelectionPanel();
+  }
+
+  function renderContractSelection(panel, nodeId) {
+    const node = findContractNode(nodeId);
+    if (!node) {
+      return false;
+    }
+    const summary = nodeSummary(node);
+    const heading = document.createElement("h3");
+    heading.textContent = summary.name || summary.id || node.contractId;
+    panel.appendChild(heading);
+
+    const meta = document.createElement("div");
+    meta.className = "selection-meta";
+    const metaBits = [`${node.contractId}`, `v${node.version}`];
+    if (summary.datasetId) {
+      metaBits.push(summary.datasetId);
+    }
+    meta.textContent = metaBits.join(" · ");
+    panel.appendChild(meta);
+
+    if (summary.description) {
+      const description = document.createElement("p");
+      description.className = "mb-0";
+      description.textContent = summary.description;
+      panel.appendChild(description);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "selection-actions";
+    const previewButton = document.createElement("button");
+    previewButton.type = "button";
+    previewButton.className = "btn btn-outline-primary btn-sm";
+    previewButton.textContent = "Preview";
+    previewButton.addEventListener("click", () => previewContract(node.contractId, node.version));
+    actions.appendChild(previewButton);
+
+    const focusButton = document.createElement("button");
+    focusButton.type = "button";
+    focusButton.className = "btn btn-outline-secondary btn-sm";
+    focusButton.textContent = "Focus";
+    focusButton.addEventListener("click", () => focusNode(node.id));
+    actions.appendChild(focusButton);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "btn btn-outline-danger btn-sm";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => removeContractNode(node.id));
+    actions.appendChild(removeButton);
+    panel.appendChild(actions);
+
+    if (summary.schemaEntries && summary.schemaEntries.length) {
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = nodeFieldsMarkup(summary);
+      const details = wrapper.firstElementChild;
+      if (details) {
+        const badge = details.querySelector(".badge");
+        if (badge && summary.schemaEntries.length > 20) {
+          badge.textContent = `${summary.schemaEntries.length} fields (showing 20)`;
+        }
+        if (summary.schemaEntries.length <= 12) {
+          details.open = true;
+        }
+        panel.appendChild(details);
+      }
+    } else {
+      const emptySchema = document.createElement("div");
+      emptySchema.className = "text-muted small";
+      emptySchema.textContent = "No schema entries available.";
+      panel.appendChild(emptySchema);
+    }
+
+    if (summary.expectations && Object.keys(summary.expectations).length) {
+      const expectations = document.createElement("details");
+      expectations.open = false;
+      const summaryEl = document.createElement("summary");
+      summaryEl.innerHTML = '<span class="chevron">▸</span><span class="fw-semibold">Quality predicates</span>';
+      expectations.appendChild(summaryEl);
+      const list = document.createElement("ul");
+      list.className = "small mb-0";
+      Object.entries(summary.expectations).forEach(([name, predicate]) => {
+        const item = document.createElement("li");
+        const strong = document.createElement("span");
+        strong.className = "fw-semibold";
+        strong.textContent = name;
+        const code = document.createElement("code");
+        code.textContent = predicate;
+        item.appendChild(strong);
+        item.appendChild(document.createTextNode(": "));
+        item.appendChild(code);
+        list.appendChild(item);
+      });
+      const wrapper = document.createElement("div");
+      wrapper.className = "pb-3";
+      wrapper.appendChild(list);
+      expectations.appendChild(wrapper);
+      panel.appendChild(expectations);
+    }
+    return true;
+  }
+
+  function renderTransformationSelection(panel, transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return false;
+    }
+    const heading = document.createElement("h3");
+    heading.textContent = transformation.name;
+    panel.appendChild(heading);
+
+    const integrationMeta = document.createElement("div");
+    integrationMeta.className = "selection-meta";
+    integrationMeta.textContent = integrationLabel(transformation.integration);
+    panel.appendChild(integrationMeta);
+
+    const strategyMeta = document.createElement("div");
+    strategyMeta.className = "selection-meta";
+    const readLabel = READ_STRATEGY_OPTIONS.find((opt) => opt.value === transformation.readStrategy)?.label ||
+      transformation.readStrategy;
+    const writeLabel = WRITE_STRATEGY_OPTIONS.find((opt) => opt.value === transformation.writeStrategy.mode)?.label ||
+      transformation.writeStrategy.mode;
+    strategyMeta.textContent = `${readLabel} read · ${writeLabel} write`;
+    panel.appendChild(strategyMeta);
+
+    const status = document.createElement("div");
+    status.className = "selection-meta";
+    if (transformation.error) {
+      status.textContent = `Status: ${transformation.error}`;
+      status.classList.add("text-danger");
+    } else if (transformation.isGenerating) {
+      status.textContent = "Status: Generating stub…";
+    } else if (transformation.stub) {
+      status.textContent = "Status: Stub generated";
+      status.classList.add("text-success");
+    } else {
+      status.textContent = "Status: Awaiting generation";
+    }
+    panel.appendChild(status);
+
+    const actions = document.createElement("div");
+    actions.className = "selection-actions";
+    const configureButton = document.createElement("button");
+    configureButton.type = "button";
+    configureButton.className = "btn btn-outline-primary btn-sm";
+    configureButton.textContent = "Configure";
+    configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
+    actions.appendChild(configureButton);
+
+    const regenerateButton = document.createElement("button");
+    regenerateButton.type = "button";
+    regenerateButton.className = "btn btn-outline-secondary btn-sm";
+    regenerateButton.textContent = "Regenerate";
+    regenerateButton.addEventListener("click", () => generateTransformationStub(transformation.id, { auto: false }));
+    actions.appendChild(regenerateButton);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "btn btn-outline-danger btn-sm";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => removeTransformation(transformation.id));
+    actions.appendChild(removeButton);
+    panel.appendChild(actions);
+
+    const inputDetails = document.createElement("details");
+    inputDetails.open = true;
+    const inputSummary = document.createElement("summary");
+    inputSummary.innerHTML = '<span class="chevron">▸</span><span class="fw-semibold">Inputs</span>';
+    inputDetails.appendChild(inputSummary);
+    const inputList = document.createElement("ul");
+    inputList.className = "list-unstyled small mb-0";
+    if (transformation.inputs.length) {
+      transformation.inputs.forEach((conn) => {
+        const contractNode = findContractNode(conn.contractNodeId);
+        if (!contractNode) {
+          return;
+        }
+        const summary = nodeSummary(contractNode);
+        const item = document.createElement("li");
+        item.className = "d-flex justify-content-between align-items-center gap-2 py-1";
+        const label = document.createElement("div");
+        label.innerHTML = `<span class="fw-semibold">${escapeHtml(summary.id || contractNode.contractId)}</span> <span class="text-muted">v${escapeHtml(summary.version || contractNode.version)}</span>`;
+        item.appendChild(label);
+        const buttons = document.createElement("div");
+        buttons.className = "btn-group btn-group-sm";
+        const focusBtn = document.createElement("button");
+        focusBtn.type = "button";
+        focusBtn.className = "btn btn-outline-secondary";
+        focusBtn.textContent = "Focus";
+        focusBtn.addEventListener("click", () => {
+          setSelection({ kind: "contract", nodeId: contractNode.id });
+          focusNode(contractNode.id);
+        });
+        buttons.appendChild(focusBtn);
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn btn-outline-danger";
+        removeBtn.textContent = "Remove";
+        removeBtn.addEventListener("click", () => removeTransformationConnection(transformation.id, conn.id, "inputs"));
+        buttons.appendChild(removeBtn);
+        item.appendChild(buttons);
+        inputList.appendChild(item);
+      });
+    } else {
+      const empty = document.createElement("li");
+      empty.className = "text-muted";
+      empty.textContent = "No inputs linked.";
+      inputList.appendChild(empty);
+    }
+    inputDetails.appendChild(inputList);
+    panel.appendChild(inputDetails);
+
+    const outputDetails = document.createElement("details");
+    outputDetails.open = true;
+    const outputSummary = document.createElement("summary");
+    outputSummary.innerHTML = '<span class="chevron">▸</span><span class="fw-semibold">Outputs</span>';
+    outputDetails.appendChild(outputSummary);
+    const outputList = document.createElement("ul");
+    outputList.className = "list-unstyled small mb-0";
+    if (transformation.outputs.length) {
+      transformation.outputs.forEach((conn) => {
+        const contractNode = findContractNode(conn.contractNodeId);
+        if (!contractNode) {
+          return;
+        }
+        const summary = nodeSummary(contractNode);
+        const item = document.createElement("li");
+        item.className = "d-flex justify-content-between align-items-center gap-2 py-1";
+        const label = document.createElement("div");
+        label.innerHTML = `<span class="fw-semibold">${escapeHtml(summary.id || contractNode.contractId)}</span> <span class="text-muted">v${escapeHtml(summary.version || contractNode.version)}</span>`;
+        item.appendChild(label);
+        const buttons = document.createElement("div");
+        buttons.className = "btn-group btn-group-sm";
+        const focusBtn = document.createElement("button");
+        focusBtn.type = "button";
+        focusBtn.className = "btn btn-outline-secondary";
+        focusBtn.textContent = "Focus";
+        focusBtn.addEventListener("click", () => {
+          setSelection({ kind: "contract", nodeId: contractNode.id });
+          focusNode(contractNode.id);
+        });
+        buttons.appendChild(focusBtn);
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "btn btn-outline-danger";
+        removeBtn.textContent = "Remove";
+        removeBtn.addEventListener("click", () => removeTransformationConnection(transformation.id, conn.id, "outputs"));
+        buttons.appendChild(removeBtn);
+        item.appendChild(buttons);
+        outputList.appendChild(item);
+      });
+    } else {
+      const empty = document.createElement("li");
+      empty.className = "text-muted";
+      empty.textContent = "No outputs linked.";
+      outputList.appendChild(empty);
+    }
+    outputDetails.appendChild(outputList);
+    panel.appendChild(outputDetails);
+
+    if (transformation.strategies) {
+      const sections = [];
+      if (transformation.strategies.read && transformation.strategies.read.length) {
+        sections.push(buildStrategySection("Read guidance", transformation.strategies.read));
+      }
+      if (transformation.strategies.write && transformation.strategies.write.length) {
+        sections.push(buildStrategySection("Write guidance", transformation.strategies.write));
+      }
+      if (sections.length) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "d-flex flex-column gap-2";
+        wrapper.innerHTML = sections.join("");
+        panel.appendChild(wrapper);
+      }
+    }
+    return true;
+  }
+
   function addContractToPipeline(contractId, version) {
     const existing = state.contractNodes.find((node) => node.contractId === contractId && node.version === version);
     if (existing) {
       focusNode(existing.id);
+      setSelection({ kind: "contract", nodeId: existing.id });
       return;
     }
     const position = {
@@ -950,6 +1387,7 @@
       state.contractNodes.push(node);
       renderPipeline();
       renderTransformations();
+      setSelection({ kind: "contract", nodeId: node.id });
     });
   }
 
@@ -970,6 +1408,7 @@
     });
     renderPipeline();
     renderTransformations();
+    ensureSelectionValid();
   }
 
   async function loadContractSummary(contractId, version) {
@@ -1120,6 +1559,15 @@
     previewButton.addEventListener("click", () => previewContract(node.contractId, node.version));
     removeButton.addEventListener("click", () => removeContractNode(node.id));
     attachNodeDragBehaviour(element, node.id);
+    element.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        return;
+      }
+      if (event.target.closest(".handle-input, .handle-output")) {
+        return;
+      }
+      setSelection({ kind: "contract", nodeId: node.id });
+    });
     return element;
   }
 
@@ -1176,6 +1624,15 @@
       dropHandle.addEventListener("pointerleave", () => clearHoverHandle(dropHandle));
     }
     renderTransformationConnectorLists(element, transformation);
+    element.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        return;
+      }
+      if (event.target.closest(".handle-input, .handle-output")) {
+        return;
+      }
+      setSelection({ kind: "transformation", nodeId: transformation.id });
+    });
     return element;
   }
 
@@ -1467,6 +1924,7 @@
     state.transformations = state.transformations.filter((item) => item.id !== transformationId);
     renderPipeline();
     renderTransformations();
+    ensureSelectionValid();
   }
 
   function renderPipeline() {
@@ -1506,6 +1964,7 @@
     });
     applyViewport();
     requestAnimationFrame(measurePipelineNodes);
+    updateSelectionHighlight();
   }
 
   function renderConnections() {
@@ -1755,6 +2214,7 @@
     state.transformations.push(transformation);
     renderPipeline();
     renderTransformations();
+    setSelection({ kind: "transformation", nodeId: transformation.id });
   }
 
   function buildStrategySection(title, items) {
@@ -2066,6 +2526,7 @@
         scheduleStubRefresh(transformation.id);
       }
     });
+    renderSelectionPanel();
   }
 
   function copyStub(text, button) {
@@ -2403,6 +2864,15 @@
       dom.pipelineCanvas.addEventListener("pointerup", endCanvasPan);
       dom.pipelineCanvas.addEventListener("pointercancel", endCanvasPan);
       dom.pipelineCanvas.addEventListener("lostpointercapture", endCanvasPan);
+      dom.pipelineCanvas.addEventListener("click", (event) => {
+        if (event.target.closest(".pipeline-node")) {
+          return;
+        }
+        if (state.isPanning) {
+          return;
+        }
+        setSelection(null);
+      });
     }
     window.addEventListener("resize", () => {
       requestAnimationFrame(() => {
@@ -2421,6 +2891,7 @@
     renderCatalogList();
     renderPipeline();
     renderTransformations();
+    renderSelectionPanel();
     registerEventListeners();
     setPipelineStatus("", "muted", { duration: 0 });
   }
