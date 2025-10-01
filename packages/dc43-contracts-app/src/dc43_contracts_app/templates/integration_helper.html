@@ -3,10 +3,18 @@
 <style>
   .helper-layout {
     min-height: 70vh;
+    align-items: stretch;
   }
   .helper-sidebar {
     position: sticky;
     top: 1rem;
+    display: flex;
+    flex-direction: column;
+  }
+  .contract-search-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
   }
   #contractResults {
     max-height: 60vh;
@@ -14,6 +22,9 @@
   }
   .pipeline-wrapper {
     min-height: 32rem;
+  }
+  .pipeline-shell {
+    height: 100%;
   }
   .pipeline-canvas {
     position: relative;
@@ -35,6 +46,12 @@
     border-radius: var(--bs-border-radius-lg);
     border: 1px dashed rgba(0, 0, 0, 0.15);
     overflow: hidden;
+  }
+  .pipeline-stage {
+    position: absolute;
+    inset: 0;
+    transform-origin: top left;
+    z-index: 2;
   }
   .pipeline-placeholder {
     position: absolute;
@@ -79,6 +96,19 @@
     justify-content: flex-end;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+  .pipeline-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .pipeline-zoom-indicator {
+    font-variant-numeric: tabular-nums;
+    min-width: 3.5rem;
+    text-align: right;
+    color: var(--bs-secondary-color);
   }
   .pipeline-node .handle-input,
   .pipeline-node .handle-output {
@@ -133,6 +163,12 @@
     gap: 0.5rem;
     background: rgba(var(--bs-primary-rgb), 0.03);
     position: relative;
+  }
+  .connector-chip-output {
+    padding-right: 0.25rem;
+  }
+  .connector-chip-output .connector-anchor {
+    margin-left: auto;
   }
   .connector-chip .connector-anchor {
     width: 0.875rem;
@@ -190,6 +226,7 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
+    z-index: 1;
   }
   .pipeline-connections path {
     fill: none;
@@ -208,6 +245,38 @@
   }
   .transformation-summary + .transformation-summary {
     margin-top: 1.5rem;
+  }
+  .transformation-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+  .transformation-controls .control-field {
+    min-width: 10rem;
+  }
+  .transformation-controls .form-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    letter-spacing: 0.04em;
+  }
+  .transformation-controls .form-select,
+  .transformation-controls .form-check-input {
+    font-size: 0.875rem;
+  }
+  .transformation-controls .form-check-label {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+  }
+  .transformation-controls .switch-group {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .transformation-controls .switch-group .form-check {
+    margin-bottom: 0;
   }
   .strategy-section,
   .code-section {
@@ -280,6 +349,13 @@
     border-top: 1px solid var(--bs-border-color);
     background: #0f172a;
     border-radius: 0 0 var(--bs-border-radius-lg) var(--bs-border-radius-lg);
+    color: #e2e8f0;
+  }
+  .code-section pre code {
+    font-size: 0.875rem;
+    color: inherit;
+    display: block;
+    overflow-x: auto;
   }
   @media (max-width: 991.98px) {
     .helper-sidebar {
@@ -293,60 +369,79 @@
     }
   }
 </style>
-<div class="row g-4 helper-layout">
-  <div class="col-lg-4">
-    <div class="card shadow-sm helper-sidebar">
-      <div class="card-body">
-        <h1 class="h4 mb-3">Integration helper</h1>
-        <p class="text-muted small mb-4">
+<div class="row g-4 helper-layout align-items-start">
+  <div class="col-12 col-xl-3">
+    <div class="card shadow-sm helper-sidebar h-100">
+      <div class="card-header border-bottom">
+        <h1 class="h5 mb-0">Integration helper</h1>
+      </div>
+      <div class="card-body contract-search-body">
+        <p class="text-muted small mb-0">
           Search for contracts, drag them into the canvas, then connect them through transformation
-          nodes to build a lineage. Configure integrations per transformation and generate stubs
-          tailored to the selected strategies.
+          nodes to build a lineage. Configure integrations per transformation and generate stubs tailored to the selected strategies.
         </p>
-        <div class="mb-3">
+        <div>
           <label for="contractSearch" class="form-label">Search contracts</label>
           <input type="search" class="form-control" id="contractSearch" placeholder="Filter by id, name, version"/>
         </div>
-        <div id="contractResults" class="list-group"></div>
-        <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
+        <div>
+          <h2 class="h6 text-uppercase text-muted mb-2">Results</h2>
+          <div id="contractResults" class="list-group"></div>
+          <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
+        </div>
       </div>
     </div>
   </div>
-  <div class="col-lg-8">
-    <div class="card shadow-sm mb-4">
-      <div class="card-body">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-          <div>
-            <h2 class="h5 mb-1">Pipeline builder</h2>
-            <p class="text-muted small mb-0">Drag contracts and transformations to organise inputs and outputs.</p>
-          </div>
-          <div class="btn-group">
-            <button type="button" class="btn btn-outline-primary btn-sm" id="addTransformationBtn">Add transformation</button>
-          </div>
-        </div>
-        <div class="pipeline-wrapper">
-          <div class="pipeline-canvas" id="pipelineCanvas">
-            <svg class="pipeline-connections" id="pipelineConnections"></svg>
-            <div class="pipeline-placeholder" id="pipelinePlaceholder">
+  <div class="col-12 col-xl-9">
+    <div class="row g-4 align-items-stretch">
+      <div class="col-12 col-xxl-7">
+        <div class="card shadow-sm h-100">
+          <div class="card-body d-flex flex-column gap-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
               <div>
-                <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
-                <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
+                <h2 class="h5 mb-1">Pipeline builder</h2>
+                <p class="text-muted small mb-0">Drag contracts and transformations to organise inputs and outputs.</p>
+              </div>
+              <div class="d-flex align-items-center gap-3 flex-wrap justify-content-end">
+                <div class="pipeline-controls">
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Zoom controls">
+                    <button type="button" class="btn btn-outline-secondary" id="zoomOutBtn" title="Zoom out">&minus;</button>
+                    <button type="button" class="btn btn-outline-secondary" id="zoomResetBtn" title="Reset zoom">Reset</button>
+                    <button type="button" class="btn btn-outline-secondary" id="zoomInBtn" title="Zoom in">+</button>
+                  </div>
+                  <span class="pipeline-zoom-indicator" id="zoomIndicator">100%</span>
+                </div>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="addTransformationBtn">Add transformation</button>
+              </div>
+            </div>
+            <div class="pipeline-wrapper pipeline-shell">
+              <div class="pipeline-canvas" id="pipelineCanvas">
+                <div class="pipeline-stage" id="pipelineStage"></div>
+                <svg class="pipeline-connections" id="pipelineConnections"></svg>
+                <div class="pipeline-placeholder" id="pipelinePlaceholder">
+                  <div>
+                    <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
+                    <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="card shadow-sm">
-      <div class="card-body" id="transformationPanel">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <div>
-            <h2 class="h5 mb-1">Integration stubs</h2>
-            <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
+      <div class="col-12 col-xxl-5">
+        <div class="card shadow-sm h-100">
+          <div class="card-body d-flex flex-column" id="transformationPanel">
+            <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+              <div>
+                <h2 class="h5 mb-1">Integration stubs</h2>
+                <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
+              </div>
+            </div>
+            <div id="transformationList" class="d-flex flex-column gap-3 flex-grow-1"></div>
+            <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
           </div>
         </div>
-        <div id="transformationList" class="d-flex flex-column gap-3"></div>
-        <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
       </div>
     </div>
   </div>
@@ -454,6 +549,10 @@
     { value: "plaintext", label: "Plain text" },
   ];
 
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 1.75;
+  const ZOOM_STEP = 0.15;
+
   const contractCache = new Map();
   const state = {
     catalog: catalogData || [],
@@ -464,6 +563,7 @@
     editingTransformationId: null,
     activeConnection: null,
     hoverHandle: null,
+    zoom: 1,
   };
 
   const dom = {
@@ -471,9 +571,14 @@
     contractResultsEmpty: document.getElementById("contractResultsEmpty"),
     contractSearch: document.getElementById("contractSearch"),
     pipelineCanvas: document.getElementById("pipelineCanvas"),
+    pipelineStage: document.getElementById("pipelineStage"),
     pipelineConnections: document.getElementById("pipelineConnections"),
     pipelinePlaceholder: document.getElementById("pipelinePlaceholder"),
     addTransformationBtn: document.getElementById("addTransformationBtn"),
+    zoomOutBtn: document.getElementById("zoomOutBtn"),
+    zoomResetBtn: document.getElementById("zoomResetBtn"),
+    zoomInBtn: document.getElementById("zoomInBtn"),
+    zoomIndicator: document.getElementById("zoomIndicator"),
     transformationList: document.getElementById("transformationList"),
     transformationEmpty: document.getElementById("transformationEmpty"),
     contractPreviewModal: document.getElementById("contractPreviewModal"),
@@ -511,6 +616,44 @@
       return bootstrapModal.transformation;
     }
     return null;
+  }
+
+  function clampZoom(value) {
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+  }
+
+  function updateZoomControls() {
+    if (dom.zoomIndicator) {
+      dom.zoomIndicator.textContent = `${Math.round(state.zoom * 100)}%`;
+    }
+    if (dom.zoomOutBtn) {
+      dom.zoomOutBtn.disabled = state.zoom <= ZOOM_MIN + 0.01;
+    }
+    if (dom.zoomInBtn) {
+      dom.zoomInBtn.disabled = state.zoom >= ZOOM_MAX - 0.01;
+    }
+    if (dom.zoomResetBtn) {
+      dom.zoomResetBtn.disabled = Math.abs(state.zoom - 1) < 0.01;
+    }
+  }
+
+  function applyZoom() {
+    if (dom.pipelineStage) {
+      dom.pipelineStage.style.transform = `scale(${state.zoom})`;
+    }
+    updateZoomControls();
+  }
+
+  function setZoom(value) {
+    const clamped = clampZoom(value);
+    if (Math.abs(clamped - state.zoom) < 0.001) {
+      state.zoom = clamped;
+      updateZoomControls();
+      return;
+    }
+    state.zoom = clamped;
+    applyZoom();
+    requestAnimationFrame(renderConnections);
   }
 
   function escapeHtml(value) {
@@ -792,7 +935,7 @@
   }
 
   function focusNode(nodeId) {
-    const element = dom.pipelineCanvas.querySelector(`[data-node-id="${nodeId}"]`);
+    const element = dom.pipelineStage?.querySelector(`[data-node-id="${nodeId}"]`);
     if (element) {
       element.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
       element.classList.add("border-primary");
@@ -940,10 +1083,9 @@
       }
       const summary = nodeSummary(contractNode);
       const item = document.createElement("div");
-      item.className = "connector-chip";
+      item.className = "connector-chip connector-chip-output";
       item.dataset.connectionId = conn.id;
       item.innerHTML = `
-        <span class="connector-anchor" title="Linked output">${index + 1}</span>
         <div>
           <div class="fw-semibold small">${escapeHtml(summary.id || contractNode.contractId)}</div>
           <div class="text-muted small">v${escapeHtml(summary.version || contractNode.version)}</div>
@@ -952,6 +1094,7 @@
           <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Config</button>
           <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
         </div>
+        <span class="connector-anchor" title="Linked output">${index + 1}</span>
       `;
       const configure = item.querySelector('[data-action="configure"]');
       const remove = item.querySelector('[data-action="remove"]');
@@ -984,8 +1127,9 @@
       if (!node) {
         return;
       }
-      const deltaX = event.clientX - startX;
-      const deltaY = event.clientY - startY;
+      const scale = state.zoom || 1;
+      const deltaX = (event.clientX - startX) / scale;
+      const deltaY = (event.clientY - startY) / scale;
       node.position.x = Math.max(16, baseX + deltaX);
       node.position.y = Math.max(16, baseY + deltaY);
       element.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
@@ -1185,10 +1329,13 @@
 
   function renderPipeline() {
     ensurePlaceholder();
-    dom.pipelineCanvas.querySelectorAll(".pipeline-node").forEach((node) => node.remove());
+    if (!dom.pipelineStage) {
+      return;
+    }
+    dom.pipelineStage.querySelectorAll(".pipeline-node").forEach((node) => node.remove());
     state.contractNodes.forEach((node) => {
       const element = buildContractNodeElement(node);
-      dom.pipelineCanvas.appendChild(element);
+      dom.pipelineStage.appendChild(element);
       const outputHandle = document.createElement("div");
       outputHandle.className = "handle-output";
       outputHandle.dataset.role = "start";
@@ -1213,12 +1360,16 @@
     });
     state.transformations.forEach((transformation) => {
       const element = buildTransformationNodeElement(transformation);
-      dom.pipelineCanvas.appendChild(element);
+      dom.pipelineStage.appendChild(element);
     });
+    applyZoom();
     requestAnimationFrame(renderConnections);
   }
 
   function renderConnections() {
+    if (!dom.pipelineCanvas || !dom.pipelineConnections) {
+      return;
+    }
     const svg = dom.pipelineConnections;
     const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
     svg.setAttribute("width", canvasRect.width);
@@ -1237,8 +1388,8 @@
     };
     state.transformations.forEach((transformation) => {
       transformation.inputs.forEach((conn) => {
-        const contractElement = dom.pipelineCanvas.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-output`);
-        const targetAnchor = dom.pipelineCanvas.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
+        const contractElement = dom.pipelineStage?.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-output`);
+        const targetAnchor = dom.pipelineStage?.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
         const start = positionFor(contractElement);
         const end = positionFor(targetAnchor);
         if (!start || !end) {
@@ -1250,8 +1401,8 @@
         svg.appendChild(path);
       });
       transformation.outputs.forEach((conn) => {
-        const sourceAnchor = dom.pipelineCanvas.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
-        const targetElement = dom.pipelineCanvas.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-input`);
+        const sourceAnchor = dom.pipelineStage?.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
+        const targetElement = dom.pipelineStage?.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-input`);
         const start = positionFor(sourceAnchor);
         const end = positionFor(targetElement);
         if (!start || !end) {
@@ -1330,9 +1481,14 @@
     if (typeof source === "string") {
       codeElement.textContent = source;
     }
-    codeElement.className = `language-${lang}`;
+    codeElement.removeAttribute("data-highlighted");
+    codeElement.className = "";
+    codeElement.classList.add(`language-${lang}`);
     if (window.hljs && window.hljs.highlightElement) {
       window.hljs.highlightElement(codeElement);
+    }
+    if (!codeElement.classList.contains("hljs")) {
+      codeElement.classList.add("hljs");
     }
   }
 
@@ -1405,6 +1561,24 @@
         .join(", ");
       const readLabel = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy)?.label || transformation.readStrategy;
       const writeLabel = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode)?.label || transformation.writeStrategy.mode;
+      const integrationSelectId = `${transformation.id}-integration-select`;
+      const readSelectId = `${transformation.id}-read-select`;
+      const writeSelectId = `${transformation.id}-write-select`;
+      const integrationChoices = Array.isArray(integrationOptionsData) && integrationOptionsData.length
+        ? [...integrationOptionsData]
+        : [{ value: transformation.integration, label: integrationLabel(transformation.integration) || transformation.integration }];
+      if (!integrationChoices.some((option) => option.value === transformation.integration)) {
+        integrationChoices.push({ value: transformation.integration, label: integrationLabel(transformation.integration) || transformation.integration });
+      }
+      const integrationOptions = integrationChoices
+        .map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === transformation.integration ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+        .join("");
+      const readOptions = READ_STRATEGY_OPTIONS
+        .map((option) => `<option value="${option.value}" ${option.value === transformation.readStrategy ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+        .join("");
+      const writeOptions = WRITE_STRATEGY_OPTIONS
+        .map((option) => `<option value="${option.value}" ${option.value === transformation.writeStrategy.mode ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+        .join("");
       summary.innerHTML = `
         <div class="d-flex justify-content-between align-items-start gap-3">
           <div>
@@ -1420,6 +1594,24 @@
             <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
           </div>
         </div>
+        <div class="transformation-controls">
+          <div class="control-field">
+            <label class="form-label" for="${integrationSelectId}">Integration</label>
+            <select class="form-select form-select-sm" id="${integrationSelectId}" data-role="integration">${integrationOptions}</select>
+          </div>
+          <div class="control-field">
+            <label class="form-label" for="${readSelectId}">Read strategy</label>
+            <select class="form-select form-select-sm" id="${readSelectId}" data-role="read-strategy">${readOptions}</select>
+          </div>
+          <div class="control-field">
+            <label class="form-label" for="${writeSelectId}">Write strategy</label>
+            <select class="form-select form-select-sm" id="${writeSelectId}" data-role="write-strategy">${writeOptions}</select>
+          </div>
+          <div class="control-field flex-grow-1 d-none" data-role="write-toggle-field">
+            <span class="form-label d-block">Write options</span>
+            <div class="switch-group" data-role="write-toggle-list"></div>
+          </div>
+        </div>
         <div class="mt-3" data-role="status"></div>
         <div class="mt-3" data-role="strategy-notes"></div>
         <div class="mt-3" data-role="stub"></div>
@@ -1430,9 +1622,56 @@
       const configureButton = summary.querySelector('[data-action="configure"]');
       const refreshButton = summary.querySelector('[data-action="refresh"]');
       const removeButton = summary.querySelector('[data-action="remove"]');
+      const integrationSelect = summary.querySelector('[data-role="integration"]');
+      const readSelect = summary.querySelector('[data-role="read-strategy"]');
+      const writeSelect = summary.querySelector('[data-role="write-strategy"]');
+      const writeToggleField = summary.querySelector('[data-role="write-toggle-field"]');
+      const writeToggleList = summary.querySelector('[data-role="write-toggle-list"]');
       configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
       refreshButton.addEventListener("click", () => generateTransformationStub(transformation.id, { auto: false }));
       removeButton.addEventListener("click", () => removeTransformation(transformation.id));
+      if (integrationSelect) {
+        integrationSelect.addEventListener("change", () => {
+          const value = integrationSelect.value || transformation.integration;
+          if (!value) {
+            return;
+          }
+          const previous = transformation.integration;
+          transformation.integration = value;
+          if (previous !== value && !transformation.stubLanguageManual) {
+            transformation.stubLanguage = integrationDefaultLanguage(value);
+          }
+          markTransformationDirty(transformation.id);
+        });
+      }
+      if (readSelect) {
+        readSelect.addEventListener("change", () => {
+          const value = readSelect.value || transformation.readStrategy;
+          if (!READ_STRATEGY_OPTIONS.some((option) => option.value === value)) {
+            return;
+          }
+          transformation.readStrategy = value;
+          markTransformationDirty(transformation.id);
+        });
+      }
+      if (writeSelect) {
+        writeSelect.addEventListener("change", () => {
+          const value = writeSelect.value || transformation.writeStrategy.mode;
+          if (!WRITE_STRATEGY_OPTIONS.some((option) => option.value === value)) {
+            return;
+          }
+          transformation.writeStrategy.mode = value;
+          if (value === "noop") {
+            transformation.writeStrategy.includeValid = false;
+            transformation.writeStrategy.includeReject = false;
+            transformation.writeStrategy.failOnWarnings = false;
+          } else if (value !== "strict") {
+            transformation.writeStrategy.failOnWarnings = false;
+          }
+          markTransformationDirty(transformation.id);
+        });
+      }
+      renderInlineWriteToggles(writeToggleList, writeToggleField, transformation);
       if (!transformation.inputs.length || !transformation.outputs.length) {
         statusContainer.innerHTML = '<div class="alert alert-warning small mb-0">Connect at least one input and one output contract to generate code.</div>';
       } else if (transformation.error) {
@@ -1541,6 +1780,67 @@
           </div>
         `;
       }
+    }
+  }
+
+  function renderInlineWriteToggles(container, field, transformation) {
+    if (!container || !field || !transformation || !transformation.writeStrategy) {
+      return;
+    }
+    if (transformation.writeStrategy.mode === "noop") {
+      container.innerHTML = "";
+      field.classList.add("d-none");
+      field.classList.remove("d-flex", "flex-column", "gap-2");
+      return;
+    }
+    field.classList.remove("d-none");
+    field.classList.add("d-flex", "flex-column", "gap-2");
+    const validId = `${transformation.id}-inline-valid`;
+    const rejectId = `${transformation.id}-inline-reject`;
+    const toggles = [
+      `
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="${escapeHtml(validId)}" data-role="toggle-valid" ${transformation.writeStrategy.includeValid ? "checked" : ""}>
+          <label class="form-check-label" for="${escapeHtml(validId)}">Emit valid subset</label>
+        </div>
+      `,
+      `
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="${escapeHtml(rejectId)}" data-role="toggle-reject" ${transformation.writeStrategy.includeReject ? "checked" : ""}>
+          <label class="form-check-label" for="${escapeHtml(rejectId)}">Emit reject subset</label>
+        </div>
+      `,
+    ];
+    if (transformation.writeStrategy.mode === "strict") {
+      const failId = `${transformation.id}-inline-fail`;
+      toggles.push(`
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="${escapeHtml(failId)}" data-role="toggle-fail" ${transformation.writeStrategy.failOnWarnings ? "checked" : ""}>
+          <label class="form-check-label" for="${escapeHtml(failId)}">Fail on warnings</label>
+        </div>
+      `);
+    }
+    container.innerHTML = toggles.join("");
+    const validToggle = container.querySelector('[data-role="toggle-valid"]');
+    const rejectToggle = container.querySelector('[data-role="toggle-reject"]');
+    const failToggle = container.querySelector('[data-role="toggle-fail"]');
+    if (validToggle) {
+      validToggle.addEventListener("change", () => {
+        transformation.writeStrategy.includeValid = validToggle.checked;
+        markTransformationDirty(transformation.id);
+      });
+    }
+    if (rejectToggle) {
+      rejectToggle.addEventListener("change", () => {
+        transformation.writeStrategy.includeReject = rejectToggle.checked;
+        markTransformationDirty(transformation.id);
+      });
+    }
+    if (failToggle) {
+      failToggle.addEventListener("change", () => {
+        transformation.writeStrategy.failOnWarnings = failToggle.checked;
+        markTransformationDirty(transformation.id);
+      });
     }
   }
 
@@ -1693,12 +1993,41 @@
   }
 
   function registerEventListeners() {
-    dom.contractSearch.addEventListener("input", () => {
-      state.filter = dom.contractSearch.value || "";
-      renderCatalogList();
-    });
-    dom.addTransformationBtn.addEventListener("click", addTransformation);
-    dom.saveTransformationConfig.addEventListener("click", saveTransformationConfig);
+    if (dom.contractSearch) {
+      dom.contractSearch.addEventListener("input", () => {
+        state.filter = dom.contractSearch.value || "";
+        renderCatalogList();
+      });
+    }
+    if (dom.addTransformationBtn) {
+      dom.addTransformationBtn.addEventListener("click", addTransformation);
+    }
+    if (dom.saveTransformationConfig) {
+      dom.saveTransformationConfig.addEventListener("click", saveTransformationConfig);
+    }
+    if (dom.zoomOutBtn) {
+      dom.zoomOutBtn.addEventListener("click", () => setZoom(state.zoom - ZOOM_STEP));
+    }
+    if (dom.zoomInBtn) {
+      dom.zoomInBtn.addEventListener("click", () => setZoom(state.zoom + ZOOM_STEP));
+    }
+    if (dom.zoomResetBtn) {
+      dom.zoomResetBtn.addEventListener("click", () => setZoom(1));
+    }
+    if (dom.pipelineCanvas) {
+      dom.pipelineCanvas.addEventListener(
+        "wheel",
+        (event) => {
+          if (!event.ctrlKey && !event.metaKey) {
+            return;
+          }
+          event.preventDefault();
+          const direction = event.deltaY < 0 ? 1 : -1;
+          setZoom(state.zoom + direction * ZOOM_STEP);
+        },
+        { passive: false }
+      );
+    }
     window.addEventListener("resize", () => requestAnimationFrame(renderConnections));
   }
 
