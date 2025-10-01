@@ -53,7 +53,10 @@ Because the build and publish stages point at the derived `dist_path`, the workf
 package that owns the tag. You do **not** need to retag the other distributions—just bump the version
 for the package you changed, push a matching tag, and the automation handles the rest. If you push
 multiple package-prefixed tags in the same `git push` command, GitHub Actions starts an independent
-workflow run for each tag so you can release several packages from a single commit.
+workflow run for each tag so you can release several packages from a single commit. The workflow queue
+processes those runs sequentially, so downstream packages no longer wait on an explicit PyPI polling
+step—the build job simply proceeds once earlier releases have finished publishing. As a result the
+old `wait_for_internal_deps.py` helper script and its tests were removed from the repository.
 
 ### Multi-package release CLI
 

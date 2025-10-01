@@ -1,5 +1,9 @@
 name: release
 
+concurrency:
+  group: release-packages
+  cancel-in-progress: false
+
 on:
   push:
     tags:
@@ -81,12 +85,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install packaging build
-
-      - name: Wait for internal dependencies
-        run: |
-          python scripts/wait_for_internal_deps.py \
-            --pyproject "${{ steps.meta.outputs.pyproject }}" \
-            --package "${{ steps.meta.outputs.package }}"
 
       - name: Install package under test
         env:
