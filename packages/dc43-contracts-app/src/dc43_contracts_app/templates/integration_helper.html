@@ -1,133 +1,218 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="row g-4">
-  <div class="col-lg-4">
-    <div class="card shadow-sm">
-      <div class="card-body">
+<style>
+  #contractResultsContainer {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .helper-search-card {
+    height: 100%;
+  }
+  .integration-schema summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .integration-schema summary::marker,
+  .integration-schema summary::-webkit-details-marker {
+    display: none;
+  }
+  .integration-schema summary .chevron {
+    transition: transform 0.2s ease-in-out;
+  }
+  .integration-schema[open] summary .chevron {
+    transform: rotate(90deg);
+  }
+  .integration-node {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    padding: 0.75rem;
+    background-color: var(--bs-body-bg);
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+  }
+  .integration-node details summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .integration-node details summary::marker,
+  .integration-node details summary::-webkit-details-marker {
+    display: none;
+  }
+  .integration-node details summary .chevron {
+    transition: transform 0.2s ease-in-out;
+  }
+  .integration-node details[open] summary .chevron {
+    transform: rotate(90deg);
+  }
+  .integration-arrow {
+    font-size: 2rem;
+    line-height: 1;
+    color: var(--bs-primary);
+  }
+  .code-preview {
+    min-height: 18rem;
+  }
+  @media (max-width: 991.98px) {
+    #contractResultsContainer {
+      max-height: 40vh;
+    }
+  }
+</style>
+<div class="row g-4 align-items-start">
+  <div class="col-xl-4">
+    <div class="card shadow-sm helper-search-card">
+      <div class="card-body d-flex flex-column">
         <h1 class="h4 mb-3">Integration helper</h1>
         <p class="text-muted mb-4">
-          Select contract versions for your pipeline inputs and outputs, review their
-          schema and quality rules, then generate Spark-ready code snippets with
-          recommended read/write strategies.
+          Explore contracts, pick versions for inputs and outputs, and tailor read/write
+          strategies to generate ready-to-run integration stubs.
         </p>
-        <div class="mb-3">
-          <label for="integrationSelect" class="form-label">Integration</label>
-          <select id="integrationSelect" class="form-select">
-            {% for item in integration_options %}
-            <option value="{{ item.value }}">{{ item.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
         <div class="mb-3">
           <label for="contractSearch" class="form-label">Search contracts</label>
           <input type="search" id="contractSearch" class="form-control" placeholder="Filter by id, name, or version"/>
         </div>
+        <div id="contractResultsContainer" class="flex-grow-1">
+          <div class="list-group" id="contractResults"></div>
+          <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No contracts found.</p>
+        </div>
       </div>
-    </div>
-    <div class="mt-4">
-      <div class="list-group" id="contractList"></div>
-      <p class="text-muted small mt-2" id="contractListEmpty">No contracts found.</p>
     </div>
   </div>
-  <div class="col-lg-8">
-    <div class="card shadow-sm mb-4">
-      <div class="card-body">
-        <div id="contractDetailPlaceholder" class="text-muted">Select a contract version to view details.</div>
-        <div class="alert alert-warning d-none" id="contractDetailError"></div>
-        <div id="contractDetail" class="d-none">
-          <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
-            <div>
-              <h2 class="h5 mb-1" id="contractTitle"></h2>
-              <p class="small text-muted mb-2" id="contractName"></p>
-              <p class="text-muted" id="contractDescription"></p>
-            </div>
-            <div class="btn-group">
-              <button class="btn btn-outline-primary btn-sm" id="addInputBtn">Add as input</button>
-              <button class="btn btn-primary btn-sm" id="addOutputBtn">Add as output</button>
+  <div class="col-xl-8">
+    <div class="row g-4 align-items-stretch">
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-body d-flex flex-column">
+            <h2 class="h5 mb-3">Contract preview</h2>
+            <div id="contractDetailPlaceholder" class="text-muted">Select a contract version to view details.</div>
+            <div class="alert alert-warning d-none" id="contractDetailError"></div>
+            <div id="contractDetail" class="d-none flex-grow-1 d-flex flex-column">
+              <div class="d-flex justify-content-between align-items-start gap-3">
+                <div>
+                  <h3 class="h6 mb-1" id="contractTitle"></h3>
+                  <p class="small text-muted mb-1" id="contractName"></p>
+                  <p class="text-muted small mb-0" id="contractDescription"></p>
+                </div>
+                <div class="btn-group btn-group-sm flex-shrink-0">
+                  <button class="btn btn-outline-primary" id="addInputBtn">Add as input</button>
+                  <button class="btn btn-primary" id="addOutputBtn">Add as output</button>
+                </div>
+              </div>
+              <div class="mt-3">
+                <h3 class="h6">Access</h3>
+                <dl class="row small mb-0" id="contractAccess"></dl>
+              </div>
+              <details class="integration-schema mt-3" id="schemaDetails">
+                <summary>
+                  <span class="chevron">▸</span>
+                  <span class="fw-semibold">Schema</span>
+                  <span class="badge text-bg-light ms-auto" id="schemaCount">0 fields</span>
+                </summary>
+                <div class="mt-3">
+                  <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                      <thead>
+                        <tr>
+                          <th scope="col">Field</th>
+                          <th scope="col">Type</th>
+                          <th scope="col">Required</th>
+                          <th scope="col">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody id="schemaTableBody"></tbody>
+                    </table>
+                  </div>
+                  <p class="text-muted small" id="schemaEmpty">No schema fields declared.</p>
+                  <nav aria-label="Schema pagination">
+                    <ul class="pagination pagination-sm" id="schemaPagination"></ul>
+                  </nav>
+                </div>
+              </details>
+              <details class="mt-3" id="predicateDetails">
+                <summary class="fw-semibold d-flex align-items-center gap-2">
+                  <span class="chevron">▸</span>
+                  <span>Quality predicates</span>
+                </summary>
+                <div class="mt-3">
+                  <div class="list-group" id="expectationList"></div>
+                  <p class="text-muted small" id="expectationEmpty">No SQL predicates recorded for this contract.</p>
+                </div>
+              </details>
             </div>
           </div>
-          <div class="mt-3">
-            <h3 class="h6">Access</h3>
-            <dl class="row small mb-0" id="contractAccess"></dl>
-          </div>
-          <div class="mt-4">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <h3 class="h6 mb-0">Schema</h3>
-              <span class="badge text-bg-light" id="schemaCount">0 fields</span>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+          <div class="card-body d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <h2 class="h5 mb-1">Pipeline preview</h2>
+                <p class="small text-muted mb-0">Inputs and outputs appear alongside the integration node.</p>
+              </div>
+              <div class="badge text-bg-light text-uppercase" id="selectionIntegrationBadge">Spark</div>
             </div>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead>
-                  <tr>
-                    <th scope="col">Field</th>
-                    <th scope="col">Type</th>
-                    <th scope="col">Required</th>
-                    <th scope="col">Description</th>
-                  </tr>
-                </thead>
-                <tbody id="schemaTableBody"></tbody>
-              </table>
-            </div>
-            <p class="text-muted small" id="schemaEmpty">No schema fields declared.</p>
-            <nav aria-label="Schema pagination">
-              <ul class="pagination pagination-sm" id="schemaPagination"></ul>
-            </nav>
-          </div>
-          <div class="mt-4">
-            <h3 class="h6">Quality predicates</h3>
-            <div class="list-group" id="expectationList"></div>
-            <p class="text-muted small" id="expectationEmpty">No SQL predicates recorded for this contract.</p>
+            <div class="mt-3 text-muted small" id="selectionSummary">Select at least one input and one output.</div>
+            <div class="mt-3 flex-grow-1" id="selectionDiagram"></div>
           </div>
         </div>
       </div>
     </div>
-    <div class="card shadow-sm mb-4">
+    <div class="card shadow-sm mt-4">
       <div class="card-body">
-        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
-          <div>
-            <h2 class="h5 mb-1">Selected contracts</h2>
-            <p class="small text-muted mb-0">Inputs and outputs will appear in the diagram below.</p>
+        <div class="row g-4 align-items-stretch">
+          <div class="col-lg-5 d-flex flex-column">
+            <h2 class="h5">Integration &amp; strategies</h2>
+            <div class="mb-3">
+              <label for="integrationSelect" class="form-label">Integration target</label>
+              <select id="integrationSelect" class="form-select form-select-sm">
+                {% for item in integration_options %}
+                <option value="{{ item.value }}">{{ item.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <h3 class="h6 mb-2">Read strategy</h3>
+              <div class="list-group list-group-flush" id="readStrategyOptions"></div>
+            </div>
+            <div class="mb-3">
+              <h3 class="h6 mb-2">Write strategy</h3>
+              <div class="list-group list-group-flush" id="writeStrategyOptions"></div>
+              <div class="mt-3" id="writeStrategyToggles">
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="writeIncludeValid" checked/>
+                  <label class="form-check-label" for="writeIncludeValid">Emit valid subset (<span class="text-muted">dataset::valid</span>)</label>
+                </div>
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="writeIncludeReject" checked/>
+                  <label class="form-check-label" for="writeIncludeReject">Emit reject subset (<span class="text-muted">dataset::reject</span>)</label>
+                </div>
+                <div class="form-check form-switch" id="writeFailWarningsGroup">
+                  <input class="form-check-input" type="checkbox" id="writeFailWarnings"/>
+                  <label class="form-check-label" for="writeFailWarnings">Fail the run when warnings persist</label>
+                </div>
+              </div>
+            </div>
+            <div class="mb-3">
+              <div class="alert alert-info small mb-0" id="strategySummary">Choose read and write strategies to tailor the stub.</div>
+            </div>
+            <div class="d-grid d-sm-flex gap-2">
+              <button class="btn btn-primary" id="generateStubBtn" disabled>Generate stub</button>
+            </div>
+            <div class="alert alert-danger d-none mt-3" id="stubError"></div>
+            <div class="mt-3" id="strategyNotes"></div>
           </div>
-          <div class="text-muted small" id="selectionFeedback">Select at least one input and one output.</div>
-        </div>
-        <div class="row mt-3 g-3">
-          <div class="col-md-6">
-            <h3 class="h6">Inputs</h3>
-            <div class="vstack gap-2" id="selectedInputs"></div>
-          </div>
-          <div class="col-md-6">
-            <h3 class="h6">Outputs</h3>
-            <div class="vstack gap-2" id="selectedOutputs"></div>
+          <div class="col-lg-7">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h2 class="h5 mb-0">Generated code</h2>
+              <button class="btn btn-outline-secondary btn-sm" id="copyStubBtn" disabled>Copy</button>
+            </div>
+            <pre class="bg-light border rounded p-3 code-preview"><code class="language-python" id="stubOutput"># Generate a stub to preview integration-ready code.</code></pre>
           </div>
         </div>
-        <div class="mt-4">
-          <h3 class="h6">Flow overview</h3>
-          <pre class="mermaid" id="integrationDiagram">flowchart LR
-    placeholder([Select inputs and outputs])
-</pre>
-        </div>
-        <div class="mt-4 d-flex flex-column flex-md-row gap-2 justify-content-between align-items-md-center">
-          <button class="btn btn-primary" id="generateStubBtn" disabled>Generate stub</button>
-          <div class="small text-muted" id="diagramHint">Diagram updates as selections change.</div>
-        </div>
-      </div>
-    </div>
-    <div class="card shadow-sm mb-4">
-      <div class="card-body">
-        <h2 class="h5">Recommended strategies</h2>
-        <div class="mt-3" id="strategyList">
-          <p class="text-muted mb-0">Generate a stub to review read/write strategy guidance.</p>
-        </div>
-      </div>
-    </div>
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <h2 class="h5 mb-0">Generated Spark stub</h2>
-          <button class="btn btn-outline-secondary btn-sm" id="copyStubBtn" disabled>Copy</button>
-        </div>
-        <div class="alert alert-danger d-none" id="stubError"></div>
-        <pre class="bg-light p-3 rounded small" id="stubOutput"><code class="language-python text-body"># Generate a stub to preview integration-ready code.</code></pre>
       </div>
     </div>
   </div>
@@ -139,6 +224,60 @@
   const optionsElement = document.getElementById("integrationOptions");
   const catalogData = catalogElement ? JSON.parse(catalogElement.textContent || "[]") : [];
   const integrationOptionsData = optionsElement ? JSON.parse(optionsElement.textContent || "[]") : [];
+  const HTML_ESCAPE = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  const READ_STRATEGY_OPTIONS = [
+    {
+      value: "status",
+      label: "Log validation verdicts",
+      description: "Retain return_status=True and surface warnings so orchestration can branch on data quality.",
+    },
+    {
+      value: "strict",
+      label: "Fail fast on violations",
+      description: "Raise an exception whenever validation reports a non-OK status for the selected contract.",
+    },
+  ];
+  const WRITE_STRATEGY_OPTIONS = [
+    {
+      value: "split",
+      label: "Split valid/reject datasets",
+      description: "Route valid rows to '<dataset>::valid' and rejected rows to '<dataset>::reject' using SplitWriteViolationStrategy.",
+    },
+    {
+      value: "strict",
+      label: "Split &amp; fail on violations",
+      description: "Wrap the split strategy with StrictWriteViolationStrategy so contract breaches stop the pipeline.",
+    },
+    {
+      value: "noop",
+      label: "Single target (log only)",
+      description: "Keep the default single write target while still recording validation metadata.",
+    },
+  ];
+
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (ch) => HTML_ESCAPE[ch] || ch);
+  }
+
+  function keyFor(id, version) {
+    return `${id}@@${version}`;
+  }
+
+  function integrationLabel(value) {
+    const match = integrationOptionsData.find((item) => item.value === value);
+    return match ? match.label : value;
+  }
+
+  function summarisePredicates(expectations) {
+    const entries = Object.entries(expectations || {});
+    if (!entries.length) {
+      return "";
+    }
+    return entries
+      .map(([name, predicate]) => `${name}: ${predicate}`)
+      .join("; ");
+  }
+
   const contractCache = new Map();
   const state = {
     catalog: catalogData,
@@ -151,11 +290,19 @@
     detailPage: 1,
     stub: null,
     strategies: null,
+    readStrategy: "status",
+    writeStrategy: {
+      mode: "split",
+      includeValid: true,
+      includeReject: true,
+      failOnWarnings: false,
+    },
+    isGenerating: false,
   };
 
   const dom = {
-    contractList: document.getElementById("contractList"),
-    contractListEmpty: document.getElementById("contractListEmpty"),
+    contractResults: document.getElementById("contractResults"),
+    contractResultsEmpty: document.getElementById("contractResultsEmpty"),
     contractSearch: document.getElementById("contractSearch"),
     integrationSelect: document.getElementById("integrationSelect"),
     contractDetail: document.getElementById("contractDetail"),
@@ -169,29 +316,29 @@
     schemaEmpty: document.getElementById("schemaEmpty"),
     schemaPagination: document.getElementById("schemaPagination"),
     schemaCount: document.getElementById("schemaCount"),
+    schemaDetails: document.getElementById("schemaDetails"),
     expectationList: document.getElementById("expectationList"),
     expectationEmpty: document.getElementById("expectationEmpty"),
+    predicateDetails: document.getElementById("predicateDetails"),
     addInputBtn: document.getElementById("addInputBtn"),
     addOutputBtn: document.getElementById("addOutputBtn"),
-    selectedInputs: document.getElementById("selectedInputs"),
-    selectedOutputs: document.getElementById("selectedOutputs"),
-    selectionFeedback: document.getElementById("selectionFeedback"),
+    selectionSummary: document.getElementById("selectionSummary"),
+    selectionDiagram: document.getElementById("selectionDiagram"),
+    selectionIntegrationBadge: document.getElementById("selectionIntegrationBadge"),
     generateStubBtn: document.getElementById("generateStubBtn"),
     copyStubBtn: document.getElementById("copyStubBtn"),
     stubOutput: document.getElementById("stubOutput"),
     stubError: document.getElementById("stubError"),
-    strategyList: document.getElementById("strategyList"),
-    integrationDiagram: document.getElementById("integrationDiagram"),
-    diagramHint: document.getElementById("diagramHint"),
+    readStrategyOptions: document.getElementById("readStrategyOptions"),
+    writeStrategyOptions: document.getElementById("writeStrategyOptions"),
+    writeStrategyToggles: document.getElementById("writeStrategyToggles"),
+    writeIncludeValid: document.getElementById("writeIncludeValid"),
+    writeIncludeReject: document.getElementById("writeIncludeReject"),
+    writeFailWarnings: document.getElementById("writeFailWarnings"),
+    writeFailWarningsGroup: document.getElementById("writeFailWarningsGroup"),
+    strategySummary: document.getElementById("strategySummary"),
+    strategyNotes: document.getElementById("strategyNotes"),
   };
-
-  function keyFor(id, version) {
-    return `${id}@@${version}`;
-  }
-
-  function escapeMermaid(value) {
-    return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  }
 
   function renderCatalogList() {
     const query = state.filter.trim().toLowerCase();
@@ -199,48 +346,50 @@
       if (!query) {
         return true;
       }
-      const haystack = [item.id, item.name, item.description, (item.status || "")].join(" ").toLowerCase();
+      const haystack = [item.id, item.name, item.description, item.status].join(" ").toLowerCase();
       if (haystack.includes(query)) {
         return true;
       }
       return (item.versions || []).some((ver) => String(ver).toLowerCase().includes(query));
     });
 
-    dom.contractList.innerHTML = "";
+    dom.contractResults.innerHTML = "";
+    dom.contractResultsEmpty.classList.toggle("d-none", items.length > 0);
     if (!items.length) {
-      dom.contractListEmpty.classList.remove("d-none");
       return;
     }
-    dom.contractListEmpty.classList.add("d-none");
 
     items.forEach((item) => {
       const container = document.createElement("div");
-      container.className = "list-group-item list-group-item-action";
+      container.className = "list-group-item";
       container.dataset.contractId = item.id;
-      const latestLabel = item.latestVersion ? `v${item.latestVersion}` : "";
+      const latest = item.latestVersion || (item.versions || [])[0] || "";
+      const description = item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : "";
       container.innerHTML = `
         <div class="d-flex w-100 justify-content-between align-items-start gap-2">
           <div>
-            <div class="fw-semibold">${item.name || item.id}</div>
-            <div class="small text-muted">${item.id}</div>
-            ${item.description ? `<div class="small text-muted">${item.description}</div>` : ""}
+            <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
+            <div class="small text-muted">${escapeHtml(item.id)}</div>
+            ${description}
           </div>
           <div class="text-end">
-            ${latestLabel ? `<div class="badge text-bg-light">${latestLabel}</div>` : ""}
-            <button type="button" class="btn btn-outline-primary btn-sm mt-2" data-action="view">View</button>
+            ${latest ? `<div class="badge text-bg-light">v${escapeHtml(latest)}</div>` : ""}
+            <button type="button" class="btn btn-outline-primary btn-sm mt-2" data-action="view">Preview</button>
           </div>
         </div>
         <div class="mt-2">
           <label class="form-label small text-muted mb-1">Version</label>
           <select class="form-select form-select-sm" data-role="version-select">
-            ${(item.versions || []).map((ver) => `<option value="${ver}" ${ver === item.latestVersion ? "selected" : ""}>${ver}</option>`).join("")}
+            ${(item.versions || [])
+              .map((ver) => `<option value="${escapeHtml(ver)}" ${ver === latest ? "selected" : ""}>${escapeHtml(ver)}</option>`)
+              .join("")}
           </select>
         </div>
       `;
       const viewButton = container.querySelector('[data-action="view"]');
       const versionSelect = container.querySelector('[data-role="version-select"]');
       function resolveVersion() {
-        return versionSelect.value || item.latestVersion || (item.versions || [])[0] || "";
+        return versionSelect.value || latest;
       }
       viewButton.addEventListener("click", () => {
         const targetVersion = resolveVersion();
@@ -254,7 +403,7 @@
           focusContract(item.id, targetVersion);
         }
       });
-      dom.contractList.appendChild(container);
+      dom.contractResults.appendChild(container);
     });
   }
 
@@ -311,16 +460,20 @@
     const slice = entries.slice(start, start + pageSize);
     slice.forEach((entry) => {
       const row = document.createElement("tr");
-      const requiredBadge = entry.required ? '<span class="badge text-bg-success">Yes</span>' : '<span class="badge text-bg-secondary">No</span>';
+      const requiredBadge = entry.required
+        ? '<span class="badge text-bg-success">Yes</span>'
+        : '<span class="badge text-bg-secondary">No</span>';
+      const types = [entry.logicalType, entry.physicalType].filter(Boolean).map(escapeHtml).join(" · ");
       row.innerHTML = `
-        <td>${entry.field || entry.name}</td>
-        <td>${[entry.logicalType, entry.physicalType].filter(Boolean).join(" · ")}</td>
+        <td>${escapeHtml(entry.field || entry.name || "")}</td>
+        <td>${types}</td>
         <td>${requiredBadge}</td>
-        <td>${entry.description || ""}</td>
+        <td>${escapeHtml(entry.description || "")}</td>
       `;
       dom.schemaTableBody.appendChild(row);
     });
-    dom.schemaCount.textContent = `${entries.length} field${entries.length === 1 ? "" : "s"}`;
+    const fieldCount = entries.length;
+    dom.schemaCount.textContent = `${fieldCount} field${fieldCount === 1 ? "" : "s"}`;
 
     dom.schemaPagination.innerHTML = "";
     if (totalPages <= 1) {
@@ -332,7 +485,7 @@
     prevLi.addEventListener("click", () => {
       if (state.detailPage > 1) {
         state.detailPage -= 1;
-        renderContractDetail();
+        renderSchema(entries);
       }
     });
     dom.schemaPagination.appendChild(prevLi);
@@ -342,7 +495,7 @@
       li.innerHTML = `<button class="page-link" type="button">${page}</button>`;
       li.addEventListener("click", () => {
         state.detailPage = page;
-        renderContractDetail();
+        renderSchema(entries);
       });
       dom.schemaPagination.appendChild(li);
     }
@@ -352,7 +505,7 @@
     nextLi.addEventListener("click", () => {
       if (state.detailPage < totalPages) {
         state.detailPage += 1;
-        renderContractDetail();
+        renderSchema(entries);
       }
     });
     dom.schemaPagination.appendChild(nextLi);
@@ -368,7 +521,7 @@
     entries.forEach(([name, predicate]) => {
       const item = document.createElement("div");
       item.className = "list-group-item small";
-      item.innerHTML = `<div class="fw-semibold">${name}</div><code class="d-block">${predicate}</code>`;
+      item.innerHTML = `<div class="fw-semibold">${escapeHtml(name)}</div><code class="d-block">${escapeHtml(predicate)}</code>`;
       dom.expectationList.appendChild(item);
     });
   }
@@ -383,6 +536,8 @@
     dom.contractDetailPlaceholder.classList.add("d-none");
     dom.contractDetail.classList.remove("d-none");
     dom.contractDetailError.classList.add("d-none");
+    dom.schemaDetails.open = false;
+    dom.predicateDetails.open = false;
     const summary = detail.summary || {};
     dom.contractTitle.textContent = `${summary.id || ""} · v${summary.version || ""}`;
     dom.contractName.textContent = summary.name || "";
@@ -392,10 +547,6 @@
     renderExpectations(summary.expectations || {});
     dom.addInputBtn.onclick = () => addSelection("inputs", summary);
     dom.addOutputBtn.onclick = () => addSelection("outputs", summary);
-  }
-
-  function updateSelectionCollections(kind, collection) {
-    state[kind] = collection.map((item) => ({ ...item, key: keyFor(item.id, item.version) }));
   }
 
   function addSelection(kind, summary) {
@@ -411,7 +562,7 @@
     state.stub = null;
     state.strategies = null;
     renderSelection();
-    renderStrategies();
+    renderStrategyNotes();
     renderStub();
   }
 
@@ -420,106 +571,224 @@
     state.stub = null;
     state.strategies = null;
     renderSelection();
-    renderStrategies();
+    renderStrategyNotes();
     renderStub();
   }
 
-  function renderSelectionList(container, items, kind) {
-    container.innerHTML = "";
-    if (!items.length) {
-      const placeholder = document.createElement("div");
-      placeholder.className = "text-muted small";
-      placeholder.textContent = "None selected.";
-      container.appendChild(placeholder);
-      return;
+  function renderSelectionSummary() {
+    const ready = state.inputs.length > 0 && state.outputs.length > 0;
+    const label = integrationLabel(state.integration);
+    dom.selectionIntegrationBadge.textContent = label;
+    dom.selectionSummary.textContent = ready
+      ? `Ready to generate a ${label} stub for ${state.inputs.length} input${state.inputs.length === 1 ? "" : "s"} and ${state.outputs.length} output${state.outputs.length === 1 ? "" : "s"}.`
+      : "Select at least one input and one output.";
+    dom.generateStubBtn.disabled = !ready || state.isGenerating;
+  }
+
+  function schemaListMarkup(entries) {
+    if (!entries || !entries.length) {
+      return '<p class="text-muted small mb-0">No schema fields declared.</p>';
     }
-    items.forEach((item) => {
-      const card = document.createElement("div");
-      card.className = "border rounded p-2 bg-light";
-      card.innerHTML = `
-        <div class="d-flex justify-content-between align-items-start gap-2">
-          <div>
-            <div class="fw-semibold">${item.id}</div>
-            <div class="small text-muted">v${item.version}</div>
-            ${item.datasetId ? `<div class="small text-muted">${item.datasetId}</div>` : ""}
-          </div>
-          <div class="btn-group btn-group-sm">
-            <button type="button" class="btn btn-outline-secondary" data-action="view">View</button>
-            <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
-          </div>
-        </div>
-      `;
-      const viewButton = card.querySelector('[data-action="view"]');
-      const removeButton = card.querySelector('[data-action="remove"]');
-      viewButton.addEventListener("click", () => focusContract(item.id, item.version));
-      removeButton.addEventListener("click", () => removeSelection(kind, item.key));
-      container.appendChild(card);
+    const limit = 8;
+    const rows = entries.slice(0, limit).map((entry) => {
+      const typeText = [entry.logicalType, entry.physicalType].filter(Boolean).join(" · ");
+      const requirement = entry.required ? "required" : "optional";
+      return `<li><code>${escapeHtml(entry.field || entry.name || "")}</code> <span class="text-muted">${escapeHtml(typeText)} · ${requirement}</span></li>`;
     });
+    if (entries.length > limit) {
+      rows.push(`<li class="text-muted">+${entries.length - limit} more field${entries.length - limit === 1 ? "" : "s"}</li>`);
+    }
+    return `<ul class="list-unstyled small mb-0">${rows.join("")}</ul>`;
+  }
+
+  function buildNode(item, kind) {
+    const node = document.createElement("div");
+    node.className = "integration-node";
+    const server = item.server || {};
+    const location = server.path || server.dataset || "";
+    const predicateSummary = summarisePredicates(item.expectations || {});
+    node.innerHTML = `
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+          <div class="fw-semibold">${escapeHtml(item.id || "")}</div>
+          <div class="small text-muted">v${escapeHtml(item.version || "")}</div>
+          ${item.datasetId ? `<div class="small text-muted">${escapeHtml(item.datasetId)}</div>` : ""}
+          ${location ? `<div class="small text-muted">${escapeHtml(location)}</div>` : ""}
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button type="button" class="btn btn-outline-secondary" data-action="preview">Preview</button>
+          <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
+        </div>
+      </div>
+      ${item.description ? `<p class="small text-muted mt-2 mb-0">${escapeHtml(item.description)}</p>` : ""}
+    `;
+    const details = document.createElement("details");
+    details.className = "mt-3";
+    const fieldCount = item.fieldCount ?? (item.schemaEntries ? item.schemaEntries.length : 0);
+    details.innerHTML = `
+      <summary><span class="chevron">▸</span><span class="fw-semibold">Schema</span><span class="badge text-bg-light ms-auto">${fieldCount} field${fieldCount === 1 ? "" : "s"}</span></summary>
+      <div class="mt-2">${schemaListMarkup(item.schemaEntries || [])}</div>
+    `;
+    node.appendChild(details);
+    if (predicateSummary) {
+      const predicate = document.createElement("p");
+      predicate.className = "small text-muted mt-2 mb-0";
+      predicate.textContent = `Valid if ${predicateSummary}`;
+      node.appendChild(predicate);
+    }
+    const previewButton = node.querySelector('[data-action="preview"]');
+    const removeButton = node.querySelector('[data-action="remove"]');
+    previewButton.addEventListener("click", () => focusContract(item.id, item.version));
+    removeButton.addEventListener("click", () => removeSelection(kind, item.key));
+    return node;
+  }
+
+  function buildColumn(title, items, kind) {
+    const column = document.createElement("div");
+    column.className = "integration-graph-column flex-grow-1";
+    const heading = document.createElement("h3");
+    heading.className = "h6 text-uppercase text-muted mb-2";
+    heading.textContent = title;
+    column.appendChild(heading);
+    if (!items.length) {
+      const placeholder = document.createElement("p");
+      placeholder.className = "text-muted small mb-0";
+      placeholder.textContent = `No ${title.toLowerCase()}.`;
+      column.appendChild(placeholder);
+      return column;
+    }
+    const list = document.createElement("div");
+    list.className = "vstack gap-3";
+    items.forEach((item) => {
+      list.appendChild(buildNode(item, kind));
+    });
+    column.appendChild(list);
+    return column;
+  }
+
+  function buildConnector() {
+    const column = document.createElement("div");
+    column.className = "integration-graph-column d-flex justify-content-center align-items-center";
+    const content = document.createElement("div");
+    content.className = "text-center";
+    content.innerHTML = `
+      <div class="badge text-bg-primary-subtle text-primary-emphasis text-uppercase mb-2">${escapeHtml(
+        integrationLabel(state.integration),
+      )}</div>
+      <div class="integration-arrow">⇄</div>
+    `;
+    column.appendChild(content);
+    return column;
   }
 
   function renderDiagram() {
-    const el = dom.integrationDiagram;
-    if (!el) {
-      return;
-    }
+    const container = dom.selectionDiagram;
+    container.innerHTML = "";
     if (!state.inputs.length && !state.outputs.length) {
-      el.textContent = "flowchart LR\n    placeholder([Select inputs and outputs])";
-      if (window.mermaid && window.mermaid.run) {
-        window.mermaid.run({ nodes: [el] });
-      }
+      container.innerHTML = '<p class="text-muted small mb-0">Selections will appear here.</p>';
       return;
     }
-    const lines = ["flowchart LR"];
-    if (state.inputs.length) {
-      lines.push("    subgraph Inputs");
-      state.inputs.forEach((item, index) => {
-        const nodeId = `in_${index}`;
-        const parts = [item.id, `v${item.version}`];
-        const location = (item.server && (item.server.path || item.server.dataset)) || "";
-        if (location) {
-          parts.push(location);
-        }
-        lines.push(`    ${nodeId}["${escapeMermaid(parts.join("\\n"))}"]`);
-        lines.push(`    ${nodeId} --> spark`);
-      });
-      lines.push("    end");
-    }
-    lines.push("    spark((Spark integration))");
-    if (state.outputs.length) {
-      lines.push("    subgraph Outputs");
-      state.outputs.forEach((item, index) => {
-        const nodeId = `out_${index}`;
-        const parts = [item.id, `v${item.version}`];
-        const location = (item.server && (item.server.path || item.server.dataset)) || "";
-        if (location) {
-          parts.push(location);
-        }
-        lines.push(`    ${nodeId}["${escapeMermaid(parts.join("\\n"))}"]`);
-        lines.push(`    spark --> ${nodeId}`);
-      });
-      lines.push("    end");
-    }
-    el.textContent = lines.join("\n");
-    if (window.mermaid && window.mermaid.run) {
-      window.mermaid.run({ nodes: [el] });
-    }
+    const wrapper = document.createElement("div");
+    wrapper.className = "d-flex flex-column flex-lg-row align-items-stretch gap-3";
+    wrapper.appendChild(buildColumn("Inputs", state.inputs, "inputs"));
+    wrapper.appendChild(buildConnector());
+    wrapper.appendChild(buildColumn("Outputs", state.outputs, "outputs"));
+    container.appendChild(wrapper);
   }
 
   function renderSelection() {
-    renderSelectionList(dom.selectedInputs, state.inputs, "inputs");
-    renderSelectionList(dom.selectedOutputs, state.outputs, "outputs");
-    const ready = state.inputs.length > 0 && state.outputs.length > 0;
-    dom.generateStubBtn.disabled = !ready;
-    dom.selectionFeedback.textContent = ready
-      ? `Ready to generate a ${state.integration.toUpperCase()} stub for ${state.inputs.length} input(s) and ${state.outputs.length} output(s).`
-      : "Select at least one input and one output.";
+    renderSelectionSummary();
     renderDiagram();
   }
 
-  function renderStrategies() {
-    dom.strategyList.innerHTML = "";
+  function renderOptionList(container, options, selectedValue, groupName, onSelect) {
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const wrapper = document.createElement("label");
+      wrapper.className = `list-group-item list-group-item-action d-flex align-items-start gap-3 ${
+        option.value === selectedValue ? "active" : ""
+      }`;
+      wrapper.innerHTML = `
+        <input class="form-check-input mt-1" type="radio" name="${groupName}" value="${option.value}" ${
+        option.value === selectedValue ? "checked" : ""
+      } />
+        <div>
+          <div class="fw-semibold">${escapeHtml(option.label)}</div>
+          <div class="small text-muted">${escapeHtml(option.description)}</div>
+        </div>
+      `;
+      const input = wrapper.querySelector("input");
+      input.addEventListener("change", () => onSelect(option.value));
+      container.appendChild(wrapper);
+    });
+  }
+
+  function renderReadStrategyControls() {
+    renderOptionList(dom.readStrategyOptions, READ_STRATEGY_OPTIONS, state.readStrategy, "readStrategy", (value) => {
+      if (state.readStrategy !== value) {
+        state.readStrategy = value;
+        renderReadStrategyControls();
+        renderStrategySummary();
+        invalidateStub(true);
+      }
+    });
+  }
+
+  function renderWriteStrategyControls() {
+    renderOptionList(dom.writeStrategyOptions, WRITE_STRATEGY_OPTIONS, state.writeStrategy.mode, "writeStrategy", (value) => {
+      if (state.writeStrategy.mode !== value) {
+        state.writeStrategy.mode = value;
+        renderWriteStrategyControls();
+        renderStrategySummary();
+        invalidateStub(true);
+      }
+    });
+    const showSubsets = state.writeStrategy.mode === "split" || state.writeStrategy.mode === "strict";
+    dom.writeStrategyToggles.classList.toggle("d-none", !showSubsets);
+    dom.writeFailWarningsGroup.classList.toggle("d-none", state.writeStrategy.mode !== "strict");
+    if (showSubsets) {
+      dom.writeIncludeValid.checked = !!state.writeStrategy.includeValid;
+      dom.writeIncludeReject.checked = !!state.writeStrategy.includeReject;
+      dom.writeFailWarnings.checked = !!state.writeStrategy.failOnWarnings;
+    }
+  }
+
+  function renderStrategySummary() {
+    const readOption = READ_STRATEGY_OPTIONS.find((option) => option.value === state.readStrategy);
+    const writeOption = WRITE_STRATEGY_OPTIONS.find((option) => option.value === state.writeStrategy.mode);
+    const parts = [];
+    if (readOption) {
+      parts.push(`<div><strong>Read:</strong> ${escapeHtml(readOption.label)}</div>`);
+      parts.push(`<div class="text-muted">${escapeHtml(readOption.description)}</div>`);
+    }
+    if (writeOption) {
+      const extras = [];
+      if (state.writeStrategy.mode !== "noop") {
+        const subsets = [];
+        if (state.writeStrategy.includeValid) {
+          subsets.push("valid");
+        }
+        if (state.writeStrategy.includeReject) {
+          subsets.push("reject");
+        }
+        if (subsets.length) {
+          extras.push(`Emits ${subsets.join(" & ")} subsets.`);
+        }
+      }
+      if (state.writeStrategy.mode === "strict" && state.writeStrategy.failOnWarnings) {
+        extras.push("Warnings escalate to failures.");
+      }
+      parts.push(`<div class="mt-2"><strong>Write:</strong> ${escapeHtml(writeOption.label)}</div>`);
+      const writeDescription = [writeOption.description, ...extras].join(" ");
+      parts.push(`<div class="text-muted">${escapeHtml(writeDescription)}</div>`);
+    }
+    dom.strategySummary.innerHTML = parts.join("") || "Choose read and write strategies to tailor the stub.";
+  }
+
+  function renderStrategyNotes() {
+    dom.strategyNotes.innerHTML = "";
     if (!state.strategies) {
-      dom.strategyList.innerHTML = '<p class="text-muted mb-0">Generate a stub to review read/write strategy guidance.</p>';
+      dom.strategyNotes.innerHTML = '<p class="text-muted small mb-0">Generate a stub to review how the selected strategies apply to each contract.</p>';
       return;
     }
     const categories = [
@@ -532,14 +801,14 @@
       }
       const section = document.createElement("div");
       section.className = "mb-3";
-      section.innerHTML = `<h3 class="h6">${category.title}</h3>`;
+      section.innerHTML = `<h3 class="h6">${escapeHtml(category.title)}</h3>`;
       category.items.forEach((item) => {
         const card = document.createElement("div");
         card.className = "border rounded p-2 mb-2 bg-light";
-        card.innerHTML = `<div class="fw-semibold">${item.title}</div><p class="small mb-0">${item.description}</p>`;
+        card.innerHTML = `<div class="fw-semibold">${escapeHtml(item.title)}</div><p class="small mb-0">${escapeHtml(item.description)}</p>`;
         section.appendChild(card);
       });
-      dom.strategyList.appendChild(section);
+      dom.strategyNotes.appendChild(section);
     });
   }
 
@@ -548,10 +817,31 @@
       dom.stubOutput.textContent = "# Generate a stub to preview integration-ready code.";
       dom.copyStubBtn.disabled = true;
       dom.stubError.classList.add("d-none");
+      if (window.hljs && window.hljs.highlightElement) {
+        window.hljs.highlightElement(dom.stubOutput);
+      }
       return;
     }
     dom.stubOutput.textContent = state.stub;
     dom.copyStubBtn.disabled = false;
+    if (window.hljs && window.hljs.highlightElement) {
+      window.hljs.highlightElement(dom.stubOutput);
+    }
+  }
+
+  function invalidateStub(autoRefresh = false) {
+    const hadStub = !!state.stub;
+    state.stub = null;
+    state.strategies = null;
+    renderStub();
+    renderStrategyNotes();
+    if (autoRefresh && hadStub && state.inputs.length && state.outputs.length && !state.isGenerating) {
+      generateStub(true);
+    }
+  }
+
+  function updateSelectionCollections(kind, collection) {
+    state[kind] = collection.map((item) => ({ ...item, key: keyFor(item.id, item.version) }));
   }
 
   async function focusContract(contractId, version) {
@@ -589,20 +879,56 @@
     }
   }
 
-  async function generateStub() {
-    if (!state.inputs.length || !state.outputs.length) {
+  function applyServerStrategies(selected) {
+    if (!selected) {
       return;
     }
+    if (selected.read && READ_STRATEGY_OPTIONS.some((option) => option.value === selected.read.mode)) {
+      state.readStrategy = selected.read.mode;
+    }
+    if (selected.write && WRITE_STRATEGY_OPTIONS.some((option) => option.value === selected.write.mode)) {
+      state.writeStrategy.mode = selected.write.mode;
+      if (Object.prototype.hasOwnProperty.call(selected.write, "include_valid")) {
+        state.writeStrategy.includeValid = !!selected.write.include_valid;
+      }
+      if (Object.prototype.hasOwnProperty.call(selected.write, "include_reject")) {
+        state.writeStrategy.includeReject = !!selected.write.include_reject;
+      }
+      if (Object.prototype.hasOwnProperty.call(selected.write, "fail_on_warnings")) {
+        state.writeStrategy.failOnWarnings = !!selected.write.fail_on_warnings;
+      }
+    }
+    renderReadStrategyControls();
+    renderWriteStrategyControls();
+    renderStrategySummary();
+  }
+
+  async function generateStub(autoTriggered = false) {
+    if (!state.inputs.length || !state.outputs.length || state.isGenerating) {
+      return;
+    }
+    state.isGenerating = true;
     dom.generateStubBtn.disabled = true;
     const originalLabel = dom.generateStubBtn.textContent;
-    dom.generateStubBtn.textContent = "Generating…";
+    dom.generateStubBtn.textContent = autoTriggered ? "Refreshing…" : "Generating…";
     dom.stubError.classList.add("d-none");
     try {
       const payload = {
         integration: state.integration,
         inputs: state.inputs.map((item) => ({ contract_id: item.id, version: item.version })),
         outputs: state.outputs.map((item) => ({ contract_id: item.id, version: item.version })),
+        read_strategy: { mode: state.readStrategy },
+        write_strategy: {
+          mode: state.writeStrategy.mode,
+        },
       };
+      if (state.writeStrategy.mode !== "noop") {
+        payload.write_strategy.include_valid = !!state.writeStrategy.includeValid;
+        payload.write_strategy.include_reject = !!state.writeStrategy.includeReject;
+      }
+      if (state.writeStrategy.mode === "strict") {
+        payload.write_strategy.fail_on_warnings = !!state.writeStrategy.failOnWarnings;
+      }
       const response = await fetch("/api/integration-helper/stub", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -622,16 +948,20 @@
         if (data.contracts.outputs) {
           updateSelectionCollections("outputs", data.contracts.outputs);
         }
+        renderSelection();
       }
-      renderSelection();
-      renderStrategies();
+      if (data.selected_strategies) {
+        applyServerStrategies(data.selected_strategies);
+      }
+      renderStrategyNotes();
       renderStub();
     } catch (error) {
       dom.stubError.textContent = error.message || String(error);
       dom.stubError.classList.remove("d-none");
     } finally {
-      dom.generateStubBtn.disabled = !(state.inputs.length && state.outputs.length);
+      state.isGenerating = false;
       dom.generateStubBtn.textContent = originalLabel;
+      dom.generateStubBtn.disabled = !(state.inputs.length && state.outputs.length);
     }
   }
 
@@ -641,9 +971,10 @@
     }
     try {
       await navigator.clipboard.writeText(state.stub);
+      const original = dom.copyStubBtn.textContent;
       dom.copyStubBtn.textContent = "Copied!";
       setTimeout(() => {
-        dom.copyStubBtn.textContent = "Copy";
+        dom.copyStubBtn.textContent = original;
       }, 1500);
     } catch (error) {
       dom.stubError.textContent = "Failed to copy stub to clipboard.";
@@ -658,20 +989,47 @@
 
   dom.integrationSelect.addEventListener("change", (event) => {
     state.integration = event.target.value;
-    state.stub = null;
-    state.strategies = null;
     renderSelection();
-    renderStrategies();
-    renderStub();
+    invalidateStub(true);
   });
 
-  dom.generateStubBtn.addEventListener("click", generateStub);
+  dom.writeIncludeValid.addEventListener("change", (event) => {
+    state.writeStrategy.includeValid = !!event.target.checked;
+    if (!state.writeStrategy.includeValid && !state.writeStrategy.includeReject) {
+      state.writeStrategy.includeReject = true;
+      dom.writeIncludeReject.checked = true;
+    }
+    renderStrategySummary();
+    invalidateStub(true);
+  });
+
+  dom.writeIncludeReject.addEventListener("change", (event) => {
+    state.writeStrategy.includeReject = !!event.target.checked;
+    if (!state.writeStrategy.includeValid && !state.writeStrategy.includeReject) {
+      state.writeStrategy.includeValid = true;
+      dom.writeIncludeValid.checked = true;
+    }
+    renderStrategySummary();
+    invalidateStub(true);
+  });
+
+  dom.writeFailWarnings.addEventListener("change", (event) => {
+    state.writeStrategy.failOnWarnings = !!event.target.checked;
+    renderStrategySummary();
+    invalidateStub(true);
+  });
+
+  dom.generateStubBtn.addEventListener("click", () => generateStub(false));
   dom.copyStubBtn.addEventListener("click", copyStub);
 
   renderCatalogList();
   renderSelection();
-  renderStrategies();
+  renderReadStrategyControls();
+  renderWriteStrategyControls();
+  renderStrategySummary();
+  renderStrategyNotes();
   renderStub();
+
 {% if catalog %}
   const firstContract = catalogData[0];
   if (firstContract) {
