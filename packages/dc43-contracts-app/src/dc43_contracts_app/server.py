@@ -45,6 +45,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
 from httpx import ASGITransport
+from fastapi.concurrency import run_in_threadpool
 
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_backends.web import build_local_app
@@ -1200,10 +1201,17 @@ async def api_contract_preview(
             rows_raw = [row.asDict(recursive=True) for row in df.limit(limit).collect()]
             return rows_raw, list(df.columns)
 
-        rows_raw, columns = await asyncio.to_thread(_load_preview)
+        rows_raw, columns = await run_in_threadpool(_load_preview)
         rows = jsonable_encoder(rows_raw)
     except Exception as exc:  # pragma: no cover - defensive guard for preview errors
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.exception(
+            "Failed to load preview for %s@%s dataset %s version %s",
+            cid,
+            ver,
+            effective_dataset_id,
+            selected_version,
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to load preview: {exc}")
 
     status_payload = _dq_status_payload(effective_dataset_id, selected_version)
     status_value = str(status_payload.get("status", "unknown")) if status_payload else "unknown"
