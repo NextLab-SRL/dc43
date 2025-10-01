@@ -469,10 +469,10 @@
   .code-section pre {
     margin: 0;
     padding: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    background: #0d1117;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: #282c34;
     border-radius: 0 0 var(--bs-border-radius-lg) var(--bs-border-radius-lg);
-    color: #c9d1d9;
+    color: #abb2bf;
   }
   .code-section pre code {
     font-size: 0.875rem;
@@ -2259,24 +2259,48 @@
     if (!codeElement) {
       return;
     }
-    const lang = language || "plaintext";
-    if (typeof source === "string") {
-      codeElement.textContent = source;
-    }
-    codeElement.removeAttribute("data-highlighted");
-    codeElement.className = "";
-    codeElement.classList.add("hljs", `language-${lang}`);
+    const requestedLanguage = language || "plaintext";
+    const rawSource = typeof source === "string" ? source : codeElement.textContent || "";
+    const highlightLanguages = CODE_LANGUAGE_OPTIONS.map((option) => option.value).filter(Boolean);
+
     const runHighlight = () => {
-      if (window.hljs && window.hljs.highlightElement) {
-        window.hljs.highlightElement(codeElement);
+      const hljs = window.hljs;
+      let finalLanguage = requestedLanguage;
+      if (!hljs) {
+        codeElement.textContent = rawSource;
+      } else {
+        try {
+          let result;
+          if (requestedLanguage && hljs.getLanguage(requestedLanguage)) {
+            result = hljs.highlight(rawSource, {
+              language: requestedLanguage,
+              ignoreIllegals: true,
+            });
+          } else {
+            result = hljs.highlightAuto(rawSource, highlightLanguages);
+          }
+          codeElement.innerHTML = result.value;
+          if (result.language) {
+            finalLanguage = result.language;
+          }
+        } catch (error) {
+          console.warn("Failed to highlight code", error);
+          codeElement.textContent = rawSource;
+        }
       }
-      if (!codeElement.classList.contains("hljs")) {
-        codeElement.classList.add("hljs");
+      codeElement.className = "hljs";
+      codeElement.dataset.language = finalLanguage;
+      if (finalLanguage) {
+        codeElement.classList.add(`language-${finalLanguage}`);
+      } else {
+        codeElement.classList.add("language-plaintext");
       }
     };
-    if (window.hljs && window.hljs.highlightElement) {
+
+    if (window.hljs) {
       runHighlight();
     } else {
+      codeElement.textContent = rawSource;
       ensureHighlightReady(runHighlight);
     }
   }

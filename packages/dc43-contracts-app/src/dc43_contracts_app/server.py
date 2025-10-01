@@ -1507,9 +1507,7 @@ def _spark_stub_for_selection(
         )
         if fmt:
             lines.append(f"    format={fmt!r},")
-        if server.get("path"):
-            lines.append(f"    path={server['path']!r},")
-        elif server.get("dataset"):
+        if server.get("dataset"):
             lines.append(f"    table={server['dataset']!r},")
         lines.extend(
             [
@@ -1592,9 +1590,7 @@ def _spark_stub_for_selection(
         )
         if fmt:
             lines.append(f"    format={fmt!r},")
-        if server.get("path"):
-            lines.append(f"    path={server['path']!r},")
-        elif server.get("dataset"):
+        if server.get("dataset"):
             lines.append(f"    table={server['dataset']!r},")
         lines.extend(
             [
