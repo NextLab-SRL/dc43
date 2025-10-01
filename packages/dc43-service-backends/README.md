@@ -1,5 +1,12 @@
 # dc43-service-backends
 
-Backend-facing components that fulfill the dc43 service contracts live in this package.
-Install it alongside `dc43-service-clients` when wiring custom storage, governance, or
-quality enforcement backends.
+Backend-facing components that fulfill the dc43 service contracts live in this
+package. Install it alongside `dc43-service-clients` when wiring custom storage,
+governance, or quality enforcement backends.
+
+## Configuration
+
+The service backend HTTP application reads its settings from TOML files. Refer
+to [docs/service-backends-configuration.md](../../docs/service-backends-configuration.md)
+for the supported options—including filesystem, Collibra stub, and Collibra HTTP
+contract stores—alongside editable templates.

@@ -1,0 +1,20 @@
+# Example configuration for the dc43 contracts application.
+# Copy this file next to your deployment (e.g. /etc/dc43/contracts-app.toml)
+# and update the paths to match your environment.
+
+[workspace]
+# Location where draft contracts and attachments are stored.
+root = "~/dc43/workspace"
+
+[backend]
+# Choose between "embedded" (launch the backend locally) or "remote".
+mode = "embedded"
+# Base URL of the backend when operating in remote mode.
+base_url = ""
+
+[backend.process]
+# Network settings used when `mode = "embedded"`.
+host = "127.0.0.1"
+port = 8001
+# Optional log level forwarded to the embedded backend (e.g. "info").
+log_level = ""
