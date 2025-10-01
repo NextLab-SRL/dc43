@@ -1,344 +1,443 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  #contractResultsContainer {
-    max-height: 70vh;
+  .helper-layout {
+    min-height: 70vh;
+  }
+  .helper-sidebar {
+    position: sticky;
+    top: 1rem;
+  }
+  #contractResults {
+    max-height: 60vh;
     overflow-y: auto;
   }
-  .helper-search-card {
-    height: 100%;
+  .pipeline-wrapper {
+    min-height: 32rem;
   }
-  .integration-schema summary {
+  .pipeline-canvas {
+    position: relative;
+    min-height: 32rem;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.03),
+      rgba(0, 0, 0, 0.03) 1px,
+      transparent 1px,
+      transparent 32px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.03),
+      rgba(0, 0, 0, 0.03) 1px,
+      transparent 1px,
+      transparent 32px
+    );
+    border-radius: var(--bs-border-radius-lg);
+    border: 1px dashed rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+  }
+  .pipeline-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--bs-secondary-color);
+    pointer-events: none;
+    padding: 2rem;
+  }
+  .pipeline-node {
+    position: absolute;
+    min-width: 18rem;
+    max-width: 22rem;
+    background: var(--bs-body-bg);
+    border-radius: var(--bs-border-radius-lg);
+    border: 1px solid var(--bs-border-color);
+    box-shadow: 0 0.25rem 0.75rem rgba(15, 23, 42, 0.15);
+    cursor: default;
+  }
+  .pipeline-node .node-header {
+    border-bottom: 1px solid var(--bs-border-color);
+    padding: 0.75rem 0.75rem 0.5rem;
+    cursor: move;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .pipeline-node .node-body {
+    padding: 0.75rem;
+  }
+  .pipeline-node .handle-input,
+  .pipeline-node .handle-output {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 999px;
+    background: var(--bs-primary);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.15);
+    cursor: grab;
+    z-index: 4;
+  }
+  .pipeline-node .handle-input {
+    left: -0.65rem;
+  }
+  .pipeline-node .handle-output {
+    right: -0.65rem;
+  }
+  .pipeline-node .handle-input::after,
+  .pipeline-node .handle-output::after {
+    content: "";
+  }
+  .pipeline-node .handle-input:hover,
+  .pipeline-node .handle-output:hover {
+    background: var(--bs-primary-dark, #0a58ca);
+  }
+  .pipeline-node .handle-input[data-role="drop"] {
+    background: var(--bs-success);
+    cursor: copy;
+  }
+  .pipeline-node .handle-output[data-role="start"] {
+    cursor: crosshair;
+  }
+  .pipeline-node .connector-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .connector-chip {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(var(--bs-primary-rgb), 0.03);
+    position: relative;
+  }
+  .connector-chip .connector-anchor {
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 999px;
+    background: var(--bs-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.65rem;
+    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.15);
+  }
+  .connector-chip .connector-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 0.25rem;
+  }
+  .connector-empty {
+    padding: 0.5rem;
+    border: 1px dashed var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+    text-align: center;
+  }
+  .contract-node details {
+    margin-top: 0.5rem;
+  }
+  .contract-node summary {
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 0.5rem;
   }
-  .integration-schema summary::marker,
-  .integration-schema summary::-webkit-details-marker {
+  .contract-node summary::marker,
+  .contract-node summary::-webkit-details-marker {
     display: none;
   }
-  .integration-schema summary .chevron {
+  .contract-node summary .chevron {
     transition: transform 0.2s ease-in-out;
   }
-  .integration-schema[open] summary .chevron {
+  .contract-node details[open] summary .chevron {
     transform: rotate(90deg);
   }
-  .integration-node {
+  .contract-node .field-list {
+    list-style: none;
+    padding-left: 1.25rem;
+    margin-bottom: 0;
+    max-height: 12rem;
+    overflow-y: auto;
+    font-size: 0.85rem;
+  }
+  .pipeline-connections {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .pipeline-connections path {
+    fill: none;
+    stroke: var(--bs-primary);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .pipeline-connections path[data-kind="output"] {
+    stroke: var(--bs-teal);
+  }
+  .transformation-summary {
     border: 1px solid var(--bs-border-color);
     border-radius: var(--bs-border-radius-lg);
-    padding: 0.75rem;
-    background-color: var(--bs-body-bg);
-    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    padding: 1rem;
+    background: rgba(var(--bs-primary-rgb), 0.02);
   }
-  .integration-node details summary {
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  .transformation-summary + .transformation-summary {
+    margin-top: 1.5rem;
   }
-  .integration-node details summary::marker,
-  .integration-node details summary::-webkit-details-marker {
-    display: none;
+  .strategy-note-list {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 0;
   }
-  .integration-node details summary .chevron {
-    transition: transform 0.2s ease-in-out;
-  }
-  .integration-node details[open] summary .chevron {
-    transform: rotate(90deg);
-  }
-  .integration-arrow {
-    font-size: 2rem;
-    line-height: 1;
-    color: var(--bs-primary);
-  }
-  .code-preview {
-    min-height: 18rem;
+  .strategy-note-list li + li {
+    margin-top: 0.5rem;
   }
   @media (max-width: 991.98px) {
-    #contractResultsContainer {
-      max-height: 40vh;
+    .helper-sidebar {
+      position: static;
+    }
+    #contractResults {
+      max-height: 20rem;
+    }
+    .pipeline-node {
+      min-width: 16rem;
     }
   }
 </style>
-<div class="row g-4 align-items-start">
-  <div class="col-xl-4">
-    <div class="card shadow-sm helper-search-card">
-      <div class="card-body d-flex flex-column">
+<div class="row g-4 helper-layout">
+  <div class="col-lg-4">
+    <div class="card shadow-sm helper-sidebar">
+      <div class="card-body">
         <h1 class="h4 mb-3">Integration helper</h1>
-        <p class="text-muted mb-4">
-          Explore contracts, pick versions for inputs and outputs, and tailor read/write
-          strategies to generate ready-to-run integration stubs.
+        <p class="text-muted small mb-4">
+          Search for contracts, drag them into the canvas, then connect them through transformation
+          nodes to build a lineage. Configure integrations per transformation and generate stubs
+          tailored to the selected strategies.
         </p>
         <div class="mb-3">
           <label for="contractSearch" class="form-label">Search contracts</label>
-          <input type="search" id="contractSearch" class="form-control" placeholder="Filter by id, name, or version"/>
+          <input type="search" class="form-control" id="contractSearch" placeholder="Filter by id, name, version"/>
         </div>
-        <div id="contractResultsContainer" class="flex-grow-1">
-          <div class="list-group" id="contractResults"></div>
-          <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No contracts found.</p>
-        </div>
+        <div id="contractResults" class="list-group"></div>
+        <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
       </div>
     </div>
   </div>
-  <div class="col-xl-8">
-    <div class="row g-4 align-items-stretch">
-      <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-          <div class="card-body d-flex flex-column">
-            <h2 class="h5 mb-3">Contract preview</h2>
-            <div id="contractDetailPlaceholder" class="text-muted">Select a contract version to view details.</div>
-            <div class="alert alert-warning d-none" id="contractDetailError"></div>
-            <div id="contractDetail" class="d-none flex-grow-1 d-flex flex-column">
-              <div class="d-flex justify-content-between align-items-start gap-3">
-                <div>
-                  <h3 class="h6 mb-1" id="contractTitle"></h3>
-                  <p class="small text-muted mb-1" id="contractName"></p>
-                  <p class="text-muted small mb-0" id="contractDescription"></p>
-                </div>
-                <div class="btn-group btn-group-sm flex-shrink-0">
-                  <button class="btn btn-outline-primary" id="addInputBtn">Add as input</button>
-                  <button class="btn btn-primary" id="addOutputBtn">Add as output</button>
-                </div>
-              </div>
-              <div class="mt-3">
-                <h3 class="h6">Access</h3>
-                <dl class="row small mb-0" id="contractAccess"></dl>
-              </div>
-              <details class="integration-schema mt-3" id="schemaDetails">
-                <summary>
-                  <span class="chevron">▸</span>
-                  <span class="fw-semibold">Schema</span>
-                  <span class="badge text-bg-light ms-auto" id="schemaCount">0 fields</span>
-                </summary>
-                <div class="mt-3">
-                  <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                      <thead>
-                        <tr>
-                          <th scope="col">Field</th>
-                          <th scope="col">Type</th>
-                          <th scope="col">Required</th>
-                          <th scope="col">Description</th>
-                        </tr>
-                      </thead>
-                      <tbody id="schemaTableBody"></tbody>
-                    </table>
-                  </div>
-                  <p class="text-muted small" id="schemaEmpty">No schema fields declared.</p>
-                  <nav aria-label="Schema pagination">
-                    <ul class="pagination pagination-sm" id="schemaPagination"></ul>
-                  </nav>
-                </div>
-              </details>
-              <details class="mt-3" id="predicateDetails">
-                <summary class="fw-semibold d-flex align-items-center gap-2">
-                  <span class="chevron">▸</span>
-                  <span>Quality predicates</span>
-                </summary>
-                <div class="mt-3">
-                  <div class="list-group" id="expectationList"></div>
-                  <p class="text-muted small" id="expectationEmpty">No SQL predicates recorded for this contract.</p>
-                </div>
-              </details>
-            </div>
+  <div class="col-lg-8">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+          <div>
+            <h2 class="h5 mb-1">Pipeline builder</h2>
+            <p class="text-muted small mb-0">Drag contracts and transformations to organise inputs and outputs.</p>
+          </div>
+          <div class="btn-group">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="addTransformationBtn">Add transformation</button>
           </div>
         </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="card shadow-sm h-100">
-          <div class="card-body d-flex flex-column">
-            <div class="d-flex justify-content-between align-items-start gap-3">
+        <div class="pipeline-wrapper">
+          <div class="pipeline-canvas" id="pipelineCanvas">
+            <svg class="pipeline-connections" id="pipelineConnections"></svg>
+            <div class="pipeline-placeholder" id="pipelinePlaceholder">
               <div>
-                <h2 class="h5 mb-1">Pipeline preview</h2>
-                <p class="small text-muted mb-0">Inputs and outputs appear alongside the integration node.</p>
+                <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
+                <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
               </div>
-              <div class="badge text-bg-light text-uppercase" id="selectionIntegrationBadge">Spark</div>
             </div>
-            <div class="mt-3 text-muted small" id="selectionSummary">Select at least one input and one output.</div>
-            <div class="mt-3 flex-grow-1" id="selectionDiagram"></div>
           </div>
         </div>
       </div>
     </div>
-    <div class="card shadow-sm mt-4">
-      <div class="card-body">
-        <div class="row g-4 align-items-stretch">
-          <div class="col-lg-5 d-flex flex-column">
-            <h2 class="h5">Integration &amp; strategies</h2>
-            <div class="mb-3">
-              <label for="integrationSelect" class="form-label">Integration target</label>
-              <select id="integrationSelect" class="form-select form-select-sm">
-                {% for item in integration_options %}
-                <option value="{{ item.value }}">{{ item.label }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="mb-3">
-              <h3 class="h6 mb-2">Read strategy</h3>
-              <div class="list-group list-group-flush" id="readStrategyOptions"></div>
-            </div>
-            <div class="mb-3">
-              <h3 class="h6 mb-2">Write strategy</h3>
-              <div class="list-group list-group-flush" id="writeStrategyOptions"></div>
-              <div class="mt-3" id="writeStrategyToggles">
-                <div class="form-check form-switch mb-2">
-                  <input class="form-check-input" type="checkbox" id="writeIncludeValid" checked/>
-                  <label class="form-check-label" for="writeIncludeValid">Emit valid subset (<span class="text-muted">dataset::valid</span>)</label>
-                </div>
-                <div class="form-check form-switch mb-2">
-                  <input class="form-check-input" type="checkbox" id="writeIncludeReject" checked/>
-                  <label class="form-check-label" for="writeIncludeReject">Emit reject subset (<span class="text-muted">dataset::reject</span>)</label>
-                </div>
-                <div class="form-check form-switch" id="writeFailWarningsGroup">
-                  <input class="form-check-input" type="checkbox" id="writeFailWarnings"/>
-                  <label class="form-check-label" for="writeFailWarnings">Fail the run when warnings persist</label>
-                </div>
-              </div>
-            </div>
-            <div class="mb-3">
-              <div class="alert alert-info small mb-0" id="strategySummary">Choose read and write strategies to tailor the stub.</div>
-            </div>
-            <div class="d-grid d-sm-flex gap-2">
-              <button class="btn btn-primary" id="generateStubBtn" disabled>Generate stub</button>
-            </div>
-            <div class="alert alert-danger d-none mt-3" id="stubError"></div>
-            <div class="mt-3" id="strategyNotes"></div>
-          </div>
-          <div class="col-lg-7">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <h2 class="h5 mb-0">Generated code</h2>
-              <button class="btn btn-outline-secondary btn-sm" id="copyStubBtn" disabled>Copy</button>
-            </div>
-            <pre class="bg-light border rounded p-3 code-preview"><code class="language-python" id="stubOutput"># Generate a stub to preview integration-ready code.</code></pre>
+    <div class="card shadow-sm">
+      <div class="card-body" id="transformationPanel">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div>
+            <h2 class="h5 mb-1">Integration stubs</h2>
+            <p class="text-muted small mb-0">Each transformation renders its configured integration stub below.</p>
           </div>
         </div>
+        <div id="transformationList" class="d-flex flex-column gap-3"></div>
+        <p class="text-muted small mb-0" id="transformationEmpty">Add a transformation and connect contracts to generate code.</p>
       </div>
     </div>
   </div>
 </div>
-<script type="application/json" id="integrationCatalog">{{ catalog | tojson }}</script>
-<script type="application/json" id="integrationOptions">{{ integration_options | tojson }}</script>
+
+<div class="modal fade" id="contractPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title h5" id="contractPreviewTitle">Contract preview</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="contractPreviewBody" class="d-flex flex-column gap-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="transformationConfigModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title h5" id="transformationModalTitle">Configure transformation</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="transformationForm" class="needs-validation" novalidate>
+          <div class="mb-3">
+            <label for="transformationIntegration" class="form-label">Integration</label>
+            <select id="transformationIntegration" class="form-select"></select>
+          </div>
+          <div class="row g-4">
+            <div class="col-md-6">
+              <h3 class="h6 mb-2">Read strategy</h3>
+              <div id="transformationReadStrategies" class="list-group list-group-flush"></div>
+            </div>
+            <div class="col-md-6">
+              <h3 class="h6 mb-2">Write strategy</h3>
+              <div id="transformationWriteStrategies" class="list-group list-group-flush mb-3"></div>
+              <div id="transformationWriteToggles" class="vstack gap-2"></div>
+            </div>
+          </div>
+        </form>
+        <div class="alert alert-info small mt-3" id="transformationStrategyNotes"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="saveTransformationConfig">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-  const catalogElement = document.getElementById("integrationCatalog");
-  const optionsElement = document.getElementById("integrationOptions");
-  const catalogData = catalogElement ? JSON.parse(catalogElement.textContent || "[]") : [];
-  const integrationOptionsData = optionsElement ? JSON.parse(optionsElement.textContent || "[]") : [];
-  const HTML_ESCAPE = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  const catalogData = {{ catalog | tojson }};
+  const integrationOptionsData = {{ integration_options | tojson }};
+
+  function createId(prefix) {
+    if (window.crypto && window.crypto.randomUUID) {
+      return `${prefix}-${window.crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
   const READ_STRATEGY_OPTIONS = [
     {
       value: "status",
-      label: "Log validation verdicts",
-      description: "Retain return_status=True and surface warnings so orchestration can branch on data quality.",
+      label: "Status aware",
+      description: "Log validation verdicts and let orchestration branch on return_status results.",
     },
     {
       value: "strict",
-      label: "Fail fast on violations",
-      description: "Raise an exception whenever validation reports a non-OK status for the selected contract.",
+      label: "Strict failure",
+      description: "Raise runtime errors when validation verdicts are not OK.",
     },
   ];
+
   const WRITE_STRATEGY_OPTIONS = [
     {
       value: "split",
-      label: "Split valid/reject datasets",
-      description: "Route valid rows to '<dataset>::valid' and rejected rows to '<dataset>::reject' using SplitWriteViolationStrategy.",
+      label: "Split dataset",
+      description: "Route rows into valid/reject datasets based on predicates.",
     },
     {
       value: "strict",
-      label: "Split &amp; fail on violations",
-      description: "Wrap the split strategy with StrictWriteViolationStrategy so contract breaches stop the pipeline.",
+      label: "Strict split",
+      description: "Escalate warnings to failures on top of the split strategy.",
     },
     {
       value: "noop",
-      label: "Single target (log only)",
-      description: "Keep the default single write target while still recording validation metadata.",
+      label: "No-op",
+      description: "Keep all rows in the target dataset while still publishing status.",
     },
   ];
 
-  function escapeHtml(value) {
-    return String(value ?? "").replace(/[&<>"']/g, (ch) => HTML_ESCAPE[ch] || ch);
-  }
-
-  function keyFor(id, version) {
-    return `${id}@@${version}`;
-  }
-
-  function integrationLabel(value) {
-    const match = integrationOptionsData.find((item) => item.value === value);
-    return match ? match.label : value;
-  }
-
-  function summarisePredicates(expectations) {
-    const entries = Object.entries(expectations || {});
-    if (!entries.length) {
-      return "";
-    }
-    return entries
-      .map(([name, predicate]) => `${name}: ${predicate}`)
-      .join("; ");
-  }
-
   const contractCache = new Map();
   const state = {
-    catalog: catalogData,
+    catalog: catalogData || [],
     filter: "",
-    integration: integrationOptionsData.length ? integrationOptionsData[0].value : "spark",
-    inputs: [],
-    outputs: [],
-    detail: null,
-    detailKey: null,
-    detailPage: 1,
-    stub: null,
-    strategies: null,
-    readStrategy: "status",
-    writeStrategy: {
-      mode: "split",
-      includeValid: true,
-      includeReject: true,
-      failOnWarnings: false,
-    },
-    isGenerating: false,
+    contractNodes: [],
+    transformations: [],
+    activePreview: null,
+    editingTransformationId: null,
+    activeConnection: null,
+    hoverHandle: null,
   };
 
   const dom = {
     contractResults: document.getElementById("contractResults"),
     contractResultsEmpty: document.getElementById("contractResultsEmpty"),
     contractSearch: document.getElementById("contractSearch"),
-    integrationSelect: document.getElementById("integrationSelect"),
-    contractDetail: document.getElementById("contractDetail"),
-    contractDetailPlaceholder: document.getElementById("contractDetailPlaceholder"),
-    contractDetailError: document.getElementById("contractDetailError"),
-    contractTitle: document.getElementById("contractTitle"),
-    contractName: document.getElementById("contractName"),
-    contractDescription: document.getElementById("contractDescription"),
-    contractAccess: document.getElementById("contractAccess"),
-    schemaTableBody: document.getElementById("schemaTableBody"),
-    schemaEmpty: document.getElementById("schemaEmpty"),
-    schemaPagination: document.getElementById("schemaPagination"),
-    schemaCount: document.getElementById("schemaCount"),
-    schemaDetails: document.getElementById("schemaDetails"),
-    expectationList: document.getElementById("expectationList"),
-    expectationEmpty: document.getElementById("expectationEmpty"),
-    predicateDetails: document.getElementById("predicateDetails"),
-    addInputBtn: document.getElementById("addInputBtn"),
-    addOutputBtn: document.getElementById("addOutputBtn"),
-    selectionSummary: document.getElementById("selectionSummary"),
-    selectionDiagram: document.getElementById("selectionDiagram"),
-    selectionIntegrationBadge: document.getElementById("selectionIntegrationBadge"),
-    generateStubBtn: document.getElementById("generateStubBtn"),
-    copyStubBtn: document.getElementById("copyStubBtn"),
-    stubOutput: document.getElementById("stubOutput"),
-    stubError: document.getElementById("stubError"),
-    readStrategyOptions: document.getElementById("readStrategyOptions"),
-    writeStrategyOptions: document.getElementById("writeStrategyOptions"),
-    writeStrategyToggles: document.getElementById("writeStrategyToggles"),
-    writeIncludeValid: document.getElementById("writeIncludeValid"),
-    writeIncludeReject: document.getElementById("writeIncludeReject"),
-    writeFailWarnings: document.getElementById("writeFailWarnings"),
-    writeFailWarningsGroup: document.getElementById("writeFailWarningsGroup"),
-    strategySummary: document.getElementById("strategySummary"),
-    strategyNotes: document.getElementById("strategyNotes"),
+    pipelineCanvas: document.getElementById("pipelineCanvas"),
+    pipelineConnections: document.getElementById("pipelineConnections"),
+    pipelinePlaceholder: document.getElementById("pipelinePlaceholder"),
+    addTransformationBtn: document.getElementById("addTransformationBtn"),
+    transformationList: document.getElementById("transformationList"),
+    transformationEmpty: document.getElementById("transformationEmpty"),
+    contractPreviewModal: document.getElementById("contractPreviewModal"),
+    contractPreviewBody: document.getElementById("contractPreviewBody"),
+    contractPreviewTitle: document.getElementById("contractPreviewTitle"),
+    transformationConfigModal: document.getElementById("transformationConfigModal"),
+    transformationIntegration: document.getElementById("transformationIntegration"),
+    transformationReadStrategies: document.getElementById("transformationReadStrategies"),
+    transformationWriteStrategies: document.getElementById("transformationWriteStrategies"),
+    transformationWriteToggles: document.getElementById("transformationWriteToggles"),
+    transformationStrategyNotes: document.getElementById("transformationStrategyNotes"),
+    saveTransformationConfig: document.getElementById("saveTransformationConfig"),
   };
+
+  const bootstrapModal = {
+    preview: dom.contractPreviewModal ? new bootstrap.Modal(dom.contractPreviewModal) : null,
+    transformation: dom.transformationConfigModal ? new bootstrap.Modal(dom.transformationConfigModal) : null,
+  };
+
+  function escapeHtml(value) {
+    return (value ?? "")
+      .toString()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function integrationLabel(value) {
+    const found = (integrationOptionsData || []).find((item) => item.value === value);
+    return found ? found.label : value;
+  }
+
+  function findContractNode(nodeId) {
+    return state.contractNodes.find((node) => node.id === nodeId) || null;
+  }
+
+  function findTransformation(transformationId) {
+    return state.transformations.find((item) => item.id === transformationId) || null;
+  }
+
+  function nodeSummary(node) {
+    if (!node || !node.summary) {
+      return { id: node?.contractId || "", version: node?.version || "" };
+    }
+    return node.summary;
+  }
 
   function renderCatalogList() {
     const query = state.filter.trim().toLowerCase();
@@ -346,7 +445,10 @@
       if (!query) {
         return true;
       }
-      const haystack = [item.id, item.name, item.description, item.status].join(" ").toLowerCase();
+      const haystack = [item.id, item.name, item.description, item.status]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       if (haystack.includes(query)) {
         return true;
       }
@@ -355,580 +457,1011 @@
 
     dom.contractResults.innerHTML = "";
     dom.contractResultsEmpty.classList.toggle("d-none", items.length > 0);
-    if (!items.length) {
-      return;
-    }
 
     items.forEach((item) => {
-      const container = document.createElement("div");
-      container.className = "list-group-item";
-      container.dataset.contractId = item.id;
+      const group = document.createElement("div");
+      group.className = "list-group-item";
       const latest = item.latestVersion || (item.versions || [])[0] || "";
-      const description = item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : "";
-      container.innerHTML = `
-        <div class="d-flex w-100 justify-content-between align-items-start gap-2">
-          <div>
-            <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
-            <div class="small text-muted">${escapeHtml(item.id)}</div>
-            ${description}
+      const versionOptions = (item.versions || [])
+        .map((ver) => `<option value="${escapeHtml(ver)}" ${ver === latest ? "selected" : ""}>v${escapeHtml(ver)}</option>`)
+        .join("");
+      group.innerHTML = `
+        <div class="d-flex flex-column gap-2">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
+              <div class="small text-muted">${escapeHtml(item.id)}</div>
+              ${item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : ""}
+            </div>
+            <div class="text-end">
+              <select class="form-select form-select-sm" data-role="version-picker">${versionOptions}</select>
+            </div>
           </div>
-          <div class="text-end">
-            ${latest ? `<div class="badge text-bg-light">v${escapeHtml(latest)}</div>` : ""}
-            <button type="button" class="btn btn-outline-primary btn-sm mt-2" data-action="view">Preview</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
+            <button type="button" class="btn btn-primary btn-sm" data-action="add">Add to pipeline</button>
           </div>
         </div>
-        <div class="mt-2">
-          <label class="form-label small text-muted mb-1">Version</label>
-          <select class="form-select form-select-sm" data-role="version-select">
-            ${(item.versions || [])
-              .map((ver) => `<option value="${escapeHtml(ver)}" ${ver === latest ? "selected" : ""}>${escapeHtml(ver)}</option>`)
-              .join("")}
-          </select>
-        </div>
       `;
-      const viewButton = container.querySelector('[data-action="view"]');
-      const versionSelect = container.querySelector('[data-role="version-select"]');
-      function resolveVersion() {
-        return versionSelect.value || latest;
-      }
-      viewButton.addEventListener("click", () => {
-        const targetVersion = resolveVersion();
-        if (targetVersion) {
-          focusContract(item.id, targetVersion);
-        }
+      const versionSelect = group.querySelector('[data-role="version-picker"]');
+      const previewButton = group.querySelector('[data-action="preview"]');
+      const addButton = group.querySelector('[data-action="add"]');
+      previewButton.addEventListener("click", () => {
+        const ver = versionSelect.value || latest;
+        previewContract(item.id, ver);
       });
-      versionSelect.addEventListener("change", () => {
-        const targetVersion = resolveVersion();
-        if (targetVersion) {
-          focusContract(item.id, targetVersion);
-        }
+      addButton.addEventListener("click", () => {
+        const ver = versionSelect.value || latest;
+        addContractToPipeline(item.id, ver);
       });
-      dom.contractResults.appendChild(container);
+      dom.contractResults.appendChild(group);
     });
-  }
-
-  function renderAccess(server, datasetId) {
-    dom.contractAccess.innerHTML = "";
-    if (!server && !datasetId) {
-      dom.contractAccess.innerHTML = '<div class="text-muted">No server metadata recorded.</div>';
-      return;
-    }
-    const entries = [];
-    if (datasetId) {
-      entries.push(["Dataset ID", datasetId]);
-    }
-    if (server) {
-      const serverName = server.server || "";
-      if (serverName) {
-        entries.push(["Server", serverName]);
-      }
-      if (server.type) {
-        entries.push(["Type", server.type]);
-      }
-      if (server.format) {
-        entries.push(["Format", server.format]);
-      }
-      if (server.path) {
-        entries.push(["Path", server.path]);
-      }
-      if (server.dataset) {
-        entries.push(["Dataset", server.dataset]);
-      }
-    }
-    entries.forEach(([label, value]) => {
-      const dt = document.createElement("dt");
-      dt.className = "col-sm-4";
-      dt.textContent = label;
-      const dd = document.createElement("dd");
-      dd.className = "col-sm-8";
-      dd.textContent = value;
-      dom.contractAccess.append(dt, dd);
-    });
-  }
-
-  function renderSchema(entries) {
-    const pageSize = 8;
-    const totalPages = Math.max(1, Math.ceil((entries || []).length / pageSize));
-    if (state.detailPage > totalPages) {
-      state.detailPage = totalPages;
-    }
-    const currentPage = Math.max(1, Math.min(state.detailPage, totalPages));
-    state.detailPage = currentPage;
-    dom.schemaTableBody.innerHTML = "";
-    dom.schemaEmpty.classList.toggle("d-none", !!entries.length);
-    const start = (currentPage - 1) * pageSize;
-    const slice = entries.slice(start, start + pageSize);
-    slice.forEach((entry) => {
-      const row = document.createElement("tr");
-      const requiredBadge = entry.required
-        ? '<span class="badge text-bg-success">Yes</span>'
-        : '<span class="badge text-bg-secondary">No</span>';
-      const types = [entry.logicalType, entry.physicalType].filter(Boolean).map(escapeHtml).join(" · ");
-      row.innerHTML = `
-        <td>${escapeHtml(entry.field || entry.name || "")}</td>
-        <td>${types}</td>
-        <td>${requiredBadge}</td>
-        <td>${escapeHtml(entry.description || "")}</td>
-      `;
-      dom.schemaTableBody.appendChild(row);
-    });
-    const fieldCount = entries.length;
-    dom.schemaCount.textContent = `${fieldCount} field${fieldCount === 1 ? "" : "s"}`;
-
-    dom.schemaPagination.innerHTML = "";
-    if (totalPages <= 1) {
-      return;
-    }
-    const prevLi = document.createElement("li");
-    prevLi.className = `page-item ${currentPage === 1 ? "disabled" : ""}`;
-    prevLi.innerHTML = '<button class="page-link" type="button">Prev</button>';
-    prevLi.addEventListener("click", () => {
-      if (state.detailPage > 1) {
-        state.detailPage -= 1;
-        renderSchema(entries);
-      }
-    });
-    dom.schemaPagination.appendChild(prevLi);
-    for (let page = 1; page <= totalPages; page += 1) {
-      const li = document.createElement("li");
-      li.className = `page-item ${page === currentPage ? "active" : ""}`;
-      li.innerHTML = `<button class="page-link" type="button">${page}</button>`;
-      li.addEventListener("click", () => {
-        state.detailPage = page;
-        renderSchema(entries);
-      });
-      dom.schemaPagination.appendChild(li);
-    }
-    const nextLi = document.createElement("li");
-    nextLi.className = `page-item ${currentPage === totalPages ? "disabled" : ""}`;
-    nextLi.innerHTML = '<button class="page-link" type="button">Next</button>';
-    nextLi.addEventListener("click", () => {
-      if (state.detailPage < totalPages) {
-        state.detailPage += 1;
-        renderSchema(entries);
-      }
-    });
-    dom.schemaPagination.appendChild(nextLi);
-  }
-
-  function renderExpectations(expectations) {
-    const entries = Object.entries(expectations || {});
-    dom.expectationList.innerHTML = "";
-    dom.expectationEmpty.classList.toggle("d-none", entries.length > 0);
-    if (!entries.length) {
-      return;
-    }
-    entries.forEach(([name, predicate]) => {
-      const item = document.createElement("div");
-      item.className = "list-group-item small";
-      item.innerHTML = `<div class="fw-semibold">${escapeHtml(name)}</div><code class="d-block">${escapeHtml(predicate)}</code>`;
-      dom.expectationList.appendChild(item);
-    });
-  }
-
-  function renderContractDetail() {
-    const detail = state.detail;
-    if (!detail) {
-      dom.contractDetail.classList.add("d-none");
-      dom.contractDetailPlaceholder.classList.remove("d-none");
-      return;
-    }
-    dom.contractDetailPlaceholder.classList.add("d-none");
-    dom.contractDetail.classList.remove("d-none");
-    dom.contractDetailError.classList.add("d-none");
-    dom.schemaDetails.open = false;
-    dom.predicateDetails.open = false;
-    const summary = detail.summary || {};
-    dom.contractTitle.textContent = `${summary.id || ""} · v${summary.version || ""}`;
-    dom.contractName.textContent = summary.name || "";
-    dom.contractDescription.textContent = summary.description || "";
-    renderAccess(summary.server || null, summary.datasetId || "");
-    renderSchema(summary.schemaEntries || []);
-    renderExpectations(summary.expectations || {});
-    dom.addInputBtn.onclick = () => addSelection("inputs", summary);
-    dom.addOutputBtn.onclick = () => addSelection("outputs", summary);
-  }
-
-  function addSelection(kind, summary) {
-    if (!summary) {
-      return;
-    }
-    const key = keyFor(summary.id, summary.version);
-    if (state[kind].some((entry) => entry.key === key)) {
-      return;
-    }
-    const enriched = { ...summary, key };
-    state[kind].push(enriched);
-    state.stub = null;
-    state.strategies = null;
-    renderSelection();
-    renderStrategyNotes();
-    renderStub();
-  }
-
-  function removeSelection(kind, key) {
-    state[kind] = state[kind].filter((entry) => entry.key !== key);
-    state.stub = null;
-    state.strategies = null;
-    renderSelection();
-    renderStrategyNotes();
-    renderStub();
-  }
-
-  function renderSelectionSummary() {
-    const ready = state.inputs.length > 0 && state.outputs.length > 0;
-    const label = integrationLabel(state.integration);
-    dom.selectionIntegrationBadge.textContent = label;
-    dom.selectionSummary.textContent = ready
-      ? `Ready to generate a ${label} stub for ${state.inputs.length} input${state.inputs.length === 1 ? "" : "s"} and ${state.outputs.length} output${state.outputs.length === 1 ? "" : "s"}.`
-      : "Select at least one input and one output.";
-    dom.generateStubBtn.disabled = !ready || state.isGenerating;
   }
 
   function schemaListMarkup(entries) {
     if (!entries || !entries.length) {
-      return '<p class="text-muted small mb-0">No schema fields declared.</p>';
+      return '<li class="text-muted">No fields declared.</li>';
     }
-    const limit = 8;
-    const rows = entries.slice(0, limit).map((entry) => {
-      const typeText = [entry.logicalType, entry.physicalType].filter(Boolean).join(" · ");
-      const requirement = entry.required ? "required" : "optional";
-      return `<li><code>${escapeHtml(entry.field || entry.name || "")}</code> <span class="text-muted">${escapeHtml(typeText)} · ${requirement}</span></li>`;
-    });
-    if (entries.length > limit) {
-      rows.push(`<li class="text-muted">+${entries.length - limit} more field${entries.length - limit === 1 ? "" : "s"}</li>`);
-    }
-    return `<ul class="list-unstyled small mb-0">${rows.join("")}</ul>`;
+    return entries
+      .slice(0, 20)
+      .map((entry) => {
+        const name = entry.field || entry.name || "";
+        const logical = entry.logicalType ? `${entry.logicalType}` : "";
+        const physical = entry.physicalType ? `${entry.physicalType}` : "";
+        const type = [logical, physical].filter(Boolean).join(" · ");
+        const requirement = entry.required ? "required" : "optional";
+        return `<li><code>${escapeHtml(name)}</code> <span class="text-muted">${escapeHtml(type)} · ${requirement}</span></li>`;
+      })
+      .join("");
   }
 
-  function buildNode(item, kind) {
-    const node = document.createElement("div");
-    node.className = "integration-node";
-    const server = item.server || {};
-    const location = server.path || server.dataset || "";
-    const predicateSummary = summarisePredicates(item.expectations || {});
-    node.innerHTML = `
-      <div class="d-flex justify-content-between align-items-start gap-2">
+  function nodeFieldsMarkup(summary) {
+    const count = summary.fieldCount ?? (summary.schemaEntries ? summary.schemaEntries.length : 0) ?? 0;
+    const list = schemaListMarkup(summary.schemaEntries || []);
+    return `
+      <details>
+        <summary>
+          <span class="chevron">▸</span>
+          <span class="fw-semibold">Fields</span>
+          <span class="badge text-bg-light">${count} field${count === 1 ? "" : "s"}</span>
+        </summary>
+        <ul class="field-list">${list}</ul>
+      </details>
+    `;
+  }
+
+  function addContractToPipeline(contractId, version) {
+    const existing = state.contractNodes.find((node) => node.contractId === contractId && node.version === version);
+    if (existing) {
+      focusNode(existing.id);
+      return;
+    }
+    const position = {
+      x: 80 + state.contractNodes.length * 40,
+      y: 80 + state.contractNodes.length * 60,
+    };
+    loadContractSummary(contractId, version).then((summary) => {
+      const node = {
+        id: createId("contract"),
+        type: "contract",
+        contractId,
+        version,
+        position,
+        summary,
+      };
+      state.contractNodes.push(node);
+      renderPipeline();
+      renderTransformations();
+    });
+  }
+
+  function removeContractNode(nodeId) {
+    const node = findContractNode(nodeId);
+    if (!node) {
+      return;
+    }
+    state.contractNodes = state.contractNodes.filter((item) => item.id !== nodeId);
+    state.transformations.forEach((tf) => {
+      const beforeInputs = tf.inputs.length;
+      tf.inputs = tf.inputs.filter((conn) => conn.contractNodeId !== nodeId);
+      const beforeOutputs = tf.outputs.length;
+      tf.outputs = tf.outputs.filter((conn) => conn.contractNodeId !== nodeId);
+      if (tf.inputs.length !== beforeInputs || tf.outputs.length !== beforeOutputs) {
+        markTransformationDirty(tf.id);
+      }
+    });
+    renderPipeline();
+    renderTransformations();
+  }
+
+  async function loadContractSummary(contractId, version) {
+    const key = `${contractId}@@${version}`;
+    if (contractCache.has(key)) {
+      return contractCache.get(key);
+    }
+    const response = await fetch(`/api/integration-helper/contracts/${encodeURIComponent(contractId)}/${encodeURIComponent(version)}`);
+    if (!response.ok) {
+      throw new Error(`Failed to load contract ${contractId} v${version}`);
+    }
+    const data = await response.json();
+    const summary = data.summary || { id: contractId, version };
+    contractCache.set(key, summary);
+    return summary;
+  }
+
+  async function previewContract(contractId, version) {
+    try {
+      const summary = await loadContractSummary(contractId, version);
+      if (!summary) {
+        return;
+      }
+      dom.contractPreviewTitle.textContent = `${summary.id || contractId} · v${summary.version || version}`;
+      const body = document.createElement("div");
+      body.innerHTML = `
         <div>
-          <div class="fw-semibold">${escapeHtml(item.id || "")}</div>
-          <div class="small text-muted">v${escapeHtml(item.version || "")}</div>
-          ${item.datasetId ? `<div class="small text-muted">${escapeHtml(item.datasetId)}</div>` : ""}
-          ${location ? `<div class="small text-muted">${escapeHtml(location)}</div>` : ""}
+          <h2 class="h6 mb-1">${escapeHtml(summary.name || summary.id || "")}</h2>
+          <p class="text-muted small mb-0">${escapeHtml(summary.description || "No description provided.")}</p>
+        </div>
+      `;
+      if (summary.server) {
+        const server = summary.server || {};
+        const access = document.createElement("dl");
+        access.className = "row small mt-3";
+        Object.entries(server).forEach(([key, value]) => {
+          const dt = document.createElement("dt");
+          dt.className = "col-sm-4";
+          dt.textContent = key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+          const dd = document.createElement("dd");
+          dd.className = "col-sm-8";
+          dd.textContent = String(value);
+          access.appendChild(dt);
+          access.appendChild(dd);
+        });
+        body.appendChild(access);
+      }
+      if (summary.schemaEntries && summary.schemaEntries.length) {
+        const schema = document.createElement("div");
+        schema.innerHTML = `
+          <h3 class="h6 mt-3">Schema</h3>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${summary.schemaEntries
+                  .map((entry) => {
+                    const type = [entry.logicalType, entry.physicalType].filter(Boolean).join(" · ");
+                    return `
+                      <tr>
+                        <td><code>${escapeHtml(entry.field || entry.name || "")}</code></td>
+                        <td>${escapeHtml(type)}</td>
+                        <td>${escapeHtml(entry.description || "")}</td>
+                      </tr>
+                    `;
+                  })
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+        body.appendChild(schema);
+      }
+      if (summary.expectations && Object.keys(summary.expectations).length) {
+        const expectations = document.createElement("div");
+        expectations.innerHTML = `
+          <h3 class="h6 mt-3">Quality predicates</h3>
+          <ul class="small mb-0">
+            ${Object.entries(summary.expectations)
+              .map(([name, predicate]) => `<li><span class="fw-semibold">${escapeHtml(name)}:</span> <code>${escapeHtml(predicate)}</code></li>`)
+              .join("")}
+          </ul>
+        `;
+        body.appendChild(expectations);
+      }
+      dom.contractPreviewBody.innerHTML = "";
+      dom.contractPreviewBody.appendChild(body);
+      if (bootstrapModal.preview) {
+        bootstrapModal.preview.show();
+      }
+    } catch (error) {
+      dom.contractPreviewBody.innerHTML = `<div class="alert alert-danger">${escapeHtml(error.message || String(error))}</div>`;
+      if (bootstrapModal.preview) {
+        bootstrapModal.preview.show();
+      }
+    }
+  }
+
+  function focusNode(nodeId) {
+    const element = dom.pipelineCanvas.querySelector(`[data-node-id="${nodeId}"]`);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      element.classList.add("border-primary");
+      setTimeout(() => element.classList.remove("border-primary"), 1200);
+    }
+  }
+
+  function ensurePlaceholder() {
+    const hasNodes = state.contractNodes.length > 0 || state.transformations.length > 0;
+    dom.pipelinePlaceholder.classList.toggle("d-none", hasNodes);
+  }
+
+  function buildContractNodeElement(node) {
+    const summary = node.summary || {};
+    const element = document.createElement("div");
+    element.className = "pipeline-node contract-node";
+    element.dataset.nodeId = node.id;
+    element.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
+    const dataset = summary.datasetId ? `<div class="small text-muted">${escapeHtml(summary.datasetId)}</div>` : "";
+    const description = summary.description ? `<p class="text-muted small mb-0">${escapeHtml(summary.description)}</p>` : "";
+    element.innerHTML = `
+      <div class="node-header" data-role="drag-handle">
+        <div>
+          <div class="fw-semibold">${escapeHtml(summary.name || summary.id || node.contractId)}</div>
+          <div class="small text-muted">${escapeHtml(node.contractId)} · v${escapeHtml(node.version)}</div>
         </div>
         <div class="btn-group btn-group-sm">
-          <button type="button" class="btn btn-outline-secondary" data-action="preview">Preview</button>
+          <button type="button" class="btn btn-outline-primary" data-action="preview">Preview</button>
           <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
         </div>
       </div>
-      ${item.description ? `<p class="small text-muted mt-2 mb-0">${escapeHtml(item.description)}</p>` : ""}
+      <div class="node-body">
+        ${dataset}
+        ${description}
+        ${nodeFieldsMarkup(summary)}
+      </div>
     `;
-    const details = document.createElement("details");
-    details.className = "mt-3";
-    const fieldCount = item.fieldCount ?? (item.schemaEntries ? item.schemaEntries.length : 0);
-    details.innerHTML = `
-      <summary><span class="chevron">▸</span><span class="fw-semibold">Schema</span><span class="badge text-bg-light ms-auto">${fieldCount} field${fieldCount === 1 ? "" : "s"}</span></summary>
-      <div class="mt-2">${schemaListMarkup(item.schemaEntries || [])}</div>
-    `;
-    node.appendChild(details);
-    if (predicateSummary) {
-      const predicate = document.createElement("p");
-      predicate.className = "small text-muted mt-2 mb-0";
-      predicate.textContent = `Valid if ${predicateSummary}`;
-      node.appendChild(predicate);
-    }
-    const previewButton = node.querySelector('[data-action="preview"]');
-    const removeButton = node.querySelector('[data-action="remove"]');
-    previewButton.addEventListener("click", () => focusContract(item.id, item.version));
-    removeButton.addEventListener("click", () => removeSelection(kind, item.key));
-    return node;
+    const previewButton = element.querySelector('[data-action="preview"]');
+    const removeButton = element.querySelector('[data-action="remove"]');
+    previewButton.addEventListener("click", () => previewContract(node.contractId, node.version));
+    removeButton.addEventListener("click", () => removeContractNode(node.id));
+    attachNodeDragBehaviour(element, node.id);
+    return element;
   }
 
-  function buildColumn(title, items, kind) {
-    const column = document.createElement("div");
-    column.className = "integration-graph-column flex-grow-1";
-    const heading = document.createElement("h3");
-    heading.className = "h6 text-uppercase text-muted mb-2";
-    heading.textContent = title;
-    column.appendChild(heading);
-    if (!items.length) {
-      const placeholder = document.createElement("p");
-      placeholder.className = "text-muted small mb-0";
-      placeholder.textContent = `No ${title.toLowerCase()}.`;
-      column.appendChild(placeholder);
-      return column;
-    }
-    const list = document.createElement("div");
-    list.className = "vstack gap-3";
-    items.forEach((item) => {
-      list.appendChild(buildNode(item, kind));
-    });
-    column.appendChild(list);
-    return column;
-  }
-
-  function buildConnector() {
-    const column = document.createElement("div");
-    column.className = "integration-graph-column d-flex justify-content-center align-items-center";
-    const content = document.createElement("div");
-    content.className = "text-center";
-    content.innerHTML = `
-      <div class="badge text-bg-primary-subtle text-primary-emphasis text-uppercase mb-2">${escapeHtml(
-        integrationLabel(state.integration),
-      )}</div>
-      <div class="integration-arrow">⇄</div>
-    `;
-    column.appendChild(content);
-    return column;
-  }
-
-  function renderDiagram() {
-    const container = dom.selectionDiagram;
-    container.innerHTML = "";
-    if (!state.inputs.length && !state.outputs.length) {
-      container.innerHTML = '<p class="text-muted small mb-0">Selections will appear here.</p>';
-      return;
-    }
-    const wrapper = document.createElement("div");
-    wrapper.className = "d-flex flex-column flex-lg-row align-items-stretch gap-3";
-    wrapper.appendChild(buildColumn("Inputs", state.inputs, "inputs"));
-    wrapper.appendChild(buildConnector());
-    wrapper.appendChild(buildColumn("Outputs", state.outputs, "outputs"));
-    container.appendChild(wrapper);
-  }
-
-  function renderSelection() {
-    renderSelectionSummary();
-    renderDiagram();
-  }
-
-  function renderOptionList(container, options, selectedValue, groupName, onSelect) {
-    container.innerHTML = "";
-    options.forEach((option) => {
-      const wrapper = document.createElement("label");
-      wrapper.className = `list-group-item list-group-item-action d-flex align-items-start gap-3 ${
-        option.value === selectedValue ? "active" : ""
-      }`;
-      wrapper.innerHTML = `
-        <input class="form-check-input mt-1" type="radio" name="${groupName}" value="${option.value}" ${
-        option.value === selectedValue ? "checked" : ""
-      } />
+  function buildTransformationNodeElement(transformation) {
+    const element = document.createElement("div");
+    element.className = "pipeline-node transformation-node";
+    element.dataset.transformationId = transformation.id;
+    element.dataset.nodeId = transformation.id;
+    element.style.transform = `translate(${transformation.position.x}px, ${transformation.position.y}px)`;
+    element.innerHTML = `
+      <div class="handle-input" data-role="drop" data-transformation-id="${transformation.id}" title="Drop contract output here">&#x25C0;</div>
+      <div class="handle-output" data-role="start" data-transformation-id="${transformation.id}" title="Drag to a contract input">&#x25B6;</div>
+      <div class="node-header" data-role="drag-handle">
         <div>
-          <div class="fw-semibold">${escapeHtml(option.label)}</div>
-          <div class="small text-muted">${escapeHtml(option.description)}</div>
+          <div class="fw-semibold">${escapeHtml(transformation.name)}</div>
+          <div class="small text-muted">${escapeHtml(integrationLabel(transformation.integration))}</div>
         </div>
-      `;
-      const input = wrapper.querySelector("input");
-      input.addEventListener("change", () => onSelect(option.value));
-      container.appendChild(wrapper);
-    });
+        <div class="btn-group btn-group-sm">
+          <button type="button" class="btn btn-outline-primary" data-action="configure">Configure</button>
+          <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
+        </div>
+      </div>
+      <div class="node-body">
+        <div class="mb-3">
+          <h3 class="h6 text-uppercase text-muted">Inputs</h3>
+          <div class="connector-list" data-role="inputs"></div>
+          <div class="connector-empty small" data-role="input-placeholder">Drop contract outputs onto the left handle.</div>
+        </div>
+        <div>
+          <h3 class="h6 text-uppercase text-muted">Outputs</h3>
+          <div class="connector-list" data-role="outputs"></div>
+          <div class="connector-empty small" data-role="output-placeholder">Drag from the right handle into a contract input.</div>
+        </div>
+      </div>
+    `;
+    const configureButton = element.querySelector('[data-action="configure"]');
+    const removeButton = element.querySelector('[data-action="remove"]');
+    configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
+    removeButton.addEventListener("click", () => removeTransformation(transformation.id));
+    attachNodeDragBehaviour(element, transformation.id);
+    const startHandle = element.querySelector('.handle-output[data-role="start"]');
+    const dropHandle = element.querySelector('.handle-input[data-role="drop"]');
+    if (startHandle) {
+      startHandle.addEventListener("pointerdown", (event) => beginConnection(event, {
+        kind: "transformation-output",
+        transformationId: transformation.id,
+        element: startHandle,
+      }));
+      startHandle.addEventListener("pointerenter", () => setHoverHandle(startHandle));
+      startHandle.addEventListener("pointerleave", () => clearHoverHandle(startHandle));
+    }
+    if (dropHandle) {
+      dropHandle.addEventListener("pointerenter", () => setHoverHandle(dropHandle));
+      dropHandle.addEventListener("pointerleave", () => clearHoverHandle(dropHandle));
+    }
+    renderTransformationConnectorLists(element, transformation);
+    return element;
   }
 
-  function renderReadStrategyControls() {
-    renderOptionList(dom.readStrategyOptions, READ_STRATEGY_OPTIONS, state.readStrategy, "readStrategy", (value) => {
-      if (state.readStrategy !== value) {
-        state.readStrategy = value;
-        renderReadStrategyControls();
-        renderStrategySummary();
-        invalidateStub(true);
-      }
-    });
-  }
-
-  function renderWriteStrategyControls() {
-    renderOptionList(dom.writeStrategyOptions, WRITE_STRATEGY_OPTIONS, state.writeStrategy.mode, "writeStrategy", (value) => {
-      if (state.writeStrategy.mode !== value) {
-        state.writeStrategy.mode = value;
-        renderWriteStrategyControls();
-        renderStrategySummary();
-        invalidateStub(true);
-      }
-    });
-    const showSubsets = state.writeStrategy.mode === "split" || state.writeStrategy.mode === "strict";
-    dom.writeStrategyToggles.classList.toggle("d-none", !showSubsets);
-    dom.writeFailWarningsGroup.classList.toggle("d-none", state.writeStrategy.mode !== "strict");
-    if (showSubsets) {
-      dom.writeIncludeValid.checked = !!state.writeStrategy.includeValid;
-      dom.writeIncludeReject.checked = !!state.writeStrategy.includeReject;
-      dom.writeFailWarnings.checked = !!state.writeStrategy.failOnWarnings;
-    }
-  }
-
-  function renderStrategySummary() {
-    const readOption = READ_STRATEGY_OPTIONS.find((option) => option.value === state.readStrategy);
-    const writeOption = WRITE_STRATEGY_OPTIONS.find((option) => option.value === state.writeStrategy.mode);
-    const parts = [];
-    if (readOption) {
-      parts.push(`<div><strong>Read:</strong> ${escapeHtml(readOption.label)}</div>`);
-      parts.push(`<div class="text-muted">${escapeHtml(readOption.description)}</div>`);
-    }
-    if (writeOption) {
-      const extras = [];
-      if (state.writeStrategy.mode !== "noop") {
-        const subsets = [];
-        if (state.writeStrategy.includeValid) {
-          subsets.push("valid");
-        }
-        if (state.writeStrategy.includeReject) {
-          subsets.push("reject");
-        }
-        if (subsets.length) {
-          extras.push(`Emits ${subsets.join(" & ")} subsets.`);
-        }
-      }
-      if (state.writeStrategy.mode === "strict" && state.writeStrategy.failOnWarnings) {
-        extras.push("Warnings escalate to failures.");
-      }
-      parts.push(`<div class="mt-2"><strong>Write:</strong> ${escapeHtml(writeOption.label)}</div>`);
-      const writeDescription = [writeOption.description, ...extras].join(" ");
-      parts.push(`<div class="text-muted">${escapeHtml(writeDescription)}</div>`);
-    }
-    dom.strategySummary.innerHTML = parts.join("") || "Choose read and write strategies to tailor the stub.";
-  }
-
-  function renderStrategyNotes() {
-    dom.strategyNotes.innerHTML = "";
-    if (!state.strategies) {
-      dom.strategyNotes.innerHTML = '<p class="text-muted small mb-0">Generate a stub to review how the selected strategies apply to each contract.</p>';
-      return;
-    }
-    const categories = [
-      { title: "Read", items: state.strategies.read || [] },
-      { title: "Write", items: state.strategies.write || [] },
-    ];
-    categories.forEach((category) => {
-      if (!category.items.length) {
+  function renderTransformationConnectorLists(element, transformation) {
+    const inputList = element.querySelector('[data-role="inputs"]');
+    const outputList = element.querySelector('[data-role="outputs"]');
+    const inputPlaceholder = element.querySelector('[data-role="input-placeholder"]');
+    const outputPlaceholder = element.querySelector('[data-role="output-placeholder"]');
+    inputList.innerHTML = "";
+    outputList.innerHTML = "";
+    inputPlaceholder.classList.toggle("d-none", transformation.inputs.length > 0);
+    outputPlaceholder.classList.toggle("d-none", transformation.outputs.length > 0);
+    transformation.inputs.forEach((conn, index) => {
+      const contractNode = findContractNode(conn.contractNodeId);
+      if (!contractNode) {
         return;
       }
-      const section = document.createElement("div");
-      section.className = "mb-3";
-      section.innerHTML = `<h3 class="h6">${escapeHtml(category.title)}</h3>`;
-      category.items.forEach((item) => {
-        const card = document.createElement("div");
-        card.className = "border rounded p-2 mb-2 bg-light";
-        card.innerHTML = `<div class="fw-semibold">${escapeHtml(item.title)}</div><p class="small mb-0">${escapeHtml(item.description)}</p>`;
-        section.appendChild(card);
+      const summary = nodeSummary(contractNode);
+      const item = document.createElement("div");
+      item.className = "connector-chip";
+      item.dataset.connectionId = conn.id;
+      item.innerHTML = `
+        <span class="connector-anchor" title="Linked input">${index + 1}</span>
+        <div>
+          <div class="fw-semibold small">${escapeHtml(summary.id || contractNode.contractId)}</div>
+          <div class="text-muted small">v${escapeHtml(summary.version || contractNode.version)}</div>
+        </div>
+        <div class="connector-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Config</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
+      `;
+      const configure = item.querySelector('[data-action="configure"]');
+      const remove = item.querySelector('[data-action="remove"]');
+      configure.addEventListener("click", () => openTransformationModal(transformation.id));
+      remove.addEventListener("click", () => {
+        removeTransformationConnection(transformation.id, conn.id, "inputs");
       });
-      dom.strategyNotes.appendChild(section);
+      item.addEventListener("pointerenter", () => setHoverHandle(item.querySelector(".connector-anchor")));
+      item.addEventListener("pointerleave", () => clearHoverHandle(item.querySelector(".connector-anchor")));
+      inputList.appendChild(item);
+    });
+    transformation.outputs.forEach((conn, index) => {
+      const contractNode = findContractNode(conn.contractNodeId);
+      if (!contractNode) {
+        return;
+      }
+      const summary = nodeSummary(contractNode);
+      const item = document.createElement("div");
+      item.className = "connector-chip";
+      item.dataset.connectionId = conn.id;
+      item.innerHTML = `
+        <span class="connector-anchor" title="Linked output">${index + 1}</span>
+        <div>
+          <div class="fw-semibold small">${escapeHtml(summary.id || contractNode.contractId)}</div>
+          <div class="text-muted small">v${escapeHtml(summary.version || contractNode.version)}</div>
+        </div>
+        <div class="connector-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Config</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
+      `;
+      const configure = item.querySelector('[data-action="configure"]');
+      const remove = item.querySelector('[data-action="remove"]');
+      configure.addEventListener("click", () => openTransformationModal(transformation.id));
+      remove.addEventListener("click", () => {
+        removeTransformationConnection(transformation.id, conn.id, "outputs");
+      });
+      item.addEventListener("pointerenter", () => setHoverHandle(item.querySelector(".connector-anchor")));
+      item.addEventListener("pointerleave", () => clearHoverHandle(item.querySelector(".connector-anchor")));
+      outputList.appendChild(item);
     });
   }
 
-  function renderStub() {
-    if (!state.stub) {
-      dom.stubOutput.textContent = "# Generate a stub to preview integration-ready code.";
-      dom.copyStubBtn.disabled = true;
-      dom.stubError.classList.add("d-none");
-      if (window.hljs && window.hljs.highlightElement) {
-        window.hljs.highlightElement(dom.stubOutput);
+  function attachNodeDragBehaviour(element, nodeId) {
+    const handle = element.querySelector('[data-role="drag-handle"]');
+    if (!handle) {
+      return;
+    }
+    let active = false;
+    let startX = 0;
+    let startY = 0;
+    let baseX = 0;
+    let baseY = 0;
+    handle.addEventListener("pointerdown", (event) => {
+      active = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      if (!node) {
+        active = false;
+        return;
       }
-      return;
-    }
-    dom.stubOutput.textContent = state.stub;
-    dom.copyStubBtn.disabled = false;
-    if (window.hljs && window.hljs.highlightElement) {
-      window.hljs.highlightElement(dom.stubOutput);
-    }
-  }
-
-  function invalidateStub(autoRefresh = false) {
-    const hadStub = !!state.stub;
-    state.stub = null;
-    state.strategies = null;
-    renderStub();
-    renderStrategyNotes();
-    if (autoRefresh && hadStub && state.inputs.length && state.outputs.length && !state.isGenerating) {
-      generateStub(true);
-    }
-  }
-
-  function updateSelectionCollections(kind, collection) {
-    state[kind] = collection.map((item) => ({ ...item, key: keyFor(item.id, item.version) }));
-  }
-
-  async function focusContract(contractId, version) {
-    if (!contractId || !version) {
-      return;
-    }
-    const key = keyFor(contractId, version);
-    if (contractCache.has(key)) {
-      state.detail = contractCache.get(key);
-      state.detailKey = key;
-      state.detailPage = 1;
-      renderContractDetail();
-      return;
-    }
-    dom.contractDetailPlaceholder.textContent = "Loading contract details…";
-    dom.contractDetail.classList.add("d-none");
-    dom.contractDetailPlaceholder.classList.remove("d-none");
-    dom.contractDetailError.classList.add("d-none");
-    try {
-      const response = await fetch(`/api/integration-helper/contracts/${encodeURIComponent(contractId)}/${encodeURIComponent(version)}`);
-      if (!response.ok) {
-        throw new Error(`Failed to load contract: ${response.status}`);
+      baseX = node.position.x;
+      baseY = node.position.y;
+      element.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!active) {
+        return;
       }
-      const data = await response.json();
-      const detail = { summary: data.summary || {}, contract: data.contract || {} };
-      contractCache.set(key, detail);
-      state.detail = detail;
-      state.detailKey = key;
-      state.detailPage = 1;
-      renderContractDetail();
-    } catch (error) {
-      dom.contractDetailError.textContent = error.message || String(error);
-      dom.contractDetailError.classList.remove("d-none");
-      dom.contractDetailPlaceholder.classList.remove("d-none");
+      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      if (!node) {
+        return;
+      }
+      const deltaX = event.clientX - startX;
+      const deltaY = event.clientY - startY;
+      node.position.x = Math.max(16, baseX + deltaX);
+      node.position.y = Math.max(16, baseY + deltaY);
+      element.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
+      requestAnimationFrame(renderConnections);
+    });
+    handle.addEventListener("pointerup", () => {
+      active = false;
+      requestAnimationFrame(renderConnections);
+    });
+    handle.addEventListener("pointercancel", () => {
+      active = false;
+    });
+  }
+
+  function setHoverHandle(handle) {
+    state.hoverHandle = handle;
+  }
+
+  function clearHoverHandle(handle) {
+    if (state.hoverHandle === handle) {
+      state.hoverHandle = null;
     }
   }
 
-  function applyServerStrategies(selected) {
+  function beginConnection(event, payload) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = payload.element.getBoundingClientRect();
+    const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+    const start = {
+      x: rect.left + rect.width / 2 - canvasRect.left,
+      y: rect.top + rect.height / 2 - canvasRect.top,
+    };
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line.setAttribute("stroke-dasharray", "6 4");
+    dom.pipelineConnections.appendChild(line);
+    state.activeConnection = {
+      payload,
+      line,
+      start,
+    };
+    const onMove = (moveEvent) => {
+      if (!state.activeConnection) {
+        return;
+      }
+      const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+      const point = {
+        x: moveEvent.clientX - canvasRect.left,
+        y: moveEvent.clientY - canvasRect.top,
+      };
+      drawConnectionPath(line, state.activeConnection.start, point);
+    };
+    const onEnd = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onEnd);
+      if (state.activeConnection) {
+        dom.pipelineConnections.removeChild(state.activeConnection.line);
+        const target = state.hoverHandle;
+        if (target) {
+          completeConnection(state.activeConnection.payload, target);
+        }
+        state.activeConnection = null;
+      }
+      renderConnections();
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onEnd);
+  }
+
+  function drawConnectionPath(pathElement, start, end) {
+    const dx = Math.abs(end.x - start.x) * 0.5;
+    const c1x = start.x + dx;
+    const c2x = end.x - dx;
+    const d = `M ${start.x} ${start.y} C ${c1x} ${start.y}, ${c2x} ${end.y}, ${end.x} ${end.y}`;
+    pathElement.setAttribute("d", d);
+  }
+
+  function completeConnection(source, target) {
+    const targetNode = target.closest(".pipeline-node");
+    if (!targetNode) {
+      return;
+    }
+    const targetNodeId = targetNode.dataset.nodeId;
+    if (!targetNodeId) {
+      return;
+    }
+    if (source.kind === "contract-output") {
+      if (target.dataset.role !== "drop") {
+        return;
+      }
+      const transformation = findTransformation(targetNodeId);
+      if (!transformation) {
+        return;
+      }
+      const contractNode = findContractNode(source.contractNodeId);
+      if (!contractNode) {
+        return;
+      }
+      addTransformationConnection(transformation.id, contractNode.id, "inputs");
+    } else if (source.kind === "transformation-output") {
+      if (target.dataset.role !== "input") {
+        return;
+      }
+      const contractNode = findContractNode(targetNodeId);
+      if (!contractNode) {
+        return;
+      }
+      const transformation = findTransformation(source.transformationId);
+      if (!transformation) {
+        return;
+      }
+      addTransformationConnection(transformation.id, contractNode.id, "outputs");
+    }
+  }
+
+  function addTransformationConnection(transformationId, contractNodeId, kind) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    const list = kind === "inputs" ? transformation.inputs : transformation.outputs;
+    if (list.some((conn) => conn.contractNodeId === contractNodeId)) {
+      return;
+    }
+    list.push({ id: createId("link"), contractNodeId });
+    renderPipeline();
+    markTransformationDirty(transformationId);
+  }
+
+  function removeTransformationConnection(transformationId, connectionId, kind) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    const list = kind === "inputs" ? transformation.inputs : transformation.outputs;
+    const next = list.filter((conn) => conn.id !== connectionId);
+    if (next.length === list.length) {
+      return;
+    }
+    if (kind === "inputs") {
+      transformation.inputs = next;
+    } else {
+      transformation.outputs = next;
+    }
+    renderPipeline();
+    markTransformationDirty(transformationId);
+  }
+
+  function removeTransformation(transformationId) {
+    const target = findTransformation(transformationId);
+    if (target && target.pendingTimeout) {
+      clearTimeout(target.pendingTimeout);
+      target.pendingTimeout = null;
+    }
+    state.transformations = state.transformations.filter((item) => item.id !== transformationId);
+    renderPipeline();
+    renderTransformations();
+  }
+
+  function renderPipeline() {
+    ensurePlaceholder();
+    dom.pipelineCanvas.querySelectorAll(".pipeline-node").forEach((node) => node.remove());
+    state.contractNodes.forEach((node) => {
+      const element = buildContractNodeElement(node);
+      dom.pipelineCanvas.appendChild(element);
+      const outputHandle = document.createElement("div");
+      outputHandle.className = "handle-output";
+      outputHandle.dataset.role = "start";
+      outputHandle.title = "Drag to a transformation input";
+      outputHandle.innerHTML = "&#x25B6;";
+      element.appendChild(outputHandle);
+      outputHandle.addEventListener("pointerdown", (event) => beginConnection(event, {
+        kind: "contract-output",
+        contractNodeId: node.id,
+        element: outputHandle,
+      }));
+      outputHandle.addEventListener("pointerenter", () => setHoverHandle(outputHandle));
+      outputHandle.addEventListener("pointerleave", () => clearHoverHandle(outputHandle));
+      const inputHandle = document.createElement("div");
+      inputHandle.className = "handle-input";
+      inputHandle.dataset.role = "input";
+      inputHandle.title = "Drop transformation outputs here";
+      inputHandle.innerHTML = "&#x25C0;";
+      element.appendChild(inputHandle);
+      inputHandle.addEventListener("pointerenter", () => setHoverHandle(inputHandle));
+      inputHandle.addEventListener("pointerleave", () => clearHoverHandle(inputHandle));
+    });
+    state.transformations.forEach((transformation) => {
+      const element = buildTransformationNodeElement(transformation);
+      dom.pipelineCanvas.appendChild(element);
+    });
+    requestAnimationFrame(renderConnections);
+  }
+
+  function renderConnections() {
+    const svg = dom.pipelineConnections;
+    const canvasRect = dom.pipelineCanvas.getBoundingClientRect();
+    svg.setAttribute("width", canvasRect.width);
+    svg.setAttribute("height", canvasRect.height);
+    svg.setAttribute("viewBox", `0 0 ${canvasRect.width} ${canvasRect.height}`);
+    svg.innerHTML = "";
+    const positionFor = (element) => {
+      if (!element) {
+        return null;
+      }
+      const rect = element.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2 - canvasRect.left,
+        y: rect.top + rect.height / 2 - canvasRect.top,
+      };
+    };
+    state.transformations.forEach((transformation) => {
+      transformation.inputs.forEach((conn) => {
+        const contractElement = dom.pipelineCanvas.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-output`);
+        const targetAnchor = dom.pipelineCanvas.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
+        const start = positionFor(contractElement);
+        const end = positionFor(targetAnchor);
+        if (!start || !end) {
+          return;
+        }
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        drawConnectionPath(path, start, end);
+        path.dataset.kind = "input";
+        svg.appendChild(path);
+      });
+      transformation.outputs.forEach((conn) => {
+        const sourceAnchor = dom.pipelineCanvas.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
+        const targetElement = dom.pipelineCanvas.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-input`);
+        const start = positionFor(sourceAnchor);
+        const end = positionFor(targetElement);
+        if (!start || !end) {
+          return;
+        }
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        drawConnectionPath(path, start, end);
+        path.dataset.kind = "output";
+        svg.appendChild(path);
+      });
+    });
+  }
+
+  function addTransformation() {
+    const transformation = {
+      id: createId("transformation"),
+      name: `Transformation ${state.transformations.length + 1}`,
+      position: {
+        x: 320 + state.transformations.length * 60,
+        y: 120 + state.transformations.length * 80,
+      },
+      integration: integrationOptionsData.length ? integrationOptionsData[0].value : "spark",
+      readStrategy: "status",
+      writeStrategy: {
+        mode: "split",
+        includeValid: true,
+        includeReject: true,
+        failOnWarnings: false,
+      },
+      inputs: [],
+      outputs: [],
+      stub: "",
+      strategies: null,
+      selectedStrategies: null,
+      isGenerating: false,
+      error: null,
+      dirty: true,
+      pendingTimeout: null,
+    };
+    state.transformations.push(transformation);
+    renderPipeline();
+    renderTransformations();
+  }
+
+  function renderTransformations() {
+    dom.transformationList.innerHTML = "";
+    dom.transformationEmpty.classList.toggle("d-none", state.transformations.length > 0);
+    state.transformations.forEach((transformation) => {
+      const summary = document.createElement("div");
+      summary.className = "transformation-summary";
+      const inputs = transformation.inputs
+        .map((conn) => {
+          const node = findContractNode(conn.contractNodeId);
+          const meta = nodeSummary(node);
+          return `${meta.id || node.contractId} v${meta.version || node.version}`;
+        })
+        .join(", ");
+      const outputs = transformation.outputs
+        .map((conn) => {
+          const node = findContractNode(conn.contractNodeId);
+          const meta = nodeSummary(node);
+          return `${meta.id || node.contractId} v${meta.version || node.version}`;
+        })
+        .join(", ");
+      const readLabel = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy)?.label || transformation.readStrategy;
+      const writeLabel = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode)?.label || transformation.writeStrategy.mode;
+      summary.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start gap-3">
+          <div>
+            <h3 class="h6 mb-1">${escapeHtml(transformation.name)}</h3>
+            <p class="text-muted small mb-2">${escapeHtml(integrationLabel(transformation.integration))}</p>
+            <p class="text-muted small mb-1"><span class="fw-semibold">Inputs:</span> ${inputs || "None"}</p>
+            <p class="text-muted small mb-1"><span class="fw-semibold">Outputs:</span> ${outputs || "None"}</p>
+            <p class="text-muted small mb-0"><span class="fw-semibold">Strategies:</span> ${escapeHtml(readLabel)} read · ${escapeHtml(writeLabel)} write</p>
+          </div>
+          <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-primary" data-action="configure">Configure</button>
+            <button type="button" class="btn btn-outline-secondary" data-action="refresh">Regenerate</button>
+            <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
+          </div>
+        </div>
+        <div class="mt-3" data-role="status"></div>
+        <div class="mt-3" data-role="strategy-notes"></div>
+        <div class="mt-3" data-role="stub"></div>
+      `;
+      const statusContainer = summary.querySelector('[data-role="status"]');
+      const strategyContainer = summary.querySelector('[data-role="strategy-notes"]');
+      const stubContainer = summary.querySelector('[data-role="stub"]');
+      const configureButton = summary.querySelector('[data-action="configure"]');
+      const refreshButton = summary.querySelector('[data-action="refresh"]');
+      const removeButton = summary.querySelector('[data-action="remove"]');
+      configureButton.addEventListener("click", () => openTransformationModal(transformation.id));
+      refreshButton.addEventListener("click", () => generateTransformationStub(transformation.id, { auto: false }));
+      removeButton.addEventListener("click", () => removeTransformation(transformation.id));
+      if (!transformation.inputs.length || !transformation.outputs.length) {
+        statusContainer.innerHTML = '<div class="alert alert-warning small mb-0">Connect at least one input and one output contract to generate code.</div>';
+      } else if (transformation.error) {
+        statusContainer.innerHTML = `<div class="alert alert-danger small mb-0">${escapeHtml(transformation.error)}</div>`;
+      } else if (transformation.isGenerating) {
+        statusContainer.innerHTML = '<div class="text-muted small">Generating stub…</div>';
+      } else if (transformation.stub) {
+        statusContainer.innerHTML = '<div class="text-success small">Stub generated.</div>';
+      } else {
+        statusContainer.innerHTML = '<div class="text-muted small">Awaiting generation.</div>';
+      }
+      if (transformation.strategies) {
+        const notes = [];
+        if (transformation.strategies.read && transformation.strategies.read.length) {
+          notes.push(`
+            <div>
+              <h4 class="h6 mb-1">Read guidance</h4>
+              <ul class="strategy-note-list">${transformation.strategies.read
+                .map((item) => `<li><span class="fw-semibold">${escapeHtml(item.title)}:</span> ${escapeHtml(item.description)}</li>`)
+                .join("")}</ul>
+            </div>
+          `);
+        }
+        if (transformation.strategies.write && transformation.strategies.write.length) {
+          notes.push(`
+            <div class="mt-2">
+              <h4 class="h6 mb-1">Write guidance</h4>
+              <ul class="strategy-note-list">${transformation.strategies.write
+                .map((item) => `<li><span class="fw-semibold">${escapeHtml(item.title)}:</span> ${escapeHtml(item.description)}</li>`)
+                .join("")}</ul>
+            </div>
+          `);
+        }
+        strategyContainer.innerHTML = notes.join("");
+      } else {
+        strategyContainer.innerHTML = "";
+      }
+      if (transformation.stub) {
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = `
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h4 class="h6 mb-0">Generated code</h4>
+            <div class="btn-group btn-group-sm">
+              <button type="button" class="btn btn-outline-secondary" data-action="copy">Copy</button>
+            </div>
+          </div>
+          <pre class="mb-0"><code class="language-python">${escapeHtml(transformation.stub)}</code></pre>
+        `;
+        const copyButton = wrapper.querySelector('[data-action="copy"]');
+        copyButton.addEventListener("click", () => copyStub(transformation.stub, copyButton));
+        stubContainer.appendChild(wrapper);
+        if (window.hljs && window.hljs.highlightElement) {
+          wrapper.querySelectorAll("code").forEach((code) => window.hljs.highlightElement(code));
+        }
+      } else {
+        stubContainer.innerHTML = "";
+      }
+      dom.transformationList.appendChild(summary);
+      if (transformation.dirty && transformation.inputs.length && transformation.outputs.length && !transformation.isGenerating) {
+        scheduleStubRefresh(transformation.id);
+      }
+    });
+  }
+
+  function copyStub(text, button) {
+    if (!text) {
+      return;
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      const original = button.textContent;
+      button.textContent = "Copied!";
+      setTimeout(() => {
+        button.textContent = original;
+      }, 1500);
+    });
+  }
+
+  function openTransformationModal(transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    state.editingTransformationId = transformationId;
+    dom.transformationIntegration.innerHTML = (integrationOptionsData || [])
+      .map((option) => `<option value="${option.value}" ${option.value === transformation.integration ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+      .join("");
+    renderStrategyGroup(dom.transformationReadStrategies, READ_STRATEGY_OPTIONS, transformation.readStrategy, "readStrategy");
+    renderStrategyGroup(dom.transformationWriteStrategies, WRITE_STRATEGY_OPTIONS, transformation.writeStrategy.mode, "writeStrategy");
+    renderWriteToggles(transformation);
+    renderStrategyReminder(transformation);
+    if (bootstrapModal.transformation) {
+      bootstrapModal.transformation.show();
+    }
+  }
+
+  function renderStrategyGroup(container, options, selectedValue, groupName) {
+    container.innerHTML = "";
+    options.forEach((option) => {
+      const label = document.createElement("label");
+      label.className = `list-group-item d-flex align-items-start gap-2 ${option.value === selectedValue ? "active" : ""}`;
+      label.innerHTML = `
+        <input class="form-check-input mt-1" type="radio" name="${groupName}" value="${option.value}" ${option.value === selectedValue ? "checked" : ""} />
+        <div>
+          <div class="fw-semibold">${escapeHtml(option.label)}</div>
+          <div class="text-muted small">${escapeHtml(option.description)}</div>
+        </div>
+      `;
+      container.appendChild(label);
+    });
+  }
+
+  function renderWriteToggles(transformation) {
+    const toggle = dom.transformationWriteToggles;
+    toggle.innerHTML = "";
+    if (transformation.writeStrategy.mode !== "noop") {
+      toggle.innerHTML = `
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="toggleIncludeValid" ${transformation.writeStrategy.includeValid ? "checked" : ""}>
+          <label class="form-check-label" for="toggleIncludeValid">Emit valid subset</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="toggleIncludeReject" ${transformation.writeStrategy.includeReject ? "checked" : ""}>
+          <label class="form-check-label" for="toggleIncludeReject">Emit reject subset</label>
+        </div>
+      `;
+      if (transformation.writeStrategy.mode === "strict") {
+        toggle.innerHTML += `
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="toggleFailWarnings" ${transformation.writeStrategy.failOnWarnings ? "checked" : ""}>
+            <label class="form-check-label" for="toggleFailWarnings">Fail on warnings</label>
+          </div>
+        `;
+      }
+    }
+  }
+
+  function renderStrategyReminder(transformation) {
+    const readLabel = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy)?.label || transformation.readStrategy;
+    const writeLabel = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode)?.label || transformation.writeStrategy.mode;
+    dom.transformationStrategyNotes.textContent = `Current selection: ${readLabel} read · ${writeLabel} write.`;
+  }
+
+  function saveTransformationConfig() {
+    const transformation = findTransformation(state.editingTransformationId);
+    if (!transformation) {
+      return;
+    }
+    transformation.integration = dom.transformationIntegration.value || transformation.integration;
+    const readSelection = dom.transformationReadStrategies.querySelector('input[name="readStrategy"]:checked');
+    const writeSelection = dom.transformationWriteStrategies.querySelector('input[name="writeStrategy"]:checked');
+    if (readSelection) {
+      transformation.readStrategy = readSelection.value;
+    }
+    if (writeSelection) {
+      transformation.writeStrategy.mode = writeSelection.value;
+    }
+    if (transformation.writeStrategy.mode !== "noop") {
+      const includeValid = document.getElementById("toggleIncludeValid");
+      const includeReject = document.getElementById("toggleIncludeReject");
+      transformation.writeStrategy.includeValid = includeValid ? includeValid.checked : transformation.writeStrategy.includeValid;
+      transformation.writeStrategy.includeReject = includeReject ? includeReject.checked : transformation.writeStrategy.includeReject;
+    }
+    if (transformation.writeStrategy.mode === "strict") {
+      const fail = document.getElementById("toggleFailWarnings");
+      transformation.writeStrategy.failOnWarnings = fail ? fail.checked : transformation.writeStrategy.failOnWarnings;
+    } else {
+      transformation.writeStrategy.failOnWarnings = false;
+    }
+    markTransformationDirty(transformation.id);
+    renderTransformations();
+    if (bootstrapModal.transformation) {
+      bootstrapModal.transformation.hide();
+    }
+  }
+
+  function markTransformationDirty(transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
+      return;
+    }
+    transformation.dirty = true;
+    transformation.error = null;
+    renderTransformations();
+  }
+
+  function scheduleStubRefresh(transformationId) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation || transformation.pendingTimeout) {
+      return;
+    }
+    transformation.pendingTimeout = setTimeout(() => {
+      transformation.pendingTimeout = null;
+      generateTransformationStub(transformationId, { auto: true });
+    }, 400);
+  }
+
+  function applyServerStrategies(transformation, selected) {
     if (!selected) {
       return;
     }
     if (selected.read && READ_STRATEGY_OPTIONS.some((option) => option.value === selected.read.mode)) {
-      state.readStrategy = selected.read.mode;
+      transformation.readStrategy = selected.read.mode;
     }
     if (selected.write && WRITE_STRATEGY_OPTIONS.some((option) => option.value === selected.write.mode)) {
-      state.writeStrategy.mode = selected.write.mode;
+      transformation.writeStrategy.mode = selected.write.mode;
       if (Object.prototype.hasOwnProperty.call(selected.write, "include_valid")) {
-        state.writeStrategy.includeValid = !!selected.write.include_valid;
+        transformation.writeStrategy.includeValid = !!selected.write.include_valid;
       }
       if (Object.prototype.hasOwnProperty.call(selected.write, "include_reject")) {
-        state.writeStrategy.includeReject = !!selected.write.include_reject;
+        transformation.writeStrategy.includeReject = !!selected.write.include_reject;
       }
       if (Object.prototype.hasOwnProperty.call(selected.write, "fail_on_warnings")) {
-        state.writeStrategy.failOnWarnings = !!selected.write.fail_on_warnings;
+        transformation.writeStrategy.failOnWarnings = !!selected.write.fail_on_warnings;
       }
     }
-    renderReadStrategyControls();
-    renderWriteStrategyControls();
-    renderStrategySummary();
   }
 
-  async function generateStub(autoTriggered = false) {
-    if (!state.inputs.length || !state.outputs.length || state.isGenerating) {
+  async function generateTransformationStub(transformationId, { auto }) {
+    const transformation = findTransformation(transformationId);
+    if (!transformation) {
       return;
     }
-    state.isGenerating = true;
-    dom.generateStubBtn.disabled = true;
-    const originalLabel = dom.generateStubBtn.textContent;
-    dom.generateStubBtn.textContent = autoTriggered ? "Refreshing…" : "Generating…";
-    dom.stubError.classList.add("d-none");
+    if (!transformation.inputs.length || !transformation.outputs.length) {
+      transformation.dirty = false;
+      renderTransformations();
+      return;
+    }
+    if (transformation.isGenerating) {
+      return;
+    }
+    transformation.isGenerating = true;
+    transformation.error = null;
+    renderTransformations();
+    const payload = {
+      integration: transformation.integration,
+      inputs: transformation.inputs.map((conn) => {
+        const node = findContractNode(conn.contractNodeId);
+        return { contract_id: node?.contractId || "", version: node?.version || "" };
+      }),
+      outputs: transformation.outputs.map((conn) => {
+        const node = findContractNode(conn.contractNodeId);
+        return { contract_id: node?.contractId || "", version: node?.version || "" };
+      }),
+      read_strategy: { mode: transformation.readStrategy },
+      write_strategy: {
+        mode: transformation.writeStrategy.mode,
+      },
+    };
+    if (transformation.writeStrategy.mode !== "noop") {
+      payload.write_strategy.include_valid = !!transformation.writeStrategy.includeValid;
+      payload.write_strategy.include_reject = !!transformation.writeStrategy.includeReject;
+    }
+    if (transformation.writeStrategy.mode === "strict") {
+      payload.write_strategy.fail_on_warnings = !!transformation.writeStrategy.failOnWarnings;
+    }
     try {
-      const payload = {
-        integration: state.integration,
-        inputs: state.inputs.map((item) => ({ contract_id: item.id, version: item.version })),
-        outputs: state.outputs.map((item) => ({ contract_id: item.id, version: item.version })),
-        read_strategy: { mode: state.readStrategy },
-        write_strategy: {
-          mode: state.writeStrategy.mode,
-        },
-      };
-      if (state.writeStrategy.mode !== "noop") {
-        payload.write_strategy.include_valid = !!state.writeStrategy.includeValid;
-        payload.write_strategy.include_reject = !!state.writeStrategy.includeReject;
-      }
-      if (state.writeStrategy.mode === "strict") {
-        payload.write_strategy.fail_on_warnings = !!state.writeStrategy.failOnWarnings;
-      }
       const response = await fetch("/api/integration-helper/stub", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -939,102 +1472,36 @@
         throw new Error(message || `Request failed with status ${response.status}`);
       }
       const data = await response.json();
-      state.stub = data.stub || "";
-      state.strategies = data.strategies || null;
-      if (data.contracts) {
-        if (data.contracts.inputs) {
-          updateSelectionCollections("inputs", data.contracts.inputs);
-        }
-        if (data.contracts.outputs) {
-          updateSelectionCollections("outputs", data.contracts.outputs);
-        }
-        renderSelection();
-      }
-      if (data.selected_strategies) {
-        applyServerStrategies(data.selected_strategies);
-      }
-      renderStrategyNotes();
-      renderStub();
+      transformation.stub = data.stub || "";
+      transformation.strategies = data.strategies || null;
+      transformation.selectedStrategies = data.selected_strategies || null;
+      applyServerStrategies(transformation, transformation.selectedStrategies);
+      transformation.dirty = false;
     } catch (error) {
-      dom.stubError.textContent = error.message || String(error);
-      dom.stubError.classList.remove("d-none");
+      transformation.error = error.message || String(error);
     } finally {
-      state.isGenerating = false;
-      dom.generateStubBtn.textContent = originalLabel;
-      dom.generateStubBtn.disabled = !(state.inputs.length && state.outputs.length);
+      transformation.isGenerating = false;
+      renderTransformations();
     }
   }
 
-  async function copyStub() {
-    if (!state.stub) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(state.stub);
-      const original = dom.copyStubBtn.textContent;
-      dom.copyStubBtn.textContent = "Copied!";
-      setTimeout(() => {
-        dom.copyStubBtn.textContent = original;
-      }, 1500);
-    } catch (error) {
-      dom.stubError.textContent = "Failed to copy stub to clipboard.";
-      dom.stubError.classList.remove("d-none");
-    }
+  function registerEventListeners() {
+    dom.contractSearch.addEventListener("input", () => {
+      state.filter = dom.contractSearch.value || "";
+      renderCatalogList();
+    });
+    dom.addTransformationBtn.addEventListener("click", addTransformation);
+    dom.saveTransformationConfig.addEventListener("click", saveTransformationConfig);
+    window.addEventListener("resize", () => requestAnimationFrame(renderConnections));
   }
 
-  dom.contractSearch.addEventListener("input", (event) => {
-    state.filter = event.target.value || "";
+  function initialise() {
     renderCatalogList();
-  });
-
-  dom.integrationSelect.addEventListener("change", (event) => {
-    state.integration = event.target.value;
-    renderSelection();
-    invalidateStub(true);
-  });
-
-  dom.writeIncludeValid.addEventListener("change", (event) => {
-    state.writeStrategy.includeValid = !!event.target.checked;
-    if (!state.writeStrategy.includeValid && !state.writeStrategy.includeReject) {
-      state.writeStrategy.includeReject = true;
-      dom.writeIncludeReject.checked = true;
-    }
-    renderStrategySummary();
-    invalidateStub(true);
-  });
-
-  dom.writeIncludeReject.addEventListener("change", (event) => {
-    state.writeStrategy.includeReject = !!event.target.checked;
-    if (!state.writeStrategy.includeValid && !state.writeStrategy.includeReject) {
-      state.writeStrategy.includeValid = true;
-      dom.writeIncludeValid.checked = true;
-    }
-    renderStrategySummary();
-    invalidateStub(true);
-  });
-
-  dom.writeFailWarnings.addEventListener("change", (event) => {
-    state.writeStrategy.failOnWarnings = !!event.target.checked;
-    renderStrategySummary();
-    invalidateStub(true);
-  });
-
-  dom.generateStubBtn.addEventListener("click", () => generateStub(false));
-  dom.copyStubBtn.addEventListener("click", copyStub);
-
-  renderCatalogList();
-  renderSelection();
-  renderReadStrategyControls();
-  renderWriteStrategyControls();
-  renderStrategySummary();
-  renderStrategyNotes();
-  renderStub();
-
-{% if catalog %}
-  const firstContract = catalogData[0];
-  if (firstContract) {
-    focusContract(firstContract.id, firstContract.latestVersion || (firstContract.versions || [])[0]);
+    renderPipeline();
+    renderTransformations();
+    registerEventListeners();
   }
-{% endif %}
+
+  initialise();
 </script>
 {% endblock %}
