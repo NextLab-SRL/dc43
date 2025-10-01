@@ -60,13 +60,25 @@
   .pipeline-node .node-header {
     border-bottom: 1px solid var(--bs-border-color);
     padding: 0.75rem 0.75rem 0.5rem;
-    cursor: move;
+    cursor: grab;
     display: flex;
     justify-content: space-between;
     gap: 0.75rem;
+    user-select: none;
+    touch-action: none;
+  }
+  .pipeline-node .node-header.is-dragging {
+    cursor: grabbing;
   }
   .pipeline-node .node-body {
     padding: 0.75rem;
+  }
+  .pipeline-node .node-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
   .pipeline-node .handle-input,
   .pipeline-node .handle-output {
@@ -197,13 +209,77 @@
   .transformation-summary + .transformation-summary {
     margin-top: 1.5rem;
   }
-  .strategy-note-list {
-    list-style: none;
-    padding-left: 0;
-    margin-bottom: 0;
+  .strategy-section,
+  .code-section {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-lg);
+    background: var(--bs-body-bg);
+    margin-top: 1rem;
+    overflow: hidden;
   }
-  .strategy-note-list li + li {
-    margin-top: 0.5rem;
+  .strategy-section summary,
+  .code-section summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+  }
+  .strategy-section summary::marker,
+  .strategy-section summary::-webkit-details-marker,
+  .code-section summary::marker,
+  .code-section summary::-webkit-details-marker {
+    display: none;
+  }
+  .strategy-section summary::after,
+  .code-section summary::after {
+    content: "\25BC";
+    font-size: 0.75rem;
+    transition: transform 0.2s ease-in-out;
+  }
+  .strategy-section[open] summary::after,
+  .code-section[open] summary::after {
+    transform: rotate(180deg);
+  }
+  .strategy-section .strategy-note-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .strategy-section .strategy-note-list li {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: 0.75rem 1rem;
+    background: rgba(var(--bs-primary-rgb), 0.03);
+  }
+  .strategy-note-title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+  .strategy-note-description {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+    line-height: 1.5;
+  }
+  .code-section .code-toolbar {
+    padding: 0 1rem 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+  }
+  .code-section pre {
+    margin: 0;
+    padding: 1rem;
+    border-top: 1px solid var(--bs-border-color);
+    background: #0f172a;
+    border-radius: 0 0 var(--bs-border-radius-lg) var(--bs-border-radius-lg);
   }
   @media (max-width: 991.98px) {
     .helper-sidebar {
@@ -370,6 +446,14 @@
     },
   ];
 
+  const CODE_LANGUAGE_OPTIONS = [
+    { value: "python", label: "Python" },
+    { value: "scala", label: "Scala" },
+    { value: "sql", label: "SQL" },
+    { value: "java", label: "Java" },
+    { value: "plaintext", label: "Plain text" },
+  ];
+
   const contractCache = new Map();
   const state = {
     catalog: catalogData || [],
@@ -442,6 +526,15 @@
   function integrationLabel(value) {
     const found = (integrationOptionsData || []).find((item) => item.value === value);
     return found ? found.label : value;
+  }
+
+  function integrationDefaultLanguage(value) {
+    switch ((value || "").toLowerCase()) {
+      case "spark":
+        return "python";
+      default:
+        return "plaintext";
+    }
   }
 
   function findContractNode(nodeId) {
@@ -726,15 +819,15 @@
           <div class="fw-semibold">${escapeHtml(summary.name || summary.id || node.contractId)}</div>
           <div class="small text-muted">${escapeHtml(node.contractId)} · v${escapeHtml(node.version)}</div>
         </div>
-        <div class="btn-group btn-group-sm">
-          <button type="button" class="btn btn-outline-primary" data-action="preview">Preview</button>
-          <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
-        </div>
       </div>
       <div class="node-body">
         ${dataset}
         ${description}
         ${nodeFieldsMarkup(summary)}
+        <div class="node-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
       </div>
     `;
     const previewButton = element.querySelector('[data-action="preview"]');
@@ -759,10 +852,6 @@
           <div class="fw-semibold">${escapeHtml(transformation.name)}</div>
           <div class="small text-muted">${escapeHtml(integrationLabel(transformation.integration))}</div>
         </div>
-        <div class="btn-group btn-group-sm">
-          <button type="button" class="btn btn-outline-primary" data-action="configure">Configure</button>
-          <button type="button" class="btn btn-outline-danger" data-action="remove">Remove</button>
-        </div>
       </div>
       <div class="node-body">
         <div class="mb-3">
@@ -774,6 +863,10 @@
           <h3 class="h6 text-uppercase text-muted">Outputs</h3>
           <div class="connector-list" data-role="outputs"></div>
           <div class="connector-empty small" data-role="output-placeholder">Drag from the right handle into a contract input.</div>
+        </div>
+        <div class="node-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Configure</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
         </div>
       </div>
     `;
@@ -877,27 +970,14 @@
     if (!handle) {
       return;
     }
-    let active = false;
+    let activePointerId = null;
     let startX = 0;
     let startY = 0;
     let baseX = 0;
     let baseY = 0;
-    handle.addEventListener("pointerdown", (event) => {
-      active = true;
-      startX = event.clientX;
-      startY = event.clientY;
-      const node = findContractNode(nodeId) || findTransformation(nodeId);
-      if (!node) {
-        active = false;
-        return;
-      }
-      baseX = node.position.x;
-      baseY = node.position.y;
-      element.setPointerCapture(event.pointerId);
-      event.preventDefault();
-    });
-    handle.addEventListener("pointermove", (event) => {
-      if (!active) {
+
+    const updatePosition = (event) => {
+      if (event.pointerId !== activePointerId) {
         return;
       }
       const node = findContractNode(nodeId) || findTransformation(nodeId);
@@ -910,13 +990,51 @@
       node.position.y = Math.max(16, baseY + deltaY);
       element.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
       requestAnimationFrame(renderConnections);
-    });
-    handle.addEventListener("pointerup", () => {
-      active = false;
+    };
+
+    const endDrag = (event) => {
+      if (event.pointerId !== activePointerId) {
+        return;
+      }
+      activePointerId = null;
+      handle.classList.remove("is-dragging");
+      element.classList.remove("is-dragging");
+      window.removeEventListener("pointermove", updatePosition);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+      if (element.hasPointerCapture && element.hasPointerCapture(event.pointerId)) {
+        element.releasePointerCapture(event.pointerId);
+      }
       requestAnimationFrame(renderConnections);
+    };
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button && event.button !== 0) {
+        return;
+      }
+      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      if (!node) {
+        return;
+      }
+      activePointerId = event.pointerId;
+      startX = event.clientX;
+      startY = event.clientY;
+      baseX = node.position.x;
+      baseY = node.position.y;
+      if (element.setPointerCapture) {
+        element.setPointerCapture(event.pointerId);
+      }
+      handle.classList.add("is-dragging");
+      element.classList.add("is-dragging");
+      window.addEventListener("pointermove", updatePosition);
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
+      event.preventDefault();
     });
-    handle.addEventListener("pointercancel", () => {
-      active = false;
+    element.addEventListener("lostpointercapture", (event) => {
+      if (activePointerId !== null) {
+        endDrag(event);
+      }
     });
   }
 
@@ -1148,6 +1266,7 @@
   }
 
   function addTransformation() {
+    const initialIntegration = integrationOptionsData.length ? integrationOptionsData[0].value : "spark";
     const transformation = {
       id: createId("transformation"),
       name: `Transformation ${state.transformations.length + 1}`,
@@ -1155,7 +1274,7 @@
         x: 320 + state.transformations.length * 60,
         y: 120 + state.transformations.length * 80,
       },
-      integration: integrationOptionsData.length ? integrationOptionsData[0].value : "spark",
+      integration: initialIntegration,
       readStrategy: "status",
       writeStrategy: {
         mode: "split",
@@ -1172,16 +1291,102 @@
       error: null,
       dirty: true,
       pendingTimeout: null,
+      stubLanguage: integrationDefaultLanguage(initialIntegration),
+      stubLanguageManual: false,
     };
     state.transformations.push(transformation);
     renderPipeline();
     renderTransformations();
   }
 
+  function buildStrategySection(title, items) {
+    if (!items || !items.length) {
+      return "";
+    }
+    const notes = items
+      .map((item) => {
+        const description = escapeHtml(item.description).replace(/\n/g, "<br />");
+        return `
+          <li>
+            <div class="strategy-note-title">${escapeHtml(item.title)}</div>
+            <p class="strategy-note-description">${description}</p>
+          </li>
+        `;
+      })
+      .join("");
+    return `
+      <details class="strategy-section" open>
+        <summary>${escapeHtml(title)}</summary>
+        <ul class="strategy-note-list">${notes}</ul>
+      </details>
+    `;
+  }
+
+  function applyCodeHighlight(codeElement, language, source) {
+    if (!codeElement) {
+      return;
+    }
+    const lang = language || "plaintext";
+    if (typeof source === "string") {
+      codeElement.textContent = source;
+    }
+    codeElement.className = `language-${lang}`;
+    if (window.hljs && window.hljs.highlightElement) {
+      window.hljs.highlightElement(codeElement);
+    }
+  }
+
+  function buildCodeSection(transformation) {
+    const language = transformation.stubLanguage || integrationDefaultLanguage(transformation.integration);
+    const selectId = `${transformation.id}-language`;
+    const section = document.createElement("details");
+    section.className = "code-section";
+    section.open = true;
+    section.innerHTML = `
+      <summary>Generated code</summary>
+      <div class="code-toolbar">
+        <label class="form-label small mb-0" for="${selectId}">Highlight as</label>
+        <select class="form-select form-select-sm w-auto" id="${selectId}" data-role="language">
+          ${CODE_LANGUAGE_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === language ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-action="copy">Copy</button>
+      </div>
+      <pre class="mb-0"><code data-role="code" class="language-${language}">${escapeHtml(transformation.stub)}</code></pre>
+    `;
+    const languageSelect = section.querySelector('[data-role="language"]');
+    const copyButton = section.querySelector('[data-action="copy"]');
+    const codeElement = section.querySelector("code");
+    if (languageSelect) {
+      languageSelect.addEventListener("pointerdown", (event) => event.stopPropagation());
+      languageSelect.addEventListener("change", (event) => {
+        event.stopPropagation();
+        const value = languageSelect.value || "plaintext";
+        transformation.stubLanguage = value;
+        transformation.stubLanguageManual = value !== integrationDefaultLanguage(transformation.integration);
+        applyCodeHighlight(codeElement, value, transformation.stub);
+      });
+    }
+    if (copyButton) {
+      copyButton.addEventListener("pointerdown", (event) => event.stopPropagation());
+      copyButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        copyStub(transformation.stub, copyButton);
+      });
+    }
+    applyCodeHighlight(codeElement, language, transformation.stub);
+    return section;
+  }
+
   function renderTransformations() {
     dom.transformationList.innerHTML = "";
     dom.transformationEmpty.classList.toggle("d-none", state.transformations.length > 0);
     state.transformations.forEach((transformation) => {
+      if (!transformation.stubLanguage) {
+        transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
+      }
+      if (typeof transformation.stubLanguageManual !== "boolean") {
+        transformation.stubLanguageManual = false;
+      }
       const summary = document.createElement("div");
       summary.className = "transformation-summary";
       const inputs = transformation.inputs
@@ -1240,50 +1445,24 @@
         statusContainer.innerHTML = '<div class="text-muted small">Awaiting generation.</div>';
       }
       if (transformation.strategies) {
-        const notes = [];
+        const sections = [];
         if (transformation.strategies.read && transformation.strategies.read.length) {
-          notes.push(`
-            <div>
-              <h4 class="h6 mb-1">Read guidance</h4>
-              <ul class="strategy-note-list">${transformation.strategies.read
-                .map((item) => `<li><span class="fw-semibold">${escapeHtml(item.title)}:</span> ${escapeHtml(item.description)}</li>`)
-                .join("")}</ul>
-            </div>
-          `);
+          sections.push(buildStrategySection("Read guidance", transformation.strategies.read));
         }
         if (transformation.strategies.write && transformation.strategies.write.length) {
-          notes.push(`
-            <div class="mt-2">
-              <h4 class="h6 mb-1">Write guidance</h4>
-              <ul class="strategy-note-list">${transformation.strategies.write
-                .map((item) => `<li><span class="fw-semibold">${escapeHtml(item.title)}:</span> ${escapeHtml(item.description)}</li>`)
-                .join("")}</ul>
-            </div>
-          `);
+          sections.push(buildStrategySection("Write guidance", transformation.strategies.write));
         }
-        strategyContainer.innerHTML = notes.join("");
+        strategyContainer.innerHTML = sections.join("");
       } else {
         strategyContainer.innerHTML = "";
       }
+      stubContainer.innerHTML = "";
       if (transformation.stub) {
-        const wrapper = document.createElement("div");
-        wrapper.innerHTML = `
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h4 class="h6 mb-0">Generated code</h4>
-            <div class="btn-group btn-group-sm">
-              <button type="button" class="btn btn-outline-secondary" data-action="copy">Copy</button>
-            </div>
-          </div>
-          <pre class="mb-0"><code class="language-python">${escapeHtml(transformation.stub)}</code></pre>
-        `;
-        const copyButton = wrapper.querySelector('[data-action="copy"]');
-        copyButton.addEventListener("click", () => copyStub(transformation.stub, copyButton));
-        stubContainer.appendChild(wrapper);
-        if (window.hljs && window.hljs.highlightElement) {
-          wrapper.querySelectorAll("code").forEach((code) => window.hljs.highlightElement(code));
+        if (!transformation.stubLanguage) {
+          transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
         }
-      } else {
-        stubContainer.innerHTML = "";
+        const section = buildCodeSection(transformation);
+        stubContainer.appendChild(section);
       }
       dom.transformationList.appendChild(summary);
       if (transformation.dirty && transformation.inputs.length && transformation.outputs.length && !transformation.isGenerating) {
@@ -1376,6 +1555,7 @@
     if (!transformation) {
       return;
     }
+    const previousIntegration = transformation.integration;
     transformation.integration = dom.transformationIntegration.value || transformation.integration;
     const readSelection = dom.transformationReadStrategies.querySelector('input[name="readStrategy"]:checked');
     const writeSelection = dom.transformationWriteStrategies.querySelector('input[name="writeStrategy"]:checked');
@@ -1396,6 +1576,9 @@
       transformation.writeStrategy.failOnWarnings = fail ? fail.checked : transformation.writeStrategy.failOnWarnings;
     } else {
       transformation.writeStrategy.failOnWarnings = false;
+    }
+    if (previousIntegration !== transformation.integration && !transformation.stubLanguageManual) {
+      transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
     }
     markTransformationDirty(transformation.id);
     renderTransformations();
