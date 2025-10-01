@@ -1,4 +1,6 @@
 [contract_store]
+# Filesystem contract store configuration. ``type`` controls the active backend.
+type = "filesystem"
 # Path to the filesystem contract store. Defaults to a "contracts" directory
 # inside the current working directory when unset.
 root = ""

@@ -2,11 +2,49 @@
 # Copy this file to a writable location (e.g. /etc/dc43/service-backends.toml)
 # and adjust the values to match your environment.
 
+# ---------------------------------------------------------------------------
+# Filesystem-backed contract store
+# ---------------------------------------------------------------------------
 [contract_store]
+type = "filesystem"
 # Absolute or relative path to the contract store directory. The application
 # creates the directory when it does not exist. Use "~" to reference the
 # current user's home directory.
 root = "./contracts"
+
+# ---------------------------------------------------------------------------
+# Collibra stub contract store (uncomment this block and comment the filesystem
+# configuration above if you want to emulate Collibra locally).
+# ---------------------------------------------------------------------------
+# [contract_store]
+# type = "collibra_stub"
+# # Optional location for the stub cache on disk. Leave blank to use a temp dir.
+# base_path = "./.collibra-cache"
+# # Apply a workflow status when contracts are written.
+# default_status = "Draft"
+# # Limit visible versions to a specific status (e.g. Validated).
+# status_filter = ""
+#
+# [contract_store.catalog."product-quality"]
+# data_product = "data-products/customer"
+# port = "gold-quality"
+
+# ---------------------------------------------------------------------------
+# Collibra HTTP contract store (uncomment when pointing at a live Collibra
+# deployment).
+# ---------------------------------------------------------------------------
+# [contract_store]
+# type = "collibra_http"
+# base_url = "https://collibra.example.com"
+# token = "$COLLIBRA_API_TOKEN"
+# timeout = 10.0
+# default_status = "Draft"
+# status_filter = "Validated"
+# contracts_endpoint_template = "/rest/2.0/dataproducts/{data_product}/ports/{port}/contracts"
+#
+# [contract_store.catalog."product-quality"]
+# data_product = "data-products/customer"
+# port = "gold-quality"
 
 [auth]
 # Optional bearer token that clients must supply via the Authorization header.

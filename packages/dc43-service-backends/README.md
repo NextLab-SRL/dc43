@@ -8,4 +8,5 @@ governance, or quality enforcement backends.
 
 The service backend HTTP application reads its settings from TOML files. Refer
 to [docs/service-backends-configuration.md](../../docs/service-backends-configuration.md)
-for the supported options and an editable template.
+for the supported options—including filesystem, Collibra stub, and Collibra HTTP
+contract stores—alongside editable templates.
