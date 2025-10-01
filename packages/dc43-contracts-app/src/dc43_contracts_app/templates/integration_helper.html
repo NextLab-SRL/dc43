@@ -405,9 +405,29 @@
   };
 
   const bootstrapModal = {
-    preview: dom.contractPreviewModal ? new bootstrap.Modal(dom.contractPreviewModal) : null,
-    transformation: dom.transformationConfigModal ? new bootstrap.Modal(dom.transformationConfigModal) : null,
+    preview: null,
+    transformation: null,
   };
+
+  function ensureBootstrapModal(key) {
+    const lib = window.bootstrap;
+    if (!lib) {
+      return null;
+    }
+    if (key === "preview" && dom.contractPreviewModal) {
+      if (!bootstrapModal.preview) {
+        bootstrapModal.preview = lib.Modal.getOrCreateInstance(dom.contractPreviewModal);
+      }
+      return bootstrapModal.preview;
+    }
+    if (key === "transformation" && dom.transformationConfigModal) {
+      if (!bootstrapModal.transformation) {
+        bootstrapModal.transformation = lib.Modal.getOrCreateInstance(dom.transformationConfigModal);
+      }
+      return bootstrapModal.transformation;
+    }
+    return null;
+  }
 
   function escapeHtml(value) {
     return (value ?? "")
@@ -665,13 +685,15 @@
       }
       dom.contractPreviewBody.innerHTML = "";
       dom.contractPreviewBody.appendChild(body);
-      if (bootstrapModal.preview) {
-        bootstrapModal.preview.show();
+      const modal = ensureBootstrapModal("preview");
+      if (modal) {
+        modal.show();
       }
     } catch (error) {
       dom.contractPreviewBody.innerHTML = `<div class="alert alert-danger">${escapeHtml(error.message || String(error))}</div>`;
-      if (bootstrapModal.preview) {
-        bootstrapModal.preview.show();
+      const modal = ensureBootstrapModal("preview");
+      if (modal) {
+        modal.show();
       }
     }
   }
@@ -1296,8 +1318,9 @@
     renderStrategyGroup(dom.transformationWriteStrategies, WRITE_STRATEGY_OPTIONS, transformation.writeStrategy.mode, "writeStrategy");
     renderWriteToggles(transformation);
     renderStrategyReminder(transformation);
-    if (bootstrapModal.transformation) {
-      bootstrapModal.transformation.show();
+    const modal = ensureBootstrapModal("transformation");
+    if (modal) {
+      modal.show();
     }
   }
 
@@ -1376,8 +1399,9 @@
     }
     markTransformationDirty(transformation.id);
     renderTransformations();
-    if (bootstrapModal.transformation) {
-      bootstrapModal.transformation.hide();
+    const modal = ensureBootstrapModal("transformation");
+    if (modal) {
+      modal.hide();
     }
   }
 
@@ -1494,6 +1518,11 @@
     dom.saveTransformationConfig.addEventListener("click", saveTransformationConfig);
     window.addEventListener("resize", () => requestAnimationFrame(renderConnections));
   }
+
+  window.addEventListener("load", () => {
+    ensureBootstrapModal("preview");
+    ensureBootstrapModal("transformation");
+  });
 
   function initialise() {
     renderCatalogList();
