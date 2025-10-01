@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from typing import Mapping, Sequence
 
-try:  # pragma: no cover - optional dependency guard
-    import httpx
-except ModuleNotFoundError as exc:  # pragma: no cover
-    raise ModuleNotFoundError(
-        "httpx is required to use the HTTP data-quality client. Install "
-        "'dc43-service-clients[http]' to enable it."
-    ) from exc
+import httpx
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43_service_clients._http_sync import ensure_response, close_client

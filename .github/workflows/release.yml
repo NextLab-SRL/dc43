@@ -97,14 +97,14 @@ jobs:
               pip install -e '.[test]'
               ;;
             dc43-service-clients)
-              pip install -e packages/dc43-service-clients
+              pip install -e packages/dc43-service-clients[http]
               ;;
             dc43-service-backends)
-              pip install -e packages/dc43-service-clients
+              pip install -e packages/dc43-service-clients[http]
               pip install -e packages/dc43-service-backends
               ;;
             dc43-integrations)
-              pip install -e packages/dc43-service-clients
+              pip install -e packages/dc43-service-clients[http]
               pip install -e packages/dc43-integrations
               ;;
             dc43-contracts-app)

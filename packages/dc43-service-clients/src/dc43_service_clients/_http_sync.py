@@ -7,19 +7,11 @@ import inspect
 import threading
 from typing import Any, Awaitable, TypeVar
 
-try:  # pragma: no cover - optional dependency guard
-    import httpx
-except ModuleNotFoundError as exc:  # pragma: no cover
-    raise ModuleNotFoundError(
-        "httpx is required to use the HTTP service clients. Install "
-        "'dc43-service-clients[http]' to enable them."
-    ) from exc
+import httpx
 
 T = TypeVar("T")
 
 _LOOP_LOCAL = threading.local()
-
-
 def _ensure_thread_loop() -> asyncio.AbstractEventLoop:
     """Return an event loop bound to the current thread."""
 
@@ -56,7 +48,7 @@ def _await_sync(awaitable: Awaitable[T]) -> T:
     )
 
 
-def ensure_response(result: Any) -> httpx.Response:
+def ensure_response(result: Any) -> "httpx.Response":
     """Return an ``httpx.Response`` from ``result``.
 
     ``result`` may already be a response (for synchronous clients) or an
