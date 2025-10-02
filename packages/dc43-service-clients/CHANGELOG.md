@@ -9,3 +9,5 @@
   fail pipelines when ODPS input/output registrations create drafts.
 - Updated the remote adapter to consume the new backend response shape including
   the registration metadata.
+- Added a lightweight `LocalDataProductServiceBackend` testing stub so the
+  package test suite no longer depends on the service backend distribution.

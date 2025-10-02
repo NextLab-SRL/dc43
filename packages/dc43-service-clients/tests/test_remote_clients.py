@@ -16,7 +16,10 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
-from dc43_service_backends.data_products import LocalDataProductServiceBackend
+try:
+    from dc43_service_backends.data_products import LocalDataProductServiceBackend
+except ModuleNotFoundError:  # pragma: no cover - exercise fallback when backends missing
+    from dc43_service_clients.testing import LocalDataProductServiceBackend
 from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality import ObservationPayload
