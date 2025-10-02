@@ -4,9 +4,12 @@ from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Optional
 
 from dc43_service_clients.data_quality import ValidationResult
+from types import SimpleNamespace
+
 from dc43_integrations.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
     SplitWriteViolationStrategy,
+    StrictWriteViolationStrategy,
     WriteStrategyContext,
 )
 
@@ -102,3 +105,17 @@ def test_split_strategy_returns_base_request_when_no_predicates():
 
     assert plan.primary is not None
     assert not plan.additional
+
+
+def test_strict_strategy_inherits_contract_status_policy():
+    base = NoOpWriteViolationStrategy(
+        allowed_contract_statuses=("draft",),
+        allow_missing_contract_status=False,
+        contract_status_case_insensitive=False,
+    )
+    strict = StrictWriteViolationStrategy(base=base)
+    contract = SimpleNamespace(id="orders", version="1.0.0", status="draft")
+
+    # Using the decorator should honour the wrapped policy, so "draft" is accepted
+    # instead of failing with the default "active" requirement.
+    strict.validate_contract_status(contract=contract, enforce=True, operation="write")
