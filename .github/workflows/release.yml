@@ -190,7 +190,7 @@ jobs:
           VERSION_FILE: packages/dc43-service-clients/VERSION
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-clients[test]
+          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
           pytest packages/dc43-service-clients/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -208,8 +208,8 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e . --no-deps
-          pip install -e packages/dc43-service-clients[test]
-          pip install -e packages/dc43-service-backends[test]
+          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+          pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
           pytest packages/dc43-service-backends/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -227,8 +227,8 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e . --no-deps
-          pip install -e packages/dc43-service-clients[test]
-          pip install -e packages/dc43-integrations[test]
+          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+          pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
           pytest packages/dc43-integrations/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -246,10 +246,10 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e . --no-deps
-          pip install -e packages/dc43-service-clients[http]
-          pip install -e packages/dc43-service-backends[test]
-          pip install -e packages/dc43-integrations[spark]
-          pip install -e packages/dc43-contracts-app[spark]
+          pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+          pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
+          pip install "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
+          pip install "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
           pytest packages/dc43-contracts-app/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \

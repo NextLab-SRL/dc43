@@ -24,22 +24,22 @@ jobs:
           - display: service-backends
             install: |
               pip install -e . --no-deps
-              pip install -e packages/dc43-service-clients[test]
-              pip install -e packages/dc43-service-backends[test]
+              pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+              pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
             test_command: "pytest packages/dc43-service-backends/tests -q"
           - display: integrations
             install: |
               pip install -e . --no-deps
-              pip install -e packages/dc43-service-clients[test]
-              pip install -e packages/dc43-integrations[test]
+              pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+              pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
             test_command: "pytest packages/dc43-integrations/tests -q"
           - display: contracts-app
             install: |
               pip install -e . --no-deps
-              pip install -e packages/dc43-service-clients[http]
-              pip install -e packages/dc43-service-backends[test]
-              pip install -e packages/dc43-integrations[spark]
-              pip install -e packages/dc43-contracts-app[spark]
+              pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+              pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
+              pip install "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
+              pip install "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
             test_command: "pytest packages/dc43-contracts-app/tests -q"
     steps:
       - uses: actions/checkout@v4
