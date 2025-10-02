@@ -37,9 +37,10 @@ jobs:
             install: |
               pip install -e . --no-deps
               pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-              pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
-              pip install "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
-              pip install "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
+              pip install fastapi jinja2 python-multipart pyspark
+              pip install --no-deps "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
+              pip install --no-deps "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
+              pip install --no-deps "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
             test_command: "pytest packages/dc43-contracts-app/tests -q"
     steps:
       - uses: actions/checkout@v4
