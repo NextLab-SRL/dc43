@@ -11,6 +11,30 @@ stores the verdicts returned by read and write validation, captures the
 metrics produced by the quality rules, and records draft contract versions so
 the UI mirrors what a catalog-integrated deployment would display.
 
+## Data product roundtrip pipeline
+
+The integration test suite now documents how a pipeline can stitch data product
+bindings and raw contracts together without manual port registration. The flow
+is simple:
+
+1. Read from an existing data product output using `read_from_data_product` so
+   the contract is resolved automatically.
+2. Persist an intermediate dataset that is only governed by a contract with
+   `write_with_contract_id` (the contract-only helper).
+3. Load the intermediate dataset with `read_from_contract` and publish the
+   final slice through `write_to_data_product`, which registers the output port
+   if it already exists and aborts the pipeline if a draft must be created.
+
+Recreate the run locally with:
+
+```bash
+pytest packages/dc43-integrations/tests/test_integration.py \
+    -k data_product_pipeline_roundtrip -q
+```
+
+The log output highlights when the pipeline would have halted because of an ODPS
+draft, making it clear how draft enforcement integrates with orchestration.
+
 ```mermaid
 graph TD
     Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join

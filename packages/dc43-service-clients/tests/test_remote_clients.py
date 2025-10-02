@@ -16,8 +16,14 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
+try:
+    from dc43_service_backends.data_products import LocalDataProductServiceBackend
+except ModuleNotFoundError:  # pragma: no cover - exercise fallback when backends missing
+    from dc43_service_clients.testing import LocalDataProductServiceBackend
+from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality import ObservationPayload
+from dc43_service_clients.data_products.client.remote import RemoteDataProductServiceClient
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
 from dc43_service_clients.data_quality.models import ValidationResult
 from dc43_service_clients.data_quality.transport import encode_validation_result
@@ -80,6 +86,15 @@ class _ServiceBackendMock:
         self._dataset_links: dict[tuple[str, str], str] = {}
         self._governance_status: dict[tuple[str, str], ValidationResult] = {}
         self._pipeline_activity: list[dict[str, object]] = []
+        self._data_products = LocalDataProductServiceBackend()
+        self._data_products.register_output_port(
+            data_product_id="dp.analytics",
+            port=DataProductOutputPort(
+                name="primary",
+                version=contract.version,
+                contract_id=contract.id,
+            ),
+        )
 
     def __call__(self, request: "httpx.Request") -> "httpx.Response":  # pragma: no cover - exercised in tests
         auth_error = self._require_token(request)
@@ -94,6 +109,8 @@ class _ServiceBackendMock:
             return self._handle_data_quality(request, method, path)
         if path.startswith("/governance/"):
             return self._handle_governance(request, method, path)
+        if path.startswith("/data-products/"):
+            return self._handle_data_products(request, method, path)
         return httpx.Response(status_code=404, json={"detail": "Not Found"})
 
     def _require_token(self, request: "httpx.Request") -> "httpx.Response | None":
@@ -159,6 +176,91 @@ class _ServiceBackendMock:
             ]
             return httpx.Response(status_code=200, json=expectations)
         return httpx.Response(status_code=404, json={"detail": "Unknown data-quality endpoint"})
+
+    def _handle_data_products(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
+        segments = path.strip("/").split("/")
+        if len(segments) < 2:
+            return httpx.Response(status_code=404, json={"detail": "Unknown data-product endpoint"})
+        product_id = segments[1]
+        backend = self._data_products
+
+        if len(segments) >= 4 and segments[2] == "versions" and method == "GET":
+            version = segments[3]
+            try:
+                product = backend.get(product_id, version)
+            except FileNotFoundError:
+                return httpx.Response(status_code=404, json={"detail": "Unknown data product"})
+            return httpx.Response(status_code=200, json=product.to_dict())
+
+        if len(segments) == 3 and segments[2] == "latest" and method == "GET":
+            product = backend.latest(product_id)
+            if product is None:
+                return httpx.Response(status_code=404, json={"detail": "Unknown data product"})
+            return httpx.Response(status_code=200, json=product.to_dict())
+
+        if len(segments) == 3 and segments[2] == "versions" and method == "GET":
+            versions = backend.list_versions(product_id)
+            return httpx.Response(status_code=200, json=list(versions))
+
+        if len(segments) == 3 and segments[2] == "input-ports" and method == "POST":
+            payload = self._read_json(request)
+            port = DataProductInputPort(
+                name=str(payload.get("port_name")),
+                version=str(payload.get("contract_version")),
+                contract_id=str(payload.get("contract_id")),
+            )
+            result = backend.register_input_port(
+                data_product_id=product_id,
+                port=port,
+                bump=str(payload.get("bump", "minor")),
+                custom_properties=payload.get("custom_properties"),
+                source_data_product=payload.get("source_data_product"),
+                source_output_port=payload.get("source_output_port"),
+            )
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "product": result.product.to_dict(),
+                    "changed": result.changed,
+                },
+            )
+
+        if len(segments) == 3 and segments[2] == "output-ports" and method == "POST":
+            payload = self._read_json(request)
+            port = DataProductOutputPort(
+                name=str(payload.get("port_name")),
+                version=str(payload.get("contract_version")),
+                contract_id=str(payload.get("contract_id")),
+            )
+            result = backend.register_output_port(
+                data_product_id=product_id,
+                port=port,
+                bump=str(payload.get("bump", "minor")),
+                custom_properties=payload.get("custom_properties"),
+            )
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "product": result.product.to_dict(),
+                    "changed": result.changed,
+                },
+            )
+
+        if len(segments) == 5 and segments[2] == "output-ports" and segments[4] == "contract" and method == "GET":
+            port_name = segments[3]
+            resolved = backend.resolve_output_contract(
+                data_product_id=product_id,
+                port_name=port_name,
+            )
+            if resolved is None:
+                return httpx.Response(status_code=404, json={"detail": "Unknown output port"})
+            contract_id, contract_version = resolved
+            return httpx.Response(
+                status_code=200,
+                json={"contract_id": contract_id, "contract_version": contract_version},
+            )
+
+        return httpx.Response(status_code=404, json={"detail": "Unknown data-product endpoint"})
 
     def _handle_governance(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
         if path == "/governance/evaluate" and method == "POST":
@@ -282,11 +384,17 @@ def http_clients(service_backend):
         transport=httpx.MockTransport(backend),
         token=token,
     )
+    data_product_client = RemoteDataProductServiceClient(
+        base_url="http://dc43-services",
+        transport=httpx.MockTransport(backend),
+        token=token,
+    )
 
     clients = {
         "contract": contract_client,
         "dq": dq_client,
         "governance": governance_client,
+        "data_product": data_product_client,
         "contract_model": contract,
         "backend": backend,
         "token": token,
@@ -297,6 +405,7 @@ def http_clients(service_backend):
         contract_client.close()
         dq_client.close()
         governance_client.close()
+        data_product_client.close()
 
 
 def test_remote_contract_client_roundtrip(http_clients):
@@ -389,6 +498,41 @@ def test_remote_governance_client(http_clients):
     activity = governance_client.get_pipeline_activity(dataset_id="orders")
     assert isinstance(activity, list)
     assert activity
+
+
+def test_remote_data_product_client_registers_ports(http_clients):
+    dp_client: RemoteDataProductServiceClient = http_clients["data_product"]
+
+    registration = dp_client.register_input_port(
+        data_product_id="dp.analytics",
+        port_name="orders-input",
+        contract_id="sales.orders",
+        contract_version="1.0.0",
+        source_data_product="dp.source",
+        source_output_port="gold",
+    )
+    assert registration.changed is True
+    assert any(port.name == "orders-input" for port in registration.product.input_ports)
+
+    updated = dp_client.register_output_port(
+        data_product_id="dp.analytics",
+        port_name="forecast",
+        contract_id="sales.forecast",
+        contract_version="2.0.0",
+    )
+    assert updated.changed is True
+    assert any(port.name == "forecast" for port in updated.product.output_ports)
+
+
+def test_remote_data_product_resolve_output_contract(http_clients):
+    dp_client: RemoteDataProductServiceClient = http_clients["data_product"]
+    contract: OpenDataContractStandard = http_clients["contract_model"]
+
+    contract_ref = dp_client.resolve_output_contract(
+        data_product_id="dp.analytics",
+        port_name="primary",
+    )
+    assert contract_ref == (contract.id, contract.version)
 
 
 def test_http_clients_require_authentication(service_backend):

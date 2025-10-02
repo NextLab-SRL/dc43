@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 import pytest
 
@@ -15,7 +15,9 @@ from open_data_contract_standard.model import (
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_clients.contracts import LocalContractServiceClient
 from dc43_integrations.spark.io import (
+    read_from_data_product,
     read_with_contract,
+    write_to_data_product,
     write_with_contract,
     StaticDatasetLocator,
     ContractVersionLocator,
@@ -28,6 +30,12 @@ from dc43_integrations.spark.violation_strategy import (
 )
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
 from dc43_service_clients.governance import build_local_governance_service
+from dc43_service_backends.data_products import DataProductRegistrationResult
+from dc43.core.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    OpenDataProductStandard as DataProductDoc,
+)
 from datetime import datetime
 import logging
 
@@ -90,6 +98,92 @@ def _materialise_orders(
     return data_dir
 
 
+class StubDataProductService:
+    def __init__(
+        self,
+        contract_ref: tuple[str, str] | Mapping[str, tuple[str, str]] | None = None,
+        *,
+        registration_changed: bool = True,
+    ) -> None:
+        self.contract_ref = contract_ref
+        self.input_calls: list[dict[str, Any]] = []
+        self.output_calls: list[dict[str, Any]] = []
+        self.registration_changed = registration_changed
+
+    def get(self, data_product_id: str, version: str) -> DataProductDoc:
+        raise NotImplementedError
+
+    def latest(self, data_product_id: str) -> Optional[DataProductDoc]:  # pragma: no cover - not used
+        return None
+
+    def list_versions(self, data_product_id: str) -> list[str]:  # pragma: no cover - not used
+        return []
+
+    def register_input_port(
+        self,
+        *,
+        data_product_id: str,
+        port_name: str,
+        contract_id: str,
+        contract_version: str,
+        bump: str = "minor",
+        custom_properties: Optional[dict[str, Any]] = None,
+        source_data_product: Optional[str] = None,
+        source_output_port: Optional[str] = None,
+    ) -> DataProductRegistrationResult:
+        self.input_calls.append(
+            {
+                "data_product_id": data_product_id,
+                "port_name": port_name,
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+                "source_data_product": source_data_product,
+                "source_output_port": source_output_port,
+            }
+        )
+        status = "draft" if self.registration_changed else "active"
+        doc = DataProductDoc(id=data_product_id, status=status, version="0.1.0-draft")
+        doc.input_ports.append(
+            DataProductInputPort(name=port_name, version=contract_version, contract_id=contract_id)
+        )
+        return DataProductRegistrationResult(product=doc, changed=self.registration_changed)
+
+    def register_output_port(
+        self,
+        *,
+        data_product_id: str,
+        port_name: str,
+        contract_id: str,
+        contract_version: str,
+        bump: str = "minor",
+        custom_properties: Optional[dict[str, Any]] = None,
+    ) -> DataProductRegistrationResult:
+        self.output_calls.append(
+            {
+                "data_product_id": data_product_id,
+                "port_name": port_name,
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+            }
+        )
+        status = "draft" if self.registration_changed else "active"
+        doc = DataProductDoc(id=data_product_id, status=status, version="0.1.0-draft")
+        doc.output_ports.append(
+            DataProductOutputPort(name=port_name, version=contract_version, contract_id=contract_id)
+        )
+        return DataProductRegistrationResult(product=doc, changed=self.registration_changed)
+
+    def resolve_output_contract(
+        self,
+        *,
+        data_product_id: str,
+        port_name: str,
+    ) -> Optional[tuple[str, str]]:
+        if isinstance(self.contract_ref, Mapping):
+            return self.contract_ref.get(port_name)
+        return self.contract_ref
+
+
 def test_read_blocks_on_draft_contract_status(spark, tmp_path: Path) -> None:
     data_dir = _materialise_orders(spark, tmp_path)
     contract = make_contract(str(data_dir))
@@ -129,6 +223,82 @@ def test_read_allows_draft_contract_with_strategy(spark, tmp_path: Path) -> None
 
     assert df.count() == 2
     assert status is not None
+
+
+def test_read_registers_data_product_input_port(spark, tmp_path: Path) -> None:
+    data_dir = _materialise_orders(spark, tmp_path)
+    contract = make_contract(str(data_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    dp_service = StubDataProductService()
+
+    with pytest.raises(RuntimeError, match="requires review"):
+        read_with_contract(
+            spark,
+            contract_id=contract.id,
+            contract_service=contract_service,
+            expected_contract_version=f"=={contract.version}",
+            data_quality_service=dq_service,
+            governance_service=governance,
+            data_product_service=dp_service,
+            data_product_input={"data_product": "dp.analytics"},
+        )
+
+    assert dp_service.input_calls
+    assert dp_service.input_calls[0]["data_product_id"] == "dp.analytics"
+
+
+def test_read_skips_registration_when_input_port_exists(spark, tmp_path: Path) -> None:
+    data_dir = _materialise_orders(spark, tmp_path)
+    contract = make_contract(str(data_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    dp_service = StubDataProductService(registration_changed=False)
+
+    df, status = read_with_contract(
+        spark,
+        contract_id=contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={contract.version}",
+        data_quality_service=dq_service,
+        governance_service=governance,
+        data_product_service=dp_service,
+        data_product_input={"data_product": "dp.analytics"},
+    )
+
+    assert df.count() == 2
+    assert status is not None
+    assert dp_service.input_calls
+    assert dp_service.input_calls[0]["data_product_id"] == "dp.analytics"
+
+
+def test_read_resolves_contract_from_data_product_port(spark, tmp_path: Path) -> None:
+    data_dir = _materialise_orders(spark, tmp_path)
+    contract = make_contract(str(data_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    dp_service = StubDataProductService(
+        contract_ref=(contract.id, contract.version), registration_changed=False
+    )
+
+    df, status = read_with_contract(
+        spark,
+        contract_service=contract_service,
+        expected_contract_version=None,
+        data_quality_service=dq_service,
+        governance_service=governance,
+        data_product_service=dp_service,
+        data_product_input={
+            "data_product": "dp.analytics",
+            "source_data_product": "dp.analytics",
+            "source_output_port": "primary",
+        },
+    )
+
+    assert df.count() == 2
+    assert status is not None
+    assert dp_service.input_calls
+    assert dp_service.input_calls[0]["source_output_port"] == "primary"
 
 
 def test_write_blocks_on_deprecated_contract_status(spark, tmp_path: Path) -> None:
@@ -537,6 +707,133 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
         )
         == f"{contract_v1.id}:{contract_v1.version}"
     )
+
+
+def test_write_registers_data_product_output_port(spark, tmp_path: Path) -> None:
+    data_dir = _materialise_orders(spark, tmp_path)
+    contract = make_contract(str(data_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    dp_service = StubDataProductService()
+    df = spark.read.parquet(str(data_dir))
+
+    with pytest.raises(RuntimeError, match="requires review"):
+        write_with_contract(
+            df=df,
+            contract_id=contract.id,
+            contract_service=contract_service,
+            expected_contract_version=f"=={contract.version}",
+            path=str(data_dir),
+            mode="overwrite",
+            data_quality_service=dq_service,
+            governance_service=governance,
+            data_product_service=dp_service,
+            data_product_output={"data_product": "dp.analytics", "port_name": "primary"},
+            return_status=True,
+        )
+
+    assert dp_service.output_calls
+    assert dp_service.output_calls[0]["port_name"] == "primary"
+
+
+def test_write_skips_registration_when_output_exists(spark, tmp_path: Path) -> None:
+    data_dir = _materialise_orders(spark, tmp_path)
+    contract = make_contract(str(data_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    dp_service = StubDataProductService(registration_changed=False)
+    df = spark.read.parquet(str(data_dir))
+
+    result, status = write_with_contract(
+        df=df,
+        contract_id=contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={contract.version}",
+        path=str(data_dir),
+        mode="overwrite",
+        data_quality_service=dq_service,
+        governance_service=governance,
+        data_product_service=dp_service,
+        data_product_output={"data_product": "dp.analytics", "port_name": "primary"},
+        return_status=True,
+    )
+
+    assert result.ok
+    assert status is not None
+    assert dp_service.output_calls
+    assert dp_service.output_calls[0]["port_name"] == "primary"
+
+
+def test_data_product_pipeline_roundtrip(spark, tmp_path: Path) -> None:
+    source_dir = _materialise_orders(spark, tmp_path)
+    source_contract = make_contract(str(source_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, source_contract)
+    governance = build_local_governance_service(store)
+    dp_service = StubDataProductService(
+        contract_ref={"primary": (source_contract.id, source_contract.version)},
+        registration_changed=False,
+    )
+
+    df_stage1, _ = read_from_data_product(
+        spark,
+        data_product_service=dp_service,
+        data_product_input={
+            "data_product": "dp.analytics",
+            "source_data_product": "dp.analytics",
+            "source_output_port": "primary",
+        },
+        contract_service=contract_service,
+        data_quality_service=dq_service,
+        governance_service=governance,
+        return_status=True,
+    )
+
+    stage_dir = tmp_path / "stage"
+    intermediate_contract = make_contract(str(stage_dir))
+    intermediate_contract.id = "dp.analytics.stage"
+    store.put(intermediate_contract)
+
+    write_with_contract(
+        df=df_stage1,
+        contract_id=intermediate_contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={intermediate_contract.version}",
+        path=str(stage_dir),
+        mode="overwrite",
+        data_quality_service=dq_service,
+    )
+
+    stage_df, _ = read_with_contract(
+        spark,
+        contract_id=intermediate_contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={intermediate_contract.version}",
+        data_quality_service=dq_service,
+        governance_service=governance,
+        return_status=True,
+    )
+
+    final_dir = tmp_path / "final"
+    final_contract = make_contract(str(final_dir))
+    final_contract.id = "dp.analytics.final"
+    store.put(final_contract)
+
+    result = write_to_data_product(
+        df=stage_df,
+        data_product_service=dp_service,
+        data_product_output={"data_product": "dp.analytics", "port_name": "primary"},
+        contract_id=final_contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={final_contract.version}",
+        path=str(final_dir),
+        mode="overwrite",
+        data_quality_service=dq_service,
+        governance_service=governance,
+    )
+
+    assert result.ok
+    assert dp_service.input_calls
+    assert dp_service.output_calls
 
 
 def test_governance_service_persists_draft_context(spark, tmp_path: Path) -> None:

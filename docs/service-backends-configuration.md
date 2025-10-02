@@ -148,3 +148,23 @@ Copy the relevant file to a writable location, adjust the values to match your
 environment, and point the applications at the resulting TOML using the
 environment variables listed above or by passing the path directly to the
 respective `load_config()` helper.
+
+## Data product backends
+
+The service stack now exposes ODPS data product endpoints alongside the
+contract and governance APIs. Three implementations ship with the repository:
+
+- `LocalDataProductServiceBackend` keeps definitions in memory and is ideal for
+  unit tests.
+- `FilesystemDataProductServiceBackend` persists each ODPS document as a JSON
+  file that matches the official schema, making it a good fit for local
+  sandboxes and CI environments.
+- `CollibraDataProductServiceBackend` delegates persistence to Collibra through
+  pluggable adapters. Pair it with
+  `StubCollibraDataProductAdapter` (filesystem-backed and perfect for tests) or
+  `HttpCollibraDataProductAdapter` when pointing at a live Collibra deployment.
+
+Deployments that back onto Collibra can therefore reuse the same
+`DataProductServiceClient` APIs as local runs. Swap between in-memory,
+filesystem, and Collibra-backed options without touching pipeline code while
+retaining draft-registration behaviour across environments.
