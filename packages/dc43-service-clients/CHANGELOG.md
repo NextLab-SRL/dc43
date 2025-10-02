@@ -13,3 +13,8 @@
   the registration metadata.
 - Added a lightweight `LocalDataProductServiceBackend` testing stub so the
   package test suite no longer depends on the service backend distribution.
+
+### Fixed
+- Decoupled the data product clients from the backend package so importing the
+  protocol and client helpers no longer requires installing the service
+  backends distribution.

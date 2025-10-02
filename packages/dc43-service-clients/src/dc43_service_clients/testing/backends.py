@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping, Optional
 
 from dc43_service_clients.odps import (
@@ -13,13 +12,7 @@ from dc43_service_clients.odps import (
     evolve_to_draft,
 )
 
-
-@dataclass
-class DataProductRegistrationResult:
-    """Result returned by port registration operations."""
-
-    product: OpenDataProductStandard
-    changed: bool
+from ..data_products._compat import DataProductRegistrationResult
 
 
 class LocalDataProductServiceBackend:

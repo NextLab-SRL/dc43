@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Mapping, Optional, TYPE_CHECKING
 
-from dc43_service_backends.data_products import DataProductRegistrationResult
 from dc43_service_clients.odps import OpenDataProductStandard
 
 from .interface import DataProductServiceClient
+from .._compat import DataProductRegistrationResult
 
 if TYPE_CHECKING:  # pragma: no cover - imported for typing only
     from dc43_service_backends.data_products import (
@@ -23,9 +23,14 @@ class LocalDataProductServiceClient(DataProductServiceClient):
 
     def __init__(self, backend: "DataProductServiceBackend | None" = None) -> None:
         if backend is None:
-            from dc43_service_backends.data_products import (  # pylint: disable=import-outside-toplevel
-                LocalDataProductServiceBackend as _LocalDataProductServiceBackend,
-            )
+            try:
+                from dc43_service_backends.data_products import (  # pylint: disable=import-outside-toplevel
+                    LocalDataProductServiceBackend as _LocalDataProductServiceBackend,
+                )
+            except ModuleNotFoundError:  # pragma: no cover - exercised when backends absent
+                from dc43_service_clients.testing import (  # pylint: disable=import-outside-toplevel
+                    LocalDataProductServiceBackend as _LocalDataProductServiceBackend,
+                )
 
             backend = _LocalDataProductServiceBackend()
         self._backend = backend

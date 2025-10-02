@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Mapping, Optional, Protocol
 
-from dc43_service_backends.data_products import DataProductRegistrationResult
 from dc43_service_clients.odps import OpenDataProductStandard
+
+from .._compat import DataProductRegistrationResult
 
 
 class DataProductServiceClient(Protocol):

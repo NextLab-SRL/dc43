@@ -12,11 +12,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover
         "'dc43-service-clients[http]' to enable it."
     ) from exc
 
-from dc43_service_backends.data_products import DataProductRegistrationResult
 from dc43_service_clients.odps import OpenDataProductStandard, to_model
 from dc43_service_clients._http_sync import close_client, ensure_response
 
 from .interface import DataProductServiceClient
+from .._compat import DataProductRegistrationResult
 
 
 class RemoteDataProductServiceClient(DataProductServiceClient):
