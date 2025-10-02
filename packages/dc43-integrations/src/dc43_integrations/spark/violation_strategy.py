@@ -118,6 +118,30 @@ class WriteViolationStrategy(Protocol):
 class NoOpWriteViolationStrategy:
     """Default strategy that keeps the original behaviour intact."""
 
+    allowed_contract_statuses: tuple[str, ...] = ("active",)
+    allow_missing_contract_status: bool = True
+    contract_status_case_insensitive: bool = True
+    contract_status_failure_message: str | None = None
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io import _validate_contract_status  # local import to avoid cycles
+
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_contract_statuses,
+            allow_missing=self.allow_missing_contract_status,
+            case_insensitive=self.contract_status_case_insensitive,
+            failure_message=self.contract_status_failure_message,
+        )
+
     def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401 - short docstring
         return WritePlan(primary=context.base_request())
 
@@ -132,6 +156,29 @@ class SplitWriteViolationStrategy:
     include_reject: bool = True
     write_primary_on_violation: bool = False
     dataset_suffix_separator: str = "::"
+    allowed_contract_statuses: tuple[str, ...] = ("active",)
+    allow_missing_contract_status: bool = True
+    contract_status_case_insensitive: bool = True
+    contract_status_failure_message: str | None = None
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io import _validate_contract_status  # local import to avoid cycles
+
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_contract_statuses,
+            allow_missing=self.allow_missing_contract_status,
+            case_insensitive=self.contract_status_case_insensitive,
+            failure_message=self.contract_status_failure_message,
+        )
 
     def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401 - short docstring
         result = context.validation
@@ -280,6 +327,57 @@ class StrictWriteViolationStrategy:
     base: WriteViolationStrategy = field(default_factory=NoOpWriteViolationStrategy)
     failure_message: str = "Validation recorded contract violations"
     fail_on_warnings: bool = False
+    allowed_contract_statuses: tuple[str, ...] | None = None
+    allow_missing_contract_status: bool | None = None
+    contract_status_case_insensitive: bool | None = None
+    contract_status_failure_message: str | None = None
+
+    def _contract_status_option(self, name: str, default: Any) -> Any:
+        value = getattr(self, name, None)
+        if value is not None:
+            return value
+
+        base = getattr(self, "base", None)
+        if base is None:
+            return default
+
+        inherited = getattr(base, name, None)
+        if inherited is not None:
+            return inherited
+
+        return default
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        validator = getattr(self.base, "validate_contract_status", None)
+        if validator is not None:
+            validator(contract=contract, enforce=enforce, operation=operation)
+            return
+
+        from .io import _validate_contract_status  # local import to avoid cycles
+
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self._contract_status_option(
+                "allowed_contract_statuses", ("active",)
+            ),
+            allow_missing=self._contract_status_option(
+                "allow_missing_contract_status", True
+            ),
+            case_insensitive=self._contract_status_option(
+                "contract_status_case_insensitive", True
+            ),
+            failure_message=self._contract_status_option(
+                "contract_status_failure_message", None
+            ),
+        )
 
     def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401 - short docstring
         base_plan = self.base.plan(context)

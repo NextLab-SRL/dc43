@@ -117,7 +117,8 @@ the marker requirement locally to make intentional releases obvious in the histo
 For a package bump (example: `dc43-service-backends`):
 
 1. Update the version in `packages/dc43-service-backends/VERSION`.
-2. Update changelog notes (either a shared CHANGELOG or one per package).
+2. Update changelog notes (either a shared CHANGELOG or one per package; see
+   [Per-package changelog workflow](#per-package-changelog-workflow)).
 3. Commit the changes on `dev` with a descriptive message (adding `[release]` is optional but keeps
    history searchable when you run the helper script locally).
 4. Open a PR from `dev` to `main` and wait for review.
@@ -140,3 +141,24 @@ When two packages evolve simultaneously:
 Avoid git submodules—they complicate dependency management and require independent repos for each
 package. Keeping everything in this mono-repo plus prefixed tags and conditional workflows gives you
 per-package releases without sacrificing shared development.
+
+## Per-package changelog workflow
+
+To keep release notes scoped to each distribution, every package maintains a
+`CHANGELOG.md` alongside its `pyproject.toml` (the root `dc43` meta package keeps
+its changelog at the repository root). Follow the [Keep a Changelog](https://keepachangelog.com/)
+format so entries stay consistent:
+
+- Keep an `## [Unreleased]` section at the top and add short bullet points under
+  `### Added`, `### Changed`, `### Fixed`, etc., whenever you modify package
+  code. Mention affected modules or user-facing behaviour rather than PR
+  numbers.
+- When preparing a release, move the accumulated notes into a new versioned
+  heading (`## [1.2.0] - 2024-05-31`) during the same commit that bumps the
+  `VERSION` file. This keeps the changelog diffs in lockstep with the version
+  bump and makes it easy for reviewers to spot the customer-facing impact.
+- The release workflow already enables `generate_release_notes` on GitHub
+  Releases so the commit list is generated automatically. Copy the version
+  section you just promoted into the release body (or let future automation
+  scripts consume it) so consumers see the curated highlights first, followed by
+  GitHub's auto-generated commit summary.

@@ -36,6 +36,7 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
         message = str(excinfo.value)
         assert "DQ violation" in message
         assert "Schema validation failed" not in message
+        assert "gt_amount" in message
 
         updated = pipeline.load_records()
         last = updated[-1]
@@ -44,7 +45,9 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
 
         assert "gt_amount" in fails
         assert fails["gt_amount"]["count"] > 0
-        assert out.get("dq_status", {}).get("status") in {"block", "warn", "error"}
+        dq_status = out.get("dq_status", {})
+        assert dq_status.get("status") in {"block", "warn", "error"}
+        assert "reason" in dq_status or dq_status.get("status") == "block"
         assert last.draft_contract_version
         assert last.draft_contract_version.startswith("1.2.0-draft-")
         draft_path = (
@@ -329,6 +332,94 @@ def test_demo_pipeline_strict_split_marks_error(tmp_path: Path) -> None:
             .config("spark.ui.enabled", "false") \
             .config("spark.sql.shuffle.partitions", "2") \
             .getOrCreate()
+
+
+def test_demo_pipeline_blocks_draft_contract(tmp_path: Path) -> None:
+    original_records = pipeline.load_records()
+
+    try:
+        with pytest.raises(ValueError) as excinfo:
+            pipeline.run_pipeline(
+                contract_id="orders_enriched",
+                contract_version="3.0.0",
+                dataset_name=None,
+                dataset_version=None,
+                run_type="enforce",
+            )
+
+        message = str(excinfo.value)
+        assert "status" in message.lower()
+        assert "draft" in message.lower()
+
+        updated = pipeline.load_records()
+        last = updated[-1]
+        output = last.dq_details.get("output", {})
+        assert output.get("contract_status_error")
+        policy = output.get("contract_status_policy", {})
+        assert policy.get("allowed") == ["active"]
+    finally:
+        pipeline.save_records(original_records)
+
+
+def test_demo_pipeline_allows_draft_contract_with_override(tmp_path: Path) -> None:
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_draft_override"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
+
+    dataset_name: str | None = None
+    dataset_version: str | None = None
+    try:
+        dataset_name, dataset_version = pipeline.run_pipeline(
+            contract_id="orders_enriched",
+            contract_version="3.0.0",
+            dataset_name=None,
+            dataset_version=None,
+            run_type="enforce",
+            violation_strategy={
+                "name": "default",
+                "contract_status": {
+                    "allowed_contract_statuses": ["active", "draft"],
+                    "allow_missing_contract_status": False,
+                },
+            },
+            output_adjustment="boost-amounts",
+            inputs={
+                "orders": {
+                    "dataset_id": "orders::valid",
+                    "dataset_version": "latest__valid",
+                }
+            },
+        )
+
+        updated = pipeline.load_records()
+        last = updated[-1]
+        output = last.dq_details.get("output", {})
+        policy = output.get("contract_status_policy", {})
+        assert policy.get("allowed") == ["active", "draft"]
+        assert output.get("contract_status_enforced") is True
+        assert last.contract_version == "3.0.0"
+        assert last.status == "ok"
+        assert (output.get("dq_status") or {}).get("status") == "ok"
+        transformations = output.get("transformations", [])
+        assert any("raised low order amounts" in note for note in transformations)
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
+        if dataset_name and dataset_version:
+            out_dir = Path(pipeline.DATA_DIR) / dataset_name / dataset_version
+            if out_dir.exists():
+                shutil.rmtree(out_dir, ignore_errors=True)
 
 
 def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
