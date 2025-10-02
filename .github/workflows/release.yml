@@ -61,11 +61,12 @@ jobs:
                 echo "should_run=false"
               } >> "$GITHUB_OUTPUT"
 
-              cat <<'SUMMARY' >> "$GITHUB_STEP_SUMMARY"
-                ### Release run skipped
-                The latest commit on `main` does not contain the required `[release]` marker.
-                Add `[release]` to the commit message that bumps versions and push again to run the pipeline.
-              SUMMARY
+              {
+                printf '%s\n' \
+                  "### Release run skipped" \
+                  "The latest commit on `main` does not contain the required `[release]` marker." \
+                  "Add `[release]` to the commit message that bumps versions and push again to run the pipeline."
+              } >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
           fi
@@ -118,11 +119,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [ "$should_run" != "true" ]; then
-            cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
-            ### Release run skipped
-            This workflow run was triggered by `$GITHUB_REF_NAME`.
-            The primary tag `$primary` will execute the release pipeline.
-            SUMMARY
+            {
+              printf '%s\n' \
+                "### Release run skipped" \
+                "This workflow run was triggered by \`$GITHUB_REF_NAME\`." \
+                "The primary tag \`$primary\` will execute the release pipeline."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
   release:
