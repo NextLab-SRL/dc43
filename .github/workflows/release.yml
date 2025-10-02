@@ -207,8 +207,8 @@ jobs:
           VERSION_FILE: packages/dc43-service-backends/VERSION
         run: |
           set -euo pipefail
-          pip install -e .
-          pip install -e packages/dc43-service-clients
+          pip install -e . --no-deps
+          pip install -e packages/dc43-service-clients[test]
           pip install -e packages/dc43-service-backends[test]
           pytest packages/dc43-service-backends/tests
           python scripts/check_tag_version.py \
@@ -226,7 +226,8 @@ jobs:
           VERSION_FILE: packages/dc43-integrations/VERSION
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-clients
+          pip install -e . --no-deps
+          pip install -e packages/dc43-service-clients[test]
           pip install -e packages/dc43-integrations[test]
           pytest packages/dc43-integrations/tests
           python scripts/check_tag_version.py \
@@ -244,10 +245,10 @@ jobs:
           VERSION_FILE: packages/dc43-contracts-app/VERSION
         run: |
           set -euo pipefail
-          pip install -e .
-          pip install -e packages/dc43-service-clients
-          pip install -e packages/dc43-service-backends
-          pip install -e packages/dc43-integrations
+          pip install -e . --no-deps
+          pip install -e packages/dc43-service-clients[http]
+          pip install -e packages/dc43-service-backends[test]
+          pip install -e packages/dc43-integrations[spark]
           pip install -e packages/dc43-contracts-app[spark]
           pytest packages/dc43-contracts-app/tests
           python scripts/check_tag_version.py \
