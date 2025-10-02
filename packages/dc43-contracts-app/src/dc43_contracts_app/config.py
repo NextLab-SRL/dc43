@@ -100,6 +100,22 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
     config_path = _first_existing_path([path, env_path, default_path])
     payload = _load_toml(config_path)
 
+    explicit_path = None
+    if path:
+        try:
+            explicit_path = Path(path).expanduser().resolve()
+        except (OSError, RuntimeError):
+            explicit_path = Path(path).expanduser()
+
+    selected_path = None
+    if config_path:
+        try:
+            selected_path = config_path.resolve()
+        except (OSError, RuntimeError):
+            selected_path = config_path
+
+    allow_env_overrides = not (explicit_path and selected_path and selected_path == explicit_path)
+
     workspace_section = payload.get("workspace") if isinstance(payload, MutableMapping) else {}
     backend_section = payload.get("backend") if isinstance(payload, MutableMapping) else {}
     process_section: Mapping[str, Any]
@@ -122,29 +138,30 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
     process_log_level_raw = process_section.get("log_level") if isinstance(process_section, MutableMapping) else None
     process_log_level = str(process_log_level_raw).strip() or None if process_log_level_raw is not None else None
 
-    env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv("DC43_DEMO_WORK_DIR")
-    if env_root:
-        workspace_root = _coerce_path(env_root)
+    if allow_env_overrides:
+        env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv("DC43_DEMO_WORK_DIR")
+        if env_root:
+            workspace_root = _coerce_path(env_root)
 
-    env_mode = os.getenv("DC43_CONTRACTS_APP_BACKEND_MODE")
-    if env_mode:
-        backend_mode = env_mode.strip().lower() or backend_mode
+        env_mode = os.getenv("DC43_CONTRACTS_APP_BACKEND_MODE")
+        if env_mode:
+            backend_mode = env_mode.strip().lower() or backend_mode
 
-    env_base_url = os.getenv("DC43_CONTRACTS_APP_BACKEND_URL") or os.getenv("DC43_DEMO_BACKEND_URL")
-    if env_base_url:
-        backend_base_url = env_base_url.strip().rstrip("/") or None
+        env_base_url = os.getenv("DC43_CONTRACTS_APP_BACKEND_URL") or os.getenv("DC43_DEMO_BACKEND_URL")
+        if env_base_url:
+            backend_base_url = env_base_url.strip().rstrip("/") or None
 
-    env_host = os.getenv("DC43_CONTRACTS_APP_BACKEND_HOST") or os.getenv("DC43_DEMO_BACKEND_HOST")
-    if env_host:
-        process_host = env_host.strip() or process_host
+        env_host = os.getenv("DC43_CONTRACTS_APP_BACKEND_HOST") or os.getenv("DC43_DEMO_BACKEND_HOST")
+        if env_host:
+            process_host = env_host.strip() or process_host
 
-    env_port = os.getenv("DC43_CONTRACTS_APP_BACKEND_PORT") or os.getenv("DC43_DEMO_BACKEND_PORT")
-    if env_port:
-        process_port = _coerce_int(env_port, process_port)
+        env_port = os.getenv("DC43_CONTRACTS_APP_BACKEND_PORT") or os.getenv("DC43_DEMO_BACKEND_PORT")
+        if env_port:
+            process_port = _coerce_int(env_port, process_port)
 
-    env_log = os.getenv("DC43_CONTRACTS_APP_BACKEND_LOG") or os.getenv("DC43_DEMO_BACKEND_LOG")
-    if env_log:
-        process_log_level = env_log.strip() or process_log_level
+        env_log = os.getenv("DC43_CONTRACTS_APP_BACKEND_LOG") or os.getenv("DC43_DEMO_BACKEND_LOG")
+        if env_log:
+            process_log_level = env_log.strip() or process_log_level
 
     backend_config = BackendConfig(
         mode="remote" if backend_mode == "remote" else "embedded",
