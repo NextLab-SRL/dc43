@@ -7,7 +7,20 @@ container without publishing wheels.
 
 ## Building the image
 
-From the repository root, build the Docker image with the provided Dockerfile:
+From the repository root, build the Docker image with the provided Dockerfile.
+You can call `docker` directly or rely on the helper CLI that wraps the build
+and optional push to a registry. The helper accepts multiple targets and
+defaults to `http-backend`:
+
+```bash
+# Build the image locally
+python scripts/package_http_backend.py --target http-backend --image dc43-service-backends-http:local
+
+# Build and push to a remote registry
+python scripts/package_http_backend.py --target http-backend --image myregistry.azurecr.io/dc43/governance:latest --push
+```
+
+When invoking Docker manually the equivalent command is:
 
 ```bash
 docker build -t dc43-service-backends-http -f deploy/http-backend/Dockerfile .
