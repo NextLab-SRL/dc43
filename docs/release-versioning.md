@@ -7,8 +7,9 @@ This repository ships four Python distributions:
 - `dc43-integrations`
 - `dc43` (meta package aggregating the other three)
 
-Each package keeps its own version in its `pyproject.toml`. Use the following workflow to manage
-releases without forcing synchronized bumps across the whole stack.
+Each package keeps its own version in a plain `VERSION` file alongside the corresponding
+`pyproject.toml`. Use the following workflow to manage releases without forcing synchronized bumps
+across the whole stack.
 
 ## Tagging strategy
 
@@ -36,8 +37,8 @@ perform the release.
 
 Within the primary run a single `release` job stages and publishes each package in two passes:
 
-1. **Build pass.** Install the editable sources, run the relevant tests, verify the tag matches the
-   version in `pyproject.toml`, and deposit wheels/sdists into `release-artifacts/<package>`.
+1. **Build pass.** Install the editable sources, run the relevant tests, validate the tag against the
+   package's `VERSION` file, and deposit wheels/sdists into `release-artifacts/<package>`.
 2. **Publish pass.** Once every requested package has built successfully, push artifacts to PyPI and
    attach them to GitHub Releases in the same dependency order.
 
@@ -51,7 +52,7 @@ pipeline instead of five independent queues.
 To make tagging easier—especially when several packages need a release—you can use the helper
 script at [`scripts/release.py`](../scripts/release.py). The CLI inspects the repository to work out
 which packages changed since their most recent release tag, verifies that the version in each
-`pyproject.toml` is new, checks whether the version is already on PyPI, and then (optionally)
+`VERSION` file is new, checks whether the version is already on PyPI, and then (optionally)
 creates and pushes the corresponding tags.
 
 Common workflows:
@@ -86,7 +87,7 @@ expected releases.
 
 For a package bump (example: `dc43-service-backends`):
 
-1. Update the version in `packages/dc43-service-backends/pyproject.toml`.
+1. Update the version in `packages/dc43-service-backends/VERSION`.
 2. Update changelog notes (either a shared CHANGELOG or one per package).
 3. Commit the changes with a message such as `chore(backends): release 0.9.0`.
 4. Merge to `main` via PR.

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dc43-contracts-app"
-version = "0.8.0.0"
 description = "FastAPI portal for browsing and editing DC43 contracts and datasets"
 readme = "README.md"
 requires-python = ">=3.11"
+dynamic = ["version"]
 authors = [
   { name = "Andy Petrella" }
 ]
@@ -27,6 +27,10 @@ dependencies = [
 
 [project.optional-dependencies]
 spark = ["dc43-integrations[spark]>=0.8.0.0"]
+test = []
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools]
 package-dir = {"" = "src"}

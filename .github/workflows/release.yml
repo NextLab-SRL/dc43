@@ -152,29 +152,16 @@ SUMMARY
         env:
           TAG_NAME: ${{ needs.determine.outputs.core_tag }}
           TAG_PREFIX: dc43-v
-          PYPROJECT_PATH: pyproject.toml
+          VERSION_FILE: VERSION
           DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
           pip install -e '.[test]'
           pytest
-          python - <<'PY'
-import os
-import sys
-import tomllib
-
-pyproject_path = os.environ["PYPROJECT_PATH"]
-tag = os.environ["TAG_NAME"]
-prefix = os.environ["TAG_PREFIX"]
-
-with open(pyproject_path, 'rb') as fh:
-    version = tomllib.load(fh)["project"]["version"]
-
-expected = f"{prefix}{version}"
-if tag != expected:
-    print(f"Tag {tag} does not match expected {expected}")
-    sys.exit(1)
-PY
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
           rm -rf release-artifacts/dc43
           python -m build --outdir release-artifacts/dc43
 
@@ -183,29 +170,16 @@ PY
         env:
           TAG_NAME: ${{ needs.determine.outputs.service_clients_tag }}
           TAG_PREFIX: dc43-service-clients-v
-          PYPROJECT_PATH: packages/dc43-service-clients/pyproject.toml
+          VERSION_FILE: packages/dc43-service-clients/VERSION
           DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-clients[http]
+          pip install -e packages/dc43-service-clients[test]
           pytest packages/dc43-service-clients/tests
-          python - <<'PY'
-import os
-import sys
-import tomllib
-
-pyproject_path = os.environ["PYPROJECT_PATH"]
-tag = os.environ["TAG_NAME"]
-prefix = os.environ["TAG_PREFIX"]
-
-with open(pyproject_path, 'rb') as fh:
-    version = tomllib.load(fh)["project"]["version"]
-
-expected = f"{prefix}{version}"
-if tag != expected:
-    print(f"Tag {tag} does not match expected {expected}")
-    sys.exit(1)
-PY
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
           rm -rf release-artifacts/dc43-service-clients
           (cd packages/dc43-service-clients && python -m build --outdir ../../release-artifacts/dc43-service-clients)
 
@@ -214,30 +188,16 @@ PY
         env:
           TAG_NAME: ${{ needs.determine.outputs.service_backends_tag }}
           TAG_PREFIX: dc43-service-backends-v
-          PYPROJECT_PATH: packages/dc43-service-backends/pyproject.toml
+          VERSION_FILE: packages/dc43-service-backends/VERSION
           DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-clients[http]
-          pip install -e packages/dc43-service-backends
+          pip install -e packages/dc43-service-backends[test]
           pytest packages/dc43-service-backends/tests
-          python - <<'PY'
-import os
-import sys
-import tomllib
-
-pyproject_path = os.environ["PYPROJECT_PATH"]
-tag = os.environ["TAG_NAME"]
-prefix = os.environ["TAG_PREFIX"]
-
-with open(pyproject_path, 'rb') as fh:
-    version = tomllib.load(fh)["project"]["version"]
-
-expected = f"{prefix}{version}"
-if tag != expected:
-    print(f"Tag {tag} does not match expected {expected}")
-    sys.exit(1)
-PY
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
           rm -rf release-artifacts/dc43-service-backends
           (cd packages/dc43-service-backends && python -m build --outdir ../../release-artifacts/dc43-service-backends)
 
@@ -246,30 +206,16 @@ PY
         env:
           TAG_NAME: ${{ needs.determine.outputs.integrations_tag }}
           TAG_PREFIX: dc43-integrations-v
-          PYPROJECT_PATH: packages/dc43-integrations/pyproject.toml
+          VERSION_FILE: packages/dc43-integrations/VERSION
           DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-clients[http]
-          pip install -e packages/dc43-integrations
+          pip install -e packages/dc43-integrations[test]
           pytest packages/dc43-integrations/tests
-          python - <<'PY'
-import os
-import sys
-import tomllib
-
-pyproject_path = os.environ["PYPROJECT_PATH"]
-tag = os.environ["TAG_NAME"]
-prefix = os.environ["TAG_PREFIX"]
-
-with open(pyproject_path, 'rb') as fh:
-    version = tomllib.load(fh)["project"]["version"]
-
-expected = f"{prefix}{version}"
-if tag != expected:
-    print(f"Tag {tag} does not match expected {expected}")
-    sys.exit(1)
-PY
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
           rm -rf release-artifacts/dc43-integrations
           (cd packages/dc43-integrations && python -m build --outdir ../../release-artifacts/dc43-integrations)
 
@@ -278,32 +224,16 @@ PY
         env:
           TAG_NAME: ${{ needs.determine.outputs.contracts_app_tag }}
           TAG_PREFIX: dc43-contracts-app-v
-          PYPROJECT_PATH: packages/dc43-contracts-app/pyproject.toml
+          VERSION_FILE: packages/dc43-contracts-app/VERSION
           DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-clients[http]
-          pip install -e packages/dc43-service-backends[http]
-          pip install -e packages/dc43-integrations
           pip install -e packages/dc43-contracts-app[spark]
           pytest packages/dc43-contracts-app/tests
-          python - <<'PY'
-import os
-import sys
-import tomllib
-
-pyproject_path = os.environ["PYPROJECT_PATH"]
-tag = os.environ["TAG_NAME"]
-prefix = os.environ["TAG_PREFIX"]
-
-with open(pyproject_path, 'rb') as fh:
-    version = tomllib.load(fh)["project"]["version"]
-
-expected = f"{prefix}{version}"
-if tag != expected:
-    print(f"Tag {tag} does not match expected {expected}")
-    sys.exit(1)
-PY
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
           rm -rf release-artifacts/dc43-contracts-app
           (cd packages/dc43-contracts-app && python -m build --outdir ../../release-artifacts/dc43-contracts-app)
 

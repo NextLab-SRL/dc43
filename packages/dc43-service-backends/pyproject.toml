@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dc43-service-backends"
-version = "0.8.0.0"
 description = "Backend service implementations for dc43"
 readme = "README.md"
 requires-python = ">=3.11"
+dynamic = ["version"]
 authors = [
   { name = "Andy Petrella" }
 ]
@@ -27,6 +27,12 @@ spark = ["pyspark>=3.4"]
 http = [
   "fastapi>=0.118.0",
 ]
+test = [
+  "fastapi>=0.118.0",
+]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools]
 package-dir = {"" = "src"}
