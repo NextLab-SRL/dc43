@@ -27,7 +27,14 @@ _OPTIONAL_INTERNAL_DEPENDENCIES = [
 
 _ALL_INTERNAL_PACKAGES = _INTERNAL_CORE_DEPENDENCIES + _OPTIONAL_INTERNAL_DEPENDENCIES
 
-_LOCAL_FALLBACK_PACKAGES = set(_ALL_INTERNAL_PACKAGES)
+_BUILD_DIST_COMMANDS = {"sdist", "bdist_wheel"}
+
+
+def _building_distribution() -> bool:
+    return any(arg in _BUILD_DIST_COMMANDS for arg in sys.argv[1:])
+
+
+_LOCAL_FALLBACK_PACKAGES = set() if _building_distribution() else set(_ALL_INTERNAL_PACKAGES)
 
 
 def _use_pypi_versions() -> bool:
