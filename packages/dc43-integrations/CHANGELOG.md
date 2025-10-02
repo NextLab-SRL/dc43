@@ -16,3 +16,7 @@
 ### Fixed
 - `StrictWriteViolationStrategy` now reuses the wrapped strategy's contract status
   allowances so strict enforcement respects custom governance policies.
+- Spark writes that overwrite their source path now checkpoint the aligned dataframe
+  before executing so contract-enforced data product registrations succeed without
+  triggering spurious "file not found" failures, and `write_to_data_product`
+  accepts explicit contract identifiers for the final stage of DP pipelines.

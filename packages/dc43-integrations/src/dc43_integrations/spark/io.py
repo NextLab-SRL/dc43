@@ -1983,6 +1983,7 @@ def write_to_data_product(
     df: DataFrame,
     data_product_service: DataProductServiceClient,
     data_product_output: DataProductOutputBinding | Mapping[str, object],
+    contract_id: Optional[str] = None,
     contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
@@ -2003,6 +2004,7 @@ def write_to_data_product(
 
     return write_with_contract(
         df=df,
+        contract_id=contract_id,
         contract_service=contract_service,
         data_product_service=data_product_service,
         data_product_output=data_product_output,
@@ -2029,7 +2031,22 @@ def _execute_write_request(
     governance_client: Optional[GovernanceServiceClient],
     enforce: bool,
 ) -> tuple[Optional[ValidationResult], Optional[ValidationResult]]:
-    writer = request.df.write
+    df_to_write = request.df
+    checkpointed = False
+    if request.path and request.mode.lower() == "overwrite":
+        try:
+            df_to_write = df_to_write.localCheckpoint(eager=True)
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.exception(
+                "Failed to checkpoint dataframe prior to overwrite for %s",
+                request.path,
+            )
+        else:
+            checkpointed = True
+
+    validation = request.validation_factory() if request.validation_factory else None
+
+    writer = df_to_write.write
     if request.format:
         writer = writer.format(request.format)
     if request.options:
@@ -2044,8 +2061,6 @@ def _execute_write_request(
             raise ValueError("Either table or path must be provided for write")
         logger.info("Writing dataframe to path %s", request.path)
         writer.save(request.path)
-
-    validation = request.validation_factory() if request.validation_factory else None
     expectation_plan: list[Mapping[str, Any]] = []
     if validation is not None:
         raw_plan = validation.details.get("expectation_plan")
@@ -2067,7 +2082,7 @@ def _execute_write_request(
         dq_dataset_version = (
             request.dataset_version
             or get_delta_version(
-                request.df.sparkSession,
+                df_to_write.sparkSession,
                 table=request.table,
                 path=request.path,
             )
@@ -2076,7 +2091,7 @@ def _execute_write_request(
 
         def _post_write_observations() -> ObservationPayload:
             metrics, schema_payload, reused_metrics = build_metrics_payload(
-                request.df,
+                df_to_write,
                 contract,
                 validation=validation,
                 include_schema=True,
@@ -2162,4 +2177,14 @@ def _execute_write_request(
             contract_version=contract.version,
         )
 
-    return status, validation
+    try:
+        return status, validation
+    finally:
+        if checkpointed:
+            try:
+                df_to_write.unpersist()
+            except Exception:  # pragma: no cover - defensive cleanup
+                logger.exception(
+                    "Failed to unpersist checkpointed dataframe for %s",
+                    request.path,
+                )
