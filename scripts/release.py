@@ -98,6 +98,64 @@ def ensure_clean_worktree() -> None:
         raise ReleaseError("Your working tree has uncommitted changes. Commit or stash them before releasing.")
 
 
+def prompt_yes_no(question: str) -> bool:
+    """Prompt the user with ``question`` and return ``True`` on a yes response."""
+
+    try:
+        reply = input(question)
+    except EOFError:
+        return False
+    normalized = reply.strip().lower()
+    if not normalized:
+        return False
+    return normalized in {"y", "yes"}
+
+
+def amend_head_commit_with_marker(message: str) -> None:
+    """Append ``[release]`` to the current HEAD commit message."""
+
+    paragraphs = []
+    stripped = message.rstrip("\n")
+    if stripped:
+        paragraphs = stripped.split("\n\n")
+    paragraphs.append("[release]")
+    cmd = ["git", "commit", "--amend"]
+    if not paragraphs:
+        cmd.extend(["-m", "[release]"])
+    else:
+        for paragraph in paragraphs:
+            cmd.extend(["-m", paragraph])
+    subprocess.run(cmd, cwd=ROOT, check=True)
+
+
+def ensure_release_marker(commit: str) -> str:
+    """Ensure ``commit`` contains the ``[release]`` marker required by CI."""
+
+    commit_ref = commit.strip() or "HEAD"
+    while True:
+        message = run_git("show", "-s", "--format=%B", commit_ref)
+        if "[release]" in message.lower():
+            return commit_ref
+        commit_sha = run_git("rev-parse", commit_ref)
+        head_sha = run_git("rev-parse", "HEAD")
+        can_auto_amend = commit_ref.upper() in {"HEAD", "HEAD^0", "HEAD~0"} and commit_sha == head_sha
+        if can_auto_amend:
+            print(
+                "The target commit message does not include '[release]'.\n"
+                "The release helper can amend HEAD to append the marker before continuing."
+            )
+            if prompt_yes_no("Amend HEAD to add '[release]' and retry? [y/N]: "):
+                amend_head_commit_with_marker(message)
+                print("Commit message updated with '[release]'. Continuing...\n")
+                commit_ref = "HEAD"
+                continue
+        raise ReleaseError(
+            "The target commit message does not include '[release]'. "
+            "Amend the commit (e.g. `git commit --amend`) to add the marker or rerun the script "
+            "with --allow-missing-release-marker if you really intend to skip CI."
+        )
+
+
 def package_version(package: str) -> str:
     package_meta = PACKAGES[package]
     version_path = package_meta.get("version_file")
@@ -255,6 +313,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Skip PyPI version checks (useful when offline).",
     )
+    parser.add_argument(
+        "--allow-missing-release-marker",
+        action="store_true",
+        help="Skip enforcing the '[release]' marker on the target commit message.",
+    )
     return parser.parse_args(argv)
 
 
@@ -265,6 +328,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.apply = True
     if args.apply:
         ensure_clean_worktree()
+        if not args.allow_missing_release_marker:
+            try:
+                args.commit = ensure_release_marker(args.commit)
+            except subprocess.CalledProcessError as exc:
+                print(f"\nERROR: {exc}", file=sys.stderr)
+                return exc.returncode
     plans = build_plan(packages, args.commit, skip_pypi=args.skip_pypi)
     for plan in plans:
         print(format_plan(plan))
