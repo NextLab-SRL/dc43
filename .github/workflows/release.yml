@@ -84,10 +84,10 @@ jobs:
 
           if [ "$should_run" != "true" ]; then
             cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
-              ### Release run skipped
-              This workflow run was triggered by `$GITHUB_REF_NAME`.
-              The primary tag `$primary` will execute the release pipeline.
-              SUMMARY
+            ### Release run skipped
+            This workflow run was triggered by `$GITHUB_REF_NAME`.
+            The primary tag `$primary` will execute the release pipeline.
+            SUMMARY
           fi
 
   release:
@@ -137,15 +137,15 @@ jobs:
           contracts_tag=${CONTRACTS_APP_TAG:-—}
 
           cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
-            ### Packages to release
-            | Package | Tag |
-            | --- | --- |
-            | dc43 | ${core_tag} |
-            | dc43-service-clients | ${clients_tag} |
-            | dc43-service-backends | ${backends_tag} |
-            | dc43-integrations | ${integrations_tag} |
-            | dc43-contracts-app | ${contracts_tag} |
-            SUMMARY
+          ### Packages to release
+          | Package | Tag |
+          | --- | --- |
+          | dc43 | ${core_tag} |
+          | dc43-service-clients | ${clients_tag} |
+          | dc43-service-backends | ${backends_tag} |
+          | dc43-integrations | ${integrations_tag} |
+          | dc43-contracts-app | ${contracts_tag} |
+          SUMMARY
 
       - name: Build dc43
         if: needs.determine.outputs.core_tag != ''
