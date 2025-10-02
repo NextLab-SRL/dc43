@@ -14,118 +14,99 @@ jobs:
   determine:
     runs-on: ubuntu-latest
     outputs:
-      should_run: ${{ steps.tags.outputs.should_run }}
-      primary_tag: ${{ steps.tags.outputs.primary }}
-      core_tag: ${{ steps.tags.outputs.core_tag }}
-      service_clients_tag: ${{ steps.tags.outputs.service_clients_tag }}
-      service_backends_tag: ${{ steps.tags.outputs.service_backends_tag }}
-      integrations_tag: ${{ steps.tags.outputs.integrations_tag }}
-      contracts_app_tag: ${{ steps.tags.outputs.contracts_app_tag }}
+      should_run: ${{ steps.summarize.outputs.should_run }}
+      packages_to_release: ${{ steps.summarize.outputs.packages_to_release }}
+      core_tag: ${{ steps.summarize.outputs.core_tag }}
+      service_clients_tag: ${{ steps.summarize.outputs.service_clients_tag }}
+      service_backends_tag: ${{ steps.summarize.outputs.service_backends_tag }}
+      integrations_tag: ${{ steps.summarize.outputs.integrations_tag }}
+      contracts_app_tag: ${{ steps.summarize.outputs.contracts_app_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           tags: true
 
-      - name: Identify release tags
-        id: tags
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
+      - name: Compute release plan
         run: |
           set -euo pipefail
+          python scripts/release.py \
+            --commit "$GITHUB_SHA" \
+            --json-output plan.json \
+            --allow-missing-release-marker
 
-          if [ "$EVENT_NAME" = "push" ]; then
-            if ! printf '%s' "$COMMIT_MESSAGE" | grep -qi '\[release\]'; then
-              prefixes=(
-                "dc43-v"
-                "dc43-service-clients-v"
-                "dc43-service-backends-v"
-                "dc43-integrations-v"
-                "dc43-contracts-app-v"
+      - name: Summarize release plan
+        id: summarize
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan = json.loads(Path("plan.json").read_text(encoding="utf-8"))
+          packages = plan.get("packages", [])
+
+          rows = ["### Release plan", "| Package | Version | Needs release | Tag |", "| --- | --- | --- | --- |"]
+          releasing = []
+          has_warnings = False
+
+          key_map = {
+              "dc43": "core_tag",
+              "dc43-service-clients": "service_clients_tag",
+              "dc43-service-backends": "service_backends_tag",
+              "dc43-integrations": "integrations_tag",
+              "dc43-contracts-app": "contracts_app_tag",
+          }
+
+          outputs = {name: "" for name in key_map.values()}
+          warning_lines = []
+
+          for entry in packages:
+              package = entry["package"]
+              version = entry.get("version", "—")
+              tag = entry.get("tag", "")
+              needs_release = bool(entry.get("needs_release"))
+              warnings = entry.get("warnings", []) or []
+              rows.append(
+                  f"| {package} | {version} | {'yes' if needs_release else 'no'} | {tag if needs_release else '—'} |"
               )
-              outputs=(
-                "core_tag"
-                "service_clients_tag"
-                "service_backends_tag"
-                "integrations_tag"
-                "contracts_app_tag"
-              )
+              key = key_map.get(package)
+              if key:
+                  outputs[key] = tag if needs_release else ""
+              if needs_release:
+                  releasing.append(package)
+              if warnings:
+                  has_warnings = True
+                  for message in warnings:
+                      warning_lines.append(f"* **{package}**: {message}")
 
-              for name in "${outputs[@]}"; do
-                echo "${name}=" >> "$GITHUB_OUTPUT"
-              done
+          if warning_lines:
+              rows.append("")
+              rows.append("### Warnings")
+              rows.extend(warning_lines)
 
-              {
-                echo "primary="
-                echo "should_run=false"
-              } >> "$GITHUB_OUTPUT"
+          outputs["packages_to_release"] = " ".join(releasing)
+          outputs["should_run"] = "true" if releasing and not has_warnings else "false"
+          outputs["has_warnings"] = "true" if has_warnings else "false"
 
-              {
-                printf '%s\n' \
-                  "### Release run skipped" \
-                  "The latest commit on `main` does not contain the required `[release]` marker." \
-                  "Add `[release]` to the commit message that bumps versions and push again to run the pipeline."
-              } >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          fi
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
-          tags=$(git tag --points-at "$GITHUB_SHA" | sort || true)
-          if [ -z "$tags" ]; then
-            echo "No tags found on commit $GITHUB_SHA" >&2
-            exit 1
-          fi
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              for key, value in outputs.items():
+                  fh.write(f"{key}={value}\n")
+          PY
 
-          prefixes=(
-            "dc43-v"
-            "dc43-service-clients-v"
-            "dc43-service-backends-v"
-            "dc43-integrations-v"
-            "dc43-contracts-app-v"
-          )
-          outputs=(
-            "core_tag"
-            "service_clients_tag"
-            "service_backends_tag"
-            "integrations_tag"
-            "contracts_app_tag"
-          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-plan
+          path: plan.json
 
-          primary=""
-          for i in "${!prefixes[@]}"; do
-            prefix="${prefixes[$i]}"
-            name="${outputs[$i]}"
-            match=$(printf '%s\n' "$tags" | grep "^${prefix}" | head -n1 || true)
-            echo "${name}=${match}" >> "$GITHUB_OUTPUT"
-            if [ -z "$primary" ] && [ -n "$match" ]; then
-              primary="$match"
-            fi
-          done
-
-          if [ -z "$primary" ]; then
-            echo "No recognized release tags found on commit $GITHUB_SHA" >&2
-            exit 1
-          fi
-
-          should_run=false
-          if [ "$primary" = "$GITHUB_REF_NAME" ]; then
-            should_run=true
-          fi
-
-          {
-            echo "primary=${primary}"
-            echo "should_run=${should_run}"
-          } >> "$GITHUB_OUTPUT"
-
-          if [ "$should_run" != "true" ]; then
-            {
-              printf '%s\n' \
-                "### Release run skipped" \
-                "This workflow run was triggered by \`$GITHUB_REF_NAME\`." \
-                "The primary tag \`$primary\` will execute the release pipeline."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+      - name: Fail on release warnings
+        if: steps.summarize.outputs.has_warnings == 'true'
+        run: |
+          echo "Release plan contains warnings. See the job summary for details." >&2
+          exit 1
 
   release:
     needs: determine
@@ -190,7 +171,6 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.core_tag }}
           TAG_PREFIX: dc43-v
           VERSION_FILE: VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
           pip install -e '.[test]'
@@ -208,10 +188,9 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.service_clients_tag }}
           TAG_PREFIX: dc43-service-clients-v
           VERSION_FILE: packages/dc43-service-clients/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-clients[test]
+          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
           pytest packages/dc43-service-clients/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -226,10 +205,11 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.service_backends_tag }}
           TAG_PREFIX: dc43-service-backends-v
           VERSION_FILE: packages/dc43-service-backends/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-service-backends[test]
+          pip install -e . --no-deps
+          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+          pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
           pytest packages/dc43-service-backends/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -244,10 +224,11 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.integrations_tag }}
           TAG_PREFIX: dc43-integrations-v
           VERSION_FILE: packages/dc43-integrations/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-integrations[test]
+          pip install -e . --no-deps
+          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+          pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
           pytest packages/dc43-integrations/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -262,10 +243,14 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.contracts_app_tag }}
           TAG_PREFIX: dc43-contracts-app-v
           VERSION_FILE: packages/dc43-contracts-app/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
-          pip install -e packages/dc43-contracts-app[spark]
+          pip install -e . --no-deps
+          pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+          pip install fastapi jinja2 python-multipart pyspark
+          pip install --no-deps "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
+          pip install --no-deps "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
+          pip install --no-deps "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
           pytest packages/dc43-contracts-app/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -281,6 +266,51 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
           packages-dir: release-artifacts/dc43
 
+      - name: Publish dc43-service-clients to PyPI
+        if: needs.determine.outputs.service_clients_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-service-clients
+
+      - name: Publish dc43-service-backends to PyPI
+        if: needs.determine.outputs.service_backends_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-service-backends
+
+      - name: Publish dc43-integrations to PyPI
+        if: needs.determine.outputs.integrations_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-integrations
+
+      - name: Publish dc43-contracts-app to PyPI
+        if: needs.determine.outputs.contracts_app_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-contracts-app
+
+      - name: Create release tags
+        if: needs.determine.outputs.packages_to_release != ''
+        env:
+          RELEASE_PACKAGES: ${{ needs.determine.outputs.packages_to_release }}
+        run: |
+          set -euo pipefail
+          packages="$RELEASE_PACKAGES"
+          if [ -z "$packages" ]; then
+            echo "No packages require tagging."
+            exit 0
+          fi
+          python scripts/release.py \
+            --commit "$GITHUB_SHA" \
+            --packages $packages \
+            --apply --push \
+            --allow-missing-release-marker
+
       - name: Publish dc43 GitHub release
         if: needs.determine.outputs.core_tag != ''
         uses: softprops/action-gh-release@v1
@@ -288,13 +318,6 @@ jobs:
           tag_name: ${{ needs.determine.outputs.core_tag }}
           files: release-artifacts/dc43/*
           generate_release_notes: true
-
-      - name: Publish dc43-service-clients to PyPI
-        if: needs.determine.outputs.service_clients_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43-service-clients
 
       - name: Publish dc43-service-clients GitHub release
         if: needs.determine.outputs.service_clients_tag != ''
@@ -304,13 +327,6 @@ jobs:
           files: release-artifacts/dc43-service-clients/*
           generate_release_notes: true
 
-      - name: Publish dc43-service-backends to PyPI
-        if: needs.determine.outputs.service_backends_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43-service-backends
-
       - name: Publish dc43-service-backends GitHub release
         if: needs.determine.outputs.service_backends_tag != ''
         uses: softprops/action-gh-release@v1
@@ -319,13 +335,6 @@ jobs:
           files: release-artifacts/dc43-service-backends/*
           generate_release_notes: true
 
-      - name: Publish dc43-integrations to PyPI
-        if: needs.determine.outputs.integrations_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43-integrations
-
       - name: Publish dc43-integrations GitHub release
         if: needs.determine.outputs.integrations_tag != ''
         uses: softprops/action-gh-release@v1
@@ -333,13 +342,6 @@ jobs:
           tag_name: ${{ needs.determine.outputs.integrations_tag }}
           files: release-artifacts/dc43-integrations/*
           generate_release_notes: true
-
-      - name: Publish dc43-contracts-app to PyPI
-        if: needs.determine.outputs.contracts_app_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43-contracts-app
 
       - name: Publish dc43-contracts-app GitHub release
         if: needs.determine.outputs.contracts_app_tag != ''

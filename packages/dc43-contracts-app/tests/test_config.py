@@ -34,6 +34,21 @@ base_url = "http://localhost:9005/"
     assert config.backend.process.log_level == "info"
 
 
+def test_load_config_from_file_ignores_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "contracts.toml"
+    config_path.write_text(
+        """
+[workspace]
+root = "./workspace"
+"""
+    )
+
+    monkeypatch.setenv("DC43_CONTRACTS_APP_WORK_DIR", str(tmp_path / "other"))
+
+    config = load_config(config_path)
+    assert config.workspace.root == Path("./workspace").expanduser()
+
+
 def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_path = tmp_path / "contracts.toml"
     config_path.write_text("[backend]\nmode='embedded'\n")
