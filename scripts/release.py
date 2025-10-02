@@ -116,6 +116,26 @@ def prompt_yes_no(question: str) -> bool:
     return normalized in {"y", "yes"}
 
 
+def ensure_git_identity() -> None:
+    """Ensure git user name and email are configured locally for tagging."""
+
+    defaults = {
+        "user.name": "dc43 Release Bot",
+        "user.email": "releases@dc43.invalid",
+    }
+    for key, default in defaults.items():
+        result = subprocess.run(
+            ["git", "config", "--get", key],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.stdout.strip():
+            continue
+        subprocess.run(["git", "config", "--local", key, default], cwd=ROOT, check=True)
+
+
 def amend_head_commit_with_marker(message: str) -> None:
     """Append ``[release]`` to the current HEAD commit message."""
 
@@ -360,6 +380,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             except subprocess.CalledProcessError as exc:
                 print(f"\nERROR: {exc}", file=sys.stderr)
                 return exc.returncode
+        ensure_git_identity()
     resolved_commit = run_git("rev-parse", args.commit)
     plans = build_plan(packages, resolved_commit, skip_pypi=args.skip_pypi)
     if args.json_output:
