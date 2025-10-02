@@ -285,6 +285,22 @@ def format_plan(plan: ReleasePlan) -> str:
     return "\n".join(lines)
 
 
+def plan_to_dict(plan: ReleasePlan) -> dict:
+    """Return a JSON-serializable representation of ``plan``."""
+
+    return {
+        "package": plan.package,
+        "version": plan.version,
+        "tag": plan.tag,
+        "commit": plan.commit,
+        "last_tag": plan.last_tag,
+        "changed_files": plan.changed_files,
+        "pypi_exists": plan.pypi_exists,
+        "needs_release": plan.needs_release,
+        "warnings": plan.warnings,
+    }
+
+
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
@@ -318,6 +334,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Skip enforcing the '[release]' marker on the target commit message.",
     )
+    parser.add_argument(
+        "--json-output",
+        type=Path,
+        help="Write the computed release plan to this path as JSON.",
+    )
     return parser.parse_args(argv)
 
 
@@ -334,7 +355,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             except subprocess.CalledProcessError as exc:
                 print(f"\nERROR: {exc}", file=sys.stderr)
                 return exc.returncode
-    plans = build_plan(packages, args.commit, skip_pypi=args.skip_pypi)
+    resolved_commit = run_git("rev-parse", args.commit)
+    plans = build_plan(packages, resolved_commit, skip_pypi=args.skip_pypi)
+    if args.json_output:
+        args.json_output.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "commit": resolved_commit,
+            "packages": [plan_to_dict(plan) for plan in plans],
+        }
+        args.json_output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     for plan in plans:
         print(format_plan(plan))
         print()

@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: ${{ matrix.display }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - display: core
+            install: "pip install -e '.[test]'"
+            test_command: "pytest -q"
+          - display: service-clients
+            install: "pip install -e packages/dc43-service-clients[test]"
+            test_command: "pytest packages/dc43-service-clients/tests -q"
+          - display: service-backends
+            install: "pip install -e packages/dc43-service-backends[test]"
+            test_command: "pytest packages/dc43-service-backends/tests -q"
+          - display: integrations
+            install: "pip install -e packages/dc43-integrations[test]"
+            test_command: "pytest packages/dc43-integrations/tests -q"
+          - display: contracts-app
+            install: "pip install -e packages/dc43-contracts-app[spark]"
+            test_command: "pytest packages/dc43-contracts-app/tests -q"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install packaging build
+          ${{ matrix.install }}
+
+      - name: Run tests
+        run: ${{ matrix.test_command }}
