@@ -95,7 +95,12 @@ def run_git(*args: str, check: bool = True) -> str:
 def ensure_clean_worktree() -> None:
     status = run_git("status", "--porcelain")
     if status:
-        raise ReleaseError("Your working tree has uncommitted changes. Commit or stash them before releasing.")
+        formatted = "\n".join(f"    {line}" for line in status.splitlines())
+        raise ReleaseError(
+            "Your working tree has uncommitted changes:\n"
+            f"{formatted}\n"
+            "Commit or stash them before releasing."
+        )
 
 
 def prompt_yes_no(question: str) -> bool:
