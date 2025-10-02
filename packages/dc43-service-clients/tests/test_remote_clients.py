@@ -526,12 +526,13 @@ def test_remote_data_product_client_registers_ports(http_clients):
 
 def test_remote_data_product_resolve_output_contract(http_clients):
     dp_client: RemoteDataProductServiceClient = http_clients["data_product"]
+    contract: OpenDataContractStandard = http_clients["contract_model"]
 
     contract_ref = dp_client.resolve_output_contract(
         data_product_id="dp.analytics",
         port_name="primary",
     )
-    assert contract_ref == ("test.orders", "0.1.0")
+    assert contract_ref == (contract.id, contract.version)
 
 
 def test_http_clients_require_authentication(service_backend):
