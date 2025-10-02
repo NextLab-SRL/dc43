@@ -173,6 +173,90 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "run_type": "enforce",
         },
     },
+    "contract-draft-block": {
+        "label": "Draft contract blocked",
+        "description": (
+            "<p>Highlights the default guardrails that reject non-active contracts.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code> as usual.</li>"
+            "<li><strong>Contract:</strong> Targets draft"
+            " <code>orders_enriched:3.0.0</code>.</li>"
+            "<li><strong>Writes:</strong> Aborted before materialising the dataset because"
+            " the draft status is not allowed when enforcing.</li>"
+            "<li><strong>Status:</strong> Run exits with an error explaining the"
+            " contract status failure.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Draft["orders_enriched draft\ncontract orders_enriched:3.0.0"] --> Guard["contract status guard"]
+                    Guard -->|status=draft| Block["Run blocked"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "3.0.0",
+            "run_type": "enforce",
+        },
+    },
+    "contract-draft-override": {
+        "label": "Allow draft contract",
+        "description": (
+            "<p>Demonstrates relaxing the guardrails when drafts are acceptable.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Curated"
+            " <code>orders::valid latest__valid → 2025-09-28</code> alongside"
+            " <code>customers:1.0.0</code>.</li>"
+            "<li><strong>Contract:</strong> Uses draft"
+            " <code>orders_enriched:3.0.0</code> but overrides the status policy to"
+            " include drafts.</li>"
+            "<li><strong>Writes:</strong> Persists"
+            " <code>orders_enriched</code> with the run timestamp while boosting low"
+            " amounts and stamping a placeholder <code>customer_segment</code> value.</li>"
+            "<li><strong>Status:</strong> Run succeeds while recording the override in"
+            " the run metadata.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Draft["orders_enriched draft\ncontract orders_enriched:3.0.0"] --> Override["status policy allows draft"]
+                    Override --> Write["orders_enriched «timestamp»\ncontract orders_enriched:3.0.0"]
+                    Write --> Status["Run status: OK"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "3.0.0",
+            "run_type": "enforce",
+            "violation_strategy": {
+                "name": "default",
+                "contract_status": {
+                    "allowed_contract_statuses": ["active", "draft"],
+                    "allow_missing_contract_status": False,
+                },
+            },
+            "output_adjustment": "boost-amounts",
+            "inputs": {
+                "orders": {
+                    "dataset_id": "orders::valid",
+                    "dataset_version": "latest__valid",
+                }
+            },
+        },
+    },
     "read-invalid-block": {
         "label": "Invalid input blocked",
         "description": (

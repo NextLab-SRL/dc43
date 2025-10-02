@@ -47,6 +47,8 @@ point the locator at the `orders latest → 2025-09-28` submission, including it
 | **Existing contract OK** | No-op (default) | `orders_enriched:1.0.0` | *(none)* | `orders_enriched` persisted with the run timestamp. |
 | **Existing contract fails DQ** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched` is persisted with the run timestamp before governance returns a `block` verdict and a draft. |
 | **Contract fails schema and DQ** | No-op (default) | `orders_enriched:2.0.0` | `orders_enriched:2.1.0` | `orders_enriched` is written with the run timestamp, but schema drift and DQ failures downgrade the run to `block`. |
+| **Draft contract blocked** | No-op (default) | `orders_enriched:3.0.0` (draft) | *(none)* | Write blocked before the dataset is materialised because the contract status is not allowed. |
+| **Allow draft contract** | No-op (default) with status override | `orders_enriched:3.0.0` (draft) | *(none)* | `orders_enriched` persisted from the curated valid slice with boosted amounts, placeholder segments, and the override recorded in the run metadata. |
 | **Invalid input blocked** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Read aborts because governance marks `orders latest → 2025-09-28` as `block` while pointing to the curated valid/reject slices. |
 | **Prefer valid subset** | No-op (default) | `orders_enriched:1.1.0` | *(none)* | Reads `orders::valid latest__valid → 2025-09-28` and writes `orders_enriched` with the run timestamp under contract `1.1.0`. |
 | **Valid subset, invalid output** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | Starts from `orders::valid latest__valid → 2025-09-28`, but the join lowers a value so `orders_enriched` (timestamped) is stored with `block` status and a draft. |
@@ -76,6 +78,17 @@ All dataset versions default to an ISO-8601 timestamp captured at write time. Wh
 - **Target contract:** `orders_enriched:2.0.0` with proposed draft `orders_enriched:2.1.0`.
 - **Dataset versions:** `orders_enriched` is written with the run timestamp, but downstream schema validation and DQ checks respond with a `block` verdict.
 - **Outcome:** Enforcement errors and flags the draft for review while the run history shows the blocked write.
+
+#### Draft contract blocked
+- **Target contract:** Draft `orders_enriched:3.0.0` marked as `draft` in the contract store.
+- **Dataset versions:** None; `write_with_contract` raises before the write executes because the default policy only allows active contracts.
+- **Outcome:** Enforcement surfaces the contract status failure and no new dataset version is recorded.
+
+#### Allow draft contract
+- **Target contract:** Draft `orders_enriched:3.0.0`, but the pipeline overrides the allowed statuses to include drafts.
+- **Dataset versions:** `orders_enriched` is persisted with the run timestamp even though the contract is still draft; the run metadata records the override plus the transformation note that raised low order amounts and populated a placeholder `customer_segment` to satisfy the expectations.
+- **Inputs:** Reads the curated `orders::valid latest__valid → 2025-09-28` slice so the upstream DQ verdict is clean while still exercising the status override.
+- **Outcome:** Highlights how to relax the guardrails for development while keeping a clear audit trail in the governance payload and the exact policy that permitted the draft.
 
 #### Invalid input blocked
 - **Target contract:** `orders_enriched:1.1.0`, but strict enforcement stops at the read stage.

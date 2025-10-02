@@ -715,6 +715,28 @@ class ReadStatusStrategy(Protocol):
 class DefaultReadStatusStrategy:
     """Default behaviour preserving enforcement semantics."""
 
+    allowed_contract_statuses: tuple[str, ...] = ("active",)
+    allow_missing_contract_status: bool = True
+    contract_status_case_insensitive: bool = True
+    contract_status_failure_message: str | None = None
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_contract_statuses,
+            allow_missing=self.allow_missing_contract_status,
+            case_insensitive=self.contract_status_case_insensitive,
+            failure_message=self.contract_status_failure_message,
+        )
+
     def apply(
         self,
         *,
@@ -723,6 +745,13 @@ class DefaultReadStatusStrategy:
         enforce: bool,
         context: ReadStatusContext,
     ) -> tuple[DataFrame, Optional[ValidationResult]]:  # noqa: D401 - short docstring
+        contract = context.contract
+        if contract is not None:
+            self.validate_contract_status(
+                contract=contract,
+                enforce=enforce,
+                operation="read",
+            )
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
         return dataframe, status
@@ -854,9 +883,88 @@ def _resolve_contract(
     return service.get(contract_id, expected_version)
 
 
+def _enforce_contract_status(
+    *,
+    handler: object,
+    contract: OpenDataContractStandard,
+    enforce: bool,
+    operation: str,
+) -> None:
+    """Apply a contract status policy defined by ``handler``."""
+
+    validator = getattr(handler, "validate_contract_status", None)
+    if validator is None:
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+        )
+        return
+
+    validator(contract=contract, enforce=enforce, operation=operation)
+
+
+def _validate_contract_status(
+    *,
+    contract: OpenDataContractStandard,
+    enforce: bool,
+    operation: str,
+    allowed_statuses: Iterable[str] | None = None,
+    allow_missing: bool = True,
+    case_insensitive: bool = True,
+    failure_message: str | None = None,
+) -> None:
+    """Check the contract status against an allowed set."""
+
+    raw_status = getattr(contract, "status", None)
+    if raw_status is None:
+        if allow_missing:
+            return
+        status_value = ""
+    else:
+        status_value = str(raw_status).strip()
+        if not status_value and allow_missing:
+            return
+
+    if not status_value:
+        message = (
+            failure_message
+            or "Contract {contract_id}:{contract_version} status {status!r} "
+            "is not allowed for {operation} operations"
+        ).format(
+            contract_id=str(getattr(contract, "id", "")),
+            contract_version=str(getattr(contract, "version", "")),
+            status=status_value,
+            operation=operation,
+        )
+        if enforce:
+            raise ValueError(message)
+        logger.warning(message)
+        return
+
+    options = allowed_statuses or ("active",)
+    allowed = {status.lower() if case_insensitive else status for status in options}
+    candidate = status_value.lower() if case_insensitive else status_value
+    if candidate in allowed:
+        return
+
+    message = (
+        failure_message
+        or "Contract {contract_id}:{contract_version} status {status!r} "
+        "is not allowed for {operation} operations"
+    ).format(
+        contract_id=str(getattr(contract, "id", "")),
+        contract_version=str(getattr(contract, "version", "")),
+        status=status_value,
+        operation=operation,
+    )
+    if enforce:
+        raise ValueError(message)
+    logger.warning(message)
+
+
 # Overloads help type checkers infer the return type based on ``return_status``
 # so callers can destructure the tuple without false positives.
-@overload
 def read_with_contract(
     spark: SparkSession,
     *,
@@ -954,7 +1062,7 @@ def read_with_contract(
       ``return_status=True``.
     """
     locator = dataset_locator or ContractFirstDatasetLocator()
-    status_handler = status_strategy or DefaultReadStatusStrategy()
+    dq_status_handler = status_strategy or DefaultReadStatusStrategy()
 
     contract: Optional[OpenDataContractStandard] = None
     if contract_id:
@@ -965,6 +1073,12 @@ def read_with_contract(
         )
         ensure_version(contract)
         _check_contract_version(expected_contract_version, contract.version)
+        _enforce_contract_status(
+            handler=dq_status_handler,
+            contract=contract,
+            enforce=enforce,
+            operation="read",
+        )
 
     original_path = path
     original_table = table
@@ -1104,7 +1218,7 @@ def read_with_contract(
         if status:
             logger.info("DQ status for %s@%s: %s", ds_id, ds_ver, status.status)
 
-        df, status = status_handler.apply(
+        df, status = dq_status_handler.apply(
             dataframe=df,
             status=status,
             enforce=enforce,
@@ -1139,6 +1253,7 @@ def write_with_contract(
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True],
+    violation_strategy: Optional[WriteViolationStrategy] = ...,
 ) -> tuple[ValidationResult, Optional[ValidationResult]]:
     ...
 
@@ -1162,6 +1277,7 @@ def write_with_contract(
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[False] = False,
+    violation_strategy: Optional[WriteViolationStrategy] = ...,
 ) -> ValidationResult:
     ...
 
@@ -1194,6 +1310,8 @@ def write_with_contract(
     """
     locator = dataset_locator or ContractFirstDatasetLocator()
 
+    strategy = violation_strategy or NoOpWriteViolationStrategy()
+
     contract: Optional[OpenDataContractStandard] = None
     if contract_id:
         contract = _resolve_contract(
@@ -1203,6 +1321,12 @@ def write_with_contract(
         )
         ensure_version(contract)
         _check_contract_version(expected_contract_version, contract.version)
+        _enforce_contract_status(
+            handler=strategy,
+            contract=contract,
+            enforce=enforce,
+            operation="write",
+        )
 
     original_path = path
     original_table = table
@@ -1301,7 +1425,6 @@ def write_with_contract(
     if isinstance(predicates, Mapping):
         expectation_predicates = dict(predicates)
 
-    strategy = violation_strategy or NoOpWriteViolationStrategy()
     revalidator: Callable[[DataFrame], ValidationResult]
     if contract:
 

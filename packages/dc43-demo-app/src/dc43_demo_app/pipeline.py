@@ -21,6 +21,7 @@ from dc43_integrations.spark.data_quality import attach_failed_expectations
 from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
+    DefaultReadStatusStrategy,
     ReadStatusContext,
     ReadStatusStrategy,
     StaticDatasetLocator,
@@ -35,7 +36,7 @@ from dc43_integrations.spark.violation_strategy import (
 )
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, lit, when
 
 
 def _next_version(existing: list[str]) -> str:
@@ -122,21 +123,325 @@ class _DowngradeBlockingReadStrategy:
                 status=self.target_status,
                 reason=status.reason,
                 details=details,
-            )
+        )
         return dataframe, status
 
 
 ReadStrategySpec = ReadStatusStrategy | str | Mapping[str, Any] | None
+ContractStatusSpec = Mapping[str, Any] | None
 
 
-def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | None:
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Return a normalised boolean for ``value``."""
+
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    if text in {"true", "1", "yes", "on"}:
+        return True
+    if text in {"false", "0", "no", "off"}:
+        return False
+    return bool(value)
+
+
+def _coerce_statuses(value: Any) -> tuple[str, ...]:
+    """Return a tuple of contract status strings extracted from ``value``."""
+
+    if value is None:
+        return tuple()
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        try:
+            items = list(value)  # type: ignore[arg-type]
+        except TypeError:
+            items = [value]
+    statuses: list[str] = []
+    for item in items:
+        if item is None:
+            continue
+        text = str(item).strip()
+        if text:
+            statuses.append(text)
+    return tuple(statuses)
+
+
+def _extract_contract_status_config(options: MutableMapping[str, Any]) -> dict[str, Any]:
+    """Return canonical contract-status options popped from ``options``."""
+
+    if not isinstance(options, MutableMapping):
+        return {}
+
+    config: dict[str, Any] = {}
+    raw = options.pop("contract_status", None)
+    if isinstance(raw, Mapping):
+        config.update(raw)
+
+    alias_map = {
+        "allowed_contract_statuses": "allowed_contract_statuses",
+        "allowed_statuses": "allowed_contract_statuses",
+        "allowed": "allowed_contract_statuses",
+        "allow_missing_contract_status": "allow_missing_contract_status",
+        "allow_missing": "allow_missing_contract_status",
+        "contract_status_case_insensitive": "contract_status_case_insensitive",
+        "case_insensitive": "contract_status_case_insensitive",
+        "contract_status_failure_message": "contract_status_failure_message",
+    }
+
+    for key, target in alias_map.items():
+        if key in options:
+            config[target] = options.pop(key)
+
+    return config
+
+
+def _canonical_contract_status_config(spec: ContractStatusSpec) -> dict[str, Any]:
+    """Return canonicalised contract-status options and validate keys."""
+
+    if not spec:
+        return {}
+    raw: MutableMapping[str, Any] = dict(spec)
+    config = _extract_contract_status_config(raw)
+    if raw:
+        unknown = ", ".join(sorted(map(str, raw.keys())))
+        raise ValueError(f"Unknown contract status option(s): {unknown}")
+    return config
+
+
+def _normalise_contract_status_config(
+    config: Mapping[str, Any] | None,
+    *,
+    defaults: Any,
+) -> dict[str, Any]:
+    """Return normalised contract-status kwargs merged with ``defaults``."""
+
+    allowed_default = tuple(
+        getattr(defaults, "allowed_contract_statuses", ("active",))
+    )
+    allow_missing_default = bool(
+        getattr(defaults, "allow_missing_contract_status", True)
+    )
+    case_insensitive_default = bool(
+        getattr(defaults, "contract_status_case_insensitive", True)
+    )
+    failure_default = getattr(defaults, "contract_status_failure_message", None)
+
+    allowed_source: Any = None
+    if config:
+        allowed_source = (
+            config.get("allowed_contract_statuses")
+            or config.get("allowed_statuses")
+            or config.get("allowed")
+        )
+    allowed = _coerce_statuses(allowed_source)
+    if not allowed:
+        allowed = tuple(str(status) for status in allowed_default)
+
+    allow_missing = allow_missing_default
+    if config:
+        allow_missing = _coerce_bool(
+            config.get("allow_missing_contract_status", config.get("allow_missing")),
+            allow_missing_default,
+        )
+
+    case_insensitive = case_insensitive_default
+    if config:
+        case_insensitive = _coerce_bool(
+            config.get(
+                "contract_status_case_insensitive",
+                config.get("case_insensitive"),
+            ),
+            case_insensitive_default,
+        )
+
+    failure_value = failure_default
+    if config and "contract_status_failure_message" in config:
+        failure_value = config["contract_status_failure_message"]
+    elif config and "failure_message" in config:
+        failure_value = config["failure_message"]
+
+    failure_message = None
+    if failure_value is not None:
+        failure_message = str(failure_value)
+
+    return {
+        "allowed_contract_statuses": tuple(str(status) for status in allowed),
+        "allow_missing_contract_status": allow_missing,
+        "contract_status_case_insensitive": case_insensitive,
+        "contract_status_failure_message": failure_message,
+    }
+
+
+class _ContractStatusReadWrapper:
+    """Attach contract-status validation to an existing read strategy."""
+
+    def __init__(
+        self,
+        base: ReadStatusStrategy | None,
+        *,
+        allowed_contract_statuses: tuple[str, ...],
+        allow_missing_contract_status: bool,
+        contract_status_case_insensitive: bool,
+        contract_status_failure_message: str | None,
+    ) -> None:
+        self.base = base
+        self.allowed_contract_statuses = tuple(allowed_contract_statuses)
+        self.allow_missing_contract_status = allow_missing_contract_status
+        self.contract_status_case_insensitive = contract_status_case_insensitive
+        self.contract_status_failure_message = contract_status_failure_message
+        self._default = DefaultReadStatusStrategy(
+            allowed_contract_statuses=self.allowed_contract_statuses,
+            allow_missing_contract_status=self.allow_missing_contract_status,
+            contract_status_case_insensitive=self.contract_status_case_insensitive,
+            contract_status_failure_message=self.contract_status_failure_message,
+        )
+
+    def apply(
+        self,
+        *,
+        dataframe: DataFrame,
+        status: ValidationResult | None,
+        enforce: bool,
+        context: ReadStatusContext,
+    ) -> tuple[DataFrame, ValidationResult | None]:
+        if self.base is not None:
+            return self.base.apply(
+                dataframe=dataframe,
+                status=status,
+                enforce=enforce,
+                context=context,
+            )
+        return self._default.apply(
+            dataframe=dataframe,
+            status=status,
+            enforce=enforce,
+            context=context,
+        )
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        self._default.validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+        )
+
+
+def _apply_contract_status_to_read_strategy(
+    strategy: ReadStatusStrategy | None,
+    config: Mapping[str, Any] | None,
+) -> ReadStatusStrategy | None:
+    """Return ``strategy`` updated with the provided contract-status config."""
+
+    if not config:
+        return strategy
+
+    defaults = DefaultReadStatusStrategy()
+    options = _normalise_contract_status_config(config, defaults=defaults)
+
+    if strategy is None:
+        return DefaultReadStatusStrategy(**options)
+
+    if isinstance(strategy, DefaultReadStatusStrategy):
+        strategy.allowed_contract_statuses = options["allowed_contract_statuses"]
+        strategy.allow_missing_contract_status = options["allow_missing_contract_status"]
+        strategy.contract_status_case_insensitive = options[
+            "contract_status_case_insensitive"
+        ]
+        strategy.contract_status_failure_message = options[
+            "contract_status_failure_message"
+        ]
+        return strategy
+
+    return _ContractStatusReadWrapper(strategy, **options)
+
+
+def _apply_contract_status_to_write_strategy(
+    strategy: WriteViolationStrategy | None,
+    config: Mapping[str, Any] | None,
+) -> WriteViolationStrategy | None:
+    """Attach contract-status overrides to ``strategy`` when supported."""
+
+    if strategy is None or not config:
+        return strategy
+
+    defaults = strategy
+    if not hasattr(strategy, "allowed_contract_statuses"):
+        defaults = NoOpWriteViolationStrategy()
+
+    options = _normalise_contract_status_config(config, defaults=defaults)
+
+    if hasattr(strategy, "allowed_contract_statuses"):
+        strategy.allowed_contract_statuses = options["allowed_contract_statuses"]  # type: ignore[attr-defined]
+        strategy.allow_missing_contract_status = options["allow_missing_contract_status"]  # type: ignore[attr-defined]
+        strategy.contract_status_case_insensitive = options[
+            "contract_status_case_insensitive"
+        ]  # type: ignore[attr-defined]
+        strategy.contract_status_failure_message = options[
+            "contract_status_failure_message"
+        ]  # type: ignore[attr-defined]
+
+    base = getattr(strategy, "base", None)
+    if base is not None:
+        setattr(
+            strategy,
+            "base",
+            _apply_contract_status_to_write_strategy(base, config),
+        )
+
+    return strategy
+
+
+def _describe_contract_status_policy(handler: object) -> dict[str, Any] | None:
+    """Return a serialisable summary of a contract-status policy."""
+
+    allowed = getattr(handler, "allowed_contract_statuses", None)
+    allow_missing = getattr(handler, "allow_missing_contract_status", None)
+    case_insensitive = getattr(handler, "contract_status_case_insensitive", None)
+    failure_message = getattr(handler, "contract_status_failure_message", None)
+    if allowed is None or allow_missing is None or case_insensitive is None:
+        return None
+    return {
+        "allowed": list(allowed),
+        "allow_missing": bool(allow_missing),
+        "case_insensitive": bool(case_insensitive),
+        "failure_message": failure_message,
+    }
+
+
+def _resolve_violation_strategy(
+    spec: StrategySpec,
+    *,
+    contract_status: ContractStatusSpec = None,
+) -> WriteViolationStrategy | None:
     """Return a concrete violation strategy based on ``spec``."""
 
+    status_config = _canonical_contract_status_config(contract_status)
+
     if spec is None:
+        if status_config:
+            return _apply_contract_status_to_write_strategy(
+                NoOpWriteViolationStrategy(),
+                status_config,
+            )
         return None
 
     if hasattr(spec, "plan"):
-        return spec  # type: ignore[return-value]
+        return _apply_contract_status_to_write_strategy(
+            spec,  # type: ignore[arg-type]
+            status_config,
+        )
 
     name: str
     options: MutableMapping[str, Any]
@@ -155,9 +460,22 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
     else:  # pragma: no cover - defensive guard for unexpected inputs
         raise TypeError(f"Unsupported violation strategy spec: {spec!r}")
 
+    spec_status_config = _extract_contract_status_config(options)
+    merged_status_config = dict(status_config)
+    merged_status_config.update(spec_status_config)
+
     key = name.lower()
     if key in {"noop", "default", "none"}:
-        return NoOpWriteViolationStrategy()
+        if options:
+            unknown = ", ".join(sorted(map(str, options.keys())))
+            raise ValueError(
+                f"Unknown violation strategy option(s): {unknown}"
+            )
+        strategy = NoOpWriteViolationStrategy()
+        return _apply_contract_status_to_write_strategy(
+            strategy,
+            merged_status_config,
+        )
     if key in {"split", "split-datasets", "split_datasets"}:
         allowed: Sequence[str] = (
             "valid_suffix",
@@ -167,8 +485,17 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
             "write_primary_on_violation",
             "dataset_suffix_separator",
         )
-        filtered = {k: options[k] for k in allowed if k in options}
-        return SplitWriteViolationStrategy(**filtered)
+        filtered = {k: options.pop(k) for k in allowed if k in options}
+        if options:
+            unknown = ", ".join(sorted(map(str, options.keys())))
+            raise ValueError(
+                f"Unknown split strategy option(s): {unknown}"
+            )
+        strategy = SplitWriteViolationStrategy(**filtered)
+        return _apply_contract_status_to_write_strategy(
+            strategy,
+            merged_status_config,
+        )
     if key in {"split-strict", "strict-split", "split_strict"}:
         allowed: Sequence[str] = (
             "valid_suffix",
@@ -184,11 +511,23 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
                 StrictWriteViolationStrategy.failure_message,
             )
         )
-        fail_on_warnings = bool(options.pop("fail_on_warnings", False))
+        fail_on_warnings = _coerce_bool(
+            options.pop("fail_on_warnings", False),
+            False,
+        )
         base_options = {k: options.pop(k) for k in allowed if k in options}
-        base = SplitWriteViolationStrategy(**base_options)
+        if options:
+            unknown = ", ".join(sorted(map(str, options.keys())))
+            raise ValueError(
+                f"Unknown split strategy option(s): {unknown}"
+            )
+        base_strategy = SplitWriteViolationStrategy(**base_options)
+        base_strategy = _apply_contract_status_to_write_strategy(
+            base_strategy,
+            merged_status_config,
+        )
         return StrictWriteViolationStrategy(
-            base=base,
+            base=base_strategy,
             failure_message=failure_message,
             fail_on_warnings=fail_on_warnings,
         )
@@ -199,8 +538,21 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
                 StrictWriteViolationStrategy.failure_message,
             )
         )
-        fail_on_warnings = bool(options.pop("fail_on_warnings", False))
+        fail_on_warnings = _coerce_bool(
+            options.pop("fail_on_warnings", False),
+            False,
+        )
+        if options:
+            unknown = ", ".join(sorted(map(str, options.keys())))
+            raise ValueError(
+                f"Unknown strict strategy option(s): {unknown}"
+            )
+        base_strategy = _apply_contract_status_to_write_strategy(
+            NoOpWriteViolationStrategy(),
+            merged_status_config,
+        )
         return StrictWriteViolationStrategy(
+            base=base_strategy,
             failure_message=failure_message,
             fail_on_warnings=fail_on_warnings,
         )
@@ -208,14 +560,22 @@ def _resolve_violation_strategy(spec: StrategySpec) -> WriteViolationStrategy | 
     raise ValueError(f"Unknown violation strategy: {name}")
 
 
-def _resolve_read_status_strategy(spec: ReadStrategySpec) -> ReadStatusStrategy | None:
+def _resolve_read_status_strategy(
+    spec: ReadStrategySpec,
+    contract_status: ContractStatusSpec = None,
+) -> ReadStatusStrategy | None:
     """Return a read status strategy instance for the supplied spec."""
 
+    status_config = _canonical_contract_status_config(contract_status)
+
     if spec is None:
-        return None
+        return _apply_contract_status_to_read_strategy(None, status_config)
 
     if hasattr(spec, "apply"):
-        return spec  # type: ignore[return-value]
+        return _apply_contract_status_to_read_strategy(
+            spec,  # type: ignore[arg-type]
+            status_config,
+        )
 
     name: str
     options: MutableMapping[str, Any]
@@ -234,9 +594,21 @@ def _resolve_read_status_strategy(spec: ReadStrategySpec) -> ReadStatusStrategy 
     else:  # pragma: no cover - defensive guard
         raise TypeError(f"Unsupported read status strategy spec: {spec!r}")
 
+    spec_status_config = _extract_contract_status_config(options)
+    merged_status_config = dict(status_config)
+    merged_status_config.update(spec_status_config)
+
     key = name.lower()
     if key in {"default", "none", "pass", "passthrough"}:
-        return None
+        if options:
+            unknown = ", ".join(sorted(map(str, options.keys())))
+            raise ValueError(
+                f"Unknown read status option(s): {unknown}"
+            )
+        return _apply_contract_status_to_read_strategy(
+            None,
+            merged_status_config,
+        )
     if key in {"allow", "allow-block", "downgrade"}:
         note = str(
             options.pop(
@@ -244,8 +616,25 @@ def _resolve_read_status_strategy(spec: ReadStrategySpec) -> ReadStatusStrategy 
                 "Blocked dataset accepted for downstream processing",
             )
         )
-        target = str(options.pop("target_status", "warn"))
-        return _DowngradeBlockingReadStrategy(note=note, target_status=target)
+        target = str(
+            options.pop(
+                "target_status",
+                options.pop("target", "warn"),
+            )
+        )
+        if options:
+            unknown = ", ".join(sorted(map(str, options.keys())))
+            raise ValueError(
+                f"Unknown read status option(s): {unknown}"
+            )
+        strategy = _DowngradeBlockingReadStrategy(
+            note=note,
+            target_status=target,
+        )
+        return _apply_contract_status_to_read_strategy(
+            strategy,
+            merged_status_config,
+        )
 
     raise ValueError(f"Unknown read status strategy: {name}")
 
@@ -317,6 +706,18 @@ def _apply_output_adjustment(
     if key in {"amplify-negative", "full-batch-violation", "amplify_negative"}:
         notes.append("preserved negative input amounts to surface contract breach")
         # Ensure the negative row propagates; keep identity transformation.
+        return df, notes
+
+    if key in {"boost-amounts", "raise_amounts", "ensure_high_amounts"}:
+        notes.append(
+            "raised low order amounts and populated customer segments to satisfy the draft contract expectations"
+        )
+        df = df.withColumn(
+            "amount",
+            when(col("amount") < 150, lit(150)).otherwise(col("amount")),
+        )
+        if "customer_segment" not in df.columns:
+            df = df.withColumn("customer_segment", lit("loyalty_pilot"))
         return df, notes
 
     return df, []
@@ -465,6 +866,7 @@ def run_pipeline(
     collect_examples: bool = False,
     examples_limit: int = 5,
     violation_strategy: StrategySpec = None,
+    enforce_contract_status: bool | None = None,
     inputs: Mapping[str, Mapping[str, Any]] | None = None,
     output_adjustment: str | None = None,
     *,
@@ -479,9 +881,12 @@ def run_pipeline(
     flags, and read-status strategies for each source (``"orders"`` and
     ``"customers"``) so demo scenarios can highlight how mixed-validity inputs
     are handled.  ``output_adjustment`` optionally tweaks the joined dataframe
-    (for example to deliberately surface violations). ``scenario_key`` tags the
-    recorded run so the UI can distinguish scenarios that share the same output
-    dataset.  Returns the dataset name used along with the materialized version.
+    (for example to deliberately surface violations). ``enforce_contract_status``
+    toggles whether non-active contracts raise immediately when writing; by
+    default enforcement matches ``run_type == "enforce"``. ``scenario_key`` tags
+    the recorded run so the UI can distinguish scenarios that share the same
+    output dataset.  Returns the dataset name used along with the materialized
+    version.
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
@@ -493,6 +898,12 @@ def run_pipeline(
         "run_id": run_timestamp,
         "run_type": run_type,
     }
+    contract_status_enforce = (
+        enforce_contract_status
+        if enforce_contract_status is not None
+        else run_type == "enforce"
+    )
+    base_pipeline_context["contract_status_enforced"] = bool(contract_status_enforce)
     if scenario_key:
         base_pipeline_context["scenario_key"] = scenario_key
     if contract_id:
@@ -525,7 +936,9 @@ def run_pipeline(
         orders_overrides,
     )
     orders_strategy = _resolve_read_status_strategy(
-        orders_overrides.get("status_strategy") if orders_overrides else None
+        orders_overrides.get("status_strategy") if isinstance(orders_overrides, Mapping) else None,
+        contract_status=
+        orders_overrides.get("contract_status") if isinstance(orders_overrides, Mapping) else None,
     )
     orders_default_enforce = False
     treat_orders_blocking = False
@@ -543,6 +956,10 @@ def run_pipeline(
             target_status="warn",
         )
 
+    orders_policy = _describe_contract_status_policy(
+        orders_strategy or DefaultReadStatusStrategy()
+    )
+
     # Read primary orders dataset with its contract
     orders_df, orders_status = read_with_contract(
         spark,
@@ -556,7 +973,15 @@ def run_pipeline(
         enforce=orders_enforce,
         pipeline_context=_context_for(
             "orders-read",
-            {"dataset_role": "orders"},
+            {
+                "dataset_role": "orders",
+                "contract_status_enforced": bool(orders_enforce),
+                **(
+                    {"contract_status_policy": orders_policy}
+                    if orders_policy
+                    else {}
+                ),
+            },
         ),
     )
     if treat_orders_blocking and orders_status and orders_status.status == "block":
@@ -583,7 +1008,9 @@ def run_pipeline(
         customers_overrides,
     )
     customers_strategy = _resolve_read_status_strategy(
-        customers_overrides.get("status_strategy") if customers_overrides else None
+        customers_overrides.get("status_strategy") if isinstance(customers_overrides, Mapping) else None,
+        contract_status=
+        customers_overrides.get("contract_status") if isinstance(customers_overrides, Mapping) else None,
     )
     customers_default_enforce = False
     treat_customers_blocking = False
@@ -605,6 +1032,10 @@ def run_pipeline(
             target_status="warn",
         )
 
+    customers_policy = _describe_contract_status_policy(
+        customers_strategy or DefaultReadStatusStrategy()
+    )
+
     # Join with customers lookup dataset
     customers_df, customers_status = read_with_contract(
         spark,
@@ -618,7 +1049,15 @@ def run_pipeline(
         enforce=customers_enforce,
         pipeline_context=_context_for(
             "customers-read",
-            {"dataset_role": "customers"},
+            {
+                "dataset_role": "customers",
+                "contract_status_enforced": bool(customers_enforce),
+                **(
+                    {"contract_status_policy": customers_policy}
+                    if customers_policy
+                    else {}
+                ),
+            },
         ),
     )
     if treat_customers_blocking and customers_status and customers_status.status == "block":
@@ -669,6 +1108,8 @@ def run_pipeline(
     base_pipeline_context["output_dataset_version"] = dataset_version
 
     strategy = _resolve_violation_strategy(violation_strategy)
+    status_handler = strategy or NoOpWriteViolationStrategy()
+    strategy_policy = _describe_contract_status_policy(status_handler)
 
     if output_contract:
         locator = ContractVersionLocator(
@@ -683,29 +1124,79 @@ def run_pipeline(
         )
     contract_id_ref = getattr(output_contract, "id", None)
     expected_version = f"=={output_contract.version}" if output_contract else None
-    result, output_status = write_with_contract(
-        df=df,
-        contract_id=contract_id_ref,
-        contract_service=contracts_server.contract_service if contract_id_ref else None,
-        path=None if contract_id_ref else str(output_path),
-        format=None if contract_id_ref else getattr(server, "format", "parquet"),
-        mode="overwrite",
-        enforce=False,
-        data_quality_service=contracts_server.dq_service if contract_id_ref else None,
-        governance_service=governance,
-        dataset_locator=locator,
-        expected_contract_version=expected_version,
-        return_status=True,
-        violation_strategy=strategy,
-        pipeline_context=_context_for(
-            "output-write",
-            {
-                "dataset": dataset_name,
-                "dataset_version": dataset_version,
-                "storage_path": str(output_path),
-            },
-        ),
-    )
+    write_context_extra: dict[str, Any] = {
+        "dataset": dataset_name,
+        "dataset_version": dataset_version,
+        "storage_path": str(output_path),
+        "contract_status_enforced": bool(contract_status_enforce),
+    }
+    if strategy_policy:
+        write_context_extra["contract_status_policy"] = strategy_policy
+
+    write_error: ValueError | None = None
+    if output_contract and contract_status_enforce:
+        try:
+            status_handler.validate_contract_status(
+                contract=output_contract,
+                enforce=True,
+                operation="write",
+            )
+        except ValueError as exc:
+            write_error = exc
+            error_message = str(exc)
+            failure_details: dict[str, Any] = {
+                "errors": [error_message],
+                "contract_status_error": error_message,
+            }
+            if strategy_policy:
+                failure_details.setdefault(
+                    "contract_status_policy",
+                    strategy_policy,
+                )
+            result = ValidationResult(
+                ok=False,
+                errors=[error_message],
+                warnings=[],
+                metrics={},
+                status="error",
+                reason=error_message,
+                details=failure_details,
+            )
+            output_status = None
+        else:
+            result, output_status = write_with_contract(
+                df=df,
+                contract_id=contract_id_ref,
+                contract_service=contracts_server.contract_service if contract_id_ref else None,
+                path=None if contract_id_ref else str(output_path),
+                format=None if contract_id_ref else getattr(server, "format", "parquet"),
+                mode="overwrite",
+                enforce=False,
+                data_quality_service=contracts_server.dq_service if contract_id_ref else None,
+                governance_service=governance,
+                dataset_locator=locator,
+                expected_contract_version=expected_version,
+                return_status=True,
+                violation_strategy=strategy,
+                pipeline_context=_context_for("output-write", write_context_extra),
+            )
+    else:
+        result, output_status = write_with_contract(
+            df=df,
+            contract_id=contract_id_ref,
+            contract_service=contracts_server.contract_service if contract_id_ref else None,
+            path=None if contract_id_ref else str(output_path),
+            format=None if contract_id_ref else getattr(server, "format", "parquet"),
+            mode="overwrite",
+            enforce=False,
+            data_quality_service=contracts_server.dq_service if contract_id_ref else None,
+            governance_service=governance,
+            dataset_locator=locator,
+            expected_contract_version=expected_version,
+            return_status=True,
+            violation_strategy=strategy,
+            pipeline_context=_context_for("output-write", write_context_extra),
+        )
 
     if output_status and output_contract:
         output_status = attach_failed_expectations(
@@ -767,7 +1258,7 @@ def run_pipeline(
         if not result.errors:
             result.ok = True
 
-    error: ValueError | None = None
+    error: ValueError | None = write_error
     if run_type == "enforce":
         if not output_contract:
             error = ValueError("Contract required for existing mode")
@@ -806,6 +1297,12 @@ def run_pipeline(
             extra.extend(adjustment_notes)
         else:
             output_details["transformations"] = adjustment_notes
+    if strategy_policy and "contract_status_policy" not in output_details:
+        output_details["contract_status_policy"] = strategy_policy
+    output_details.setdefault(
+        "contract_status_enforced",
+        bool(contract_status_enforce),
+    )
     if strategy is not None:
         output_details.setdefault("violation_strategy", type(strategy).__name__)
         if isinstance(strategy, SplitWriteViolationStrategy):
