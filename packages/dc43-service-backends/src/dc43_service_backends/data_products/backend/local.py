@@ -125,6 +125,32 @@ class LocalDataProductServiceBackend(DataProductServiceBackend):
         )
         return DataProductRegistrationResult(product=updated, changed=True)
 
+    def register_output_port(
+        self,
+        *,
+        data_product_id: str,
+        port: DataProductOutputPort,
+        bump: str = "minor",
+        custom_properties: Optional[Mapping[str, object]] = None,
+    ) -> DataProductRegistrationResult:  # noqa: D401
+        product = self._ensure_product(data_product_id)
+        did_change = product.ensure_output_port(port)
+        if not did_change:
+            return DataProductRegistrationResult(product=product, changed=False)
+
+        props = _as_custom_properties(custom_properties)
+        if props:
+            port.custom_properties.extend(
+                [item for item in props if item not in port.custom_properties]
+            )
+
+        updated = self._store_updated(
+            product,
+            bump=bump,
+            existing_versions=self._existing_versions(data_product_id),
+        )
+        return DataProductRegistrationResult(product=updated, changed=True)
+
     def resolve_output_contract(
         self,
         *,
