@@ -21,6 +21,11 @@
   tooling detects changes. The `dc43` entry must include `src/dc43` along with
   `pyproject.toml`, and the demo package is tracked separately under
   `packages/dc43-demo-app`.
+- Every distributable package (including the root `dc43` meta package) keeps a
+  `CHANGELOG.md` next to its `pyproject.toml`. Update the `Unreleased` section
+  when you touch the code and promote entries into a dated version heading as
+  part of the release commit so the GitHub Releases surface package-specific
+  notes alongside the auto-generated commit list.
 - Use `python scripts/release.py` to preview releases and `python
   scripts/release.py --apply --push` to publish tags once validated.
 - Internal packages live under `packages/` and rely on their own `pyproject.toml`
