@@ -119,12 +119,12 @@ resource "azurerm_container_app" "main" {
     }
 
     volume {
-      name                                = "contracts"
-      storage_type                         = "AzureFile"
-      storage_name                         = azurerm_storage_account.contracts.name
-      storage_account_name                 = azurerm_storage_account.contracts.name
-      share_name                           = azurerm_storage_share.contracts.name
-      storage_account_access_key_secret_ref = "contracts-storage-key"
+      name                                 = "contracts"
+      storage_type                          = "AzureFile"
+      storage_name                          = azurerm_storage_account.contracts.name
+      storage_account_name                  = azurerm_storage_account.contracts.name
+      share_name                            = azurerm_storage_share.contracts.name
+      storage_account_key_secret_name       = "contracts-storage-key"
     }
   }
 
