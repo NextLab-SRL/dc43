@@ -13,7 +13,10 @@ from __future__ import annotations
 from importlib import import_module, util as importlib_util
 
 
-_CORE_SPEC = importlib_util.find_spec("dc43.core.odps")
+try:  # pragma: no cover - exercised when dc43 is absent
+    _CORE_SPEC = importlib_util.find_spec("dc43.core.odps")
+except ModuleNotFoundError:  # pragma: no cover - guard for namespace packages
+    _CORE_SPEC = None
 
 if _CORE_SPEC is not None:  # pragma: no cover - exercised when dc43 is present
     _core = import_module("dc43.core.odps")
