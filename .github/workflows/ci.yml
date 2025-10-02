@@ -22,13 +22,23 @@ jobs:
             install: "pip install -e packages/dc43-service-clients[test]"
             test_command: "pytest packages/dc43-service-clients/tests -q"
           - display: service-backends
-            install: "pip install -e packages/dc43-service-backends[test]"
+            install: |
+              pip install -e .
+              pip install -e packages/dc43-service-clients
+              pip install -e packages/dc43-service-backends[test]
             test_command: "pytest packages/dc43-service-backends/tests -q"
           - display: integrations
-            install: "pip install -e packages/dc43-integrations[test]"
+            install: |
+              pip install -e packages/dc43-service-clients
+              pip install -e packages/dc43-integrations[test]
             test_command: "pytest packages/dc43-integrations/tests -q"
           - display: contracts-app
-            install: "pip install -e packages/dc43-contracts-app[spark]"
+            install: |
+              pip install -e .
+              pip install -e packages/dc43-service-clients
+              pip install -e packages/dc43-service-backends
+              pip install -e packages/dc43-integrations
+              pip install -e packages/dc43-contracts-app[spark]
             test_command: "pytest packages/dc43-contracts-app/tests -q"
     steps:
       - uses: actions/checkout@v4

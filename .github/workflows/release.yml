@@ -171,7 +171,6 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.core_tag }}
           TAG_PREFIX: dc43-v
           VERSION_FILE: VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
           pip install -e '.[test]'
@@ -189,7 +188,6 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.service_clients_tag }}
           TAG_PREFIX: dc43-service-clients-v
           VERSION_FILE: packages/dc43-service-clients/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
           pip install -e packages/dc43-service-clients[test]
@@ -207,9 +205,10 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.service_backends_tag }}
           TAG_PREFIX: dc43-service-backends-v
           VERSION_FILE: packages/dc43-service-backends/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
+          pip install -e .
+          pip install -e packages/dc43-service-clients
           pip install -e packages/dc43-service-backends[test]
           pytest packages/dc43-service-backends/tests
           python scripts/check_tag_version.py \
@@ -225,9 +224,9 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.integrations_tag }}
           TAG_PREFIX: dc43-integrations-v
           VERSION_FILE: packages/dc43-integrations/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
+          pip install -e packages/dc43-service-clients
           pip install -e packages/dc43-integrations[test]
           pytest packages/dc43-integrations/tests
           python scripts/check_tag_version.py \
@@ -243,9 +242,12 @@ jobs:
           TAG_NAME: ${{ needs.determine.outputs.contracts_app_tag }}
           TAG_PREFIX: dc43-contracts-app-v
           VERSION_FILE: packages/dc43-contracts-app/VERSION
-          DC43_REQUIRE_PYPI: "1"
         run: |
           set -euo pipefail
+          pip install -e .
+          pip install -e packages/dc43-service-clients
+          pip install -e packages/dc43-service-backends
+          pip install -e packages/dc43-integrations
           pip install -e packages/dc43-contracts-app[spark]
           pytest packages/dc43-contracts-app/tests
           python scripts/check_tag_version.py \
