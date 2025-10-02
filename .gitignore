@@ -10,3 +10,4 @@ pytest.log
 build
 release-artifacts/
 .DS_Store
+.github/.tmp/
