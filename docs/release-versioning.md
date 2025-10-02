@@ -28,26 +28,23 @@ many release trains.
 ## GitHub Actions automation
 
 The [`release.yml`](../.github/workflows/release.yml) workflow watches for each package's tag prefix
-and gathers every matching tag that points at the pushed commit. The workflow elects a **canonical**
+and gathers every matching tag that points at the pushed commit. The workflow elects a **primary**
 run—the first tag in dependency order (`dc43`, then `dc43-service-clients`, `dc43-service-backends`,
-`dc43-integrations`, and finally `dc43-contracts-app`). Only that canonical run executes the
+`dc43-integrations`, and finally `dc43-contracts-app`). Only that primary run executes the
 publication pipeline; runs triggered by the other tags exit immediately after reporting which tag will
 perform the release.
 
-Within the canonical run a single `release` job processes each package sequentially:
+Within the primary run a single `release` job stages and publishes each package in two passes:
 
-1. Install the package's editable sources and its runtime/test dependencies.
-2. Execute the appropriate pytest target for the package.
-3. Assert that the tag pointing at the commit matches the version in the package's `pyproject.toml`.
-4. Build wheels and source distributions into a package-specific directory under
-   `release-artifacts/`.
-5. Publish those artifacts to PyPI via OIDC and attach them to the GitHub Release for the tag.
+1. **Build pass.** Install the editable sources, run the relevant tests, verify the tag matches the
+   version in `pyproject.toml`, and deposit wheels/sdists into `release-artifacts/<package>`.
+2. **Publish pass.** Once every requested package has built successfully, push artifacts to PyPI and
+   attach them to GitHub Releases in the same dependency order.
 
-Because the job walks the dependency order, the core `dc43` wheel lands on PyPI before the service
-clients, and so on down the stack. That removes the ad-hoc `wait_for_internal_deps.py` helper: each
-package is tested, built, and published only after its prerequisites have succeeded in the same
-workflow run. Pushing multiple tags from a single commit is still supported—the canonical tag's run
-handles every package end-to-end, so you get one long pipeline instead of five independent queues.
+Running all builds before any publishes guarantees we either release all packages or none for a given
+commit, eliminating the ad-hoc `wait_for_internal_deps.py` helper. Pushing multiple tags from a single
+commit is still supported—the primary tag's run handles every package end-to-end, so you get one long
+pipeline instead of five independent queues.
 
 ### Multi-package release CLI
 

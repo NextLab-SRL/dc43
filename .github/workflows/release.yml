@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.tags.outputs.should_run }}
-      canonical_tag: ${{ steps.tags.outputs.canonical }}
+      primary_tag: ${{ steps.tags.outputs.primary }}
       core_tag: ${{ steps.tags.outputs.core_tag }}
       service_clients_tag: ${{ steps.tags.outputs.service_clients_tag }}
       service_backends_tag: ${{ steps.tags.outputs.service_backends_tag }}
@@ -56,29 +56,29 @@ jobs:
             "contracts_app_tag"
           )
 
-          canonical=""
+          primary=""
           for i in "${!prefixes[@]}"; do
             prefix="${prefixes[$i]}"
             name="${outputs[$i]}"
             match=$(printf '%s\n' "$tags" | grep "^${prefix}" | head -n1 || true)
             echo "${name}=${match}" >> "$GITHUB_OUTPUT"
-            if [ -z "$canonical" ] && [ -n "$match" ]; then
-              canonical="$match"
+            if [ -z "$primary" ] && [ -n "$match" ]; then
+              primary="$match"
             fi
           done
 
-          if [ -z "$canonical" ]; then
+          if [ -z "$primary" ]; then
             echo "No recognized release tags found on commit $GITHUB_SHA" >&2
             exit 1
           fi
 
           should_run=false
-          if [ "$canonical" = "$GITHUB_REF_NAME" ]; then
+          if [ "$primary" = "$GITHUB_REF_NAME" ]; then
             should_run=true
           fi
 
           {
-            echo "canonical=${canonical}"
+            echo "primary=${primary}"
             echo "should_run=${should_run}"
           } >> "$GITHUB_OUTPUT"
 
@@ -86,7 +86,7 @@ jobs:
             cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
 ### Release run skipped
 This workflow run was triggered by `$GITHUB_REF_NAME`.
-The canonical tag `$canonical` will execute the release pipeline.
+The primary tag `$primary` will execute the release pipeline.
 SUMMARY
           fi
 
@@ -121,7 +121,33 @@ SUMMARY
       - name: Prepare artifact directory
         run: mkdir -p release-artifacts
 
-      - name: Test and build dc43
+      - name: Record release plan
+        env:
+          CORE_TAG: ${{ needs.determine.outputs.core_tag }}
+          SERVICE_CLIENTS_TAG: ${{ needs.determine.outputs.service_clients_tag }}
+          SERVICE_BACKENDS_TAG: ${{ needs.determine.outputs.service_backends_tag }}
+          INTEGRATIONS_TAG: ${{ needs.determine.outputs.integrations_tag }}
+          CONTRACTS_APP_TAG: ${{ needs.determine.outputs.contracts_app_tag }}
+        run: |
+          set -euo pipefail
+          core_tag=${CORE_TAG:-—}
+          clients_tag=${SERVICE_CLIENTS_TAG:-—}
+          backends_tag=${SERVICE_BACKENDS_TAG:-—}
+          integrations_tag=${INTEGRATIONS_TAG:-—}
+          contracts_tag=${CONTRACTS_APP_TAG:-—}
+
+          cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
+### Packages to release
+| Package | Tag |
+| --- | --- |
+| dc43 | ${core_tag} |
+| dc43-service-clients | ${clients_tag} |
+| dc43-service-backends | ${backends_tag} |
+| dc43-integrations | ${integrations_tag} |
+| dc43-contracts-app | ${contracts_tag} |
+SUMMARY
+
+      - name: Build dc43
         if: needs.determine.outputs.core_tag != ''
         env:
           TAG_NAME: ${{ needs.determine.outputs.core_tag }}
@@ -152,22 +178,7 @@ PY
           rm -rf release-artifacts/dc43
           python -m build --outdir release-artifacts/dc43
 
-      - name: Publish dc43 to PyPI
-        if: needs.determine.outputs.core_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43
-
-      - name: Publish dc43 GitHub release
-        if: needs.determine.outputs.core_tag != ''
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.determine.outputs.core_tag }}
-          files: release-artifacts/dc43/*
-          generate_release_notes: true
-
-      - name: Test and build dc43-service-clients
+      - name: Build dc43-service-clients
         if: needs.determine.outputs.service_clients_tag != ''
         env:
           TAG_NAME: ${{ needs.determine.outputs.service_clients_tag }}
@@ -198,22 +209,7 @@ PY
           rm -rf release-artifacts/dc43-service-clients
           (cd packages/dc43-service-clients && python -m build --outdir ../../release-artifacts/dc43-service-clients)
 
-      - name: Publish dc43-service-clients to PyPI
-        if: needs.determine.outputs.service_clients_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43-service-clients
-
-      - name: Publish dc43-service-clients GitHub release
-        if: needs.determine.outputs.service_clients_tag != ''
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.determine.outputs.service_clients_tag }}
-          files: release-artifacts/dc43-service-clients/*
-          generate_release_notes: true
-
-      - name: Test and build dc43-service-backends
+      - name: Build dc43-service-backends
         if: needs.determine.outputs.service_backends_tag != ''
         env:
           TAG_NAME: ${{ needs.determine.outputs.service_backends_tag }}
@@ -245,22 +241,7 @@ PY
           rm -rf release-artifacts/dc43-service-backends
           (cd packages/dc43-service-backends && python -m build --outdir ../../release-artifacts/dc43-service-backends)
 
-      - name: Publish dc43-service-backends to PyPI
-        if: needs.determine.outputs.service_backends_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43-service-backends
-
-      - name: Publish dc43-service-backends GitHub release
-        if: needs.determine.outputs.service_backends_tag != ''
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.determine.outputs.service_backends_tag }}
-          files: release-artifacts/dc43-service-backends/*
-          generate_release_notes: true
-
-      - name: Test and build dc43-integrations
+      - name: Build dc43-integrations
         if: needs.determine.outputs.integrations_tag != ''
         env:
           TAG_NAME: ${{ needs.determine.outputs.integrations_tag }}
@@ -292,22 +273,7 @@ PY
           rm -rf release-artifacts/dc43-integrations
           (cd packages/dc43-integrations && python -m build --outdir ../../release-artifacts/dc43-integrations)
 
-      - name: Publish dc43-integrations to PyPI
-        if: needs.determine.outputs.integrations_tag != ''
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: release-artifacts/dc43-integrations
-
-      - name: Publish dc43-integrations GitHub release
-        if: needs.determine.outputs.integrations_tag != ''
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.determine.outputs.integrations_tag }}
-          files: release-artifacts/dc43-integrations/*
-          generate_release_notes: true
-
-      - name: Test and build dc43-contracts-app
+      - name: Build dc43-contracts-app
         if: needs.determine.outputs.contracts_app_tag != ''
         env:
           TAG_NAME: ${{ needs.determine.outputs.contracts_app_tag }}
@@ -340,6 +306,66 @@ if tag != expected:
 PY
           rm -rf release-artifacts/dc43-contracts-app
           (cd packages/dc43-contracts-app && python -m build --outdir ../../release-artifacts/dc43-contracts-app)
+
+      - name: Publish dc43 to PyPI
+        if: needs.determine.outputs.core_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43
+
+      - name: Publish dc43 GitHub release
+        if: needs.determine.outputs.core_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.core_tag }}
+          files: release-artifacts/dc43/*
+          generate_release_notes: true
+
+      - name: Publish dc43-service-clients to PyPI
+        if: needs.determine.outputs.service_clients_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-service-clients
+
+      - name: Publish dc43-service-clients GitHub release
+        if: needs.determine.outputs.service_clients_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.service_clients_tag }}
+          files: release-artifacts/dc43-service-clients/*
+          generate_release_notes: true
+
+      - name: Publish dc43-service-backends to PyPI
+        if: needs.determine.outputs.service_backends_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-service-backends
+
+      - name: Publish dc43-service-backends GitHub release
+        if: needs.determine.outputs.service_backends_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.service_backends_tag }}
+          files: release-artifacts/dc43-service-backends/*
+          generate_release_notes: true
+
+      - name: Publish dc43-integrations to PyPI
+        if: needs.determine.outputs.integrations_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-integrations
+
+      - name: Publish dc43-integrations GitHub release
+        if: needs.determine.outputs.integrations_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.integrations_tag }}
+          files: release-artifacts/dc43-integrations/*
+          generate_release_notes: true
 
       - name: Publish dc43-contracts-app to PyPI
         if: needs.determine.outputs.contracts_app_tag != ''
