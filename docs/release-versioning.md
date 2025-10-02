@@ -66,8 +66,9 @@ Common workflows:
   ```
 
 - **Release everything that changed:** create annotated tags for all packages that need a release,
-  ensure the release commit message includes `[release]`, and push the branch plus tags to `origin`
-  (`git push origin main --tags`).
+  and push the branch plus tags to `origin` (`git push origin main --tags`). The CLI checks that the
+  target commit message already contains `[release]` so GitHub Actions will execute. Use
+  `--allow-missing-release-marker` when intentionally tagging an older commit without the marker.
 
   ```bash
   python scripts/release.py --apply --push
@@ -92,7 +93,7 @@ For a package bump (example: `dc43-service-backends`):
 1. Update the version in `packages/dc43-service-backends/VERSION`.
 2. Update changelog notes (either a shared CHANGELOG or one per package).
 3. Commit the changes with a message such as `chore(backends): release 0.9.0 [release]` so that the
-   automation runs.
+   automation runs (the release helper script will verify the marker is present).
 4. Merge to `main` via PR.
 5. Tag the merge commit: `git tag -a dc43-service-backends-v0.9.0`.
 6. Push the branch and tags together: `git push origin main --tags`.

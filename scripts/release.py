@@ -98,6 +98,18 @@ def ensure_clean_worktree() -> None:
         raise ReleaseError("Your working tree has uncommitted changes. Commit or stash them before releasing.")
 
 
+def ensure_release_marker(commit: str) -> None:
+    """Ensure ``commit`` contains the ``[release]`` marker required by CI."""
+
+    message = run_git("show", "-s", "--format=%B", commit)
+    if "[release]" not in message.lower():
+        raise ReleaseError(
+            "The target commit message does not include '[release]'. "
+            "Amend the commit (e.g. `git commit --amend`) to add the marker or rerun the script "
+            "with --allow-missing-release-marker if you really intend to skip CI."
+        )
+
+
 def package_version(package: str) -> str:
     package_meta = PACKAGES[package]
     version_path = package_meta.get("version_file")
@@ -255,6 +267,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Skip PyPI version checks (useful when offline).",
     )
+    parser.add_argument(
+        "--allow-missing-release-marker",
+        action="store_true",
+        help="Skip enforcing the '[release]' marker on the target commit message.",
+    )
     return parser.parse_args(argv)
 
 
@@ -265,6 +282,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.apply = True
     if args.apply:
         ensure_clean_worktree()
+        if not args.allow_missing_release_marker:
+            try:
+                ensure_release_marker(args.commit)
+            except subprocess.CalledProcessError as exc:
+                print(f"\nERROR: {exc}", file=sys.stderr)
+                return exc.returncode
     plans = build_plan(packages, args.commit, skip_pypi=args.skip_pypi)
     for plan in plans:
         print(format_plan(plan))
