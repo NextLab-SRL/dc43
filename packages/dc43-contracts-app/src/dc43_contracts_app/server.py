@@ -1407,6 +1407,9 @@ def _spark_stub_for_selection(
         "from pyspark.sql import SparkSession",
         "from dc43_integrations.spark.io import read_with_contract, write_with_contract",
     ]
+    lines.append(
+        "# Contract status guardrails reject draft/deprecated contracts unless the strategies opt in."
+    )
     if violation_imports:
         unique_violation_imports = ", ".join(dict.fromkeys(violation_imports))
         lines.append(
@@ -1436,6 +1439,7 @@ def _spark_stub_for_selection(
             lines.extend(
                 [
                     "# NoOpWriteViolationStrategy keeps writes in a single target dataset.",
+                    "# Pass allowed_contract_statuses=(\"active\", \"draft\") to allow draft contracts in development.",
                     "write_strategy = NoOpWriteViolationStrategy()",
                 ]
             )
@@ -1512,6 +1516,7 @@ def _spark_stub_for_selection(
                 "    enforce=True,",
                 "    auto_cast=True,",
                 "    return_status=True,",
+                "    # status_strategy=DefaultReadStatusStrategy(allowed_contract_statuses=(\"active\", \"draft\")),",
                 ")",
                 "",
             ]
@@ -1621,6 +1626,7 @@ def _read_strategy_notes(
             "read_with_contract(... return_status=True) enforces schema alignment and logs non-OK "
             "statuses so orchestration can branch on data quality verdicts."
         )
+    intro += " Non-active contract statuses raise unless the strategy explicitly allows them."
     notes: List[Dict[str, str]] = [
         {
             "title": "Contract-aware reads",
@@ -1674,6 +1680,8 @@ def _write_strategy_notes(
             "description": (
                 "write_with_contract(... return_status=True) records validation results and relays "
                 "dataset versions to the governance client so each pipeline run is traceable."
+                " By default non-active contracts are rejected; extend the contract-status options"
+                " on your chosen strategy when drafts should be allowed."
             ),
         }
     ]

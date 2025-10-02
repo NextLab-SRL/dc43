@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import pytest
 
@@ -20,8 +20,12 @@ from dc43_integrations.spark.io import (
     StaticDatasetLocator,
     ContractVersionLocator,
     DatasetResolution,
+    DefaultReadStatusStrategy,
 )
-from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
+from dc43_integrations.spark.violation_strategy import (
+    SplitWriteViolationStrategy,
+    NoOpWriteViolationStrategy,
+)
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
 from dc43_service_clients.governance import build_local_governance_service
 from datetime import datetime
@@ -68,6 +72,115 @@ def persist_contract(
     store = FSContractStore(str(tmp_path / "contracts"))
     store.put(contract)
     return store, LocalContractServiceClient(store), LocalDataQualityServiceClient()
+
+
+def _materialise_orders(
+    spark, tmp_path: Path, data: list[tuple[Any, ...]] | None = None
+) -> Path:
+    data_dir = tmp_path / "parquet"
+    rows = data or [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        (2, 102, datetime(2024, 1, 2, 10, 0, 0), 20.5, "USD"),
+    ]
+    df = spark.createDataFrame(
+        rows,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    df.write.mode("overwrite").format("parquet").save(str(data_dir))
+    return data_dir
+
+
+def test_read_blocks_on_draft_contract_status(spark, tmp_path: Path) -> None:
+    data_dir = _materialise_orders(spark, tmp_path)
+    contract = make_contract(str(data_dir))
+    contract.status = "draft"
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+
+    with pytest.raises(ValueError, match="draft"):
+        read_with_contract(
+            spark,
+            contract_id=contract.id,
+            contract_service=contract_service,
+            expected_contract_version=f"=={contract.version}",
+            data_quality_service=dq_service,
+            governance_service=governance,
+        )
+
+
+def test_read_allows_draft_contract_with_strategy(spark, tmp_path: Path) -> None:
+    data_dir = _materialise_orders(spark, tmp_path)
+    contract = make_contract(str(data_dir))
+    contract.status = "draft"
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+
+    df, status = read_with_contract(
+        spark,
+        contract_id=contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={contract.version}",
+        data_quality_service=dq_service,
+        governance_service=governance,
+        status_strategy=DefaultReadStatusStrategy(
+            allowed_contract_statuses=("active", "draft"),
+        ),
+    )
+
+    assert df.count() == 2
+    assert status is not None
+
+
+def test_write_blocks_on_deprecated_contract_status(spark, tmp_path: Path) -> None:
+    dest_dir = tmp_path / "dq"
+    contract = make_contract(str(dest_dir))
+    contract.status = "deprecated"
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    with pytest.raises(ValueError, match="deprecated"):
+        write_with_contract(
+            df=df,
+            contract_id=contract.id,
+            contract_service=contract_service,
+            expected_contract_version=f"=={contract.version}",
+            mode="overwrite",
+            data_quality_service=dq_service,
+        )
+
+
+def test_write_allows_deprecated_contract_with_relaxed_strategy(
+    spark, tmp_path: Path
+) -> None:
+    dest_dir = tmp_path / "relaxed"
+    contract = make_contract(str(dest_dir))
+    contract.status = "deprecated"
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    result = write_with_contract(
+        df=df,
+        contract_id=contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={contract.version}",
+        mode="overwrite",
+        data_quality_service=dq_service,
+        violation_strategy=NoOpWriteViolationStrategy(
+            allowed_contract_statuses=("active", "deprecated"),
+        ),
+    )
+
+    assert result.ok
 
 
 def test_dq_integration_blocks(spark, tmp_path: Path) -> None:

@@ -82,7 +82,8 @@ override the final validation result after the adapter has revalidated the persi
   naming (`valid_suffix`, `reject_suffix`, separator).
 - `StrictWriteViolationStrategy` – wraps another strategy (e.g. split) and flips the final validation result to `ok=False` when
   violations or warnings persist. Pipelines see the failure via the returned `ValidationResult` while the underlying strategy can
-  still materialise auxiliary datasets for remediation.
+  still materialise auxiliary datasets for remediation. When the wrapped strategy exposes contract status guardrails (allowed
+  statuses, missing-status handling, etc.) the strict decorator now inherits those policies so enforcement stays consistent.
 
 The demo application bundles a "Split invalid rows" scenario that exercises the strategy end-to-end—see
 [`docs/demo-pipeline-scenarios.md`](demo-pipeline-scenarios.md) for a walkthrough and mermaid diagram covering the join, validation,

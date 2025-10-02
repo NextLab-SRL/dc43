@@ -76,6 +76,48 @@ you need the container to spawn the backend locally.
 You can switch the target language from the dropdown above the stub (for example to Python or SQL) and regenerate as often as
 needed.
 
+### Contract status guardrails
+
+The generated snippet defaults to the production-safe policy of rejecting
+non-active contracts (for example, drafts or deprecated versions). This aligns
+with the integration tests shipped in `dc43_integrations` and matches the demo
+pipeline behaviour. If you need to run development jobs against a draft
+contract, configure the provided strategies directly in the stub:
+
+```python
+from dc43_integrations.spark.io import DefaultReadStatusStrategy
+from dc43_integrations.spark.violation_strategy import NoOpWriteViolationStrategy
+
+read_status = DefaultReadStatusStrategy(allowed_contract_statuses=("active", "draft"))
+write_strategy = NoOpWriteViolationStrategy(allowed_contract_statuses=("active", "draft"))
+
+df, status = read_with_contract(
+    spark,
+    contract_id="orders_enriched",
+    expected_contract_version="==3.0.0",
+    contract_service=contract_client,
+    data_quality_service=dq_client,
+    status_strategy=read_status,
+    enforce=True,
+)
+
+write_with_contract(
+    df=df,
+    contract_id="orders_enriched",
+    expected_contract_version="==3.0.0",
+    contract_service=contract_client,
+    data_quality_service=dq_client,
+    governance_service=governance_client,
+    violation_strategy=write_strategy,
+    return_status=True,
+)
+```
+
+Only relax the guardrails in non-production environments and capture the
+override in your run metadata so downstream consumers know a draft contract was
+used. The integration helper annotates the UI with the same defaults and points
+to the relevant strategy options.
+
 ## 5. Keep everything in sync
 
 - Refresh the page after the governance team publishes a new contract version so the helper pulls the latest schema.
