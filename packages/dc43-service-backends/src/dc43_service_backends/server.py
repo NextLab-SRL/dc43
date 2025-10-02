@@ -16,7 +16,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - raised when optional de
 from pydantic import BaseModel
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.core.odps import (
+from dc43_service_clients.odps import (
     DataProductInputPort,
     DataProductOutputPort,
     as_odps_dict as as_odps_product_dict,

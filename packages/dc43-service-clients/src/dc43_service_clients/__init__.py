@@ -5,7 +5,7 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-__all__ = ["contracts", "data_products", "data_quality", "governance"]
+__all__ = ["contracts", "data_products", "data_quality", "governance", "odps"]
 
 
 def __getattr__(name: str) -> Any:

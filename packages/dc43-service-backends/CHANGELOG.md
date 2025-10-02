@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- Data product backends now consume the shared ODPS helpers from
+  `dc43-service-clients` so they can operate without the core package during
+  isolated builds.
 - Added `DataProductRegistrationResult` metadata so callers can detect when ODPS
   registrations create new drafts.
 - Introduced `FilesystemDataProductServiceBackend` which persists ODPS documents

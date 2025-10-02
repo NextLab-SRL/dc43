@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Optional, Protocol, Sequence
 
-from dc43.core.odps import (
+from dc43_service_clients.odps import (
     DataProductInputPort,
     DataProductOutputPort,
     OpenDataProductStandard,

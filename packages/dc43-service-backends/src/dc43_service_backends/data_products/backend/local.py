@@ -8,7 +8,7 @@ from typing import Dict, Iterable, Mapping, Optional
 import json
 import logging
 
-from dc43.core.odps import (
+from dc43_service_clients.odps import (
     DataProductInputPort,
     DataProductOutputPort,
     OpenDataProductStandard,

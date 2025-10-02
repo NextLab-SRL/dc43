@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Mapping, Optional, TYPE_CHECKING
 
-from dc43.core.odps import OpenDataProductStandard
 from dc43_service_backends.data_products import DataProductRegistrationResult
+from dc43_service_clients.odps import OpenDataProductStandard
 
 from .interface import DataProductServiceClient
 
@@ -51,7 +51,7 @@ class LocalDataProductServiceClient(DataProductServiceClient):
         source_data_product: Optional[str] = None,
         source_output_port: Optional[str] = None,
     ) -> DataProductRegistrationResult:
-        from dc43.core.odps import DataProductInputPort
+        from dc43_service_clients.odps import DataProductInputPort
 
         port = DataProductInputPort(
             name=port_name,
@@ -77,7 +77,7 @@ class LocalDataProductServiceClient(DataProductServiceClient):
         bump: str = "minor",
         custom_properties: Optional[Mapping[str, object]] = None,
     ) -> DataProductRegistrationResult:
-        from dc43.core.odps import DataProductOutputPort
+        from dc43_service_clients.odps import DataProductOutputPort
 
         port = DataProductOutputPort(
             name=port_name,

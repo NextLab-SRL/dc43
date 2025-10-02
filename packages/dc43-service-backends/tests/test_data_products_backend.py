@@ -1,12 +1,12 @@
 from pathlib import Path
 
-from dc43.core.odps import DataProductInputPort, DataProductOutputPort
 from dc43_service_backends.data_products import (
     CollibraDataProductServiceBackend,
     FilesystemDataProductServiceBackend,
     LocalDataProductServiceBackend,
     StubCollibraDataProductAdapter,
 )
+from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
 
 
 def test_register_input_port_creates_draft_version() -> None:
