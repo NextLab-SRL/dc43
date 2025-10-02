@@ -27,36 +27,27 @@ many release trains.
 
 ## GitHub Actions automation
 
-The [`release.yml`](../.github/workflows/release.yml) workflow already watches for each package's
-prefix:
+The [`release.yml`](../.github/workflows/release.yml) workflow watches for each package's tag prefix
+and gathers every matching tag that points at the pushed commit. The workflow elects a **canonical**
+run—the first tag in dependency order (`dc43`, then `dc43-service-clients`, `dc43-service-backends`,
+`dc43-integrations`, and finally `dc43-contracts-app`). Only that canonical run executes the
+publication pipeline; runs triggered by the other tags exit immediately after reporting which tag will
+perform the release.
 
-```yaml
-on:
-  push:
-    tags:
-      - "dc43-v*"
-      - "dc43-service-clients-v*"
-      - "dc43-service-backends-v*"
-      - "dc43-integrations-v*"
-```
+Within the canonical run a single `release` job processes each package sequentially:
 
-When a tag fires the workflow, the first step resolves which package directory owns the tag and
-produces helper outputs (`package_dir`, `pyproject`, `dist_path`). The subsequent steps then:
+1. Install the package's editable sources and its runtime/test dependencies.
+2. Execute the appropriate pytest target for the package.
+3. Assert that the tag pointing at the commit matches the version in the package's `pyproject.toml`.
+4. Build wheels and source distributions into a package-specific directory under
+   `release-artifacts/`.
+5. Publish those artifacts to PyPI via OIDC and attach them to the GitHub Release for the tag.
 
-1. Install the repo's test dependencies and run the full test suite.
-2. Validate that the pushed tag matches the package version declared in the resolved `pyproject.toml`.
-3. Change into that package directory and run `python -m build`, producing `dist/` artifacts only for
-   the tagged distribution.
-4. Publish those artifacts to PyPI and attach them to the GitHub Release.
-
-Because the build and publish stages point at the derived `dist_path`, the workflow only pushes the
-package that owns the tag. You do **not** need to retag the other distributions—just bump the version
-for the package you changed, push a matching tag, and the automation handles the rest. If you push
-multiple package-prefixed tags in the same `git push` command, GitHub Actions starts an independent
-workflow run for each tag so you can release several packages from a single commit. The workflow queue
-processes those runs sequentially, so downstream packages no longer wait on an explicit PyPI polling
-step—the build job simply proceeds once earlier releases have finished publishing. As a result the
-old `wait_for_internal_deps.py` helper script and its tests were removed from the repository.
+Because the job walks the dependency order, the core `dc43` wheel lands on PyPI before the service
+clients, and so on down the stack. That removes the ad-hoc `wait_for_internal_deps.py` helper: each
+package is tested, built, and published only after its prerequisites have succeeded in the same
+workflow run. Pushing multiple tags from a single commit is still supported—the canonical tag's run
+handles every package end-to-end, so you get one long pipeline instead of five independent queues.
 
 ### Multi-package release CLI
 
