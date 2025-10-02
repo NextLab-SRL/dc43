@@ -38,11 +38,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-try:  # Python >=3.11
-    import tomllib  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - fallback for older runtimes
-    import tomli as tomllib  # type: ignore
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -104,15 +99,14 @@ def ensure_clean_worktree() -> None:
 
 
 def package_version(package: str) -> str:
-    pyproject = PACKAGES[package]["pyproject"]
+    package_meta = PACKAGES[package]
+    version_path = package_meta.get("version_file")
+    if version_path is None:  # pragma: no cover - defensive programming
+        raise ReleaseError(f"Package {package} is missing a version_file entry in scripts/_packages.py")
     try:
-        data = tomllib.loads(pyproject.read_text())
-    except FileNotFoundError as exc:  # pragma: no cover - guard for misconfiguration
-        raise ReleaseError(f"Missing pyproject for {package}: {pyproject}") from exc
-    try:
-        return data["project"]["version"]
-    except KeyError as exc:  # pragma: no cover
-        raise ReleaseError(f"project.version missing in {pyproject}") from exc
+        return version_path.read_text().strip()
+    except FileNotFoundError as exc:
+        raise ReleaseError(f"Missing version file for {package}: {version_path}") from exc
 
 
 def planned_tag(package: str, version: str) -> str:

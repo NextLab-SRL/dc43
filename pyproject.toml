@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dc43"
-version = "0.8.0.0"
 description = "Data contracts For Free using ODCS (Bitol)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,7 +15,10 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
-dynamic = ["dependencies", "optional-dependencies"]
+dynamic = ["version", "dependencies", "optional-dependencies"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools]
 package-dir = {"" = "src"}

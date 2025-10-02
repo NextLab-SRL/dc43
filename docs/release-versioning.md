@@ -7,8 +7,9 @@ This repository ships four Python distributions:
 - `dc43-integrations`
 - `dc43` (meta package aggregating the other three)
 
-Each package keeps its own version in its `pyproject.toml`. Use the following workflow to manage
-releases without forcing synchronized bumps across the whole stack.
+Each package keeps its own version in a plain `VERSION` file alongside the corresponding
+`pyproject.toml`. Use the following workflow to manage releases without forcing synchronized bumps
+across the whole stack.
 
 ## Tagging strategy
 
@@ -27,40 +28,31 @@ many release trains.
 
 ## GitHub Actions automation
 
-The [`release.yml`](../.github/workflows/release.yml) workflow already watches for each package's
-prefix:
+The [`release.yml`](../.github/workflows/release.yml) workflow watches for each package's tag prefix
+and gathers every matching tag that points at the pushed commit. The workflow elects a **primary**
+run—the first tag in dependency order (`dc43`, then `dc43-service-clients`, `dc43-service-backends`,
+`dc43-integrations`, and finally `dc43-contracts-app`). Only that primary run executes the
+publication pipeline; runs triggered by the other tags exit immediately after reporting which tag will
+perform the release.
 
-```yaml
-on:
-  push:
-    tags:
-      - "dc43-v*"
-      - "dc43-service-clients-v*"
-      - "dc43-service-backends-v*"
-      - "dc43-integrations-v*"
-```
+Within the primary run a single `release` job stages and publishes each package in two passes:
 
-When a tag fires the workflow, the first step resolves which package directory owns the tag and
-produces helper outputs (`package_dir`, `pyproject`, `dist_path`). The subsequent steps then:
+1. **Build pass.** Install the editable sources, run the relevant tests, validate the tag against the
+   package's `VERSION` file, and deposit wheels/sdists into `release-artifacts/<package>`.
+2. **Publish pass.** Once every requested package has built successfully, push artifacts to PyPI and
+   attach them to GitHub Releases in the same dependency order.
 
-1. Install the repo's test dependencies and run the full test suite.
-2. Validate that the pushed tag matches the package version declared in the resolved `pyproject.toml`.
-3. Change into that package directory and run `python -m build`, producing `dist/` artifacts only for
-   the tagged distribution.
-4. Publish those artifacts to PyPI and attach them to the GitHub Release.
-
-Because the build and publish stages point at the derived `dist_path`, the workflow only pushes the
-package that owns the tag. You do **not** need to retag the other distributions—just bump the version
-for the package you changed, push a matching tag, and the automation handles the rest. If you push
-multiple package-prefixed tags in the same `git push` command, GitHub Actions starts an independent
-workflow run for each tag so you can release several packages from a single commit.
+Running all builds before any publishes guarantees we either release all packages or none for a given
+commit, eliminating the ad-hoc `wait_for_internal_deps.py` helper. Pushing multiple tags from a single
+commit is still supported—the primary tag's run handles every package end-to-end, so you get one long
+pipeline instead of five independent queues.
 
 ### Multi-package release CLI
 
 To make tagging easier—especially when several packages need a release—you can use the helper
 script at [`scripts/release.py`](../scripts/release.py). The CLI inspects the repository to work out
 which packages changed since their most recent release tag, verifies that the version in each
-`pyproject.toml` is new, checks whether the version is already on PyPI, and then (optionally)
+`VERSION` file is new, checks whether the version is already on PyPI, and then (optionally)
 creates and pushes the corresponding tags.
 
 Common workflows:
@@ -95,7 +87,7 @@ expected releases.
 
 For a package bump (example: `dc43-service-backends`):
 
-1. Update the version in `packages/dc43-service-backends/pyproject.toml`.
+1. Update the version in `packages/dc43-service-backends/VERSION`.
 2. Update changelog notes (either a shared CHANGELOG or one per package).
 3. Commit the changes with a message such as `chore(backends): release 0.9.0`.
 4. Merge to `main` via PR.

@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dc43-demo-app"
-version = "0.8.0.0"
 description = "End-to-end FastAPI and Spark demo for dc43"
 readme = "README.md"
 requires-python = ">=3.11"
+dynamic = ["version"]
 authors = [
   { name = "Andy Petrella" }
 ]
@@ -29,6 +29,9 @@ dependencies = [
 
 [project.scripts]
 dc43-demo = "dc43_demo_app.runner:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools]
 package-dir = {"" = "src"}

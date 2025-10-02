@@ -1,5 +1,9 @@
 name: release
 
+concurrency:
+  group: release-packages
+  cancel-in-progress: false
+
 on:
   push:
     tags:
@@ -10,63 +14,95 @@ on:
       - "dc43-contracts-app-v*"
 
 jobs:
-  build:
+  determine:
     runs-on: ubuntu-latest
     outputs:
-      package: ${{ steps.meta.outputs.package }}
-      package_dir: ${{ steps.meta.outputs.package_dir }}
-      dist_path: ${{ steps.meta.outputs.dist_path }}
+      should_run: ${{ steps.tags.outputs.should_run }}
+      primary_tag: ${{ steps.tags.outputs.primary }}
+      core_tag: ${{ steps.tags.outputs.core_tag }}
+      service_clients_tag: ${{ steps.tags.outputs.service_clients_tag }}
+      service_backends_tag: ${{ steps.tags.outputs.service_backends_tag }}
+      integrations_tag: ${{ steps.tags.outputs.integrations_tag }}
+      contracts_app_tag: ${{ steps.tags.outputs.contracts_app_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           tags: true
 
-      - name: Derive package metadata
-        id: meta
+      - name: Identify release tags
+        id: tags
         run: |
-          ref="${GITHUB_REF_NAME}"
-          case "$ref" in
-            dc43-v*)
-              package="dc43"
-              package_dir="."
-              ;;
-            dc43-service-clients-v*)
-              package="dc43-service-clients"
-              package_dir="packages/dc43-service-clients"
-              ;;
-            dc43-service-backends-v*)
-              package="dc43-service-backends"
-              package_dir="packages/dc43-service-backends"
-              ;;
-            dc43-integrations-v*)
-              package="dc43-integrations"
-              package_dir="packages/dc43-integrations"
-              ;;
-            dc43-contracts-app-v*)
-              package="dc43-contracts-app"
-              package_dir="packages/dc43-contracts-app"
-              ;;
-            *)
-              echo "Unknown tag prefix: $ref" >&2
-              exit 1
-              ;;
-          esac
+          set -euo pipefail
 
-          if [ "$package_dir" = "." ]; then
-            dist_path="dist"
-            pyproject="pyproject.toml"
-          else
-            dist_path="$package_dir/dist"
-            pyproject="$package_dir/pyproject.toml"
+          tags=$(git tag --points-at "$GITHUB_SHA" | sort || true)
+          if [ -z "$tags" ]; then
+            echo "No tags found on commit $GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          prefixes=(
+            "dc43-v"
+            "dc43-service-clients-v"
+            "dc43-service-backends-v"
+            "dc43-integrations-v"
+            "dc43-contracts-app-v"
+          )
+          outputs=(
+            "core_tag"
+            "service_clients_tag"
+            "service_backends_tag"
+            "integrations_tag"
+            "contracts_app_tag"
+          )
+
+          primary=""
+          for i in "${!prefixes[@]}"; do
+            prefix="${prefixes[$i]}"
+            name="${outputs[$i]}"
+            match=$(printf '%s\n' "$tags" | grep "^${prefix}" | head -n1 || true)
+            echo "${name}=${match}" >> "$GITHUB_OUTPUT"
+            if [ -z "$primary" ] && [ -n "$match" ]; then
+              primary="$match"
+            fi
+          done
+
+          if [ -z "$primary" ]; then
+            echo "No recognized release tags found on commit $GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          should_run=false
+          if [ "$primary" = "$GITHUB_REF_NAME" ]; then
+            should_run=true
           fi
 
           {
-            echo "package=$package"
-            echo "package_dir=$package_dir"
-            echo "dist_path=$dist_path"
-            echo "pyproject=$pyproject"
+            echo "primary=${primary}"
+            echo "should_run=${should_run}"
           } >> "$GITHUB_OUTPUT"
+
+          if [ "$should_run" != "true" ]; then
+            cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
+### Release run skipped
+This workflow run was triggered by `$GITHUB_REF_NAME`.
+The primary tag `$primary` will execute the release pipeline.
+SUMMARY
+          fi
+
+  release:
+    needs: determine
+    if: needs.determine.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          tags: true
 
       - uses: actions/setup-python@v5
         with:
@@ -82,116 +118,196 @@ jobs:
           python -m pip install --upgrade pip
           pip install packaging build
 
-      - name: Wait for internal dependencies
-        run: |
-          python scripts/wait_for_internal_deps.py \
-            --pyproject "${{ steps.meta.outputs.pyproject }}" \
-            --package "${{ steps.meta.outputs.package }}"
+      - name: Prepare artifact directory
+        run: mkdir -p release-artifacts
 
-      - name: Install package under test
+      - name: Record release plan
         env:
+          CORE_TAG: ${{ needs.determine.outputs.core_tag }}
+          SERVICE_CLIENTS_TAG: ${{ needs.determine.outputs.service_clients_tag }}
+          SERVICE_BACKENDS_TAG: ${{ needs.determine.outputs.service_backends_tag }}
+          INTEGRATIONS_TAG: ${{ needs.determine.outputs.integrations_tag }}
+          CONTRACTS_APP_TAG: ${{ needs.determine.outputs.contracts_app_tag }}
+        run: |
+          set -euo pipefail
+          core_tag=${CORE_TAG:-—}
+          clients_tag=${SERVICE_CLIENTS_TAG:-—}
+          backends_tag=${SERVICE_BACKENDS_TAG:-—}
+          integrations_tag=${INTEGRATIONS_TAG:-—}
+          contracts_tag=${CONTRACTS_APP_TAG:-—}
+
+          cat <<SUMMARY >> "$GITHUB_STEP_SUMMARY"
+### Packages to release
+| Package | Tag |
+| --- | --- |
+| dc43 | ${core_tag} |
+| dc43-service-clients | ${clients_tag} |
+| dc43-service-backends | ${backends_tag} |
+| dc43-integrations | ${integrations_tag} |
+| dc43-contracts-app | ${contracts_tag} |
+SUMMARY
+
+      - name: Build dc43
+        if: needs.determine.outputs.core_tag != ''
+        env:
+          TAG_NAME: ${{ needs.determine.outputs.core_tag }}
+          TAG_PREFIX: dc43-v
+          VERSION_FILE: VERSION
           DC43_REQUIRE_PYPI: "1"
         run: |
-          case "${{ steps.meta.outputs.package }}" in
-            dc43)
-              pip install -e '.[test]'
-              ;;
-            dc43-service-clients)
-              pip install -e packages/dc43-service-clients[http]
-              ;;
-            dc43-service-backends)
-              pip install -e packages/dc43-service-clients[http]
-              pip install -e packages/dc43-service-backends
-              ;;
-            dc43-integrations)
-              pip install -e packages/dc43-service-clients[http]
-              pip install -e packages/dc43-integrations
-              ;;
-            dc43-contracts-app)
-              pip install -e packages/dc43-service-clients[http]
-              pip install -e packages/dc43-service-backends[http]
-              pip install -e packages/dc43-integrations
-              pip install -e packages/dc43-contracts-app[spark]
-              ;;
-            *)
-              echo "Unknown package: ${{ steps.meta.outputs.package }}" >&2
-              exit 1
-              ;;
-          esac
+          set -euo pipefail
+          pip install -e '.[test]'
+          pytest
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
+          rm -rf release-artifacts/dc43
+          python -m build --outdir release-artifacts/dc43
 
-      - name: Run tests
-        run: |
-          case "${{ steps.meta.outputs.package }}" in
-            dc43)
-              pytest
-              ;;
-            dc43-service-clients)
-              pytest packages/dc43-service-clients/tests
-              ;;
-            dc43-service-backends)
-              pytest packages/dc43-service-backends/tests
-              ;;
-            dc43-integrations)
-              pytest packages/dc43-integrations/tests
-              ;;
-            dc43-contracts-app)
-              pytest packages/dc43-contracts-app/tests
-              ;;
-            *)
-              echo "Unknown package: ${{ steps.meta.outputs.package }}" >&2
-              exit 1
-              ;;
-          esac
-
-      - name: Check version matches tag
+      - name: Build dc43-service-clients
+        if: needs.determine.outputs.service_clients_tag != ''
         env:
-          PYPROJECT_PATH: ${{ steps.meta.outputs.pyproject }}
-        run: |
-          python - <<'PY'
-          import os
-          import sys
-          import tomllib
-
-          pyproject_path = os.environ["PYPROJECT_PATH"]
-          with open(pyproject_path, 'rb') as f:
-              version = tomllib.load(f)["project"]["version"]
-
-          tag = os.environ["GITHUB_REF_NAME"]
-          expected_tag = f"dc43-v{version}" if pyproject_path == "pyproject.toml" else f"{os.path.basename(os.path.dirname(pyproject_path))}-v{version}"
-
-          if tag != expected_tag:
-              print(f"Tag {tag} does not match version {version}")
-              sys.exit(1)
-          PY
-
-      - name: Build package
-        working-directory: ${{ steps.meta.outputs.package_dir }}
-        env:
+          TAG_NAME: ${{ needs.determine.outputs.service_clients_tag }}
+          TAG_PREFIX: dc43-service-clients-v
+          VERSION_FILE: packages/dc43-service-clients/VERSION
           DC43_REQUIRE_PYPI: "1"
-        run: python -m build
+        run: |
+          set -euo pipefail
+          pip install -e packages/dc43-service-clients[test]
+          pytest packages/dc43-service-clients/tests
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
+          rm -rf release-artifacts/dc43-service-clients
+          (cd packages/dc43-service-clients && python -m build --outdir ../../release-artifacts/dc43-service-clients)
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: ${{ steps.meta.outputs.dist_path }}
+      - name: Build dc43-service-backends
+        if: needs.determine.outputs.service_backends_tag != ''
+        env:
+          TAG_NAME: ${{ needs.determine.outputs.service_backends_tag }}
+          TAG_PREFIX: dc43-service-backends-v
+          VERSION_FILE: packages/dc43-service-backends/VERSION
+          DC43_REQUIRE_PYPI: "1"
+        run: |
+          set -euo pipefail
+          pip install -e packages/dc43-service-backends[test]
+          pytest packages/dc43-service-backends/tests
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
+          rm -rf release-artifacts/dc43-service-backends
+          (cd packages/dc43-service-backends && python -m build --outdir ../../release-artifacts/dc43-service-backends)
 
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Build dc43-integrations
+        if: needs.determine.outputs.integrations_tag != ''
+        env:
+          TAG_NAME: ${{ needs.determine.outputs.integrations_tag }}
+          TAG_PREFIX: dc43-integrations-v
+          VERSION_FILE: packages/dc43-integrations/VERSION
+          DC43_REQUIRE_PYPI: "1"
+        run: |
+          set -euo pipefail
+          pip install -e packages/dc43-integrations[test]
+          pytest packages/dc43-integrations/tests
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
+          rm -rf release-artifacts/dc43-integrations
+          (cd packages/dc43-integrations && python -m build --outdir ../../release-artifacts/dc43-integrations)
+
+      - name: Build dc43-contracts-app
+        if: needs.determine.outputs.contracts_app_tag != ''
+        env:
+          TAG_NAME: ${{ needs.determine.outputs.contracts_app_tag }}
+          TAG_PREFIX: dc43-contracts-app-v
+          VERSION_FILE: packages/dc43-contracts-app/VERSION
+          DC43_REQUIRE_PYPI: "1"
+        run: |
+          set -euo pipefail
+          pip install -e packages/dc43-contracts-app[spark]
+          pytest packages/dc43-contracts-app/tests
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
+          rm -rf release-artifacts/dc43-contracts-app
+          (cd packages/dc43-contracts-app && python -m build --outdir ../../release-artifacts/dc43-contracts-app)
+
+      - name: Publish dc43 to PyPI
+        if: needs.determine.outputs.core_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_TOKEN }}
-          packages-dir: dist
-      - uses: softprops/action-gh-release@v1
+          packages-dir: release-artifacts/dc43
+
+      - name: Publish dc43 GitHub release
+        if: needs.determine.outputs.core_tag != ''
+        uses: softprops/action-gh-release@v1
         with:
-          files: dist/*
+          tag_name: ${{ needs.determine.outputs.core_tag }}
+          files: release-artifacts/dc43/*
+          generate_release_notes: true
+
+      - name: Publish dc43-service-clients to PyPI
+        if: needs.determine.outputs.service_clients_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-service-clients
+
+      - name: Publish dc43-service-clients GitHub release
+        if: needs.determine.outputs.service_clients_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.service_clients_tag }}
+          files: release-artifacts/dc43-service-clients/*
+          generate_release_notes: true
+
+      - name: Publish dc43-service-backends to PyPI
+        if: needs.determine.outputs.service_backends_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-service-backends
+
+      - name: Publish dc43-service-backends GitHub release
+        if: needs.determine.outputs.service_backends_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.service_backends_tag }}
+          files: release-artifacts/dc43-service-backends/*
+          generate_release_notes: true
+
+      - name: Publish dc43-integrations to PyPI
+        if: needs.determine.outputs.integrations_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-integrations
+
+      - name: Publish dc43-integrations GitHub release
+        if: needs.determine.outputs.integrations_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.integrations_tag }}
+          files: release-artifacts/dc43-integrations/*
+          generate_release_notes: true
+
+      - name: Publish dc43-contracts-app to PyPI
+        if: needs.determine.outputs.contracts_app_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-contracts-app
+
+      - name: Publish dc43-contracts-app GitHub release
+        if: needs.determine.outputs.contracts_app_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.contracts_app_tag }}
+          files: release-artifacts/dc43-contracts-app/*
           generate_release_notes: true

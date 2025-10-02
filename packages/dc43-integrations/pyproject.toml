@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dc43-integrations"
-version = "0.8.0.0"
 description = "Runtime integrations built on dc43 service contracts"
 readme = "README.md"
 requires-python = ">=3.11"
+dynamic = ["version"]
 authors = [
   { name = "Andy Petrella" }
 ]
@@ -25,6 +25,10 @@ dependencies = [
 spark = [
   "pyspark>=3.4",
 ]
+test = []
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.setuptools]
 package-dir = {"" = "src"}
