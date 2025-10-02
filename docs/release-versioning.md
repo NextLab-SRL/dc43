@@ -28,12 +28,13 @@ many release trains.
 
 ## GitHub Actions automation
 
-The [`release.yml`](../.github/workflows/release.yml) workflow watches for each package's tag prefix
-and gathers every matching tag that points at the pushed commit. The workflow elects a **primary**
-run—the first tag in dependency order (`dc43`, then `dc43-service-clients`, `dc43-service-backends`,
-`dc43-integrations`, and finally `dc43-contracts-app`). Only that primary run executes the
-publication pipeline; runs triggered by the other tags exit immediately after reporting which tag will
-perform the release.
+The [`release.yml`](../.github/workflows/release.yml) workflow now triggers when a commit lands on
+`main` with `[release]` anywhere in its message (manual runs via **Run workflow** remain available
+through `workflow_dispatch`). Once invoked, the workflow gathers every package tag that points at the
+commit and elects a **primary** run—the first tag in dependency order (`dc43`, then
+`dc43-service-clients`, `dc43-service-backends`, `dc43-integrations`, and finally
+`dc43-contracts-app`). Only that primary run executes the publication pipeline; other runs exit
+immediately after reporting which tag will perform the release.
 
 Within the primary run a single `release` job stages and publishes each package in two passes:
 
@@ -64,8 +65,9 @@ Common workflows:
   python scripts/release.py
   ```
 
-- **Release everything that changed:** create annotated tags for all packages that need a release
-  and push them to `origin` to trigger GitHub Actions.
+- **Release everything that changed:** create annotated tags for all packages that need a release,
+  ensure the release commit message includes `[release]`, and push the branch plus tags to `origin`
+  (`git push origin main --tags`).
 
   ```bash
   python scripts/release.py --apply --push
@@ -89,10 +91,12 @@ For a package bump (example: `dc43-service-backends`):
 
 1. Update the version in `packages/dc43-service-backends/VERSION`.
 2. Update changelog notes (either a shared CHANGELOG or one per package).
-3. Commit the changes with a message such as `chore(backends): release 0.9.0`.
+3. Commit the changes with a message such as `chore(backends): release 0.9.0 [release]` so that the
+   automation runs.
 4. Merge to `main` via PR.
-5. Tag the merge commit: `git tag -a dc43-service-backends-v0.9.0 && git push origin dc43-service-backends-v0.9.0`.
-6. Let GitHub Actions publish the new wheel/sdist to PyPI.
+5. Tag the merge commit: `git tag -a dc43-service-backends-v0.9.0`.
+6. Push the branch and tags together: `git push origin main --tags`.
+7. Let GitHub Actions publish the new wheel/sdist to PyPI.
 
 Only repeat the steps for other packages when they change. The meta package can be bumped less
 frequently, e.g. when you need a curated bundle of the latest component versions.

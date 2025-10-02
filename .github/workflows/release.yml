@@ -6,12 +6,9 @@ concurrency:
 
 on:
   push:
-    tags:
-      - "dc43-v*"
-      - "dc43-service-clients-v*"
-      - "dc43-service-backends-v*"
-      - "dc43-integrations-v*"
-      - "dc43-contracts-app-v*"
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   determine:
@@ -32,8 +29,46 @@ jobs:
 
       - name: Identify release tags
         id: tags
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
         run: |
           set -euo pipefail
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            if ! printf '%s' "$COMMIT_MESSAGE" | grep -qi '\[release\]'; then
+              prefixes=(
+                "dc43-v"
+                "dc43-service-clients-v"
+                "dc43-service-backends-v"
+                "dc43-integrations-v"
+                "dc43-contracts-app-v"
+              )
+              outputs=(
+                "core_tag"
+                "service_clients_tag"
+                "service_backends_tag"
+                "integrations_tag"
+                "contracts_app_tag"
+              )
+
+              for name in "${outputs[@]}"; do
+                echo "${name}=" >> "$GITHUB_OUTPUT"
+              done
+
+              {
+                echo "primary="
+                echo "should_run=false"
+              } >> "$GITHUB_OUTPUT"
+
+              cat <<'SUMMARY' >> "$GITHUB_STEP_SUMMARY"
+                ### Release run skipped
+                The latest commit on `main` does not contain the required `[release]` marker.
+                Add `[release]` to the commit message that bumps versions and push again to run the pipeline.
+              SUMMARY
+              exit 0
+            fi
+          fi
 
           tags=$(git tag --points-at "$GITHUB_SHA" | sort || true)
           if [ -z "$tags" ]; then
