@@ -35,6 +35,42 @@ class DatasetRecord:
 _FLASH_LOCK = Lock()
 _FLASH_MESSAGES: Dict[str, Dict[str, str | None]] = {}
 
+_NORMAL_STATUS_VALUES = {
+    "ok",
+    "warning",
+    "warn",
+    "error",
+    "block",
+    "invalid",
+    "unknown",
+}
+
+
+def _normalise_dataset_record(record: DatasetRecord) -> DatasetRecord:
+    """Ensure persisted records expose concise statuses for the UI."""
+
+    status = (record.status or "").strip()
+    if not status:
+        record.status = "unknown"
+        return record
+
+    normalised = status.lower()
+    if normalised in _NORMAL_STATUS_VALUES:
+        record.status = "warning" if normalised == "warn" else normalised
+        return record
+
+    if "warn" in normalised:
+        record.status = "warning"
+    elif any(token in normalised for token in ("error", "fail", "block")):
+        record.status = "error"
+    else:
+        record.status = "unknown"
+
+    if not record.reason:
+        record.reason = status
+
+    return record
+
 
 def _datasets_file(workspace: ContractsAppWorkspace | None = None) -> os.PathLike[str]:
     ws = workspace or current_workspace()
@@ -100,6 +136,7 @@ def scenario_run_rows(
     by_dataset: Dict[str, List[DatasetRecord]] = {}
     by_scenario: Dict[str, List[DatasetRecord]] = {}
     for record in records:
+        record = _normalise_dataset_record(record)
         if record.dataset_name:
             by_dataset.setdefault(record.dataset_name, []).append(record)
         if record.scenario_key:

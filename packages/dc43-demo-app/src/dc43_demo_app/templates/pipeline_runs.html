@@ -4,6 +4,68 @@
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 
+{% macro render_status_value(value) %}
+  {% if value is mapping %}
+    <pre class="small mb-0">{{ value | tojson(indent=2) }}</pre>
+  {% elif value is sequence and not value is string %}
+    <ul class="small mb-0 ps-3">
+      {% for item in value %}
+        <li>{{ render_status_value(item) }}</li>
+      {% endfor %}
+    </ul>
+  {% elif value is boolean %}
+    {{ value | string | lower }}
+  {% else %}
+    {{ value }}
+  {% endif %}
+{% endmacro %}
+
+{% macro render_status_block(title, payload) %}
+  <div class="mb-3">
+    {% if title %}
+      <h6 class="text-capitalize mb-1">{{ title }}</h6>
+    {% endif %}
+    {% if payload is mapping %}
+      {% set preferred = [
+        'status', 'reason', 'dataset', 'dataset_version', 'data_product',
+        'port_name', 'binding', 'contract_status_enforced', 'violation_strategy',
+        'violations'
+      ] %}
+      {% set ordered = [] %}
+      {% set remaining = [] %}
+      {% for key, value in payload.items() %}
+        {% set is_string = value is string %}
+        {% set is_sequence = value is sequence and not is_string %}
+        {% set is_mapping = value is mapping %}
+        {% set empty_sequence = is_sequence and (value | length == 0) %}
+        {% set empty_mapping = is_mapping and (value | length == 0) %}
+        {% set skip_entry = value is none or (is_string and not value) or empty_sequence or empty_mapping %}
+        {% if not skip_entry %}
+          {% set entry = (key, value) %}
+          {% if key in preferred %}
+            {% set ordered = ordered + [entry] %}
+          {% else %}
+            {% set remaining = remaining + [entry] %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+      {% set entries = ordered + remaining %}
+      {% if entries %}
+        <dl class="row small mb-0 status-details">
+          {% for key, value in entries %}
+            <dt class="col-sm-4 text-muted text-capitalize">{{ key.replace('_', ' ') }}</dt>
+            <dd class="col-sm-8">{{ render_status_value(value) }}</dd>
+          {% endfor %}
+        </dl>
+      {% else %}
+        <p class="text-muted mb-0">No details recorded.</p>
+      {% endif %}
+    {% else %}
+      <pre class="small mb-0">{{ payload | tojson(indent=2) }}</pre>
+    {% endif %}
+  </div>
+{% endmacro %}
+
 {% macro render_scenario_table(table_id, rows) %}
   {% if rows %}
   <table class="table table-striped align-middle scenario-table" id="{{ table_id }}">
@@ -21,7 +83,8 @@
     <tbody>
     {% for scenario in rows %}
       {% set record = scenario.latest %}
-      {% set output_details = record.dq_details.get('output', {}) if record else {} %}
+      {% set dq_details = record.dq_details if record else {} %}
+      {% set output_details = dq_details.get('output', {}) if dq_details else {} %}
       {% set fails = output_details.get('failed_expectations', {}) if output_details else {} %}
       {% set schema_errors = output_details.get('errors', []) if output_details else [] %}
       {% if schema_errors is string %}
@@ -30,12 +93,23 @@
         {% set schema_errors = [] %}
       {% endif %}
       {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) if output_details else [] %}
-      {% set stage_details = record.dq_details.get('stage') if record else {} %}
+      {% set stage_details = dq_details.get('stage') if dq_details else {} %}
       {% set input_sections = [] %}
-      {% if record %}
-        {% for key, payload in record.dq_details.items() %}
-          {% if key != 'output' and payload %}
-            {% set input_sections = input_sections + [(key, payload)] %}
+      {% if dq_details %}
+        {% set dq_inputs = dq_details.get('input') %}
+        {% if dq_inputs is mapping %}
+          {% for name, payload in dq_inputs.items() %}
+            {% set heading = 'Input' %}
+            {% if name %}
+              {% set heading = heading ~ ' – ' ~ name.replace('_', ' ') %}
+            {% endif %}
+            {% set input_sections = input_sections + [{'title': heading, 'payload': payload}] %}
+          {% endfor %}
+        {% endif %}
+        {% for key, payload in dq_details.items() %}
+          {% if key not in ['input', 'stage', 'output'] and payload %}
+            {% set heading = key.replace('_', ' ') %}
+            {% set input_sections = input_sections + [{'title': heading, 'payload': payload}] %}
           {% endif %}
         {% endfor %}
       {% endif %}
@@ -197,22 +271,8 @@
                 <div id="dq-input-{{ scenario.key }}" class="accordion-collapse collapse">
                   <div class="accordion-body">
                     {% if input_sections %}
-                      {% for key, payload in input_sections %}
-                        {% set heading = key.replace('_', ' ') %}
-                        {% if payload is mapping %}
-                          {% if payload | length == 0 %}
-                            <h6 class="text-capitalize">{{ heading }}</h6>
-                            <p class="text-muted">No details recorded.</p>
-                          {% else %}
-                            {% for name, details in payload.items() %}
-                              <h6 class="text-capitalize">{{ heading }}{% if name %} – {{ name.replace('_', ' ') }}{% endif %}</h6>
-                              <pre class="small">{{ details | tojson(indent=2) }}</pre>
-                            {% endfor %}
-                          {% endif %}
-                        {% else %}
-                          <h6 class="text-capitalize">{{ heading }}</h6>
-                          <pre class="small">{{ payload | tojson(indent=2) }}</pre>
-                        {% endif %}
+                      {% for section in input_sections %}
+                        {{ render_status_block(section.title, section.payload) }}
                       {% endfor %}
                     {% else %}
                       <p class="text-muted mb-0">No input statuses recorded.</p>
@@ -227,10 +287,7 @@
                 <div id="dq-output-{{ scenario.key }}" class="accordion-collapse collapse">
                   <div class="accordion-body">
                     {% if stage_details %}
-                      <div class="mb-2">
-                        <strong>Stage</strong>
-                        <pre class="small mb-0">{{ stage_details | tojson(indent=2) }}</pre>
-                      </div>
+                      {{ render_status_block('Stage', stage_details) }}
                     {% endif %}
                     {% if fails %}
                       {% for key, info in fails.items() %}
@@ -302,10 +359,7 @@
                       {% endfor %}
                     {% endif %}
                     {% if summary %}
-                      <div class="mb-0">
-                        <strong>Summary</strong>
-                        <pre class="small mb-0">{{ summary | tojson(indent=2) }}</pre>
-                      </div>
+                      {{ render_status_block('Summary', summary) }}
                     {% endif %}
                   </div>
                 </div>

@@ -24,5 +24,6 @@
   information, and separates contract scenarios from data product flows for quicker navigation.
 - Ensured curated roundtrip runs create dataset version markers before registration so the happy
   path completes and publishes its outputs.
-- Restored pipeline run formatting so data product scenarios surface input/output summaries without
-  duplicating error messages in the status column.
+- Normalised stored pipeline statuses and refreshed the DQ details view so data product scenarios
+  surface input and stage summaries like contract runs while keeping failure reasons out of the
+  status column.
