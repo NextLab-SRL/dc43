@@ -263,9 +263,11 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "<p>Showcases the dp → contract → dp pattern using ODPS bindings.</p>"
             "<ul>"
             "<li><strong>Inputs:</strong> Resolves <code>orders</code> via data product"
-            " <code>dp.sales.orders</code>.</li>"
-            "<li><strong>Stage:</strong> Persists intermediate"
-            " <code>orders_stage</code> under contract control.</li>"
+            " <code>dp.sales.orders</code> while registering the"
+            " <code>dp.analytics</code> input port.</li>"
+            "<li><strong>Stage:</strong> Enriches orders with customer names and"
+            " persists intermediate <code>orders_stage</code> under contract"
+            " control.</li>"
             "<li><strong>Output:</strong> Publishes <code>analytics_snapshot</code>"
             " through data product <code>dp.analytics</code> while recording lineage.</li>"
             "</ul>"
@@ -285,7 +287,12 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "activate_versions": dict(_DEFAULT_SLICE),
         "params": {
             "runner": "data_product_roundtrip",
-            "input_binding": {"data_product": "dp.sales.orders", "port_name": "primary"},
+            "input_binding": {
+                "data_product": "dp.analytics",
+                "port_name": "orders_source",
+                "source_data_product": "dp.sales.orders",
+                "source_output_port": "primary",
+            },
             "output_binding": {"data_product": "dp.analytics", "port_name": "primary"},
             "stage_contract_id": "orders_stage",
             "stage_contract_version": "1.0.0",

@@ -7,9 +7,13 @@
   "version": "1.0.0",
   "inputPorts": [
     {
-      "name": "orders_stage",
-      "version": "1.0.0",
-      "contractId": "orders_stage"
+      "name": "orders_source",
+      "version": "1.1.0",
+      "contractId": "orders",
+      "customProperties": [
+        {"property": "dc43.input.source_data_product", "value": "dp.sales.orders"},
+        {"property": "dc43.input.source_output_port", "value": "primary"}
+      ]
     }
   ],
   "outputPorts": [

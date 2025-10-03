@@ -2029,6 +2029,16 @@ async def artifacts_overview(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("artifacts.html", context)
 
 
+@router.get("/data-products", response_class=HTMLResponse)
+async def data_products_overview(request: Request) -> HTMLResponse:
+    data_products = data_product_catalog()
+    context = {
+        "request": request,
+        "data_products": data_products,
+    }
+    return templates.TemplateResponse("data_products.html", context)
+
+
 @router.get("/capabilities", response_class=HTMLResponse)
 async def capabilities_overview(request: Request) -> HTMLResponse:
     capabilities = [

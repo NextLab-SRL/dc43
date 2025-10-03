@@ -1643,6 +1643,40 @@ def run_data_product_roundtrip(
         message = input_status.reason or "data product input blocked"
         raise ValueError(message)
 
+    customers_df, customers_status = read_with_contract(
+        spark,
+        contract_id="customers",
+        contract_service=contracts_server.contract_service,
+        expected_contract_version="==1.0.0",
+        data_quality_service=contracts_server.dq_service,
+        governance_service=governance,
+        dataset_locator=ContractVersionLocator(
+            dataset_version="latest",
+            base=ContractFirstDatasetLocator(),
+        ),
+        return_status=True,
+        pipeline_context=_context(
+            "lookup-read",
+            {
+                "dataset": "customers",
+                "dataset_version": "latest",
+                "contract_status_enforced": False,
+            },
+        ),
+    )
+
+    stage_df = (
+        stage_df.join(customers_df, "customer_id", "left")
+        .select(
+            "order_id",
+            "customer_id",
+            "order_ts",
+            "amount",
+            "currency",
+            "customer_name",
+        )
+    )
+
     stage_output_path = _resolve_output_path(
         stage_contract, stage_dataset_name, stage_dataset_version
     )
@@ -1734,6 +1768,14 @@ def run_data_product_roundtrip(
     except FileNotFoundError:
         pass
 
+    stage_inputs_payload: dict[str, Any] = {}
+    input_payload = _status_payload(input_status)
+    if input_payload:
+        stage_inputs_payload["data_product"] = input_payload
+    lookup_payload = _status_payload(customers_status)
+    if lookup_payload:
+        stage_inputs_payload["lookup"] = lookup_payload
+
     stage_record = contracts_server.DatasetRecord(
         contract_id=stage_contract.id or stage_contract_id,
         contract_version=stage_contract.version or stage_contract_version,
@@ -1741,7 +1783,7 @@ def run_data_product_roundtrip(
         dataset_version=stage_dataset_version,
         status=(stage_status.status if stage_status else stage_result.status),
         dq_details={
-            "input": _status_payload(input_status) or {},
+            "input": stage_inputs_payload,
             "output": _status_payload(stage_status) or {},
         },
         run_type=run_type,
@@ -1751,7 +1793,7 @@ def run_data_product_roundtrip(
     )
 
     final_payload = {
-        "input": _status_payload(input_status) or {},
+        "input": stage_inputs_payload,
         "stage": _status_payload(stage_status) or {},
         "output": _status_payload(final_status) or {},
     }
