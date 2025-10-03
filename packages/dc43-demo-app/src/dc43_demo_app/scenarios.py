@@ -302,6 +302,49 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "run_type": "enforce",
         },
     },
+    "dp-roundtrip-curated": {
+        "label": "Data product roundtrip (curated)",
+        "description": (
+            "<p>Runs the roundtrip using the curated <code>2024-01-01</code> slice.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reads <code>dp.sales.orders</code> version"
+            " <code>2024-01-01</code> via data product <code>dp.analytics</code> bindings.</li>"
+            "<li><strong>Stage:</strong> Produces <code>orders_stage</code> under contract control.</li>"
+            "<li><strong>Output:</strong> Publishes a clean <code>analytics_snapshot</code>" 
+            " slice through <code>dp.analytics</code> with an OK verdict.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    DPIn["dp.sales.orders → 2024-01-01"] --> Stage["orders_stage contract"]
+                    Stage --> Final["analytics_snapshot contract"]
+                    Final --> DPOut["dp.analytics → primary"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE),
+        "params": {
+            "runner": "data_product_roundtrip",
+            "input_binding": {
+                "data_product": "dp.analytics",
+                "port_name": "orders_source",
+                "source_data_product": "dp.sales.orders",
+                "source_output_port": "primary",
+            },
+            "input_dataset_version": "2024-01-01",
+            "output_binding": {"data_product": "dp.analytics", "port_name": "primary"},
+            "stage_contract_id": "orders_stage",
+            "stage_contract_version": "1.0.0",
+            "final_contract_id": "analytics_snapshot",
+            "final_contract_version": "1.0.0",
+            "dataset_name": "analytics_snapshot",
+            "run_type": "enforce",
+        },
+    },
     "read-invalid-block": {
         "label": "Invalid input blocked",
         "description": (

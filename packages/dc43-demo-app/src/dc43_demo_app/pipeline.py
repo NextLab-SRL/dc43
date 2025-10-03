@@ -1631,6 +1631,12 @@ def run_data_product_roundtrip(
             base=ContractFirstDatasetLocator(),
         )
 
+    binding_payload = {
+        key: str(input_binding.get(key, ""))
+        for key in ("data_product", "port_name", "source_data_product", "source_output_port")
+        if input_binding.get(key)
+    }
+
     input_status: ValidationResult | None = None
     try:
         stage_df, input_status = read_from_data_product(
@@ -1652,22 +1658,31 @@ def run_data_product_roundtrip(
         )
     except Exception as exc:
         failure_details: dict[str, Any] = {}
-        binding_payload = {
-            key: str(input_binding.get(key, ""))
-            for key in ("data_product", "port_name", "source_data_product", "source_output_port")
-            if input_binding.get(key)
-        }
-        failure_details["input"] = {
-            "data_product": {
-                "status": "error",
-                "reason": str(exc),
-                **({"binding": binding_payload} if binding_payload else {}),
-            }
-        }
-        failure_details["output"] = {
+        input_failure: dict[str, Any] = {
             "status": "error",
             "reason": str(exc),
+            "errors": [str(exc)],
         }
+        if binding_payload:
+            input_failure["binding"] = binding_payload
+        if input_dataset_version:
+            input_failure["dataset_version"] = input_dataset_version
+        failure_details["input"] = {"data_product": input_failure}
+
+        output_failure: dict[str, Any] = {
+            "status": "error",
+            "reason": str(exc),
+            "errors": [str(exc)],
+            "dataset": final_dataset_name,
+            "dataset_version": dataset_version,
+        }
+        if output_binding:
+            output_failure["binding"] = {
+                key: str(output_binding.get(key, ""))
+                for key in ("data_product", "port_name")
+                if output_binding.get(key)
+            }
+        failure_details["output"] = output_failure
 
         records.append(
             contracts_server.DatasetRecord(
@@ -1817,12 +1832,24 @@ def run_data_product_roundtrip(
         pass
 
     stage_inputs_payload: dict[str, Any] = {}
-    input_payload = _status_payload(input_status)
+    input_payload = _status_payload(input_status) or {}
+    if binding_payload:
+        input_payload.setdefault("binding", binding_payload)
+    if input_locator and getattr(input_locator, "dataset_version", None):
+        input_payload.setdefault("dataset_version", input_locator.dataset_version)
+    if "data_product" not in input_payload and input_binding.get("data_product"):
+        input_payload.setdefault("data_product", str(input_binding.get("data_product")))
     if input_payload:
         stage_inputs_payload["data_product"] = input_payload
-    lookup_payload = _status_payload(customers_status)
+    lookup_payload = _status_payload(customers_status) or {}
     if lookup_payload:
+        lookup_payload.setdefault("dataset", "customers")
+        lookup_payload.setdefault("dataset_version", "latest")
         stage_inputs_payload["lookup"] = lookup_payload
+
+    stage_output_payload = _status_payload(stage_status) or {}
+    stage_output_payload.setdefault("dataset", stage_dataset_name)
+    stage_output_payload.setdefault("dataset_version", stage_dataset_version)
 
     stage_record = contracts_server.DatasetRecord(
         contract_id=stage_contract.id or stage_contract_id,
@@ -1832,7 +1859,7 @@ def run_data_product_roundtrip(
         status=(stage_status.status if stage_status else stage_result.status),
         dq_details={
             "input": stage_inputs_payload,
-            "output": _status_payload(stage_status) or {},
+            "output": stage_output_payload,
         },
         run_type=run_type,
         violations=_status_violation_count(stage_status),
@@ -1840,10 +1867,23 @@ def run_data_product_roundtrip(
         scenario_key=f"{scenario_key}:stage" if scenario_key else None,
     )
 
+    final_output_payload = _status_payload(final_status) or {}
+    final_output_payload.setdefault("dataset", final_dataset_name)
+    final_output_payload.setdefault("dataset_version", dataset_version)
+    if output_binding:
+        final_output_payload.setdefault(
+            "binding",
+            {
+                key: str(output_binding.get(key, ""))
+                for key in ("data_product", "port_name")
+                if output_binding.get(key)
+            },
+        )
+
     final_payload = {
         "input": stage_inputs_payload,
-        "stage": _status_payload(stage_status) or {},
-        "output": _status_payload(final_status) or {},
+        "stage": stage_output_payload,
+        "output": final_output_payload,
     }
     draft_version = None
     output_details = final_payload.get("output")

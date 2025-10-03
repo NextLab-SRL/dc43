@@ -3,274 +3,319 @@
 <h1>Pipeline Scenarios</h1>
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-<table class="table table-striped align-middle" id="scenario-table">
-  <thead>
-    <tr>
-      <th scope="col">Scenario</th>
-      <th scope="col">Latest run</th>
-      <th scope="col">Status</th>
-      <th scope="col">Violations</th>
-      <th scope="col">DQ details</th>
-      <th scope="col" class="text-center">Runs</th>
-      <th scope="col" class="text-end">Action</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for scenario in scenario_rows %}
-    {% set record = scenario.latest %}
-    {% set output_details = record.dq_details.get('output', {}) if record else {} %}
-    {% set fails = output_details.get('failed_expectations', {}) if output_details else {} %}
-    {% set schema_errors = output_details.get('errors', []) if output_details else [] %}
-    {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) if output_details else [] %}
-    {% set input_sections = [] %}
-    {% if record %}
-      {% for key, payload in record.dq_details.items() %}
-        {% if key != 'output' and payload %}
-          {% set input_sections = input_sections + [(key, payload)] %}
-        {% endif %}
-      {% endfor %}
-    {% endif %}
-    <tr>
-      <th scope="row" class="w-25">
-        <div class="d-flex align-items-start gap-2">
-          <div>
-            <div class="fw-semibold">{{ scenario.label }}</div>
-            <div class="text-muted small">{{ scenario.key }}</div>
+
+{% macro render_scenario_table(table_id, rows) %}
+  {% if rows %}
+  <table class="table table-striped align-middle scenario-table" id="{{ table_id }}">
+    <thead>
+      <tr>
+        <th scope="col">Scenario</th>
+        <th scope="col">Latest run</th>
+        <th scope="col">Status</th>
+        <th scope="col">Violations</th>
+        <th scope="col">DQ details</th>
+        <th scope="col" class="text-center">Runs</th>
+        <th scope="col" class="text-end">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for scenario in rows %}
+      {% set record = scenario.latest %}
+      {% set output_details = record.dq_details.get('output', {}) if record else {} %}
+      {% set fails = output_details.get('failed_expectations', {}) if output_details else {} %}
+      {% set raw_errors = output_details.get('errors') if output_details else [] %}
+      {% if raw_errors is string %}
+        {% set schema_errors = [raw_errors] %}
+      {% elif raw_errors is mapping %}
+        {% set schema_errors = raw_errors.values() | list %}
+      {% elif raw_errors is sequence %}
+        {% set schema_errors = raw_errors | list %}
+      {% else %}
+        {% set schema_errors = [] %}
+      {% endif %}
+      {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) if output_details else [] %}
+      {% set input_sections = [] %}
+      {% if record %}
+        {% for key, payload in record.dq_details.items() %}
+          {% if key != 'output' and payload %}
+            {% set input_sections = input_sections + [(key, payload)] %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      <tr>
+        <th scope="row" class="w-25">
+          <div class="d-flex align-items-start gap-2">
+            <div>
+              <div class="fw-semibold">{{ scenario.label }}</div>
+              <div class="text-muted small">{{ scenario.key }}</div>
+            </div>
+            {% if scenario.description or scenario.diagram %}
+            <button type="button" class="btn btn-outline-secondary btn-sm scenario-info" data-scenario-popover="scenario-popover-{{ scenario.key }}" data-popover-title="{{ scenario.label }}">
+              Details
+            </button>
+            {% endif %}
           </div>
           {% if scenario.description or scenario.diagram %}
-          <button type="button" class="btn btn-outline-secondary btn-sm scenario-info" data-scenario-popover="scenario-popover-{{ scenario.key }}" data-popover-title="{{ scenario.label }}">
-            Details
-          </button>
-          {% endif %}
-        </div>
-        {% if scenario.description or scenario.diagram %}
-        <div id="scenario-popover-{{ scenario.key }}" class="d-none">
-          {% if scenario.description %}
-          <div class="mb-2">{{ scenario.description | safe }}</div>
-          {% endif %}
-          {% if scenario.diagram %}
-          {{ scenario.diagram | safe }}
-          {% endif %}
-        </div>
-        {% endif %}
-      </th>
-      <td class="w-25">
-        <div class="small text-muted">Contract</div>
-        {% if record and record.contract_id %}
-          <div>
-            <a href="/contracts/{{ record.contract_id }}">{{ record.contract_id }}</a>
-            {% if record.contract_version %}
-              <span class="text-muted">/</span>
-              <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_version }}</a>
+          <div id="scenario-popover-{{ scenario.key }}" class="d-none">
+            {% if scenario.description %}
+            <div class="mb-2">{{ scenario.description | safe }}</div>
+            {% endif %}
+            {% if scenario.diagram %}
+            {{ scenario.diagram | safe }}
             {% endif %}
           </div>
-        {% elif scenario.contract_id %}
-          <div>
-            <a href="/contracts/{{ scenario.contract_id }}">{{ scenario.contract_id }}</a>
-            {% if scenario.contract_version %}
-              <span class="text-muted">/</span>
-              <a href="/contracts/{{ scenario.contract_id }}/{{ scenario.contract_version }}">{{ scenario.contract_version }}</a>
-            {% endif %}
-          </div>
-        {% else %}
-          <div><span class="text-muted">No contract</span></div>
-        {% endif %}
-        <div class="small text-muted mt-2">Dataset</div>
-        {% if scenario.dataset_name %}
-          {% if record and record.dataset_version %}
+          {% endif %}
+        </th>
+        <td class="w-25">
+          <div class="small text-muted">Contract</div>
+          {% if record and record.contract_id %}
             <div>
-              <a href="/datasets/{{ scenario.dataset_name }}/{{ record.dataset_version }}">{{ scenario.dataset_name }}</a>
-              <span class="text-muted">/</span>
-              {{ record.dataset_version }}
+              <a href="/contracts/{{ record.contract_id }}">{{ record.contract_id }}</a>
+              {% if record.contract_version %}
+                <span class="text-muted">/</span>
+                <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_version }}</a>
+              {% endif %}
+            </div>
+          {% elif scenario.contract_id %}
+            <div>
+              <a href="/contracts/{{ scenario.contract_id }}">{{ scenario.contract_id }}</a>
+              {% if scenario.contract_version %}
+                <span class="text-muted">/</span>
+                <a href="/contracts/{{ scenario.contract_id }}/{{ scenario.contract_version }}">{{ scenario.contract_version }}</a>
+              {% endif %}
             </div>
           {% else %}
-            <div><a href="/datasets/{{ scenario.dataset_name }}">{{ scenario.dataset_name }}</a></div>
+            <div><span class="text-muted">No contract</span></div>
           {% endif %}
-        {% elif record and record.dataset_version %}
-          <div>{{ record.dataset_version }}</div>
-        {% else %}
-          <div><span class="text-muted">Not recorded</span></div>
-        {% endif %}
-        <div class="small text-muted mt-2">Run type</div>
-        <div>{{ record.run_type if record else scenario.run_type }}</div>
-        {% if record and record.draft_contract_version %}
-          <div class="small text-muted mt-2">Draft
-            {% if record.contract_id %}
-              <a href="/contracts/{{ record.contract_id }}/{{ record.draft_contract_version }}">{{ record.draft_contract_version }}</a>
+          <div class="small text-muted mt-2">Dataset</div>
+          {% if scenario.dataset_name %}
+            {% if record and record.dataset_version %}
+              <div>
+                <a href="/datasets/{{ scenario.dataset_name }}/{{ record.dataset_version }}">{{ scenario.dataset_name }}</a>
+                <span class="text-muted">/</span>
+                {{ record.dataset_version }}
+              </div>
             {% else %}
-              {{ record.draft_contract_version }}
+              <div><a href="/datasets/{{ scenario.dataset_name }}">{{ scenario.dataset_name }}</a></div>
             {% endif %}
-          </div>
-        {% endif %}
-      </td>
-      <td data-status-cell aria-live="polite">
-        {% if record %}
-          <div>
-            {{ record.status }}
-            {% if output_details.get('warnings') %}
-              <span class="text-warning ms-1" title="Validation warnings">&#9888;</span>
-            {% endif %}
-            {% if output_details.get('errors') %}
-              <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
-            {% endif %}
-          </div>
-          {% if record.reason %}
-            <div class="small text-muted">{{ record.reason }}</div>
+          {% elif record and record.dataset_version %}
+            <div>{{ record.dataset_version }}</div>
+          {% else %}
+            <div><span class="text-muted">Not recorded</span></div>
           {% endif %}
-        {% else %}
-          <span class="text-muted">No runs yet</span>
-        {% endif %}
-      </td>
-      <td data-violations-cell>
-        {% if record %}
-          {% if output_details.get('violation_strategy') %}
-            <div>Strategy: {{ output_details.get('violation_strategy') }}</div>
-          {% endif %}
-          {% if schema_errors %}
-            <div>Schema errors: {{ schema_errors | length }}</div>
-          {% endif %}
-          {% if fails %}
-            {% for key, info in fails.items() %}
-              <div>{{ key }} ({{ info.count }})</div>
-            {% endfor %}
-          {% endif %}
-          {% set aux = output_details.get('auxiliary_datasets', []) %}
-          {% if aux %}
-            <div class="small text-muted">
-              {% for entry in aux %}
-                <div>{{ entry.kind | capitalize }} → <code>{{ entry.dataset }}</code></div>
-              {% endfor %}
+          <div class="small text-muted mt-2">Run type</div>
+          <div>{{ record.run_type if record else scenario.run_type }}</div>
+          {% if record and record.draft_contract_version %}
+            <div class="small text-muted mt-2">Draft
+              {% if record.contract_id %}
+                <a href="/contracts/{{ record.contract_id }}/{{ record.draft_contract_version }}">{{ record.draft_contract_version }}</a>
+              {% else %}
+                {{ record.draft_contract_version }}
+              {% endif %}
             </div>
           {% endif %}
-          {% if dq_aux %}
-            <div class="small text-muted">
-              {% for entry in dq_aux %}
-                {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
-                <div>
-                  <code>{{ entry.get('dataset_id') }}</code> status → {{ entry.get('status') }}
-                  {% if details.get('draft_contract_version') %}
-                    (draft {{ details.get('draft_contract_version') }})
-                  {% endif %}
-                </div>
-              {% endfor %}
+        </td>
+        <td data-status-cell aria-live="polite">
+          {% if record %}
+            <div>
+              {{ record.status }}
+              {% if output_details.get('warnings') %}
+                <span class="text-warning ms-1" title="Validation warnings">&#9888;</span>
+              {% endif %}
+              {% if schema_errors %}
+                <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
+              {% endif %}
             </div>
-          {% endif %}
-          {% if not fails and not schema_errors %}
-            {% if record.violations %}
-              {{ record.violations }}
-            {% else %}
-              <span class="text-muted">0</span>
+            {% if record.reason %}
+              <div class="small text-muted">{{ record.reason }}</div>
             {% endif %}
+          {% else %}
+            <span class="text-muted">No runs yet</span>
           {% endif %}
-        {% else %}
-          <span class="text-muted">—</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if record %}
-        <details>
-          <summary>Show</summary>
-          <div class="accordion mt-2" id="dq-{{ scenario.key }}">
-            <div class="accordion-item">
-              <h2 class="accordion-header" id="dq-input-{{ scenario.key }}-h">
-                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-input-{{ scenario.key }}">Input</button>
-              </h2>
-              <div id="dq-input-{{ scenario.key }}" class="accordion-collapse collapse">
-                <div class="accordion-body">
-                  {% if input_sections %}
-                    {% for key, payload in input_sections %}
-                      <h6 class="text-capitalize">{{ key.replace('_', ' ') }}</h6>
-                      <pre class="small">{{ payload | tojson(indent=2) }}</pre>
-                    {% endfor %}
-                  {% else %}
-                    <p class="text-muted mb-0">No input statuses recorded.</p>
-                  {% endif %}
+        </td>
+        <td data-violations-cell>
+          {% if record %}
+            {% if output_details.get('violation_strategy') %}
+              <div>Strategy: {{ output_details.get('violation_strategy') }}</div>
+            {% endif %}
+            {% if schema_errors %}
+              <div><strong>Errors</strong></div>
+              <ul class="small mb-1 ps-3">
+                {% for err in schema_errors %}
+                  <li>{{ err }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if fails %}
+              {% for key, info in fails.items() %}
+                <div>{{ key }} ({{ info.count }})</div>
+              {% endfor %}
+            {% endif %}
+            {% set aux = output_details.get('auxiliary_datasets', []) %}
+            {% if aux %}
+              <div class="small text-muted">
+                {% for entry in aux %}
+                  <div>{{ entry.kind | capitalize }} → <code>{{ entry.dataset }}</code></div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if dq_aux %}
+              <div class="small text-muted">
+                {% for entry in dq_aux %}
+                  {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
+                  <div>
+                    <code>{{ entry.get('dataset_id') }}</code> status → {{ entry.get('status') }}
+                    {% if details.get('draft_contract_version') %}
+                      (draft {{ details.get('draft_contract_version') }})
+                    {% endif %}
+                    {% if details.get('reason') %}
+                      <span class="text-muted">({{ details.get('reason') }})</span>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if not fails and not schema_errors %}
+              {% if record.violations %}
+                {{ record.violations }}
+              {% elif output_details.get('reason') and record.status != 'ok' %}
+                <div class="small text-muted">{{ output_details.get('reason') }}</div>
+              {% else %}
+                <span class="text-muted">0</span>
+              {% endif %}
+            {% endif %}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if record %}
+          <details>
+            <summary>Show</summary>
+            <div class="accordion mt-2" id="dq-{{ scenario.key }}">
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="dq-input-{{ scenario.key }}-h">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-input-{{ scenario.key }}">Input</button>
+                </h2>
+                <div id="dq-input-{{ scenario.key }}" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    {% if input_sections %}
+                      {% for key, payload in input_sections %}
+                        <h6 class="text-capitalize">{{ key.replace('_', ' ') }}</h6>
+                        <pre class="small">{{ payload | tojson(indent=2) }}</pre>
+                      {% endfor %}
+                    {% else %}
+                      <p class="text-muted mb-0">No input statuses recorded.</p>
+                    {% endif %}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div class="accordion-item">
-              <h2 class="accordion-header" id="dq-output-{{ scenario.key }}-h">
-                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-output-{{ scenario.key }}">Output</button>
-              </h2>
-              <div id="dq-output-{{ scenario.key }}" class="accordion-collapse collapse">
-                <div class="accordion-body">
-                  {% if fails %}
-                    {% for key, info in fails.items() %}
-                      <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
-                      {% if info.examples %}
-                        <details class="small"><summary>Examples</summary><pre class="small mb-0">{{ info.examples | tojson(indent=2) }}</pre></details>
-                      {% endif %}
+              <div class="accordion-item">
+                <h2 class="accordion-header" id="dq-output-{{ scenario.key }}-h">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#dq-output-{{ scenario.key }}">Output</button>
+                </h2>
+                <div id="dq-output-{{ scenario.key }}" class="accordion-collapse collapse">
+                  <div class="accordion-body">
+                    {% if fails %}
+                      {% for key, info in fails.items() %}
+                        <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
+                        {% if info.examples %}
+                          <details class="small"><summary>Examples</summary><pre class="small mb-0">{{ info.examples | tojson(indent=2) }}</pre></details>
+                        {% endif %}
+                        </div>
+                      {% endfor %}
+                    {% endif %}
+                    {% if schema_errors %}
+                      <div class="mb-2">
+                        <strong>Errors</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for err in schema_errors %}
+                            <li>{{ err }}</li>
+                          {% endfor %}
+                        </ul>
                       </div>
-                    {% endfor %}
-                  {% endif %}
-                  {% if schema_errors %}
-                    <div class="mb-2">
-                      <strong>Schema errors</strong>
-                      <ul class="small mb-0 ps-3">
-                        {% for err in schema_errors %}
-                          <li>{{ err }}</li>
-                        {% endfor %}
-                      </ul>
-                    </div>
-                  {% endif %}
-                  {% set warnings = output_details.get('warnings', []) %}
-                  {% if warnings %}
-                    <div class="mb-2">
-                      <strong>Warnings</strong>
-                      <ul class="small mb-0 ps-3">
-                        {% for warning in warnings %}
-                          <li>{{ warning }}</li>
-                        {% endfor %}
-                      </ul>
-                    </div>
-                  {% endif %}
-                  {% set aux = output_details.get('auxiliary_datasets', []) %}
-                  {% if aux %}
-                    <div class="mb-2">
-                      <strong>Auxiliary datasets</strong>
-                      <ul class="small mb-0 ps-3">
-                        {% for entry in aux %}
-                          <li><span class="text-capitalize">{{ entry.kind }}</span>: <code>{{ entry.dataset }}</code>{% if entry.path %} ({{ entry.path }}){% endif %}</li>
-                        {% endfor %}
-                      </ul>
-                    </div>
-                  {% endif %}
-                  {% if dq_aux %}
-                    <div class="mb-2">
-                      <strong>Auxiliary DQ statuses</strong>
-                      <ul class="small mb-0 ps-3">
-                        {% for entry in dq_aux %}
-                          {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
-                          <li>
-                            <code>{{ entry.get('dataset_id') }}</code> → {{ entry.get('status') }}
-                            {% if details.get('reason') %}
-                              <span class="text-muted">({{ details.get('reason') }})</span>
-                            {% endif %}
-                          </li>
-                        {% endfor %}
-                      </ul>
-                    </div>
-                  {% endif %}
+                    {% endif %}
+                    {% set warnings = output_details.get('warnings', []) %}
+                    {% if warnings %}
+                      <div class="mb-2">
+                        <strong>Warnings</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for warning in warnings %}
+                            <li>{{ warning }}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    {% set aux = output_details.get('auxiliary_datasets', []) %}
+                    {% if aux %}
+                      <div class="mb-2">
+                        <strong>Auxiliary datasets</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for entry in aux %}
+                            <li><span class="text-capitalize">{{ entry.kind }}</span>: <code>{{ entry.dataset }}</code>{% if entry.path %} ({{ entry.path }}){% endif %}</li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                    {% if dq_aux %}
+                      <div class="mb-2">
+                        <strong>Auxiliary DQ statuses</strong>
+                        <ul class="small mb-0 ps-3">
+                          {% for entry in dq_aux %}
+                            {% set details = entry.get('details') if entry.get('details') is mapping else {} %}
+                            <li>
+                              <code>{{ entry.get('dataset_id') }}</code> → {{ entry.get('status') }}
+                              {% if details.get('reason') %}
+                                <span class="text-muted">({{ details.get('reason') }})</span>
+                              {% endif %}
+                              {% if details.get('draft_contract_version') %}
+                                <span class="text-muted">(draft {{ details.get('draft_contract_version') }})</span>
+                              {% endif %}
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    {% endif %}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </details>
-        {% else %}
-          <span class="text-muted">—</span>
-        {% endif %}
-      </td>
-      <td class="text-center">{{ scenario.run_count }}</td>
-      <td class="text-end">
-        <form class="d-inline" method="post" action="/pipeline/run">
-          <input type="hidden" name="scenario" value="{{ scenario.key }}"/>
-          <button class="btn btn-primary btn-sm" type="submit">Run</button>
-        </form>
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+          </details>
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td class="text-center">{{ scenario.run_count }}</td>
+        <td class="text-end">
+          <form class="d-inline" method="post" action="/pipeline/run" data-scenario-form>
+            <input type="hidden" name="scenario" value="{{ scenario.key }}"/>
+            <button class="btn btn-primary btn-sm" type="submit">Run</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="text-muted">No scenarios available.</p>
+  {% endif %}
+{% endmacro %}
+
+{% set has_contracts = contract_rows and contract_rows | length > 0 %}
+{% set has_data_products = data_product_rows and data_product_rows | length > 0 %}
+
+{% if has_contracts %}
+  <h2 class="mt-4">Contract pipelines</h2>
+  {{ render_scenario_table('contract-scenarios', contract_rows) }}
+{% endif %}
+{% if has_data_products %}
+  <h2 class="mt-4">Data product pipelines</h2>
+  {{ render_scenario_table('data-product-scenarios', data_product_rows) }}
+{% endif %}
+{% if not has_contracts and not has_data_products %}
+  <p class="text-muted">No scenarios configured.</p>
+{% endif %}
+
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     const buttons = document.querySelectorAll('.scenario-info');
@@ -300,7 +345,7 @@
       });
     });
 
-    const forms = document.querySelectorAll('#scenario-table form');
+    const forms = document.querySelectorAll('.scenario-table form[data-scenario-form]');
     forms.forEach((form) => {
       form.addEventListener('submit', () => {
         if (form.dataset.submitting === 'true') {

@@ -100,6 +100,12 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
     records = load_records()
     recs = [r.__dict__.copy() for r in records]
     scenario_rows = scenario_run_rows(records, SCENARIOS)
+    contract_rows = [
+        row for row in scenario_rows if row.get("runner") != "data_product_roundtrip"
+    ]
+    data_product_rows = [
+        row for row in scenario_rows if row.get("runner") == "data_product_roundtrip"
+    ]
     flash_token = request.query_params.get("flash")
     flash_message: str | None = None
     flash_error: str | None = None
@@ -113,6 +119,8 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
         "records": recs,
         "scenarios": SCENARIOS,
         "scenario_rows": scenario_rows,
+        "contract_rows": contract_rows,
+        "data_product_rows": data_product_rows,
         "message": flash_message,
         "error": flash_error,
     }

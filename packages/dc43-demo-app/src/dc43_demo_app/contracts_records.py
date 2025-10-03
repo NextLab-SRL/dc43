@@ -158,6 +158,7 @@ def scenario_run_rows(
                 "run_type": params.get("run_type", "infer"),
                 "run_count": len(dataset_records),
                 "latest": latest_record.__dict__.copy() if latest_record else None,
+                "runner": params.get("runner", "contracts"),
             }
         )
 
