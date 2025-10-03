@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-3">Catalog artifacts</h1>
+<p class="text-muted">A consolidated view of every contract, dataset, and Open Data Product entry managed by the demo workspace.</p>
+<section class="mb-5">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h5 mb-0">Data products</h2>
+    <span class="badge bg-secondary">{{ data_products | length }}</span>
+  </div>
+  {% if data_products %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Data product</th>
+          <th scope="col">Latest version</th>
+          <th scope="col">Status</th>
+          <th scope="col">Ports</th>
+          <th scope="col">Other versions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for product in data_products %}
+        <tr>
+          <th scope="row">
+            <div class="fw-semibold">{{ product.name }}</div>
+            <div class="small text-muted">{{ product.id }}</div>
+            {% if product.description %}
+              <div class="small mt-1">{{ product.description }}</div>
+            {% endif %}
+          </th>
+          <td>{{ product.latest_version }}</td>
+          <td><span class="badge {{ 'bg-success' if product.latest_status == 'active' else 'bg-secondary' }}">{{ product.latest_status_label }}</span></td>
+          <td>
+            {% if product.input_ports %}
+              <div class="small text-muted">Inputs</div>
+              <ul class="list-unstyled small mb-2">
+                {% for port in product.input_ports %}
+                  <li>{{ port.name }} → <code>{{ port.contract_id }}</code> {{ port.version }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if product.output_ports %}
+              <div class="small text-muted">Outputs</div>
+              <ul class="list-unstyled small mb-0">
+                {% for port in product.output_ports %}
+                  <li>{{ port.name }} → <code>{{ port.contract_id }}</code> {{ port.version }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </td>
+          <td>
+            {% if product.other_versions %}
+              <ul class="list-unstyled small mb-0">
+                {% for version in product.other_versions %}
+                  <li>{{ version.version }} · {{ version.status_label }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-muted">No data products registered yet.</p>
+  {% endif %}
+</section>
+<section class="mb-5">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h5 mb-0">Contracts</h2>
+    <span class="badge bg-secondary">{{ contracts | length }}</span>
+  </div>
+  {% if contracts %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Contract</th>
+          <th scope="col">Latest version</th>
+          <th scope="col">Status</th>
+          <th scope="col">Storage</th>
+          <th scope="col">Other versions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for contract in contracts %}
+        <tr>
+          <th scope="row">
+            <div class="fw-semibold"><a href="/contracts/{{ contract.id }}">{{ contract.name }}</a></div>
+            <div class="small text-muted">{{ contract.id }}</div>
+            {% if contract.domain %}<div class="small">Domain: {{ contract.domain }}</div>{% endif %}
+            {% if contract.data_product %}<div class="small">Data product: {{ contract.data_product }}</div>{% endif %}
+          </th>
+          <td>{{ contract.latest_version }}</td>
+          <td><span class="badge {{ 'bg-success' if contract.latest_status == 'active' else 'bg-secondary' }}">{{ contract.latest_status_label }}</span></td>
+          <td>
+            {% if contract.latest_server.path %}
+              <div class="small"><code>{{ contract.latest_server.path }}</code></div>
+            {% elif contract.latest_server.dataset %}
+              <div class="small"><code>{{ contract.latest_server.dataset }}</code></div>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if contract.other_versions %}
+              <ul class="list-unstyled small mb-0">
+                {% for version in contract.other_versions %}
+                  <li>{{ version.version }} · {{ version.status_label }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-muted">No contracts available.</p>
+  {% endif %}
+</section>
+<section>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="h5 mb-0">Datasets</h2>
+    <span class="badge bg-secondary">{{ datasets | length }}</span>
+  </div>
+  {% if datasets %}
+  <div class="table-responsive">
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th scope="col">Dataset</th>
+          <th scope="col">Latest version</th>
+          <th scope="col">Status</th>
+          <th scope="col">Contracts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for dataset in datasets %}
+        <tr>
+          <th scope="row"><a href="/datasets/{{ dataset.dataset_name }}">{{ dataset.dataset_name }}</a></th>
+          <td>{{ dataset.latest_version or '—' }}</td>
+          <td>
+            {% if dataset.latest_status_label %}
+              <span class="badge {{ dataset.latest_status_badge }}">{{ dataset.latest_status_label }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if dataset.contract_summaries %}
+              <ul class="list-unstyled small mb-0">
+                {% for summary in dataset.contract_summaries %}
+                  <li>
+                    <a href="/contracts/{{ summary.id }}">{{ summary.id }}</a> {{ summary.latest_version }}
+                    <span class="text-muted">({{ summary.latest_status_label }})</span>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-muted">No datasets recorded yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -257,6 +257,44 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             },
         },
     },
+    "dp-roundtrip": {
+        "label": "Data product roundtrip",
+        "description": (
+            "<p>Showcases the dp → contract → dp pattern using ODPS bindings.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Resolves <code>orders</code> via data product"
+            " <code>dp.sales.orders</code>.</li>"
+            "<li><strong>Stage:</strong> Persists intermediate"
+            " <code>orders_stage</code> under contract control.</li>"
+            "<li><strong>Output:</strong> Publishes <code>analytics_snapshot</code>"
+            " through data product <code>dp.analytics</code> while recording lineage.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    DPIn["dp.sales.orders → primary"] --> Stage["orders_stage contract"]
+                    Stage --> Final["analytics_snapshot contract"]
+                    Final --> DPOut["dp.analytics → primary"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE),
+        "params": {
+            "runner": "data_product_roundtrip",
+            "input_binding": {"data_product": "dp.sales.orders", "port_name": "primary"},
+            "output_binding": {"data_product": "dp.analytics", "port_name": "primary"},
+            "stage_contract_id": "orders_stage",
+            "stage_contract_version": "1.0.0",
+            "final_contract_id": "analytics_snapshot",
+            "final_contract_version": "1.0.0",
+            "dataset_name": "analytics_snapshot",
+            "run_type": "enforce",
+        },
+    },
     "read-invalid-block": {
         "label": "Invalid input blocked",
         "description": (

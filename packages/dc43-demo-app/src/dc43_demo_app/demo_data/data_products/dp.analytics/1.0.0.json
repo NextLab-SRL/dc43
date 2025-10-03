@@ -1,0 +1,22 @@
+{
+  "apiVersion": "1.0.0",
+  "kind": "DataProduct",
+  "id": "dp.analytics",
+  "name": "Analytics Snapshot",
+  "status": "active",
+  "version": "1.0.0",
+  "inputPorts": [
+    {
+      "name": "orders_stage",
+      "version": "1.0.0",
+      "contractId": "orders_stage"
+    }
+  ],
+  "outputPorts": [
+    {
+      "name": "primary",
+      "version": "1.0.0",
+      "contractId": "analytics_snapshot"
+    }
+  ]
+}

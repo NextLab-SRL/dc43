@@ -23,6 +23,7 @@ from .contracts_records import (
 )
 from .contracts_workspace import prepare_demo_workspace
 from .scenarios import SCENARIOS
+from .pipeline import run_pipeline, run_data_product_roundtrip
 
 prepare_demo_workspace()
 
@@ -80,6 +81,20 @@ async def redirect_dataset_pages(path: str) -> RedirectResponse:
     return RedirectResponse(url=url, status_code=307)
 
 
+@app.get("/artifacts")
+async def redirect_artifacts() -> RedirectResponse:
+    if not CONTRACTS_APP_URL:
+        raise HTTPException(status_code=404, detail="Contracts app not configured")
+    return RedirectResponse(url=f"{CONTRACTS_APP_URL.rstrip('/')}/artifacts", status_code=307)
+
+
+@app.get("/capabilities")
+async def redirect_capabilities() -> RedirectResponse:
+    if not CONTRACTS_APP_URL:
+        raise HTTPException(status_code=404, detail="Contracts app not configured")
+    return RedirectResponse(url=f"{CONTRACTS_APP_URL.rstrip('/')}/capabilities", status_code=307)
+
+
 @app.get("/pipeline-runs", response_class=HTMLResponse)
 async def list_pipeline_runs(request: Request) -> HTMLResponse:
     records = load_records()
@@ -106,8 +121,6 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
 async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
-    from .pipeline import run_pipeline
-
     cfg = SCENARIOS.get(scenario)
     if not cfg:
         params = urlencode({"error": f"Unknown scenario: {scenario}"})
@@ -118,21 +131,38 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             set_active_version(dataset, version)
         except FileNotFoundError:
             continue
+    runner = params_cfg.get("runner", "contracts")
     try:
-        dataset_name, new_version = await asyncio.to_thread(
-            run_pipeline,
-            params_cfg.get("contract_id"),
-            params_cfg.get("contract_version"),
-            params_cfg.get("dataset_name"),
-            params_cfg.get("dataset_version"),
-            params_cfg.get("run_type", "infer"),
-            params_cfg.get("collect_examples", False),
-            params_cfg.get("examples_limit", 5),
-            params_cfg.get("violation_strategy"),
-            params_cfg.get("inputs"),
-            params_cfg.get("output_adjustment"),
-            scenario_key=scenario,
-        )
+        if runner == "data_product_roundtrip":
+            dataset_name, new_version = await asyncio.to_thread(
+                run_data_product_roundtrip,
+                input_binding=params_cfg.get("input_binding", {}),
+                output_binding=params_cfg.get("output_binding", {}),
+                stage_contract_id=params_cfg["stage_contract_id"],
+                stage_contract_version=params_cfg["stage_contract_version"],
+                final_contract_id=params_cfg["final_contract_id"],
+                final_contract_version=params_cfg["final_contract_version"],
+                run_type=params_cfg.get("run_type", "enforce"),
+                stage_dataset_version=params_cfg.get("stage_dataset_version"),
+                dataset_name=params_cfg.get("dataset_name"),
+                dataset_version=params_cfg.get("dataset_version"),
+                scenario_key=scenario,
+            )
+        else:
+            dataset_name, new_version = await asyncio.to_thread(
+                run_pipeline,
+                params_cfg.get("contract_id"),
+                params_cfg.get("contract_version"),
+                params_cfg.get("dataset_name"),
+                params_cfg.get("dataset_version"),
+                params_cfg.get("run_type", "infer"),
+                params_cfg.get("collect_examples", False),
+                params_cfg.get("examples_limit", 5),
+                params_cfg.get("violation_strategy"),
+                params_cfg.get("inputs"),
+                params_cfg.get("output_adjustment"),
+                scenario_key=scenario,
+            )
         label = (
             dataset_name
             or params_cfg.get("dataset_name")
@@ -140,6 +170,9 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             or "dataset"
         )
         token = queue_flash(message=f"Run succeeded: {label} {new_version}")
+        params_qs = urlencode({"flash": token})
+    except KeyError as missing:
+        token = queue_flash(error=f"Scenario misconfigured: missing {missing.args[0]}")
         params_qs = urlencode({"flash": token})
     except Exception as exc:  # pragma: no cover - surface pipeline errors
         logger.exception("Pipeline run failed for scenario %s", scenario)

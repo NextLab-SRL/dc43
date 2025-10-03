@@ -5,11 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from dc43_service_clients.contracts.client.local import LocalContractServiceClient
+from dc43_service_clients.data_products.client.local import LocalDataProductServiceClient
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
 from dc43_service_clients.governance.client.local import (
     LocalGovernanceServiceClient,
     build_local_governance_service,
 )
+from dc43_service_backends.data_products import FilesystemDataProductServiceBackend
 
 from .contracts_records import (
     DatasetRecord,
@@ -35,11 +37,14 @@ _WORKSPACE = current_workspace()
 
 DATA_DIR: Path = _WORKSPACE.data_dir
 DATASETS_FILE: Path = _WORKSPACE.datasets_file
+DATA_PRODUCTS_DIR: Path = _WORKSPACE.data_products_dir
 
 store = get_store()
 contract_service = LocalContractServiceClient(store=store)
 dq_service = LocalDataQualityServiceClient()
 governance_service: LocalGovernanceServiceClient = build_local_governance_service(store)
+_DATA_PRODUCT_BACKEND = FilesystemDataProductServiceBackend(DATA_PRODUCTS_DIR)
+data_product_service = LocalDataProductServiceClient(backend=_DATA_PRODUCT_BACKEND)
 
 
 def register_dataset_version(dataset: str, version: str, source: Path) -> None:
@@ -53,10 +58,12 @@ def set_active_version(dataset: str, version: str) -> None:
 __all__ = [
     "DATA_DIR",
     "DATASETS_FILE",
+    "DATA_PRODUCTS_DIR",
     "DatasetRecord",
     "contract_service",
     "dq_service",
     "governance_service",
+    "data_product_service",
     "load_records",
     "save_records",
     "queue_flash",

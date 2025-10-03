@@ -22,6 +22,14 @@
     {% set fails = output_details.get('failed_expectations', {}) if output_details else {} %}
     {% set schema_errors = output_details.get('errors', []) if output_details else [] %}
     {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) if output_details else [] %}
+    {% set input_sections = [] %}
+    {% if record %}
+      {% for key, payload in record.dq_details.items() %}
+        {% if key != 'output' and payload %}
+          {% set input_sections = input_sections + [(key, payload)] %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     <tr>
       <th scope="row" class="w-25">
         <div class="d-flex align-items-start gap-2">
@@ -169,12 +177,14 @@
               </h2>
               <div id="dq-input-{{ scenario.key }}" class="accordion-collapse collapse">
                 <div class="accordion-body">
-                  {% for key in ['orders', 'customers'] %}
-                    {% if record.dq_details.get(key) %}
-                      <h6 class="text-capitalize">{{ key }}</h6>
-                      <pre class="small">{{ record.dq_details.get(key) | tojson(indent=2) }}</pre>
-                    {% endif %}
-                  {% endfor %}
+                  {% if input_sections %}
+                    {% for key, payload in input_sections %}
+                      <h6 class="text-capitalize">{{ key.replace('_', ' ') }}</h6>
+                      <pre class="small">{{ payload | tojson(indent=2) }}</pre>
+                    {% endfor %}
+                  {% else %}
+                    <p class="text-muted mb-0">No input statuses recorded.</p>
+                  {% endif %}
                 </div>
               </div>
             </div>

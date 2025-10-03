@@ -114,13 +114,14 @@ DATA_DIR: Path
 RECORDS_DIR: Path
 DATASETS_FILE: Path
 DQ_STATUS_DIR: Path
+DATA_PRODUCTS_DIR: Path
 store: FSContractStore
 
 
 def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     """Set the active filesystem layout for the application."""
 
-    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DQ_STATUS_DIR, store
+    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DQ_STATUS_DIR, DATA_PRODUCTS_DIR, store
 
     workspace.ensure()
     WORK_DIR = workspace.root
@@ -129,6 +130,7 @@ def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     RECORDS_DIR = workspace.records_dir
     DATASETS_FILE = workspace.datasets_file
     DQ_STATUS_DIR = workspace.dq_status_dir
+    DATA_PRODUCTS_DIR = workspace.data_products_dir
     _WORKSPACE = workspace
     store = FSContractStore(str(CONTRACT_DIR))
     try:
@@ -1996,7 +1998,89 @@ async def api_integration_stub(request: Request) -> Dict[str, Any]:
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("index.html", {"request": request})
+    contracts = contract_catalog()
+    datasets = dataset_catalog(load_records())
+    data_products = data_product_catalog()
+    context = {
+        "request": request,
+        "artifact_counts": {
+            "contracts": sum(len(entry["versions"]) for entry in contracts),
+            "datasets": len(datasets),
+            "data_products": len(data_products),
+        },
+        "highlight_contracts": contracts[:3],
+        "highlight_products": data_products[:3],
+        "highlight_datasets": datasets[:3],
+    }
+    return templates.TemplateResponse("index.html", context)
+
+
+@router.get("/artifacts", response_class=HTMLResponse)
+async def artifacts_overview(request: Request) -> HTMLResponse:
+    contracts = contract_catalog()
+    datasets = dataset_catalog(load_records())
+    data_products = data_product_catalog()
+    context = {
+        "request": request,
+        "contracts": contracts,
+        "datasets": datasets,
+        "data_products": data_products,
+    }
+    return templates.TemplateResponse("artifacts.html", context)
+
+
+@router.get("/capabilities", response_class=HTMLResponse)
+async def capabilities_overview(request: Request) -> HTMLResponse:
+    capabilities = [
+        {
+            "title": "Contract-first guardrails",
+            "lead": (
+                "Active, draft, and deprecated statuses surface directly in the UI "
+                "so teams know which contracts are safe to use."
+            ),
+            "bullets": [
+                "Version-aware listings call out the latest active revision alongside any draft work in flight.",
+                "Quality verdicts and draft upgrades are captured per dataset version for full lineage.",
+                "The editor bootstraps new revisions with sane defaults and highlights optional metadata gaps.",
+            ],
+        },
+        {
+            "title": "Data product roundtrip",
+            "lead": (
+                "Pipelines can resolve Open Data Product Standard (ODPS) bindings, stage intermediate "
+                "contracts, and publish curated outputs without bespoke registration code."
+            ),
+            "bullets": [
+                "Input ports lock runs to approved product slices while recording overrides when drafts are accepted.",
+                "Intermediate contracts govern internal schemas so transformations remain reproducible.",
+                "Output bindings register new slices and halt orchestration when a reviewable draft must be created.",
+            ],
+            "diagram": """
+<div class=\"mermaid\">
+flowchart LR
+    DPIn["Data product output\norders.latest"] --> Stage["Stage contract\norders_stage"]
+    Stage --> DPOut["Data product output\ndp.analytics/primary"]
+    DPOut --> Catalog["Governance & catalog"]
+</div>
+""".strip(),
+        },
+        {
+            "title": "Catalog visibility",
+            "lead": (
+                "Datasets, contracts, and data products share a single catalog so stewards can audit every run."
+            ),
+            "bullets": [
+                "Dataset tables surface validation strategies, auxiliary splits, and recorded metrics.",
+                "Contracts link back to their owning products and highlight expected storage layouts.",
+                "Data products list available ports and reference the contracts that protect each slice.",
+            ],
+        },
+    ]
+    context = {
+        "request": request,
+        "capabilities": capabilities,
+    }
+    return templates.TemplateResponse("capabilities.html", context)
 
 
 @router.get("/integration-helper", response_class=HTMLResponse)
@@ -3176,6 +3260,156 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
     return catalog
 
 
+def contract_catalog() -> List[Dict[str, Any]]:
+    """Return grouped contract metadata for the artifacts overview."""
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for contract_id in store.list_contracts():
+        for version in store.list_versions(contract_id):
+            try:
+                contract = store.get(contract_id, version)
+            except FileNotFoundError:
+                continue
+            summary = grouped.setdefault(
+                contract_id,
+                {
+                    "id": contract_id,
+                    "name": getattr(contract, "name", None) or contract_id,
+                    "domain": getattr(contract, "domain", None),
+                    "data_product": getattr(contract, "dataProduct", None),
+                    "versions": [],
+                },
+            )
+            status_raw = str(getattr(contract, "status", "") or "unknown")
+            server_info = _server_details(contract) or {}
+            summary["domain"] = summary.get("domain") or getattr(contract, "domain", None)
+            summary["data_product"] = summary.get("data_product") or getattr(
+                contract, "dataProduct", None
+            )
+            summary["versions"].append(
+                {
+                    "version": version,
+                    "status": status_raw.lower(),
+                    "status_label": status_raw.replace("_", " ").title(),
+                    "server": server_info,
+                }
+            )
+
+    catalog: List[Dict[str, Any]] = []
+    for contract_id, payload in grouped.items():
+        versions: List[Dict[str, Any]] = payload.get("versions", [])
+        versions.sort(key=lambda item: _version_sort_key(item["version"]))
+        latest = versions[-1] if versions else {"version": "", "status": "unknown"}
+        catalog.append(
+            {
+                "id": contract_id,
+                "name": payload.get("name", contract_id),
+                "domain": payload.get("domain"),
+                "data_product": payload.get("data_product"),
+                "versions": versions,
+                "latest": latest,
+                "latest_version": latest.get("version", ""),
+                "latest_status": latest.get("status", "unknown"),
+                "latest_status_label": latest.get("status_label", "Unknown"),
+                "latest_server": latest.get("server", {}),
+                "other_versions": [entry for entry in versions[:-1]],
+            }
+        )
+
+    catalog.sort(key=lambda item: item["id"])
+    return catalog
+
+
+def _summarise_odps_ports(entries: Iterable[Mapping[str, Any]]) -> List[Dict[str, str]]:
+    ports: List[Dict[str, str]] = []
+    for raw in entries or []:
+        if not isinstance(raw, Mapping):
+            continue
+        name = str(raw.get("name", "")).strip()
+        contract_id = str(raw.get("contractId", "")).strip()
+        version = str(raw.get("version", "")).strip()
+        if not name:
+            continue
+        ports.append(
+            {
+                "name": name,
+                "contract_id": contract_id,
+                "version": version,
+            }
+        )
+    return ports
+
+
+def data_product_catalog() -> List[Dict[str, Any]]:
+    """Return data product summaries discovered in the workspace."""
+
+    catalog: Dict[str, Dict[str, Any]] = {}
+    if not DATA_PRODUCTS_DIR.exists():
+        return []
+    for json_path in sorted(DATA_PRODUCTS_DIR.rglob("*.json")):
+        payload = _read_json_file(json_path)
+        if not isinstance(payload, Mapping):
+            continue
+        product_id = str(payload.get("id", "")).strip()
+        if not product_id:
+            continue
+        version = str(payload.get("version") or json_path.stem)
+        status = str(payload.get("status", "unknown") or "unknown")
+        try:
+            rel_path = json_path.relative_to(DATA_PRODUCTS_DIR)
+        except ValueError:
+            rel_path = json_path.name
+        summary = catalog.setdefault(
+            product_id,
+            {
+                "id": product_id,
+                "name": str(payload.get("name", "")).strip() or product_id,
+                "description": payload.get("description", {}).get("usage")
+                if isinstance(payload.get("description"), Mapping)
+                else None,
+                "versions": [],
+            },
+        )
+        summary["versions"].append(
+            {
+                "version": version,
+                "status": status.lower(),
+                "status_label": status.replace("_", " ").title(),
+                "path": str(rel_path),
+                "input_ports": _summarise_odps_ports(
+                    payload.get("inputPorts") or []
+                ),
+                "output_ports": _summarise_odps_ports(
+                    payload.get("outputPorts") or []
+                ),
+            }
+        )
+
+    entries: List[Dict[str, Any]] = []
+    for product_id, payload in catalog.items():
+        versions: List[Dict[str, Any]] = payload.get("versions", [])
+        versions.sort(key=lambda item: _version_sort_key(item["version"]))
+        latest = versions[-1] if versions else {"version": "", "status": "unknown"}
+        entries.append(
+            {
+                "id": product_id,
+                "name": payload.get("name", product_id),
+                "description": payload.get("description"),
+                "versions": versions,
+                "latest": latest,
+                "latest_version": latest.get("version", ""),
+                "latest_status": latest.get("status", "unknown"),
+                "latest_status_label": latest.get("status_label", "Unknown"),
+                "output_ports": latest.get("output_ports", []),
+                "input_ports": latest.get("input_ports", []),
+                "other_versions": versions[:-1],
+            }
+        )
+
+    entries.sort(key=lambda item: item["id"])
+    return entries
+
+
 @router.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
     for r in load_records():
@@ -3200,7 +3434,7 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
 def create_app() -> FastAPI:
     """Return a FastAPI application serving contract and dataset views."""
 
-    application = FastAPI(title="DC43 Contracts App")
+    application = FastAPI(title="DC43 Catalog")
     application.mount(
         "/static",
         StaticFiles(directory=str(BASE_DIR / "static"), check_dir=False),

@@ -1,0 +1,44 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "orders_stage",
+  "name": "Orders Stage",
+  "description": {"usage": "Intermediate view of enriched orders"},
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/orders_stage.parquet",
+      "format": "parquet",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "timeTravel": "versionAsOf",
+            "notes": "Use dataset_version as Delta time travel hint"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "delta.`data/orders_stage.parquet` versionAsOf={version}"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "orders_stage",
+      "properties": [
+        {"name": "order_id", "physicalType": "integer", "required": true},
+        {"name": "customer_id", "physicalType": "integer", "required": true},
+        {"name": "order_ts", "physicalType": "string", "required": true},
+        {"name": "amount", "physicalType": "double", "required": true},
+        {"name": "currency", "physicalType": "string", "required": true},
+        {"name": "customer_name", "physicalType": "string", "required": true}
+      ]
+    }
+  ]
+}
