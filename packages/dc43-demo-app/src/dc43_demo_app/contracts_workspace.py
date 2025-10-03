@@ -271,7 +271,13 @@ def current_workspace() -> ContractsAppWorkspace:
 
 def _ensure_version_marker(target: Path, version: str) -> None:
     marker = target / ".dc43_version"
-    if not marker.exists():
+    if marker.exists():
+        return
+    try:
+        marker.write_text(version, encoding="utf-8")
+    except FileNotFoundError:
+        # If the symlink target is missing, create the directory before retrying.
+        marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(version, encoding="utf-8")
 
 

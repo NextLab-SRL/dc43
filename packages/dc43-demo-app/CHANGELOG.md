@@ -22,3 +22,7 @@
   records failures in the UI, preventing contract validation errors from hiding in logs.
 - Pipeline runs page shows ODPS failures in the violations column, enriches DQ details with binding
   information, and separates contract scenarios from data product flows for quicker navigation.
+- Ensured curated roundtrip runs create dataset version markers before registration so the happy
+  path completes and publishes its outputs.
+- Restored pipeline run formatting so data product scenarios surface input/output summaries without
+  duplicating error messages in the status column.

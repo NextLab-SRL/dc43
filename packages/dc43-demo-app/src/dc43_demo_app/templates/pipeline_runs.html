@@ -23,17 +23,14 @@
       {% set record = scenario.latest %}
       {% set output_details = record.dq_details.get('output', {}) if record else {} %}
       {% set fails = output_details.get('failed_expectations', {}) if output_details else {} %}
-      {% set raw_errors = output_details.get('errors') if output_details else [] %}
-      {% if raw_errors is string %}
-        {% set schema_errors = [raw_errors] %}
-      {% elif raw_errors is mapping %}
-        {% set schema_errors = raw_errors.values() | list %}
-      {% elif raw_errors is sequence %}
-        {% set schema_errors = raw_errors | list %}
-      {% else %}
+      {% set schema_errors = output_details.get('errors', []) if output_details else [] %}
+      {% if schema_errors is string %}
+        {% set schema_errors = [schema_errors] %}
+      {% elif not schema_errors %}
         {% set schema_errors = [] %}
       {% endif %}
       {% set dq_aux = output_details.get('dq_auxiliary_statuses', []) if output_details else [] %}
+      {% set stage_details = record.dq_details.get('stage') if record else {} %}
       {% set input_sections = [] %}
       {% if record %}
         {% for key, payload in record.dq_details.items() %}
@@ -126,9 +123,9 @@
                 <span class="text-danger ms-1" title="Schema errors">&#10060;</span>
               {% endif %}
             </div>
-            {% if record.reason %}
-              <div class="small text-muted">{{ record.reason }}</div>
-            {% endif %}
+              {% if record.reason and record.status != 'error' %}
+                <div class="small text-muted">{{ record.reason }}</div>
+              {% endif %}
           {% else %}
             <span class="text-muted">No runs yet</span>
           {% endif %}
@@ -201,8 +198,21 @@
                   <div class="accordion-body">
                     {% if input_sections %}
                       {% for key, payload in input_sections %}
-                        <h6 class="text-capitalize">{{ key.replace('_', ' ') }}</h6>
-                        <pre class="small">{{ payload | tojson(indent=2) }}</pre>
+                        {% set heading = key.replace('_', ' ') %}
+                        {% if payload is mapping %}
+                          {% if payload | length == 0 %}
+                            <h6 class="text-capitalize">{{ heading }}</h6>
+                            <p class="text-muted">No details recorded.</p>
+                          {% else %}
+                            {% for name, details in payload.items() %}
+                              <h6 class="text-capitalize">{{ heading }}{% if name %} – {{ name.replace('_', ' ') }}{% endif %}</h6>
+                              <pre class="small">{{ details | tojson(indent=2) }}</pre>
+                            {% endfor %}
+                          {% endif %}
+                        {% else %}
+                          <h6 class="text-capitalize">{{ heading }}</h6>
+                          <pre class="small">{{ payload | tojson(indent=2) }}</pre>
+                        {% endif %}
                       {% endfor %}
                     {% else %}
                       <p class="text-muted mb-0">No input statuses recorded.</p>
@@ -216,6 +226,12 @@
                 </h2>
                 <div id="dq-output-{{ scenario.key }}" class="accordion-collapse collapse">
                   <div class="accordion-body">
+                    {% if stage_details %}
+                      <div class="mb-2">
+                        <strong>Stage</strong>
+                        <pre class="small mb-0">{{ stage_details | tojson(indent=2) }}</pre>
+                      </div>
+                    {% endif %}
                     {% if fails %}
                       {% for key, info in fails.items() %}
                         <div class="mb-2"><strong>{{ key }}</strong>: <code>{{ info.expression }}</code> ({{ info.count }})
@@ -227,7 +243,7 @@
                     {% endif %}
                     {% if schema_errors %}
                       <div class="mb-2">
-                        <strong>Errors</strong>
+                        <strong>Schema errors</strong>
                         <ul class="small mb-0 ps-3">
                           {% for err in schema_errors %}
                             <li>{{ err }}</li>
@@ -274,6 +290,21 @@
                             </li>
                           {% endfor %}
                         </ul>
+                      </div>
+                    {% endif %}
+                    {% set summary_keys = ['failed_expectations', 'errors', 'warnings', 'auxiliary_datasets', 'dq_auxiliary_statuses', 'violation_strategy'] %}
+                    {% set summary = {} %}
+                    {% if output_details %}
+                      {% for k, v in output_details.items() %}
+                        {% if k not in summary_keys and v is not none %}
+                          {% set _ = summary.update({k: v}) %}
+                        {% endif %}
+                      {% endfor %}
+                    {% endif %}
+                    {% if summary %}
+                      <div class="mb-0">
+                        <strong>Summary</strong>
+                        <pre class="small mb-0">{{ summary | tojson(indent=2) }}</pre>
                       </div>
                     {% endif %}
                   </div>

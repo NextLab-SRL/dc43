@@ -1658,11 +1658,17 @@ def run_data_product_roundtrip(
         )
     except Exception as exc:
         failure_details: dict[str, Any] = {}
+        error_message = str(exc)
+
         input_failure: dict[str, Any] = {
             "status": "error",
-            "reason": str(exc),
-            "errors": [str(exc)],
+            "reason": error_message,
+            "errors": [error_message],
         }
+        if input_binding.get("data_product"):
+            input_failure.setdefault(
+                "data_product", str(input_binding.get("data_product"))
+            )
         if binding_payload:
             input_failure["binding"] = binding_payload
         if input_dataset_version:
@@ -1671,8 +1677,8 @@ def run_data_product_roundtrip(
 
         output_failure: dict[str, Any] = {
             "status": "error",
-            "reason": str(exc),
-            "errors": [str(exc)],
+            "reason": error_message,
+            "errors": [error_message],
             "dataset": final_dataset_name,
             "dataset_version": dataset_version,
         }
@@ -1694,7 +1700,7 @@ def run_data_product_roundtrip(
                 failure_details,
                 run_type,
                 scenario_key=scenario_key,
-                reason=str(exc),
+                reason=error_message,
             )
         )
         contracts_server.save_records(records)
