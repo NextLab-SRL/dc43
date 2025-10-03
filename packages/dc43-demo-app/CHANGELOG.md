@@ -14,3 +14,7 @@
   and the demo UI surfaces the dedicated data product listing.
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
   contracts and the new override workflow for development runs.
+
+### Fixed
+- Data product roundtrip scenario now scopes its input read to the active dataset version and
+  records failures in the UI, preventing contract validation errors from hiding in logs.

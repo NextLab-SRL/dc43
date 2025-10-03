@@ -1570,6 +1570,7 @@ def run_data_product_roundtrip(
     *,
     input_binding: Mapping[str, Any],
     output_binding: Mapping[str, Any],
+    input_dataset_version: str | None = "latest",
     stage_contract_id: str,
     stage_contract_version: str,
     final_contract_id: str,
@@ -1582,6 +1583,7 @@ def run_data_product_roundtrip(
 ) -> tuple[str, str]:
     """Execute a dp → contract → dp flow showcasing ODPS bindings."""
 
+    existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-dp-roundtrip").getOrCreate()
     governance = contracts_server.governance_service
     dp_service = contracts_server.data_product_service
@@ -1622,22 +1624,68 @@ def run_data_product_roundtrip(
 
     enforce_contract_status = run_type == "enforce"
 
-    stage_df, input_status = read_from_data_product(
-        spark,
-        data_product_service=dp_service,
-        data_product_input=dict(input_binding),
-        contract_service=contracts_server.contract_service,
-        data_quality_service=contracts_server.dq_service,
-        governance_service=governance,
-        return_status=True,
-        pipeline_context=_context(
-            "dp-input",
-            {
-                "data_product": str(input_binding.get("data_product", "")),
-                "port_name": str(input_binding.get("port_name", "")),
-            },
-        ),
-    )
+    input_locator: ContractVersionLocator | None = None
+    if input_dataset_version:
+        input_locator = ContractVersionLocator(
+            dataset_version=input_dataset_version,
+            base=ContractFirstDatasetLocator(),
+        )
+
+    input_status: ValidationResult | None = None
+    try:
+        stage_df, input_status = read_from_data_product(
+            spark,
+            data_product_service=dp_service,
+            data_product_input=dict(input_binding),
+            contract_service=contracts_server.contract_service,
+            data_quality_service=contracts_server.dq_service,
+            governance_service=governance,
+            dataset_locator=input_locator,
+            return_status=True,
+            pipeline_context=_context(
+                "dp-input",
+                {
+                    "data_product": str(input_binding.get("data_product", "")),
+                    "port_name": str(input_binding.get("port_name", "")),
+                },
+            ),
+        )
+    except Exception as exc:
+        failure_details: dict[str, Any] = {}
+        binding_payload = {
+            key: str(input_binding.get(key, ""))
+            for key in ("data_product", "port_name", "source_data_product", "source_output_port")
+            if input_binding.get(key)
+        }
+        failure_details["input"] = {
+            "data_product": {
+                "status": "error",
+                "reason": str(exc),
+                **({"binding": binding_payload} if binding_payload else {}),
+            }
+        }
+        failure_details["output"] = {
+            "status": "error",
+            "reason": str(exc),
+        }
+
+        records.append(
+            contracts_server.DatasetRecord(
+                final_contract.id or final_contract_id,
+                final_contract.version or final_contract_version,
+                final_dataset_name,
+                dataset_version,
+                "error",
+                failure_details,
+                run_type,
+                scenario_key=scenario_key,
+                reason=str(exc),
+            )
+        )
+        contracts_server.save_records(records)
+        if not existing_session:
+            spark.stop()
+        raise
 
     if enforce_contract_status and input_status and input_status.status == "block":
         message = input_status.reason or "data product input blocked"
@@ -1819,5 +1867,8 @@ def run_data_product_roundtrip(
     records.append(stage_record)
     records.append(final_record)
     contracts_server.save_records(records)
+
+    if not existing_session:
+        spark.stop()
 
     return final_dataset_name, dataset_version

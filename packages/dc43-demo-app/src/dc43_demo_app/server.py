@@ -138,6 +138,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
                 run_data_product_roundtrip,
                 input_binding=params_cfg.get("input_binding", {}),
                 output_binding=params_cfg.get("output_binding", {}),
+                input_dataset_version=params_cfg.get("input_dataset_version"),
                 stage_contract_id=params_cfg["stage_contract_id"],
                 stage_contract_version=params_cfg["stage_contract_version"],
                 final_contract_id=params_cfg["final_contract_id"],
