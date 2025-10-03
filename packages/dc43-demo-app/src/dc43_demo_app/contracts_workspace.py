@@ -277,7 +277,11 @@ def _ensure_version_marker(target: Path, version: str) -> None:
         marker.write_text(version, encoding="utf-8")
     except FileNotFoundError:
         # If the symlink target is missing, create the directory before retrying.
-        marker.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            # ``mkdir`` on a symlink raises ``FileExistsError`` – ignore and retry.
+            pass
         marker.write_text(version, encoding="utf-8")
 
 

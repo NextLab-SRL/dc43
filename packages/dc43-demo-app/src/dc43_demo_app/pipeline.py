@@ -1657,28 +1657,90 @@ def run_data_product_roundtrip(
             ),
         )
     except Exception as exc:
-        failure_details: dict[str, Any] = {}
+        diagnostics_status: ValidationResult | None = None
+        diagnostics_payload: dict[str, Any] | None = None
+        try:
+            _, diagnostics_status = read_from_data_product(
+                spark,
+                data_product_service=dp_service,
+                data_product_input=dict(input_binding),
+                contract_service=contracts_server.contract_service,
+                data_quality_service=contracts_server.dq_service,
+                governance_service=governance,
+                dataset_locator=input_locator,
+                return_status=True,
+                enforce=False,
+                pipeline_context=_context(
+                    "dp-input",
+                    {
+                        "data_product": str(input_binding.get("data_product", "")),
+                        "port_name": str(input_binding.get("port_name", "")),
+                        "diagnostic": True,
+                    },
+                ),
+            )
+            diagnostics_payload = _status_payload(diagnostics_status)
+        except Exception:
+            diagnostics_status = None
+            diagnostics_payload = None
+
         error_message = str(exc)
 
-        input_failure: dict[str, Any] = {
-            "status": "error",
-            "reason": error_message,
-            "errors": [error_message],
-        }
+        input_failure: dict[str, Any] = dict(diagnostics_payload or {})
+        if not input_failure.get("status"):
+            input_failure["status"] = (
+                diagnostics_status.status
+                if diagnostics_status and getattr(diagnostics_status, "status", None)
+                else "error"
+            )
+        if not input_failure.get("reason") and error_message:
+            input_failure["reason"] = error_message
+        existing_errors = input_failure.get("errors")
+        if isinstance(existing_errors, str):
+            input_failure["errors"] = [existing_errors]
+        if not input_failure.get("errors") and error_message:
+            input_failure["errors"] = [error_message]
+        violations_total = _status_violation_count(diagnostics_status)
+        if violations_total and not input_failure.get("violations"):
+            input_failure["violations"] = violations_total
+
         if input_binding.get("data_product"):
             input_failure.setdefault(
                 "data_product", str(input_binding.get("data_product"))
             )
+        if input_binding.get("port_name"):
+            input_failure.setdefault("port_name", str(input_binding.get("port_name")))
+        if input_binding.get("source_data_product"):
+            input_failure.setdefault(
+                "source_data_product", str(input_binding.get("source_data_product"))
+            )
+        if input_binding.get("source_output_port"):
+            input_failure.setdefault(
+                "source_output_port", str(input_binding.get("source_output_port"))
+            )
         if binding_payload:
-            input_failure["binding"] = binding_payload
-        if input_dataset_version:
-            input_failure["dataset_version"] = input_dataset_version
-        failure_details["input"] = {"data_product": input_failure}
+            input_failure.setdefault("binding", binding_payload)
+        if input_locator and getattr(input_locator, "dataset_version", None):
+            input_failure.setdefault("dataset_version", input_locator.dataset_version)
+        elif input_dataset_version:
+            input_failure.setdefault("dataset_version", input_dataset_version)
+
+        failure_details: dict[str, Any] = {}
+        if input_failure:
+            failure_details["input"] = {"data_product": input_failure}
+
+        stage_failure: dict[str, Any] = {
+            "status": "skipped",
+            "reason": "Stage write skipped due to input failure",
+            "dataset": stage_dataset_name,
+            "dataset_version": stage_dataset_version,
+            "contract_status_enforced": bool(enforce_contract_status),
+        }
+        failure_details["stage"] = stage_failure
 
         output_failure: dict[str, Any] = {
-            "status": "error",
-            "reason": error_message,
-            "errors": [error_message],
+            "status": "skipped",
+            "reason": "Output not written because input failed",
             "dataset": final_dataset_name,
             "dataset_version": dataset_version,
         }
@@ -1699,6 +1761,7 @@ def run_data_product_roundtrip(
                 "error",
                 failure_details,
                 run_type,
+                violations_total,
                 scenario_key=scenario_key,
                 reason=error_message,
             )
