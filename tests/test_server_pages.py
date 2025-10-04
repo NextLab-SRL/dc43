@@ -370,7 +370,8 @@ def test_dq_version_records_excludes_other_contract_versions():
         dataset_records=scoped_records,
     )
     versions = [entry["version"] for entry in entries]
-    assert versions == ["2025-09-28"]
+    assert versions == ["2025-09-28", "2025-10-05"]
     statuses = {entry["version"]: entry["status"] for entry in entries}
     assert statuses["2025-09-28"] == "block"
+    assert statuses["2025-10-05"] == "ok"
 

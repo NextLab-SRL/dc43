@@ -1,0 +1,3 @@
+{"order_id": 10, "customer_id": 201, "order_ts": "2025-10-05T08:30:00Z", "amount": 75.5, "currency": "EUR"}
+{"order_id": 11, "customer_id": 202, "order_ts": "2025-10-05T09:05:00Z", "amount": 120.0, "currency": "USD"}
+{"order_id": 12, "customer_id": 203, "order_ts": "2025-10-05T10:42:00Z", "amount": 44.25, "currency": "GBP"}

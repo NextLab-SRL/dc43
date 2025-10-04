@@ -48,7 +48,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             ).strip()
             + "</div>"
         ),
-        "activate_versions": dict(_DEFAULT_SLICE),
+        "activate_versions": dict(_DEFAULT_SLICE, orders="2025-10-05"),
         "params": {
             "contract_id": None,
             "contract_version": None,
@@ -84,7 +84,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             ).strip()
             + "</div>"
         ),
-        "activate_versions": dict(_DEFAULT_SLICE),
+        "activate_versions": dict(_DEFAULT_SLICE, orders="2025-10-05"),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.0.0",
@@ -422,7 +422,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             ).strip()
             + "</div>"
         ),
-        "activate_versions": dict(_DEFAULT_SLICE),
+        "activate_versions": dict(_DEFAULT_SLICE, orders="2025-10-05"),
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
