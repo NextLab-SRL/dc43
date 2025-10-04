@@ -8,6 +8,7 @@ recording the dataset version in the demo app's registry.
 """
 
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
@@ -37,6 +38,7 @@ from dc43_integrations.spark.violation_strategy import (
     WriteViolationStrategy,
 )
 from open_data_contract_standard.model import OpenDataContractStandard
+from pyspark.errors.exceptions.captured import AnalysisException
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, lit, when
 
@@ -69,6 +71,9 @@ def _write_version_marker(directory: Path, version: str) -> None:
         marker.write_text(version)
     except OSError:
         pass
+
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_output_path(
@@ -1876,22 +1881,32 @@ def run_data_product_roundtrip(
     except FileNotFoundError:
         pass
 
-    stage_read_df, _ = read_with_contract(
-        spark,
-        contract_id=stage_contract.id,
-        contract_service=contracts_server.contract_service,
-        expected_contract_version=f"=={stage_contract.version}",
-        data_quality_service=contracts_server.dq_service,
-        governance_service=governance,
-        return_status=True,
-        pipeline_context=_context(
-            "stage-read",
-            {
-                "dataset": stage_dataset_name,
-                "dataset_version": stage_dataset_version,
-            },
-        ),
-    )
+    stage_read_df = stage_df
+    try:
+        stage_read_df, _ = read_with_contract(
+            spark,
+            contract_id=stage_contract.id,
+            contract_service=contracts_server.contract_service,
+            expected_contract_version=f"=={stage_contract.version}",
+            data_quality_service=contracts_server.dq_service,
+            governance_service=governance,
+            dataset_locator=stage_locator,
+            return_status=True,
+            pipeline_context=_context(
+                "stage-read",
+                {
+                    "dataset": stage_dataset_name,
+                    "dataset_version": stage_dataset_version,
+                },
+            ),
+        )
+    except (AnalysisException, FileNotFoundError, OSError) as exc:
+        logger.warning(
+            "Stage contract read failed for %s %s, reusing in-memory frame: %s",
+            stage_dataset_name,
+            stage_dataset_version,
+            exc,
+        )
 
     final_df = stage_read_df.withColumn("snapshot_run_id", lit(run_timestamp))
 

@@ -32,5 +32,9 @@
   status column.
 - Normalised stored dataset records so legacy and freshly generated runs expose input summaries in
   the DQ details accordion instead of reporting that no input statuses were recorded.
+- Rebuilt input sections from stored source payloads when loading runs so the DQ details panel once
+  again surfaces schema metrics and violation counts for every pipeline input.
 - Fixed pipeline runner invocation so contract scenarios honour input overrides, surface input DQ
   summaries, and avoid crashes when output adjustments are configured.
+- Made the data product roundtrip resilient to stage re-read failures by falling back to the staged
+  dataframe, keeping the curated scenario green even when filesystem-backed Delta paths are absent.

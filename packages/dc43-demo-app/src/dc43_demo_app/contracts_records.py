@@ -49,26 +49,6 @@ _NORMAL_STATUS_VALUES = {
 def _normalise_dataset_record(record: DatasetRecord) -> DatasetRecord:
     """Ensure persisted records expose concise statuses for the UI."""
 
-    status = (record.status or "").strip()
-    if not status:
-        record.status = "unknown"
-        return record
-
-    normalised = status.lower()
-    if normalised in _NORMAL_STATUS_VALUES:
-        record.status = "warning" if normalised == "warn" else normalised
-        return record
-
-    if "warn" in normalised:
-        record.status = "warning"
-    elif any(token in normalised for token in ("error", "fail", "block")):
-        record.status = "error"
-    else:
-        record.status = "unknown"
-
-    if not record.reason:
-        record.reason = status
-
     details = record.dq_details
     if isinstance(details, Mapping):
         details_map: Dict[str, Any] = dict(details)
@@ -88,6 +68,26 @@ def _normalise_dataset_record(record: DatasetRecord) -> DatasetRecord:
         if inputs_payload:
             details_map["input"] = inputs_payload
         record.dq_details = details_map
+
+    status = (record.status or "").strip()
+    if not status:
+        record.status = "unknown"
+        return record
+
+    normalised = status.lower()
+    if normalised in _NORMAL_STATUS_VALUES:
+        record.status = "warning" if normalised == "warn" else normalised
+        return record
+
+    if "warn" in normalised:
+        record.status = "warning"
+    elif any(token in normalised for token in ("error", "fail", "block")):
+        record.status = "error"
+    else:
+        record.status = "unknown"
+
+    if not record.reason:
+        record.reason = status
 
     return record
 
