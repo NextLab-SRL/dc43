@@ -1,5 +1,7 @@
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
+from typing import Any
 
 from dc43_contracts_app import server as contracts_server
 from dc43_demo_app import contracts_records as demo_records
@@ -154,6 +156,46 @@ def test_flash_message_consumed_once():
     second = client.get(f"/pipeline-runs?flash={token}")
     assert second.status_code == 200
     assert "Hello there" not in second.text
+
+
+def test_run_pipeline_endpoint_passes_data_product_flow(monkeypatch):
+    params = SCENARIOS["data-product-roundtrip"]["params"]
+    captured: dict[str, Any] = {}
+
+    def fake_run_pipeline(*args: Any, **kwargs: Any) -> tuple[str, str]:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return (
+            kwargs.get("dataset_name") or params.get("dataset_name") or "orders_enriched",
+            "2024-01-01T00:00:00Z",
+        )
+
+    async def fake_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("dc43_demo_app.pipeline.run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    client = TestClient(demo_app)
+    resp = client.post("/pipeline/run", data={"scenario": "data-product-roundtrip"}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert captured["args"][:5] == (
+        params.get("contract_id"),
+        params.get("contract_version"),
+        params.get("dataset_name"),
+        params.get("dataset_version"),
+        params.get("run_type", "infer"),
+    )
+    kwargs = captured["kwargs"]
+    assert kwargs["collect_examples"] == params.get("collect_examples", False)
+    assert kwargs["examples_limit"] == params.get("examples_limit", 5)
+    assert kwargs["violation_strategy"] == params.get("violation_strategy")
+    assert kwargs["enforce_contract_status"] == params.get("enforce_contract_status")
+    assert kwargs["inputs"] == params.get("inputs")
+    assert kwargs["output_adjustment"] == params.get("output_adjustment")
+    assert kwargs["data_product_flow"] == params.get("data_product_flow")
+    assert kwargs["scenario_key"] == "data-product-roundtrip"
 
 
 def test_scenario_rows_default_mapping():
