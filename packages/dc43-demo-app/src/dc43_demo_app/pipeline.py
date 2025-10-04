@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, MutableMapping, Sequence
 
 from . import contracts_api as contracts_server
+from .contracts_records import DatasetRecord, _version_sort_key
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
     expectation_specs,
@@ -915,11 +916,71 @@ def _aggregate_violation_counts(*sections: Mapping[str, Any] | None) -> int:
     return total
 
 
-def _data_product_input_locator(config: Mapping[str, Any]) -> ContractVersionLocator | StaticDatasetLocator:
+def _preferred_dataset_version(
+    config: Mapping[str, Any],
+    records: Sequence[DatasetRecord] | None,
+) -> str | None:
+    """Return the latest approved dataset version for the requested input."""
+
+    if not records:
+        return None
+
+    requested_version = str(config.get("dataset_version") or "").strip()
+    if requested_version and requested_version.lower() != "latest":
+        return None
+
+    candidate_names = {
+        str(config.get("dataset_name") or "").strip(),
+        str(config.get("dataset_id") or "").strip(),
+        str(config.get("contract_id") or "").strip(),
+    }
+    candidate_names.discard("")
+    if not candidate_names:
+        return None
+
+    statuses: Iterable[str] | str | None = config.get("preferred_statuses") or config.get("dataset_status")
+    if statuses is None:
+        allowed = {"ok"}
+    elif isinstance(statuses, str):
+        allowed = {statuses.lower()}
+    else:
+        allowed = {str(status).lower() for status in statuses if status}
+        if not allowed:
+            allowed = {"ok"}
+
+    approved_versions: list[str] = []
+    for record in records:
+        if not isinstance(record, DatasetRecord):
+            continue
+        status = (record.status or "").lower()
+        if status not in allowed:
+            continue
+        if record.dataset_name not in candidate_names and record.contract_id not in candidate_names:
+            continue
+        if not record.dataset_version:
+            continue
+        approved_versions.append(record.dataset_version)
+
+    if not approved_versions:
+        return None
+
+    approved_versions.sort(key=_version_sort_key)
+    return approved_versions[-1]
+
+
+def _data_product_input_locator(
+    config: Mapping[str, Any],
+    *,
+    records: Sequence[DatasetRecord] | None = None,
+) -> ContractVersionLocator | StaticDatasetLocator:
     """Return the dataset locator used for data product reads."""
 
     dataset_id = config.get("dataset_id")
-    dataset_version = config.get("dataset_version") or "latest"
+    dataset_version = (
+        _preferred_dataset_version(config, records)
+        or config.get("dataset_version")
+        or "latest"
+    )
     default = ContractVersionLocator(
         dataset_version=str(dataset_version),
         dataset_id=str(dataset_id) if dataset_id not in (None, "") else None,
@@ -971,7 +1032,7 @@ def _run_data_product_flow(
     if not input_binding:
         raise ValueError("data_product_flow requires an input binding")
 
-    input_locator = _data_product_input_locator(input_cfg)
+    input_locator = _data_product_input_locator(input_cfg, records=records)
     input_dataset_id = getattr(input_locator, "dataset_id", None)
     input_dataset_version = getattr(input_locator, "dataset_version", None)
     source_dp = input_binding.get("source_data_product")

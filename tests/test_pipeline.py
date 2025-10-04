@@ -8,6 +8,7 @@ import pytest
 from pyspark.sql import SparkSession
 
 from dc43_demo_app import pipeline
+from dc43_demo_app.contracts_records import DatasetRecord
 from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
@@ -134,6 +135,30 @@ def test_data_product_input_locator_accepts_custom_locator() -> None:
     )
     locator = pipeline._data_product_input_locator({"dataset_locator": custom})
     assert locator is custom
+
+
+def test_data_product_input_locator_prefers_latest_ok_record() -> None:
+    records = [
+        DatasetRecord(
+            contract_id="orders",
+            contract_version="1.1.0",
+            dataset_name="orders",
+            dataset_version="2025-09-28",
+            status="error",
+        ),
+        DatasetRecord(
+            contract_id="orders",
+            contract_version="1.1.0",
+            dataset_name="orders",
+            dataset_version="2025-10-05",
+            status="ok",
+        ),
+    ]
+
+    locator = pipeline._data_product_input_locator({"dataset_id": "orders"}, records=records)
+
+    assert isinstance(locator, ContractVersionLocator)
+    assert locator.dataset_version == "2025-10-05"
 
 
 def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
