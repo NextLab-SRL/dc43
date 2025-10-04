@@ -390,6 +390,79 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "output_adjustment": "valid-subset-violation",
         },
     },
+    "data-product-roundtrip": {
+        "label": "Data product roundtrip",
+        "category": "data-product",
+        "description": (
+            "<p>End-to-end orchestration that reads a published data product, stages an intermediate contract, "
+            "and republishes the slice through a different data product output.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Resolves the <code>dp.orders</code> <code>orders-latest</code> output port "
+            "and looks up the latest customer dimensions.</li>"
+            "<li><strong>Intermediate:</strong> Persists the joined dataset under contract "
+            "<code>dp.analytics.stage:1.0.0</code> so downstream steps can re-read a governed representation.</li>"
+            "<li><strong>Outputs:</strong> Writes to the <code>dp.analytics</code> <code>orders-enriched</code> port, "
+            "capturing registration metadata and validation runs in the registry.</li>"
+            "<li><strong>Status:</strong> Enforcement keeps the staging artefacts and the published output in lockstep, "
+            "highlighting how contract-only helpers complement data product bindings.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    DPIn["dp.orders orders-latest\ncontract orders:1.1.0"] --> JoinStage[Join with customers]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> JoinStage
+                    JoinStage --> StageWrite["dp.analytics.stage «timestamp»\ncontract dp.analytics.stage:1.0.0"]
+                    StageWrite --> StageRead[Read governed stage]
+                    StageRead --> Publish["dp.analytics orders-enriched\nport orders-enriched"]
+                    Publish --> Governance[Governance verdict recorded]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "dataset_name": "orders_enriched",
+            "run_type": "enforce",
+            "data_product_flow": {
+                "input": {
+                    "binding": {
+                        "data_product": "dp.orders",
+                        "port_name": "orders-latest",
+                        "source_data_product": "dp.orders",
+                        "source_output_port": "orders-latest",
+                    },
+                    "expected_contract_version": "==1.1.0",
+                    "contract_version": "1.1.0",
+                    "dataset_id": "orders",
+                },
+                "customers": {
+                    "contract_id": "customers",
+                    "expected_contract_version": "==1.0.0",
+                    "contract_version": "1.0.0",
+                },
+                "intermediate_contract": {
+                    "contract_id": "dp.analytics.stage",
+                    "expected_contract_version": "==1.0.0",
+                    "contract_version": "1.0.0",
+                    "dataset_name": "dp.analytics.stage",
+                },
+                "output": {
+                    "data_product": "dp.analytics",
+                    "port_name": "orders-enriched",
+                    "contract_id": "orders_enriched",
+                    "expected_contract_version": "==1.1.0",
+                    "contract_version": "1.1.0",
+                    "dataset_name": "orders_enriched",
+                },
+                "output_adjustment": "boost-amounts",
+            },
+        },
+    },
     "read-override-full": {
         "label": "Force blocked slice (manual override)",
         "description": (

@@ -55,6 +55,7 @@ from dc43_service_clients._http_sync import close_client
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
+from dc43_service_clients.odps import OpenDataProductStandard
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
 from .config import BackendConfig, ContractsAppConfig, load_config
@@ -113,6 +114,7 @@ CONTRACT_DIR: Path
 DATA_DIR: Path
 RECORDS_DIR: Path
 DATASETS_FILE: Path
+DATA_PRODUCTS_FILE: Path
 DQ_STATUS_DIR: Path
 store: FSContractStore
 
@@ -120,7 +122,7 @@ store: FSContractStore
 def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     """Set the active filesystem layout for the application."""
 
-    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DQ_STATUS_DIR, store
+    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DATA_PRODUCTS_FILE, DQ_STATUS_DIR, store
 
     workspace.ensure()
     WORK_DIR = workspace.root
@@ -128,6 +130,7 @@ def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     DATA_DIR = workspace.data_dir
     RECORDS_DIR = workspace.records_dir
     DATASETS_FILE = workspace.datasets_file
+    DATA_PRODUCTS_FILE = workspace.data_products_file
     DQ_STATUS_DIR = workspace.dq_status_dir
     _WORKSPACE = workspace
     store = FSContractStore(str(CONTRACT_DIR))
@@ -702,6 +705,9 @@ class DatasetRecord:
     reason: str = ""
     draft_contract_version: str | None = None
     scenario_key: str | None = None
+    data_product_id: str = ""
+    data_product_port: str = ""
+    data_product_role: str = ""
 
 
 _STATUS_BADGES: Dict[str, str] = {
@@ -2118,7 +2124,9 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         contract = store.get(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    datasets = [r for r in load_records() if r.contract_id == cid and r.contract_version == ver]
+    records = load_records()
+    datasets = [r for r in records if r.contract_id == cid and r.contract_version == ver]
+    product_links = data_products_for_contract(cid, records)
     field_quality = _field_quality_sections(contract)
     dataset_quality = _dataset_quality_sections(contract)
     change_log = _contract_change_log(contract)
@@ -2156,6 +2164,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "preview_status_map": status_map,
         "preview_default_index": default_index,
         "preview_dataset_id": dataset_id,
+        "data_products": product_links,
     }
     return templates.TemplateResponse("contract_detail.html", context)
 
@@ -3020,7 +3029,8 @@ async def html_validate_contract(cid: str, ver: str) -> HTMLResponse:
 
 @router.get("/datasets", response_class=HTMLResponse)
 async def list_datasets(request: Request) -> HTMLResponse:
-    catalog = dataset_catalog(load_records())
+    records = load_records()
+    catalog = dataset_catalog(records)
     context = {"request": request, "datasets": catalog}
     return templates.TemplateResponse("datasets.html", context)
 
@@ -3030,6 +3040,24 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
     records = [r.__dict__.copy() for r in load_records() if r.dataset_name == dataset_name]
     context = {"request": request, "dataset_name": dataset_name, "records": records}
     return templates.TemplateResponse("dataset_versions.html", context)
+
+
+@router.get("/data-products", response_class=HTMLResponse)
+async def list_data_products(request: Request) -> HTMLResponse:
+    records = load_records()
+    catalog = data_product_catalog(records)
+    context = {"request": request, "products": catalog}
+    return templates.TemplateResponse("data_products.html", context)
+
+
+@router.get("/data-products/{product_id}", response_class=HTMLResponse)
+async def data_product_detail_view(request: Request, product_id: str) -> HTMLResponse:
+    records = load_records()
+    details = describe_data_product(product_id, records)
+    if details is None:
+        raise HTTPException(status_code=404, detail="Data product not found")
+    context = {"request": request, "product": details}
+    return templates.TemplateResponse("data_product_detail.html", context)
 
 
 def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
@@ -3068,6 +3096,202 @@ def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: st
     except Exception:
         return ""
     return ""
+
+
+
+
+def _data_products_payload() -> List[Mapping[str, Any]]:
+    try:
+        raw = json.loads(DATA_PRODUCTS_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, Mapping)]
+    return []
+
+
+def load_data_products() -> List[OpenDataProductStandard]:
+    documents: List[OpenDataProductStandard] = []
+    for payload in _data_products_payload():
+        try:
+            documents.append(OpenDataProductStandard.from_dict(payload))
+        except Exception:  # pragma: no cover - defensive
+            continue
+    return documents
+
+
+def _port_custom_map(port: Any) -> Dict[str, Any]:
+    props = getattr(port, "custom_properties", []) or []
+    mapping: Dict[str, Any] = {}
+    for entry in props:
+        if isinstance(entry, Mapping):
+            key = entry.get("property")
+            if key:
+                mapping[str(key)] = entry.get("value")
+    return mapping
+
+
+def _records_by_data_product(records: Iterable[DatasetRecord]) -> Dict[str, List[DatasetRecord]]:
+    grouped: Dict[str, List[DatasetRecord]] = {}
+    for record in records:
+        if record.data_product_id:
+            grouped.setdefault(record.data_product_id, []).append(record)
+    for entries in grouped.values():
+        entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+    return grouped
+
+
+def data_product_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    grouped = _records_by_data_product(records)
+    summaries: List[Dict[str, Any]] = []
+    for product in load_data_products():
+        product_records = list(grouped.get(product.id, []))
+        latest_record = product_records[-1] if product_records else None
+        inputs: List[Dict[str, Any]] = []
+        for port in product.input_ports:
+            props = _port_custom_map(port)
+            inputs.append(
+                {
+                    "name": port.name,
+                    "contract_id": port.contract_id,
+                    "version": port.version,
+                    "source_data_product": props.get("dc43.input.source_data_product"),
+                    "source_output_port": props.get("dc43.input.source_output_port"),
+                    "custom_properties": props,
+                }
+            )
+        outputs: List[Dict[str, Any]] = []
+        for port in product.output_ports:
+            props = _port_custom_map(port)
+            outputs.append(
+                {
+                    "name": port.name,
+                    "contract_id": port.contract_id,
+                    "version": port.version,
+                    "dataset_id": props.get("dc43.dataset.id") or props.get("dc43.contract.ref"),
+                    "stage_contract": props.get("dc43.stage.contract"),
+                    "custom_properties": props,
+                }
+            )
+        summaries.append(
+            {
+                "id": product.id,
+                "name": product.name or product.id,
+                "status": product.status,
+                "version": product.version or "",
+                "description": product.description or {},
+                "tags": list(product.tags or []),
+                "inputs": inputs,
+                "outputs": outputs,
+                "run_count": len(product_records),
+                "latest_run": latest_record,
+            }
+        )
+    summaries.sort(key=lambda item: item["id"])
+    return summaries
+
+
+def describe_data_product(
+    product_id: str,
+    records: Iterable[DatasetRecord],
+) -> Dict[str, Any] | None:
+    products = {doc.id: doc for doc in load_data_products()}
+    product = products.get(product_id)
+    if product is None:
+        return None
+    grouped = _records_by_data_product(records)
+    product_records = list(grouped.get(product.id, []))
+    product_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+    input_ports: List[Dict[str, Any]] = []
+    for port in product.input_ports:
+        props = _port_custom_map(port)
+        input_ports.append(
+            {
+                "name": port.name,
+                "contract_id": port.contract_id,
+                "version": port.version,
+                "custom_properties": props,
+                "source_data_product": props.get("dc43.input.source_data_product"),
+                "source_output_port": props.get("dc43.input.source_output_port"),
+            }
+        )
+    output_ports: List[Dict[str, Any]] = []
+    for port in product.output_ports:
+        props = _port_custom_map(port)
+        dataset_id = props.get("dc43.dataset.id") or props.get("dc43.contract.ref")
+        related_records = [
+            rec
+            for rec in product_records
+            if rec.data_product_port == port.name
+            or rec.dataset_name == dataset_id
+            or rec.contract_id == port.contract_id
+        ]
+        output_ports.append(
+            {
+                "name": port.name,
+                "contract_id": port.contract_id,
+                "version": port.version,
+                "dataset_id": dataset_id,
+                "stage_contract": props.get("dc43.stage.contract"),
+                "custom_properties": props,
+                "records": related_records,
+            }
+        )
+    return {
+        "id": product.id,
+        "name": product.name or product.id,
+        "status": product.status,
+        "version": product.version or "",
+        "description": product.description or {},
+        "custom_properties": product.custom_properties or [],
+        "tags": list(product.tags or []),
+        "inputs": input_ports,
+        "outputs": output_ports,
+        "records": product_records,
+    }
+
+
+def data_products_for_contract(contract_id: str, records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    matches: List[Dict[str, Any]] = []
+    grouped_records = _records_by_data_product(records)
+    for product in load_data_products():
+        for port in list(product.input_ports) + list(product.output_ports):
+            if port.contract_id != contract_id:
+                continue
+            props = _port_custom_map(port)
+            product_records = grouped_records.get(product.id, [])
+            matches.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.name or product.id,
+                    "port_name": port.name,
+                    "port_version": port.version,
+                    "direction": "input" if port in product.input_ports else "output",
+                    "records": product_records,
+                    "custom_properties": props,
+                }
+            )
+    matches.sort(key=lambda item: (item["product_id"], item["port_name"]))
+    return matches
+
+
+def data_products_for_dataset(dataset_name: str, records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    associations: List[Dict[str, Any]] = []
+    for record in records:
+        if record.dataset_name != dataset_name or not record.data_product_id:
+            continue
+        associations.append(
+            {
+                "product_id": record.data_product_id,
+                "port_name": record.data_product_port,
+                "role": record.data_product_role,
+                "status": record.status,
+                "dataset_version": record.dataset_version,
+            }
+        )
+    associations.sort(key=lambda item: _version_sort_key(item.get("dataset_version") or ""))
+    return associations
+
 
 
 def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
@@ -3115,6 +3339,32 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
         dataset_records: List[DatasetRecord] = list(payload.get("records", []))
         dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
         latest_record: Optional[DatasetRecord] = dataset_records[-1] if dataset_records else None
+
+        product_associations = data_products_for_dataset(dataset_name, dataset_records)
+        product_summary_map: Dict[tuple[str, str], Dict[str, Any]] = {}
+        for association in product_associations:
+            if not isinstance(association, Mapping):
+                continue
+            product_id = str(association.get("product_id") or "")
+            port_name = str(association.get("port_name") or "")
+            product_summary_map[(product_id, port_name)] = dict(association)
+        product_summaries: List[Dict[str, Any]] = []
+        for summary in product_summary_map.values():
+            product_summaries.append(
+                {
+                    "product_id": summary.get("product_id"),
+                    "port_name": summary.get("port_name"),
+                    "role": summary.get("role"),
+                    "latest_status": summary.get("status"),
+                    "latest_dataset_version": summary.get("dataset_version"),
+                }
+            )
+        product_summaries.sort(
+            key=lambda item: (
+                str(item.get("product_id") or ""),
+                str(item.get("port_name") or ""),
+            )
+        )
 
         latest_status_value: Optional[str] = None
         latest_status_label: str = ""
@@ -3167,6 +3417,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
                 "latest_status_badge": latest_status_badge,
                 "latest_record_reason": latest_reason,
                 "contract_summaries": contracts_summary,
+                "data_products": product_summaries,
                 "run_drafts_count": len(run_drafts),
                 "run_latest_draft_version": run_drafts[-1] if run_drafts else None,
             }
@@ -3178,7 +3429,9 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
 
 @router.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
-    for r in load_records():
+    records = load_records()
+    associations = data_products_for_dataset(dataset_name, records)
+    for r in records:
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
             contract_obj: OpenDataContractStandard | None = None
             if r.contract_id and r.contract_version:
@@ -3192,6 +3445,7 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 "record": r,
                 "contract": contract_to_dict(contract_obj) if contract_obj else None,
                 "data_preview": preview,
+                "data_products": associations,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Data products</h1>
+<p class="text-muted">Browse data products alongside the contracts and datasets recorded by recent demo runs.</p>
+<table class="table table-striped align-middle">
+  <thead>
+    <tr>
+      <th scope="col">Data product</th>
+      <th scope="col">Version</th>
+      <th scope="col">Status</th>
+      <th scope="col">Inputs</th>
+      <th scope="col">Outputs</th>
+      <th scope="col">Latest run</th>
+      <th scope="col" class="text-end">Runs</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for product in products %}
+    {% set latest = product.latest_run %}
+    <tr>
+      <th scope="row" class="w-25">
+        <div class="fw-semibold"><a href="/data-products/{{ product.id }}">{{ product.name }}</a></div>
+        <div class="text-muted small">{{ product.id }}</div>
+        {% if product.description and product.description.usage %}
+        <div class="small mt-2">{{ product.description.usage }}</div>
+        {% endif %}
+        {% if product.tags %}
+        <div class="mt-2">
+          {% for tag in product.tags %}
+            <span class="badge bg-light text-dark border">{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </th>
+      <td>{{ product.version or '—' }}</td>
+      <td>{{ product.status or 'unknown' }}</td>
+      <td>
+        {% if product.inputs %}
+          <div class="small">
+          {% for port in product.inputs %}
+            <div class="mb-2">
+              <div class="fw-semibold">{{ port.name }}</div>
+              {% if port.contract_id %}
+                <div>
+                  <a href="/contracts/{{ port.contract_id }}">{{ port.contract_id }}</a>
+                  {% if port.version %}
+                    <span class="text-muted">/</span>
+                    <a href="/contracts/{{ port.contract_id }}/{{ port.version }}">{{ port.version }}</a>
+                  {% endif %}
+                </div>
+              {% endif %}
+              {% if port.source_data_product %}
+                <div class="text-muted">From data product <code>{{ port.source_data_product }}</code> / <code>{{ port.source_output_port }}</code></div>
+              {% endif %}
+            </div>
+          {% endfor %}
+          </div>
+        {% else %}
+          <span class="text-muted">None</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if product.outputs %}
+          <div class="small">
+          {% for port in product.outputs %}
+            <div class="mb-2">
+              <div class="fw-semibold">{{ port.name }}</div>
+              {% if port.contract_id %}
+                <div>
+                  <a href="/contracts/{{ port.contract_id }}">{{ port.contract_id }}</a>
+                  {% if port.version %}
+                    <span class="text-muted">/</span>
+                    <a href="/contracts/{{ port.contract_id }}/{{ port.version }}">{{ port.version }}</a>
+                  {% endif %}
+                </div>
+              {% endif %}
+              {% if port.dataset_id %}
+                <div class="text-muted">Dataset <code>{{ port.dataset_id }}</code></div>
+              {% endif %}
+              {% if port.stage_contract %}
+                <div class="text-muted">Stage contract <code>{{ port.stage_contract }}</code></div>
+              {% endif %}
+            </div>
+          {% endfor %}
+          </div>
+        {% else %}
+          <span class="text-muted">None</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if latest %}
+          <div>
+            <a href="/datasets/{{ latest.dataset_name }}/{{ latest.dataset_version }}">{{ latest.dataset_name }}</a>
+            <span class="text-muted">/</span>
+            {{ latest.dataset_version }}
+          </div>
+          <div class="small text-muted">{{ latest.status }}{% if latest.reason %} · {{ latest.reason }}{% endif %}</div>
+        {% else %}
+          <span class="text-muted">No runs</span>
+        {% endif %}
+      </td>
+      <td class="text-end">
+        <span class="badge bg-primary">{{ product.run_count }}</span>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if not products %}
+<p class="text-muted">No data products registered yet.</p>
+{% endif %}
+{% endblock %}

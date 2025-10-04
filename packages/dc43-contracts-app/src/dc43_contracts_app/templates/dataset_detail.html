@@ -18,6 +18,49 @@
 {% if record.contract_id and record.draft_contract_version %}
 <p>Draft Contract: <a href="/contracts/{{ record.contract_id }}/{{ record.draft_contract_version }}">{{ record.draft_contract_version }}</a></p>
 {% endif %}
+{% if data_products %}
+<h2>Data product associations</h2>
+<table class="table table-sm align-middle">
+  <thead>
+    <tr>
+      <th scope="col">Data product</th>
+      <th scope="col">Port</th>
+      <th scope="col">Role</th>
+      <th scope="col">Status</th>
+      <th scope="col">Version</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for entry in data_products %}
+    <tr>
+      <td>
+        {% if entry.product_id %}
+          <a href="/data-products/{{ entry.product_id }}">{{ entry.product_id }}</a>
+        {% else %}
+          <span class="text-muted">Unknown</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if entry.port_name %}
+          <code>{{ entry.port_name }}</code>
+        {% else %}
+          <span class="text-muted">n/a</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if entry.role %}
+          <span class="badge bg-secondary text-uppercase">{{ entry.role }}</span>
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+      <td>{{ entry.status or 'unknown' }}</td>
+      <td>{{ entry.dataset_version or '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 {% set output_details = record.dq_details.get('output', {}) %}
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>
 {% if output_details.get('violation_strategy') %}

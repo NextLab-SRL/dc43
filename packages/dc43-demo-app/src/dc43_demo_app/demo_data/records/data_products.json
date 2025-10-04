@@ -1,0 +1,75 @@
+[
+  {
+    "apiVersion": "1.0.0",
+    "kind": "DataProduct",
+    "id": "dp.orders",
+    "status": "active",
+    "version": "1.0.0",
+    "name": "Orders submission",
+    "description": {
+      "summary": "Curated upstream orders feed captured from the transactional system.",
+      "usage": "Validated change data capture feed with quality checks applied prior to downstream analytics."
+    },
+    "outputPorts": [
+      {
+        "name": "orders-latest",
+        "version": "1.1.0",
+        "contractId": "orders",
+        "description": "Canonical orders dataset aligned to contract orders:1.1.0.",
+        "customProperties": [
+          {"property": "dc43.dataset.id", "value": "orders"},
+          {"property": "dc43.contract.ref", "value": "orders:1.1.0"}
+        ]
+      }
+    ],
+    "customProperties": [
+      {"property": "domain", "value": "sales"},
+      {"property": "owner", "value": "commerce-platform"}
+    ]
+  },
+  {
+    "apiVersion": "1.0.0",
+    "kind": "DataProduct",
+    "id": "dp.analytics",
+    "status": "active",
+    "version": "1.0.0",
+    "name": "Orders analytics mart",
+    "description": {
+      "summary": "Downstream enrichment that joins orders with customer descriptors and segmentation attributes.",
+      "usage": "Serves the orders_enriched contract to dashboards and experimentation workloads.",
+      "dataContracts": [
+        "orders_enriched:1.1.0",
+        "dp.analytics.stage:1.0.0"
+      ]
+    },
+    "inputPorts": [
+      {
+        "name": "orders-feed",
+        "version": "1.1.0",
+        "contractId": "orders",
+        "customProperties": [
+          {"property": "dc43.input.dataset", "value": "orders"},
+          {"property": "dc43.input.source_data_product", "value": "dp.orders"},
+          {"property": "dc43.input.source_output_port", "value": "orders-latest"}
+        ]
+      }
+    ],
+    "outputPorts": [
+      {
+        "name": "orders-enriched",
+        "version": "1.1.0",
+        "contractId": "orders_enriched",
+        "description": "Primary published slice with revenue metrics and customer segments.",
+        "customProperties": [
+          {"property": "dc43.dataset.id", "value": "orders_enriched"},
+          {"property": "dc43.stage.contract", "value": "dp.analytics.stage:1.0.0"}
+        ]
+      }
+    ],
+    "customProperties": [
+      {"property": "domain", "value": "analytics"},
+      {"property": "owner", "value": "insights-team"}
+    ],
+    "tags": ["gold", "pii-safe"]
+  }
+]
