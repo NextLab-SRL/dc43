@@ -69,6 +69,26 @@ def _normalise_dataset_record(record: DatasetRecord) -> DatasetRecord:
     if not record.reason:
         record.reason = status
 
+    details = record.dq_details
+    if isinstance(details, Mapping):
+        details_map: Dict[str, Any] = dict(details)
+        inputs_payload: Dict[str, Any] = {}
+        existing_input = details_map.get("input")
+        if isinstance(existing_input, Mapping):
+            inputs_payload.update(existing_input)
+
+        def _merge_input(alias: str) -> None:
+            payload = details_map.get(alias)
+            if isinstance(payload, Mapping) and alias not in inputs_payload:
+                inputs_payload[alias] = payload
+
+        for key in ("orders", "customers", "lookup", "data_product"):
+            _merge_input(key)
+
+        if inputs_payload:
+            details_map["input"] = inputs_payload
+        record.dq_details = details_map
+
     return record
 
 

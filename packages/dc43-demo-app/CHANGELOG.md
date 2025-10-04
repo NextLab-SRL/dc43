@@ -30,5 +30,7 @@
 - Restored contract pipeline records to populate input status payloads (while retaining the legacy
   keys) so the DQ details accordion mirrors contract-based runs without repeating error text in the
   status column.
+- Normalised stored dataset records so legacy and freshly generated runs expose input summaries in
+  the DQ details accordion instead of reporting that no input statuses were recorded.
 - Fixed pipeline runner invocation so contract scenarios honour input overrides, surface input DQ
   summaries, and avoid crashes when output adjustments are configured.

@@ -275,7 +275,7 @@ def _ensure_version_marker(target: Path, version: str) -> None:
         return
     try:
         marker.write_text(version, encoding="utf-8")
-    except FileNotFoundError:
+    except OSError:
         # If the symlink target is missing, create the directory before retrying.
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)
@@ -286,26 +286,23 @@ def _ensure_version_marker(target: Path, version: str) -> None:
         try:
             marker.write_text(version, encoding="utf-8")
             return
-        except FileNotFoundError:
-            # Some platforms report ``FileNotFoundError`` when writing through a
-            # symlink even if the destination exists. Resolve and write directly
-            # to the backing directory as a fallback.
+        except OSError:
+            # Some platforms report errors when writing through a symlink even
+            # if the destination exists. Resolve and write directly to the
+            # backing directory as a fallback.
             try:
                 resolved = target.resolve(strict=False)
             except OSError:
                 return
-            if resolved != target:
-                resolved_marker = resolved / ".dc43_version"
-                parent = resolved_marker.parent
+            if resolved == target:
+                return
+            resolved_marker = resolved / ".dc43_version"
+            parent = resolved_marker.parent
+            try:
                 if not parent.exists():
-                    try:
-                        parent.mkdir(parents=True, exist_ok=True)
-                    except OSError:
-                        return
-                try:
-                    resolved_marker.write_text(version, encoding="utf-8")
-                except OSError:
-                    return
+                    parent.mkdir(parents=True, exist_ok=True)
+                resolved_marker.write_text(version, encoding="utf-8")
+            except OSError:
                 return
 
 
