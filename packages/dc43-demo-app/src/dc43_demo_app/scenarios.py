@@ -436,6 +436,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                         "source_data_product": "dp.orders",
                         "source_output_port": "orders-latest",
                     },
+                    "dataset_version": "latest",
                     "expected_contract_version": "==1.1.0",
                     "contract_version": "1.1.0",
                     "dataset_id": "orders",

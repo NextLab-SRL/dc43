@@ -915,6 +915,33 @@ def _aggregate_violation_counts(*sections: Mapping[str, Any] | None) -> int:
     return total
 
 
+def _data_product_input_locator(config: Mapping[str, Any]) -> ContractVersionLocator | StaticDatasetLocator:
+    """Return the dataset locator used for data product reads."""
+
+    dataset_id = config.get("dataset_id")
+    dataset_version = config.get("dataset_version") or "latest"
+    default = ContractVersionLocator(
+        dataset_version=str(dataset_version),
+        dataset_id=str(dataset_id) if dataset_id not in (None, "") else None,
+        base=ContractFirstDatasetLocator(),
+    )
+
+    locator_spec = config.get("dataset_locator") if isinstance(config, Mapping) else None
+    if locator_spec is not None and hasattr(locator_spec, "for_read"):
+        return locator_spec  # type: ignore[return-value]
+
+    overrides: Mapping[str, Any] | None = None
+    if isinstance(locator_spec, Mapping):
+        overrides = locator_spec
+    else:
+        keys = ("dataset_id", "dataset_version", "path", "table", "format", "subpath", "base")
+        extracted = {key: config[key] for key in keys if key in config}
+        if extracted:
+            overrides = extracted
+
+    return _apply_locator_overrides(default, overrides)
+
+
 def _run_data_product_flow(
     *,
     spark: SparkSession,
@@ -944,6 +971,11 @@ def _run_data_product_flow(
     if not input_binding:
         raise ValueError("data_product_flow requires an input binding")
 
+    input_locator = _data_product_input_locator(input_cfg)
+    input_dataset_id = getattr(input_locator, "dataset_id", None)
+    input_dataset_version = getattr(input_locator, "dataset_version", None)
+    source_dp = input_binding.get("source_data_product")
+    source_port = input_binding.get("source_output_port")
     orders_df, orders_status = read_from_data_product(
         spark,
         data_product_service=contracts_server.data_product_service,
@@ -951,17 +983,49 @@ def _run_data_product_flow(
         contract_service=contracts_server.contract_service,
         data_quality_service=contracts_server.dq_service,
         governance_service=governance,
+        dataset_locator=input_locator,
         return_status=True,
         pipeline_context=_context(
             "data-product-input",
             {
                 "data_product": input_binding.get("data_product"),
                 "port_name": input_binding.get("port_name"),
+                "source_data_product": source_dp,
+                "source_output_port": source_port,
+                **(
+                    {"dataset": input_dataset_id}
+                    if input_dataset_id
+                    else {}
+                ),
+                **(
+                    {"dataset_version": input_dataset_version}
+                    if input_dataset_version
+                    else {}
+                ),
                 "collect_examples": bool(collect_examples),
                 "examples_limit": examples_limit,
             },
         ),
     )
+
+    orders_payload = _status_payload(orders_status)
+    if isinstance(orders_payload, Mapping):
+        orders_payload = dict(orders_payload)
+    elif input_dataset_id or input_dataset_version or input_binding.get("data_product"):
+        orders_payload = {}
+    if isinstance(orders_payload, dict):
+        if input_dataset_id:
+            orders_payload.setdefault("dataset_id", input_dataset_id)
+        if input_dataset_version:
+            orders_payload.setdefault("dataset_version", input_dataset_version)
+        port_info = input_binding.get("port_name") or source_port
+        if port_info:
+            orders_payload.setdefault("data_product_port", port_info)
+        dp_identifier = input_binding.get("data_product") or source_dp
+        if dp_identifier:
+            orders_payload.setdefault("data_product", dp_identifier)
+    else:
+        orders_payload = None
 
     customers_cfg = data_product_flow.get("customers") if isinstance(data_product_flow, Mapping) else {}
     customers_contract_id = customers_cfg.get("contract_id") or "customers"
@@ -1062,7 +1126,7 @@ def _run_data_product_flow(
     stage_output_details.setdefault("storage_path", str(stage_output_path))
 
     stage_combined_details: Dict[str, Any] = {
-        "orders": _status_payload(orders_status),
+        "orders": orders_payload,
         "customers": _status_payload(customers_status),
         "output": stage_output_details,
     }
@@ -1198,7 +1262,7 @@ def _run_data_product_flow(
     final_output_details.setdefault("storage_path", str(output_path))
 
     final_combined_details: Dict[str, Any] = {
-        "orders": _status_payload(orders_status),
+        "orders": orders_payload,
         "customers": _status_payload(customers_status),
         "stage": _status_payload(stage_read_status),
         "output": final_output_details,

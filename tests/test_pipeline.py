@@ -8,6 +8,11 @@ import pytest
 from pyspark.sql import SparkSession
 
 from dc43_demo_app import pipeline
+from dc43_integrations.spark.io import (
+    ContractFirstDatasetLocator,
+    ContractVersionLocator,
+    StaticDatasetLocator,
+)
 from dc43_demo_app.contracts_workspace import prepare_demo_workspace
 
 prepare_demo_workspace()
@@ -103,6 +108,32 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
             .config("spark.ui.enabled", "false") \
             .config("spark.sql.shuffle.partitions", "2") \
             .getOrCreate()
+
+
+def test_data_product_input_locator_defaults_to_latest() -> None:
+    locator = pipeline._data_product_input_locator({})
+    assert isinstance(locator, ContractVersionLocator)
+    assert locator.dataset_version == "latest"
+    assert isinstance(locator.base, ContractFirstDatasetLocator)
+
+
+def test_data_product_input_locator_respects_version_and_id() -> None:
+    locator = pipeline._data_product_input_locator(
+        {"dataset_version": "2025-10-05", "dataset_id": "orders"}
+    )
+    assert isinstance(locator, ContractVersionLocator)
+    assert locator.dataset_version == "2025-10-05"
+    assert locator.dataset_id == "orders"
+
+
+def test_data_product_input_locator_accepts_custom_locator() -> None:
+    custom = StaticDatasetLocator(
+        dataset_id="orders",
+        dataset_version="custom",
+        base=ContractFirstDatasetLocator(),
+    )
+    locator = pipeline._data_product_input_locator({"dataset_locator": custom})
+    assert locator is custom
 
 
 def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
