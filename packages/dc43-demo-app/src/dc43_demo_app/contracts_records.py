@@ -53,20 +53,51 @@ def _normalise_dataset_record(record: DatasetRecord) -> DatasetRecord:
     if isinstance(details, Mapping):
         details_map: Dict[str, Any] = dict(details)
         inputs_payload: Dict[str, Any] = {}
-        existing_input = details_map.get("input")
-        if isinstance(existing_input, Mapping):
-            inputs_payload.update(existing_input)
 
-        def _merge_input(alias: str) -> None:
-            payload = details_map.get(alias)
-            if isinstance(payload, Mapping) and alias not in inputs_payload:
-                inputs_payload[alias] = payload
+        def _coerce_mapping(value: Any) -> Mapping[str, Any] | None:
+            if isinstance(value, Mapping):
+                return dict(value)
+            if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+                normalised: Dict[str, Any] = {}
+                for idx, entry in enumerate(value):
+                    if not isinstance(entry, Mapping):
+                        continue
+                    alias = str(
+                        entry.get("dataset")
+                        or entry.get("name")
+                        or entry.get("alias")
+                        or idx
+                    )
+                    if alias not in normalised:
+                        normalised[alias] = dict(entry)
+                if normalised:
+                    return normalised
+            return None
+
+        existing_input = details_map.get("input")
+        existing_mapping = _coerce_mapping(existing_input)
+        if existing_mapping:
+            inputs_payload.update(existing_mapping)
+
+        def _merge_input(alias: str, payload: Any) -> None:
+            if alias in inputs_payload:
+                return
+            mapping = _coerce_mapping(payload)
+            if mapping and alias == "input":
+                for name, item in mapping.items():
+                    inputs_payload.setdefault(name, item)
+            elif mapping:
+                inputs_payload.setdefault(alias, mapping)
+            elif isinstance(payload, Mapping):
+                inputs_payload.setdefault(alias, dict(payload))
 
         for key in ("orders", "customers", "lookup", "data_product"):
-            _merge_input(key)
+            _merge_input(key, details_map.get(key))
 
         if inputs_payload:
             details_map["input"] = inputs_payload
+        elif existing_mapping is not None:
+            details_map["input"] = existing_mapping
         record.dq_details = details_map
 
     status = (record.status or "").strip()

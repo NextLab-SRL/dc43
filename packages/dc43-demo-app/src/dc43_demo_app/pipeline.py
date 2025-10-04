@@ -38,7 +38,10 @@ from dc43_integrations.spark.violation_strategy import (
     WriteViolationStrategy,
 )
 from open_data_contract_standard.model import OpenDataContractStandard
+from py4j.protocol import Py4JJavaError
+from pyspark.errors import PySparkException
 from pyspark.errors.exceptions.captured import AnalysisException
+from pyspark.sql.utils import AnalysisException as LegacyAnalysisException
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, lit, when
 
@@ -1900,7 +1903,14 @@ def run_data_product_roundtrip(
                 },
             ),
         )
-    except (AnalysisException, FileNotFoundError, OSError) as exc:
+    except (
+        AnalysisException,
+        LegacyAnalysisException,
+        PySparkException,
+        Py4JJavaError,
+        FileNotFoundError,
+        OSError,
+    ) as exc:
         logger.warning(
             "Stage contract read failed for %s %s, reusing in-memory frame: %s",
             stage_dataset_name,

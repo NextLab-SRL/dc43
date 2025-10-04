@@ -38,3 +38,6 @@
   summaries, and avoid crashes when output adjustments are configured.
 - Made the data product roundtrip resilient to stage re-read failures by falling back to the staged
   dataframe, keeping the curated scenario green even when filesystem-backed Delta paths are absent.
+- Normalised stored DQ payloads from mappings and sequences so input details always surface in the
+  UI, and broadened the curated roundtrip fallback to swallow PySpark and Py4J errors when reusing
+  staged frames.
