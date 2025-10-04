@@ -16,6 +16,14 @@
     "dq_details": {"violations": 0, "metrics": {"row_count": 2}}
   },
   {
+    "contract_id": "orders",
+    "contract_version": "1.2.0",
+    "dataset_name": "orders",
+    "dataset_version": "2025-10-05",
+    "status": "ok",
+    "dq_details": {"violations": 0, "metrics": {"row_count": 3}}
+  },
+  {
     "contract_id": "customers",
     "contract_version": "1.0.0",
     "dataset_name": "customers",

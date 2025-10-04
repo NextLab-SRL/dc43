@@ -446,6 +446,30 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "output_adjustment": "amplify-negative",
         },
     },
+    "data-product-roundtrip": {
+        "label": "Data product roundtrip",
+        "description": (
+            "<p>Reads the curated <code>dp.orders</code> output and republishes it "
+            "through <code>dp.analytics</code>.</p>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE),
+        "data_product_flow": {
+            "input": {
+                "data_product": "dp.orders",
+                "port_name": "orders-latest",
+                "expected_contract_version": "==1.2.0",
+            },
+            "output": {
+                "data_product": "dp.analytics",
+                "port_name": "primary",
+            },
+        },
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.0.0",
+            "run_type": "observe",
+        },
+    },
     "split-lenient": {
         "label": "Split invalid rows",
         "description": (

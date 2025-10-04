@@ -332,3 +332,19 @@ def test_dq_version_records_excludes_other_contract_versions():
     statuses = {entry["version"]: entry["status"] for entry in entries}
     assert statuses["2025-09-28"] == "block"
 
+    latest_contract = store.get("orders", "1.2.0")
+    latest_records = [
+        record
+        for record in load_records()
+        if record.contract_id == "orders" and record.contract_version == "1.2.0"
+    ]
+    latest_entries = dq_version_records(
+        "orders",
+        contract=latest_contract,
+        dataset_records=latest_records,
+    )
+    latest_versions = [entry["version"] for entry in latest_entries]
+    assert latest_versions == ["2025-10-05"]
+    latest_statuses = {entry["version"]: entry["status"] for entry in latest_entries}
+    assert latest_statuses["2025-10-05"] == "ok"
+

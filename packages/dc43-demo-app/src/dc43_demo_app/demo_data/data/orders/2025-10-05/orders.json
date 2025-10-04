@@ -1,0 +1,3 @@
+{"order_id":1,"customer_id":101,"order_ts":"2025-10-05T09:15:00Z","amount":125.0,"currency":"EUR"}
+{"order_id":2,"customer_id":105,"order_ts":"2025-10-05T09:45:00Z","amount":215.5,"currency":"USD"}
+{"order_id":3,"customer_id":106,"order_ts":"2025-10-05T10:15:00Z","amount":310.0,"currency":"GBP"}
