@@ -279,8 +279,9 @@ def _ensure_version_marker(target: Path, version: str) -> None:
         # If the symlink target is missing, create the directory before retrying.
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)
-        except FileExistsError:
-            # ``mkdir`` on a symlink raises ``FileExistsError`` – ignore and retry.
+        except OSError:
+            # Ignore directory creation failures; a fallback attempt below will
+            # resolve the symlink target directly when possible.
             pass
         try:
             marker.write_text(version, encoding="utf-8")
@@ -295,14 +296,17 @@ def _ensure_version_marker(target: Path, version: str) -> None:
                 return
             if resolved != target:
                 resolved_marker = resolved / ".dc43_version"
-                try:
-                    resolved_marker.parent.mkdir(parents=True, exist_ok=True)
-                except FileExistsError:
-                    pass
+                parent = resolved_marker.parent
+                if not parent.exists():
+                    try:
+                        parent.mkdir(parents=True, exist_ok=True)
+                    except OSError:
+                        return
                 try:
                     resolved_marker.write_text(version, encoding="utf-8")
                 except OSError:
                     return
+                return
 
 
 def register_dataset_version(

@@ -168,6 +168,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
                 params_cfg.get("collect_examples", False),
                 params_cfg.get("examples_limit", 5),
                 params_cfg.get("violation_strategy"),
+                params_cfg.get("enforce_contract_status"),
                 params_cfg.get("inputs"),
                 params_cfg.get("output_adjustment"),
                 scenario_key=scenario,
