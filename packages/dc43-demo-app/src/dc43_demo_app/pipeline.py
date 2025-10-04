@@ -8,6 +8,7 @@ recording the dataset version in the demo app's registry.
 """
 
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
@@ -25,7 +26,9 @@ from dc43_integrations.spark.io import (
     ReadStatusContext,
     ReadStatusStrategy,
     StaticDatasetLocator,
+    read_from_data_product,
     read_with_contract,
+    write_to_data_product,
     write_with_contract,
 )
 from dc43_integrations.spark.violation_strategy import (
@@ -35,6 +38,10 @@ from dc43_integrations.spark.violation_strategy import (
     WriteViolationStrategy,
 )
 from open_data_contract_standard.model import OpenDataContractStandard
+from py4j.protocol import Py4JJavaError
+from pyspark.errors import PySparkException
+from pyspark.errors.exceptions.captured import AnalysisException
+from pyspark.sql.utils import AnalysisException as LegacyAnalysisException
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, lit, when
 
@@ -67,6 +74,9 @@ def _write_version_marker(directory: Path, version: str) -> None:
         marker.write_text(version)
     except OSError:
         pass
+
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_output_path(
@@ -787,6 +797,15 @@ def _status_payload(status: ValidationResult | None) -> dict[str, Any] | None:
     return payload
 
 
+def _status_violation_count(status: ValidationResult | None) -> int:
+    payload = _status_payload(status)
+    if isinstance(payload, Mapping):
+        violations_value = payload.get("violations")
+        if isinstance(violations_value, (int, float)):
+            return int(violations_value)
+    return 0
+
+
 def _resolve_dataset_name_hint(
     contract_id: str | None,
     contract_version: str | None,
@@ -822,12 +841,19 @@ def _record_blocked_read_failure(
     """Persist a dataset record describing a blocked input read."""
 
     dq_details: dict[str, Any] = {}
+    input_payload: dict[str, Any] = {}
     orders_payload = _status_payload(orders_status)
     customers_payload = _status_payload(customers_status)
     if orders_payload:
+        orders_payload.setdefault("dataset", "orders")
+        input_payload["orders"] = orders_payload
         dq_details["orders"] = orders_payload
     if customers_payload:
+        customers_payload.setdefault("dataset", "customers")
+        input_payload["customers"] = customers_payload
         dq_details["customers"] = customers_payload
+    if input_payload:
+        dq_details["input"] = input_payload
     dq_details["output"] = {
         "errors": [error_message],
         "dq_status": {"status": "error", "reason": error_message},
@@ -1425,15 +1451,41 @@ def run_pipeline(
     if output_activity:
         output_details.setdefault("pipeline_activity", output_activity)
 
-    combined_details = {
-        "orders": orders_status.details if orders_status else None,
-        "customers": customers_status.details if customers_status else None,
-        "output": output_details,
-    }
+    input_details: dict[str, Any] = {}
+    orders_payload = _status_payload(orders_status)
+    if orders_payload:
+        orders_payload.setdefault("dataset", "orders")
+        input_details["orders"] = orders_payload
+        combined_orders = dict(orders_payload)
+    else:
+        combined_orders = None
+    customers_payload = _status_payload(customers_status)
+    if customers_payload:
+        customers_payload.setdefault("dataset", "customers")
+        input_details["customers"] = customers_payload
+        combined_customers = dict(customers_payload)
+    else:
+        combined_customers = None
+
+    combined_details: dict[str, Any] = {"output": output_details}
+    if input_details:
+        combined_details["input"] = input_details
+    if combined_orders is not None:
+        combined_details["orders"] = combined_orders
+    if combined_customers is not None:
+        combined_details["customers"] = combined_customers
+
+    payload_sections: list[Mapping[str, Any]] = []
+    payload_sections.extend(input_details.values())
+    stage_details = combined_details.get("stage")
+    if isinstance(stage_details, Mapping):
+        payload_sections.append(stage_details)
+    payload_sections.append(output_details)
+
     total_violations = 0
     warnings_present = False
-    for det in combined_details.values():
-        if not det or not isinstance(det, dict):
+    for det in payload_sections:
+        if not det:
             continue
         violations_value = det.get("violations")
         if isinstance(violations_value, (int, float)):
@@ -1554,3 +1606,436 @@ def __getattr__(name: str) -> Any:
     if name in delegated:
         return getattr(contracts_server, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+def run_data_product_roundtrip(
+    *,
+    input_binding: Mapping[str, Any],
+    output_binding: Mapping[str, Any],
+    input_dataset_version: str | None = "latest",
+    stage_contract_id: str,
+    stage_contract_version: str,
+    final_contract_id: str,
+    final_contract_version: str,
+    run_type: str = "enforce",
+    stage_dataset_version: str | None = None,
+    dataset_name: str | None = None,
+    dataset_version: str | None = None,
+    scenario_key: str | None = None,
+) -> tuple[str, str]:
+    """Execute a dp → contract → dp flow showcasing ODPS bindings."""
+
+    existing_session = SparkSession.getActiveSession()
+    spark = SparkSession.builder.appName("dc43-dp-roundtrip").getOrCreate()
+    governance = contracts_server.governance_service
+    dp_service = contracts_server.data_product_service
+
+    run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    base_context: dict[str, Any] = {
+        "pipeline": "dc43_demo_app.pipeline.run_data_product_roundtrip",
+        "run_id": run_timestamp,
+        "run_type": run_type,
+    }
+    if scenario_key:
+        base_context["scenario_key"] = scenario_key
+
+    def _context(step: str, extra: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+        payload = dict(base_context)
+        payload["step"] = step
+        if extra:
+            payload.update(extra)
+        return payload
+
+    records = contracts_server.load_records()
+    stage_contract = contracts_server.store.get(stage_contract_id, stage_contract_version)
+    final_contract = contracts_server.store.get(final_contract_id, final_contract_version)
+
+    stage_dataset_name = stage_contract.id or stage_contract_id
+    final_dataset_name = dataset_name or final_contract.id or final_contract_id
+
+    if not stage_dataset_version:
+        existing_stage_versions = [
+            r.dataset_version for r in records if r.dataset_name == stage_dataset_name
+        ]
+        stage_dataset_version = _next_version(existing_stage_versions)
+    if not dataset_version:
+        existing_final_versions = [
+            r.dataset_version for r in records if r.dataset_name == final_dataset_name
+        ]
+        dataset_version = _next_version(existing_final_versions)
+
+    enforce_contract_status = run_type == "enforce"
+
+    input_locator: ContractVersionLocator | None = None
+    if input_dataset_version:
+        input_locator = ContractVersionLocator(
+            dataset_version=input_dataset_version,
+            base=ContractFirstDatasetLocator(),
+        )
+
+    binding_payload = {
+        key: str(input_binding.get(key, ""))
+        for key in ("data_product", "port_name", "source_data_product", "source_output_port")
+        if input_binding.get(key)
+    }
+
+    input_status: ValidationResult | None = None
+    try:
+        stage_df, input_status = read_from_data_product(
+            spark,
+            data_product_service=dp_service,
+            data_product_input=dict(input_binding),
+            contract_service=contracts_server.contract_service,
+            data_quality_service=contracts_server.dq_service,
+            governance_service=governance,
+            dataset_locator=input_locator,
+            return_status=True,
+            pipeline_context=_context(
+                "dp-input",
+                {
+                    "data_product": str(input_binding.get("data_product", "")),
+                    "port_name": str(input_binding.get("port_name", "")),
+                },
+            ),
+        )
+    except Exception as exc:
+        diagnostics_status: ValidationResult | None = None
+        diagnostics_payload: dict[str, Any] | None = None
+        try:
+            _, diagnostics_status = read_from_data_product(
+                spark,
+                data_product_service=dp_service,
+                data_product_input=dict(input_binding),
+                contract_service=contracts_server.contract_service,
+                data_quality_service=contracts_server.dq_service,
+                governance_service=governance,
+                dataset_locator=input_locator,
+                return_status=True,
+                enforce=False,
+                pipeline_context=_context(
+                    "dp-input",
+                    {
+                        "data_product": str(input_binding.get("data_product", "")),
+                        "port_name": str(input_binding.get("port_name", "")),
+                        "diagnostic": True,
+                    },
+                ),
+            )
+            diagnostics_payload = _status_payload(diagnostics_status)
+        except Exception:
+            diagnostics_status = None
+            diagnostics_payload = None
+
+        error_message = str(exc)
+
+        input_failure: dict[str, Any] = dict(diagnostics_payload or {})
+        if not input_failure.get("status"):
+            input_failure["status"] = (
+                diagnostics_status.status
+                if diagnostics_status and getattr(diagnostics_status, "status", None)
+                else "error"
+            )
+        if not input_failure.get("reason") and error_message:
+            input_failure["reason"] = error_message
+        existing_errors = input_failure.get("errors")
+        if isinstance(existing_errors, str):
+            input_failure["errors"] = [existing_errors]
+        if not input_failure.get("errors") and error_message:
+            input_failure["errors"] = [error_message]
+        violations_total = _status_violation_count(diagnostics_status)
+        if violations_total and not input_failure.get("violations"):
+            input_failure["violations"] = violations_total
+
+        if input_binding.get("data_product"):
+            input_failure.setdefault(
+                "data_product", str(input_binding.get("data_product"))
+            )
+        if input_binding.get("port_name"):
+            input_failure.setdefault("port_name", str(input_binding.get("port_name")))
+        if input_binding.get("source_data_product"):
+            input_failure.setdefault(
+                "source_data_product", str(input_binding.get("source_data_product"))
+            )
+        if input_binding.get("source_output_port"):
+            input_failure.setdefault(
+                "source_output_port", str(input_binding.get("source_output_port"))
+            )
+        if binding_payload:
+            input_failure.setdefault("binding", binding_payload)
+        if input_locator and getattr(input_locator, "dataset_version", None):
+            input_failure.setdefault("dataset_version", input_locator.dataset_version)
+        elif input_dataset_version:
+            input_failure.setdefault("dataset_version", input_dataset_version)
+
+        failure_details: dict[str, Any] = {}
+        if input_failure:
+            failure_details["input"] = {"data_product": input_failure}
+
+        stage_failure: dict[str, Any] = {
+            "status": "skipped",
+            "reason": "Stage write skipped due to input failure",
+            "dataset": stage_dataset_name,
+            "dataset_version": stage_dataset_version,
+            "contract_status_enforced": bool(enforce_contract_status),
+        }
+        failure_details["stage"] = stage_failure
+
+        output_failure: dict[str, Any] = {
+            "status": "skipped",
+            "reason": "Output not written because input failed",
+            "dataset": final_dataset_name,
+            "dataset_version": dataset_version,
+        }
+        if output_binding:
+            output_failure["binding"] = {
+                key: str(output_binding.get(key, ""))
+                for key in ("data_product", "port_name")
+                if output_binding.get(key)
+            }
+        failure_details["output"] = output_failure
+
+        records.append(
+            contracts_server.DatasetRecord(
+                final_contract.id or final_contract_id,
+                final_contract.version or final_contract_version,
+                final_dataset_name,
+                dataset_version,
+                "error",
+                failure_details,
+                run_type,
+                violations_total,
+                scenario_key=scenario_key,
+                reason=error_message,
+            )
+        )
+        contracts_server.save_records(records)
+        if not existing_session:
+            spark.stop()
+        raise
+
+    if enforce_contract_status and input_status and input_status.status == "block":
+        message = input_status.reason or "data product input blocked"
+        raise ValueError(message)
+
+    customers_df, customers_status = read_with_contract(
+        spark,
+        contract_id="customers",
+        contract_service=contracts_server.contract_service,
+        expected_contract_version="==1.0.0",
+        data_quality_service=contracts_server.dq_service,
+        governance_service=governance,
+        dataset_locator=ContractVersionLocator(
+            dataset_version="latest",
+            base=ContractFirstDatasetLocator(),
+        ),
+        return_status=True,
+        pipeline_context=_context(
+            "lookup-read",
+            {
+                "dataset": "customers",
+                "dataset_version": "latest",
+                "contract_status_enforced": False,
+            },
+        ),
+    )
+
+    stage_df = (
+        stage_df.join(customers_df, "customer_id", "left")
+        .select(
+            "order_id",
+            "customer_id",
+            "order_ts",
+            "amount",
+            "currency",
+            "customer_name",
+        )
+    )
+
+    stage_output_path = _resolve_output_path(
+        stage_contract, stage_dataset_name, stage_dataset_version
+    )
+    stage_locator = ContractVersionLocator(
+        dataset_version=stage_dataset_version,
+        base=ContractFirstDatasetLocator(),
+    )
+    stage_result, stage_status = write_with_contract(
+        df=stage_df,
+        contract_id=stage_contract.id,
+        contract_service=contracts_server.contract_service,
+        expected_contract_version=f"=={stage_contract.version}",
+        data_quality_service=contracts_server.dq_service,
+        governance_service=governance,
+        dataset_locator=stage_locator,
+        return_status=True,
+        pipeline_context=_context(
+            "stage-write",
+            {
+                "dataset": stage_dataset_name,
+                "dataset_version": stage_dataset_version,
+                "contract_status_enforced": bool(enforce_contract_status),
+            },
+        ),
+    )
+
+    contracts_server.register_dataset_version(
+        stage_dataset_name, stage_dataset_version, stage_output_path
+    )
+    try:
+        contracts_server.set_active_version(stage_dataset_name, stage_dataset_version)
+    except FileNotFoundError:
+        pass
+
+    stage_read_df = stage_df
+    try:
+        stage_read_df, _ = read_with_contract(
+            spark,
+            contract_id=stage_contract.id,
+            contract_service=contracts_server.contract_service,
+            expected_contract_version=f"=={stage_contract.version}",
+            data_quality_service=contracts_server.dq_service,
+            governance_service=governance,
+            dataset_locator=stage_locator,
+            return_status=True,
+            pipeline_context=_context(
+                "stage-read",
+                {
+                    "dataset": stage_dataset_name,
+                    "dataset_version": stage_dataset_version,
+                },
+            ),
+        )
+    except (
+        AnalysisException,
+        LegacyAnalysisException,
+        PySparkException,
+        Py4JJavaError,
+        FileNotFoundError,
+        OSError,
+    ) as exc:
+        logger.warning(
+            "Stage contract read failed for %s %s, reusing in-memory frame: %s",
+            stage_dataset_name,
+            stage_dataset_version,
+            exc,
+        )
+
+    final_df = stage_read_df.withColumn("snapshot_run_id", lit(run_timestamp))
+
+    final_output_path = _resolve_output_path(
+        final_contract, final_dataset_name, dataset_version
+    )
+    final_locator = ContractVersionLocator(
+        dataset_version=dataset_version,
+        base=ContractFirstDatasetLocator(),
+    )
+    final_result, final_status = write_to_data_product(
+        df=final_df,
+        data_product_service=dp_service,
+        data_product_output=dict(output_binding),
+        contract_id=final_contract.id,
+        contract_service=contracts_server.contract_service,
+        expected_contract_version=f"=={final_contract.version}",
+        data_quality_service=contracts_server.dq_service,
+        governance_service=governance,
+        dataset_locator=final_locator,
+        return_status=True,
+        pipeline_context=_context(
+            "dp-output",
+            {
+                "dataset": final_dataset_name,
+                "dataset_version": dataset_version,
+                "data_product": str(output_binding.get("data_product", "")),
+                "port_name": str(output_binding.get("port_name", "")),
+                "contract_status_enforced": bool(enforce_contract_status),
+            },
+        ),
+    )
+
+    contracts_server.register_dataset_version(
+        final_dataset_name, dataset_version, final_output_path
+    )
+    try:
+        contracts_server.set_active_version(final_dataset_name, dataset_version)
+    except FileNotFoundError:
+        pass
+
+    stage_inputs_payload: dict[str, Any] = {}
+    input_payload = _status_payload(input_status) or {}
+    if binding_payload:
+        input_payload.setdefault("binding", binding_payload)
+    if input_locator and getattr(input_locator, "dataset_version", None):
+        input_payload.setdefault("dataset_version", input_locator.dataset_version)
+    if "data_product" not in input_payload and input_binding.get("data_product"):
+        input_payload.setdefault("data_product", str(input_binding.get("data_product")))
+    if input_payload:
+        stage_inputs_payload["data_product"] = input_payload
+    lookup_payload = _status_payload(customers_status) or {}
+    if lookup_payload:
+        lookup_payload.setdefault("dataset", "customers")
+        lookup_payload.setdefault("dataset_version", "latest")
+        stage_inputs_payload["lookup"] = lookup_payload
+
+    stage_output_payload = _status_payload(stage_status) or {}
+    stage_output_payload.setdefault("dataset", stage_dataset_name)
+    stage_output_payload.setdefault("dataset_version", stage_dataset_version)
+
+    stage_record = contracts_server.DatasetRecord(
+        contract_id=stage_contract.id or stage_contract_id,
+        contract_version=stage_contract.version or stage_contract_version,
+        dataset_name=stage_dataset_name,
+        dataset_version=stage_dataset_version,
+        status=(stage_status.status if stage_status else stage_result.status),
+        dq_details={
+            "input": stage_inputs_payload,
+            "output": stage_output_payload,
+        },
+        run_type=run_type,
+        violations=_status_violation_count(stage_status),
+        reason=stage_status.reason if stage_status else getattr(stage_result, "reason", ""),
+        scenario_key=f"{scenario_key}:stage" if scenario_key else None,
+    )
+
+    final_output_payload = _status_payload(final_status) or {}
+    final_output_payload.setdefault("dataset", final_dataset_name)
+    final_output_payload.setdefault("dataset_version", dataset_version)
+    if output_binding:
+        final_output_payload.setdefault(
+            "binding",
+            {
+                key: str(output_binding.get(key, ""))
+                for key in ("data_product", "port_name")
+                if output_binding.get(key)
+            },
+        )
+
+    final_payload = {
+        "input": stage_inputs_payload,
+        "stage": stage_output_payload,
+        "output": final_output_payload,
+    }
+    draft_version = None
+    output_details = final_payload.get("output")
+    if isinstance(output_details, Mapping):
+        draft_version = output_details.get("draft_contract_version")
+
+    final_record = contracts_server.DatasetRecord(
+        contract_id=final_contract.id or final_contract_id,
+        contract_version=final_contract.version or final_contract_version,
+        dataset_name=final_dataset_name,
+        dataset_version=dataset_version,
+        status=(final_status.status if final_status else final_result.status),
+        dq_details=final_payload,
+        run_type=run_type,
+        violations=_status_violation_count(final_status),
+        reason=final_status.reason if final_status else getattr(final_result, "reason", ""),
+        draft_contract_version=draft_version,
+        scenario_key=scenario_key,
+    )
+
+    records.append(stage_record)
+    records.append(final_record)
+    contracts_server.save_records(records)
+
+    if not existing_session:
+        spark.stop()
+
+    return final_dataset_name, dataset_version

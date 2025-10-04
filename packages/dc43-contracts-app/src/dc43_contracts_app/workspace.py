@@ -19,6 +19,7 @@ class ContractsAppWorkspace:
     records_dir: Path
     datasets_file: Path
     dq_status_dir: Path
+    data_products_dir: Path
 
     def ensure(self) -> None:
         """Create all directories and default files required by the UI."""
@@ -27,6 +28,7 @@ class ContractsAppWorkspace:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.records_dir.mkdir(parents=True, exist_ok=True)
         self.dq_status_dir.mkdir(parents=True, exist_ok=True)
+        self.data_products_dir.mkdir(parents=True, exist_ok=True)
         if not self.datasets_file.exists():
             self.datasets_file.write_text("[]", encoding="utf-8")
 
@@ -52,6 +54,7 @@ def workspace_from_env(default_root: str | None = None) -> Tuple[ContractsAppWor
         records_dir=root / "records",
         datasets_file=root / "records" / "datasets.json",
         dq_status_dir=root / "records" / "dq_state" / "status",
+        data_products_dir=root / "records" / "data_products",
     )
     workspace.ensure()
     return workspace, created

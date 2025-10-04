@@ -1,0 +1,45 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "analytics_snapshot",
+  "name": "Analytics Snapshot",
+  "description": {"usage": "Curated analytics slice published via data product"},
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/analytics_snapshot.parquet",
+      "format": "parquet",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "timeTravel": "versionAsOf",
+            "notes": "Use dataset_version as Delta time travel hint"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "delta.`data/analytics_snapshot.parquet` versionAsOf={version}"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "analytics_snapshot",
+      "properties": [
+        {"name": "order_id", "physicalType": "integer", "required": true},
+        {"name": "customer_id", "physicalType": "integer", "required": true},
+        {"name": "order_ts", "physicalType": "string", "required": true},
+        {"name": "amount", "physicalType": "double", "required": true},
+        {"name": "currency", "physicalType": "string", "required": true},
+        {"name": "customer_name", "physicalType": "string", "required": true},
+        {"name": "snapshot_run_id", "physicalType": "string", "required": true}
+      ]
+    }
+  ]
+}

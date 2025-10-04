@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-3">Platform capabilities</h1>
+<p class="text-muted">Discover how dc43 coordinates contracts, datasets, and data products. Each section highlights a capability surfaced through the demo workspace.</p>
+<div class="row row-cols-1 g-4">
+  {% for item in capabilities %}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h2 class="h5">{{ item.title }}</h2>
+        <p>{{ item.lead }}</p>
+        {% if item.diagram %}
+          <div class="mb-3">{{ item.diagram | safe }}</div>
+        {% endif %}
+        {% if item.bullets %}
+        <ul class="mb-0">
+          {% for bullet in item.bullets %}
+            <li>{{ bullet }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
