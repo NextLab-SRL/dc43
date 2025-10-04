@@ -23,6 +23,10 @@
 - Pipeline runs page shows ODPS failures in the violations column, enriches DQ details with binding
   information, and separates contract scenarios from data product flows for quicker navigation.
 - Hardened dataset version marker creation so curated roundtrip runs succeed even when symlinked
-  targets already exist during registration.
+  targets already exist during registration or the platform rejects writing markers through the
+  link directly.
 - Captured data product input validation failures in their own DQ sections, marked downstream
   stages as skipped, and avoided duplicating schema errors in the output summary.
+- Restored contract pipeline records to populate input status payloads (while retaining the legacy
+  keys) so the DQ details accordion mirrors contract-based runs without repeating error text in the
+  status column.

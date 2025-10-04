@@ -833,12 +833,19 @@ def _record_blocked_read_failure(
     """Persist a dataset record describing a blocked input read."""
 
     dq_details: dict[str, Any] = {}
+    input_payload: dict[str, Any] = {}
     orders_payload = _status_payload(orders_status)
     customers_payload = _status_payload(customers_status)
     if orders_payload:
+        orders_payload.setdefault("dataset", "orders")
+        input_payload["orders"] = orders_payload
         dq_details["orders"] = orders_payload
     if customers_payload:
+        customers_payload.setdefault("dataset", "customers")
+        input_payload["customers"] = customers_payload
         dq_details["customers"] = customers_payload
+    if input_payload:
+        dq_details["input"] = input_payload
     dq_details["output"] = {
         "errors": [error_message],
         "dq_status": {"status": "error", "reason": error_message},
@@ -1436,15 +1443,41 @@ def run_pipeline(
     if output_activity:
         output_details.setdefault("pipeline_activity", output_activity)
 
-    combined_details = {
-        "orders": orders_status.details if orders_status else None,
-        "customers": customers_status.details if customers_status else None,
-        "output": output_details,
-    }
+    input_details: dict[str, Any] = {}
+    orders_payload = _status_payload(orders_status)
+    if orders_payload:
+        orders_payload.setdefault("dataset", "orders")
+        input_details["orders"] = orders_payload
+        combined_orders = dict(orders_payload)
+    else:
+        combined_orders = None
+    customers_payload = _status_payload(customers_status)
+    if customers_payload:
+        customers_payload.setdefault("dataset", "customers")
+        input_details["customers"] = customers_payload
+        combined_customers = dict(customers_payload)
+    else:
+        combined_customers = None
+
+    combined_details: dict[str, Any] = {"output": output_details}
+    if input_details:
+        combined_details["input"] = input_details
+    if combined_orders is not None:
+        combined_details["orders"] = combined_orders
+    if combined_customers is not None:
+        combined_details["customers"] = combined_customers
+
+    payload_sections: list[Mapping[str, Any]] = []
+    payload_sections.extend(input_details.values())
+    stage_details = combined_details.get("stage")
+    if isinstance(stage_details, Mapping):
+        payload_sections.append(stage_details)
+    payload_sections.append(output_details)
+
     total_violations = 0
     warnings_present = False
-    for det in combined_details.values():
-        if not det or not isinstance(det, dict):
+    for det in payload_sections:
+        if not det:
             continue
         violations_value = det.get("violations")
         if isinstance(violations_value, (int, float)):

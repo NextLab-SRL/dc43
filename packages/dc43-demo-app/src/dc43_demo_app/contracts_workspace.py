@@ -282,7 +282,27 @@ def _ensure_version_marker(target: Path, version: str) -> None:
         except FileExistsError:
             # ``mkdir`` on a symlink raises ``FileExistsError`` – ignore and retry.
             pass
-        marker.write_text(version, encoding="utf-8")
+        try:
+            marker.write_text(version, encoding="utf-8")
+            return
+        except FileNotFoundError:
+            # Some platforms report ``FileNotFoundError`` when writing through a
+            # symlink even if the destination exists. Resolve and write directly
+            # to the backing directory as a fallback.
+            try:
+                resolved = target.resolve(strict=False)
+            except OSError:
+                return
+            if resolved != target:
+                resolved_marker = resolved / ".dc43_version"
+                try:
+                    resolved_marker.parent.mkdir(parents=True, exist_ok=True)
+                except FileExistsError:
+                    pass
+                try:
+                    resolved_marker.write_text(version, encoding="utf-8")
+                except OSError:
+                    return
 
 
 def register_dataset_version(
