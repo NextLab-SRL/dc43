@@ -12,6 +12,8 @@
   (`read_from_contract`, `write_with_contract_id`, `read_from_data_product`,
   `write_to_data_product`) that resolve ODPS contracts automatically and abort
   pipelines when port registration produces a draft version.
+- `read_from_data_product` accepts an `expected_contract_version` argument so
+  data-product reads can pin the upstream schema revision.
 
 ### Fixed
 - `StrictWriteViolationStrategy` now reuses the wrapped strategy's contract status

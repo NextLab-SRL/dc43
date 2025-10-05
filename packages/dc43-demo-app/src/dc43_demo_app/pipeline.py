@@ -1042,12 +1042,21 @@ def _run_data_product_flow(
     input_locator = _data_product_input_locator(input_cfg, records=records)
     input_dataset_id = getattr(input_locator, "dataset_id", None)
     input_dataset_version = getattr(input_locator, "dataset_version", None)
+    input_expected_version = (
+        input_cfg.get("expected_contract_version")
+        if isinstance(input_cfg, Mapping)
+        else None
+    )
+    input_contract_version = (
+        input_cfg.get("contract_version") if isinstance(input_cfg, Mapping) else None
+    )
     source_dp = input_binding.get("source_data_product")
     source_port = input_binding.get("source_output_port")
     orders_df, orders_status = read_from_data_product(
         spark,
         data_product_service=contracts_server.data_product_service,
         data_product_input=input_binding,
+        expected_contract_version=input_expected_version,
         contract_service=contracts_server.contract_service,
         data_quality_service=contracts_server.dq_service,
         governance_service=governance,
@@ -1068,6 +1077,16 @@ def _run_data_product_flow(
                 **(
                     {"dataset_version": input_dataset_version}
                     if input_dataset_version
+                    else {}
+                ),
+                **(
+                    {"expected_contract_version": input_expected_version}
+                    if input_expected_version
+                    else {}
+                ),
+                **(
+                    {"contract_version": input_contract_version}
+                    if input_contract_version
                     else {}
                 ),
                 "collect_examples": bool(collect_examples),
