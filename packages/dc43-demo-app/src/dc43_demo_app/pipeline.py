@@ -42,14 +42,19 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, lit, when
 
 
+def _timestamp_slug(moment: datetime) -> str:
+    """Return a filesystem-safe timestamp representation."""
+
+    return moment.strftime("%Y%m%dT%H%M%S%fZ")
+
+
 def _next_version(existing: list[str]) -> str:
-    """Return a new ISO-8601 timestamp not present in ``existing``."""
+    """Return a new timestamp identifier not present in ``existing``."""
 
     used = set(existing)
     offset = 0
     while True:
-        candidate = (datetime.now(timezone.utc) + timedelta(seconds=offset)).isoformat()
-        candidate = candidate.replace("+00:00", "Z")
+        candidate = _timestamp_slug(datetime.now(timezone.utc) + timedelta(seconds=offset))
         if candidate not in used:
             return candidate
         offset += 1
@@ -1409,7 +1414,7 @@ def run_pipeline(
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     governance = contracts_server.governance_service
 
-    run_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    run_timestamp = _timestamp_slug(datetime.now(timezone.utc))
     base_pipeline_context: dict[str, Any] = {
         "pipeline": "dc43_demo_app.pipeline.run_pipeline",
         "run_id": run_timestamp,
