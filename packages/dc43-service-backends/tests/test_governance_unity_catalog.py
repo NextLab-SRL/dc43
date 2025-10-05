@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Mapping
+import sys
 
 import pytest
 
@@ -11,7 +13,11 @@ from dc43_service_backends.governance.unity_catalog import (
     build_linker_from_config,
     prefix_table_resolver,
 )
-from dc43_service_backends.governance.bootstrap import build_dataset_contract_link_hooks
+from dc43_service_backends.governance.bootstrap import (
+    DEFAULT_LINK_HOOK_BUILDER_SPECS,
+    build_dataset_contract_link_hooks,
+    load_link_hook_builder,
+)
 
 
 def test_linker_updates_table() -> None:
@@ -183,7 +189,7 @@ def test_build_dataset_contract_link_hooks_uses_unity(monkeypatch) -> None:
     linker = UnityCatalogLinker(apply_table_properties=lambda name, props: None)
 
     monkeypatch.setattr(
-        "dc43_service_backends.governance.bootstrap.build_linker_from_config",
+        "dc43_service_backends.governance.unity_catalog.build_linker_from_config",
         lambda cfg: linker,
     )
 
@@ -205,3 +211,71 @@ def test_build_dataset_contract_link_hooks_warns_on_failure() -> None:
         )
 
     assert hooks == ()
+
+
+def test_build_dataset_contract_link_hooks_uses_configured_specs(monkeypatch) -> None:
+    config = ServiceBackendsConfig()
+    config.governance.dataset_contract_link_builders = (
+        "custom.module:builder",
+        "custom.module:builder",
+    )
+
+    loaded: list[str] = []
+
+    def _loader(spec: str):
+        loaded.append(spec)
+        return lambda cfg: None
+
+    monkeypatch.setattr(
+        "dc43_service_backends.governance.bootstrap.load_link_hook_builder",
+        _loader,
+    )
+
+    hooks = build_dataset_contract_link_hooks(config, include_defaults=False)
+    assert hooks == ()
+    assert loaded == ["custom.module:builder"]
+
+
+def test_build_dataset_contract_link_hooks_warns_on_load_failure(monkeypatch) -> None:
+    config = ServiceBackendsConfig()
+    config.governance.dataset_contract_link_builders = ("broken.module:builder",)
+
+    def _loader(spec: str):
+        raise RuntimeError("load boom")
+
+    monkeypatch.setattr(
+        "dc43_service_backends.governance.bootstrap.load_link_hook_builder",
+        _loader,
+    )
+
+    with pytest.warns(RuntimeWarning):
+        hooks = build_dataset_contract_link_hooks(config, include_defaults=False)
+
+    assert hooks == ()
+
+
+def test_load_link_hook_builder_colon_spec() -> None:
+    module = SimpleNamespace(builder=lambda config: ())
+    sys.modules["sample.builders"] = module
+    try:
+        builder = load_link_hook_builder("sample.builders:builder")
+        assert builder is module.builder
+    finally:
+        sys.modules.pop("sample.builders", None)
+
+
+def test_load_link_hook_builder_dotted_spec() -> None:
+    module = SimpleNamespace(nested=SimpleNamespace(factory=lambda config: ()))
+    sys.modules["sample.builders2"] = module
+    try:
+        builder = load_link_hook_builder("sample.builders2.nested.factory")
+        assert builder is module.nested.factory
+    finally:
+        sys.modules.pop("sample.builders2", None)
+
+
+def test_default_builder_specs_include_unity() -> None:
+    assert (
+        "dc43_service_backends.governance.unity_catalog:build_link_hooks"
+        in DEFAULT_LINK_HOOK_BUILDER_SPECS
+    )

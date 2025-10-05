@@ -27,6 +27,7 @@ def test_load_config_from_file(tmp_path: Path) -> None:
     assert config.contract_store.type == "filesystem"
     assert config.contract_store.root == tmp_path / "contracts"
     assert config.auth.token == "secret"
+    assert config.governance.dataset_contract_link_builders == ()
 
 
 def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,6 +43,7 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config.contract_store.root == tmp_path / "override"
     assert config.auth.token == "env-token"
     assert config.unity_catalog.enabled is False
+    assert config.governance.dataset_contract_link_builders == ()
 
 
 def test_load_collibra_stub_config(tmp_path: Path) -> None:
@@ -118,6 +120,11 @@ def test_unity_catalog_config_section(tmp_path: Path) -> None:
                 "",
                 "[unity_catalog.static_properties]",
                 "owner = 'governance'",
+                "",
+                "[governance]",
+                "dataset_contract_link_builders = [",
+                "  'example.module:builder',",
+                "]",
             ]
         )
         + "\n",
@@ -131,6 +138,9 @@ def test_unity_catalog_config_section(tmp_path: Path) -> None:
     assert config.unity_catalog.workspace_host == "https://adb.example.com"
     assert config.unity_catalog.workspace_token == "token-123"
     assert config.unity_catalog.static_properties == {"owner": "governance"}
+    assert config.governance.dataset_contract_link_builders == (
+        "example.module:builder",
+    )
 
 
 def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -143,6 +153,10 @@ def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", "unity-prod")
     monkeypatch.setenv("DATABRICKS_HOST", "https://adb.example.com")
     monkeypatch.setenv("DATABRICKS_TOKEN", "env-token")
+    monkeypatch.setenv(
+        "DC43_GOVERNANCE_LINK_BUILDERS",
+        "custom.module:builder, other.module.hooks:make",
+    )
 
     config = load_config()
     assert config.unity_catalog.enabled is True
@@ -150,3 +164,7 @@ def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert config.unity_catalog.workspace_profile == "unity-prod"
     assert config.unity_catalog.workspace_host == "https://adb.example.com"
     assert config.unity_catalog.workspace_token == "env-token"
+    assert config.governance.dataset_contract_link_builders == (
+        "custom.module:builder",
+        "other.module.hooks:make",
+    )

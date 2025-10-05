@@ -3,10 +3,12 @@ from __future__ import annotations
 """Unity Catalog synchronisation helpers for governance backends."""
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, MutableMapping, Optional, Protocol
+from typing import Any, Callable, Mapping, MutableMapping, Optional, Protocol, Sequence
 import warnings
 
-from dc43_service_backends.config import UnityCatalogConfig
+from dc43_service_backends.config import ServiceBackendsConfig, UnityCatalogConfig
+
+from .hooks import DatasetContractLinkHook
 
 
 class TablePropertyUpdater(Protocol):
@@ -92,7 +94,13 @@ class UnityCatalogLinker:
 
 
 def workspace_table_property_updater(workspace: Any) -> TablePropertyUpdater:
-    """Build a table-property updater backed by the Databricks workspace client."""
+    """Build a table-property updater backed by the Databricks workspace client.
+
+    The updater expects an instance compatible with
+    :class:`databricks.sdk.WorkspaceClient` and forwards property updates to
+    ``workspace.tables.update`` so Unity Catalog reflects the latest contract
+    linkage metadata.
+    """
 
     def _update(table_name: str, properties: Mapping[str, str]) -> None:
         workspace.tables.update(name=table_name, properties=dict(properties))
@@ -145,10 +153,36 @@ def build_linker_from_config(
     )
 
 
+def build_link_hooks(
+    config: ServiceBackendsConfig,
+) -> Sequence[DatasetContractLinkHook] | None:
+    """Return Unity Catalog link hooks derived from ``config``.
+
+    The hooks encapsulate the Unity Catalog linker so the governance bootstrapper
+    can keep Databricks-specific concerns outside of the core web application.
+    """
+
+    try:
+        linker = build_linker_from_config(config.unity_catalog)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        warnings.warn(
+            f"Unity Catalog integration disabled due to error: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+
+    if linker is None:
+        return None
+
+    return (linker.link_dataset_contract,)
+
+
 __all__ = [
     "UnityCatalogLinker",
     "TablePropertyUpdater",
     "workspace_table_property_updater",
     "build_linker_from_config",
     "prefix_table_resolver",
+    "build_link_hooks",
 ]

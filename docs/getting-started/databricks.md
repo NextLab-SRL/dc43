@@ -212,8 +212,32 @@ statements across individual notebooks, enable the Unity Catalog bridge in the
 governance backend and let the service handle table properties as part of the
 link workflow.
 
-Add a Unity Catalog section to the service backend configuration so the
-FastAPI app can talk to the Databricks workspace:
+Install the optional Databricks dependency for the service (the Unity Catalog
+bridge calls [`WorkspaceClient.tables.update`](https://databricks-sdk-python.readthedocs.io/en/latest/workspace.html#databricks.sdk.service.catalog.TablesAPI.update)
+behind the scenes) and configure the backend with credentials that are allowed
+to alter table properties:
+
+```bash
+pip install "dc43-service-backends[http]" databricks-sdk
+```
+
+The token or service principal used by `databricks-sdk` must have the following
+Unity Catalog privileges on the governed catalog and schema:
+
+- `USE CATALOG`
+- `USE SCHEMA`
+- `ALTER` (or `OWN`) on each table that the backend will update
+
+Grant those permissions to a dedicated service principal and create a
+Databricks personal access token for it. Store the token alongside the dc43
+configuration (for example in a Databricks secret scope) and point the backend
+environment variables at the secret when deploying the FastAPI app.
+
+With the permissions in place, add Unity Catalog settings to the service backend
+configuration so the web application can talk to the Databricks workspace. The
+bridge is wired as a governance hook, which means you can keep the REST
+interfaces completely technology agnostic and still compose multiple
+implementations if needed:
 
 ```toml
 [unity_catalog]
@@ -223,6 +247,11 @@ workspace_profile = "prod" # or set host/token via environment variables
 
 [unity_catalog.static_properties]
 dc43.catalog_synced = "true"
+
+[governance]
+dataset_contract_link_builders = [
+  "dc43_service_backends.governance.unity_catalog:build_link_hooks",
+]
 ```
 
 Restart the backend after updating the configuration (or the environment
@@ -254,7 +283,11 @@ The Unity Catalog bridge registers as a backend hook, so the REST contracts and
 client interfaces stay agnostic of Databricks-specific concerns. Pipelines and
 service clients call the same governance APIs regardless of whether tagging is
 enabled; the backend simply fans out the link operation to any configured hooks
-such as Unity Catalog or other metadata systems you might add later.
+such as Unity Catalog or other metadata systems you might add later. You can add
+more hook builders to the `[governance]` configuration (or via the
+`DC43_GOVERNANCE_LINK_BUILDERS` environment variable) without touching the
+service code, which keeps alternative integrations—such as Azure Purview or
+custom auditing—completely pluggable.
 
 ## 7. Next steps
 

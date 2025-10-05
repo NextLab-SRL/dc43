@@ -12,6 +12,7 @@ import tomllib
 __all__ = [
     "ContractStoreConfig",
     "AuthConfig",
+    "GovernanceConfig",
     "UnityCatalogConfig",
     "ServiceBackendsConfig",
     "load_config",
@@ -54,12 +55,20 @@ class UnityCatalogConfig:
 
 
 @dataclass(slots=True)
+class GovernanceConfig:
+    """Governance service extension wiring sourced from configuration."""
+
+    dataset_contract_link_builders: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(slots=True)
 class ServiceBackendsConfig:
     """Top level configuration for the service backend application."""
 
     contract_store: ContractStoreConfig = field(default_factory=ContractStoreConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     unity_catalog: UnityCatalogConfig = field(default_factory=UnityCatalogConfig)
+    governance: GovernanceConfig = field(default_factory=GovernanceConfig)
 
 
 def _first_existing_path(paths: list[str | os.PathLike[str] | None]) -> Path | None:
@@ -165,6 +174,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if isinstance(payload, MutableMapping)
         else {}
     )
+    governance_section = (
+        payload.get("governance")
+        if isinstance(payload, MutableMapping)
+        else {}
+    )
 
     store_type = "filesystem"
     root_value = None
@@ -226,6 +240,20 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             unity_token = token_raw.strip()
         unity_static = _parse_str_dict(unity_section.get("static_properties"))
 
+    link_builder_specs: list[str] = []
+    if isinstance(governance_section, MutableMapping):
+        raw_builders = governance_section.get("dataset_contract_link_builders")
+        if isinstance(raw_builders, (list, tuple, set)):
+            for entry in raw_builders:
+                text = str(entry).strip()
+                if text:
+                    link_builder_specs.append(text)
+        elif isinstance(raw_builders, str):
+            for chunk in raw_builders.split(","):
+                text = chunk.strip()
+                if text:
+                    link_builder_specs.append(text)
+
     env_root = os.getenv("DC43_CONTRACT_STORE")
     if env_root:
         root_value = _coerce_path(env_root)
@@ -255,6 +283,23 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_workspace_token:
         unity_token = env_workspace_token.strip() or None
 
+    env_link_builders = os.getenv("DC43_GOVERNANCE_LINK_BUILDERS")
+    if env_link_builders:
+        for chunk in env_link_builders.split(","):
+            text = chunk.strip()
+            if text:
+                link_builder_specs.append(text)
+
+    # Preserve configuration order while dropping duplicates that may arrive via
+    # the configuration file and environment variables.
+    seen_builders: set[str] = set()
+    ordered_builders: list[str] = []
+    for spec in link_builder_specs:
+        if spec in seen_builders:
+            continue
+        seen_builders.add(spec)
+        ordered_builders.append(spec)
+
     return ServiceBackendsConfig(
         contract_store=ContractStoreConfig(
             type=store_type,
@@ -276,5 +321,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             workspace_host=unity_host,
             workspace_token=unity_token,
             static_properties=unity_static,
+        ),
+        governance=GovernanceConfig(
+            dataset_contract_link_builders=tuple(ordered_builders),
         ),
     )
