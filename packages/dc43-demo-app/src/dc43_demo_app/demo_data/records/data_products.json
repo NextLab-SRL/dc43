@@ -13,12 +13,12 @@
     "outputPorts": [
       {
         "name": "orders-latest",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "contractId": "orders",
-        "description": "Canonical orders dataset aligned to contract orders:1.1.0.",
+        "description": "Canonical orders dataset aligned to contract orders:1.2.0.",
         "customProperties": [
           {"property": "dc43.dataset.id", "value": "orders"},
-          {"property": "dc43.contract.ref", "value": "orders:1.1.0"}
+          {"property": "dc43.contract.ref", "value": "orders:1.2.0"}
         ]
       }
     ],
@@ -45,7 +45,7 @@
     "inputPorts": [
       {
         "name": "orders-feed",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "contractId": "orders",
         "customProperties": [
           {"property": "dc43.input.dataset", "value": "orders"},

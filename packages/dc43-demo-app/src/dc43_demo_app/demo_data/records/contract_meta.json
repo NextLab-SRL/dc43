@@ -1,6 +1,7 @@
 [
   {"id": "orders", "version": "1.0.0", "status": "active"},
   {"id": "orders", "version": "1.1.0", "status": "active"},
+  {"id": "orders", "version": "1.2.0", "status": "active"},
   {"id": "customers", "version": "1.0.0", "status": "active"},
   {"id": "orders_enriched", "version": "1.0.0", "status": "active"},
   {"id": "orders_enriched", "version": "1.1.0", "status": "active"},

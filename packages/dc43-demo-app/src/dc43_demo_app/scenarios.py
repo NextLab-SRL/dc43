@@ -398,7 +398,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "and republishes the slice through a different data product output.</p>"
             "<ul>"
             "<li><strong>Inputs:</strong> Resolves the <code>dp.orders</code> <code>orders-latest</code> output port "
-            "and looks up the latest customer dimensions.</li>"
+            "(contract <code>orders:1.2.0</code>) and looks up the latest customer dimensions.</li>"
             "<li><strong>Intermediate:</strong> Persists the joined dataset under contract "
             "<code>dp.analytics.stage:1.0.0</code> so downstream steps can re-read a governed representation.</li>"
             "<li><strong>Outputs:</strong> Writes to the <code>dp.analytics</code> <code>orders-enriched</code> port, "
@@ -412,7 +412,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             + dedent(
                 """
                 flowchart TD
-                    DPIn["dp.orders orders-latest\ncontract orders:1.1.0"] --> JoinStage[Join with customers]
+                    DPIn["dp.orders orders-latest\ncontract orders:1.2.0"] --> JoinStage[Join with customers]
                     Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> JoinStage
                     JoinStage --> StageWrite["dp.analytics.stage «timestamp»\ncontract dp.analytics.stage:1.0.0"]
                     StageWrite --> StageRead[Read governed stage]
@@ -437,8 +437,8 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
                         "source_output_port": "orders-latest",
                     },
                     "dataset_version": "latest",
-                    "expected_contract_version": "==1.1.0",
-                    "contract_version": "1.1.0",
+                    "expected_contract_version": "==1.2.0",
+                    "contract_version": "1.2.0",
                     "dataset_id": "orders",
                 },
                 "customers": {
