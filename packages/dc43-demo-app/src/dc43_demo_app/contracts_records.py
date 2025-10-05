@@ -12,6 +12,8 @@ from uuid import uuid4
 
 from open_data_contract_standard.model import OpenDataContractStandard
 
+from dc43_service_clients.odps import OpenDataProductStandard
+
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 
 from .contracts_workspace import ContractsAppWorkspace, current_workspace
@@ -30,6 +32,9 @@ class DatasetRecord:
     reason: str = ""
     draft_contract_version: str | None = None
     scenario_key: str | None = None
+    data_product_id: str = ""
+    data_product_port: str = ""
+    data_product_role: str = ""
 
 
 _FLASH_LOCK = Lock()
@@ -39,6 +44,11 @@ _FLASH_MESSAGES: Dict[str, Dict[str, str | None]] = {}
 def _datasets_file(workspace: ContractsAppWorkspace | None = None) -> os.PathLike[str]:
     ws = workspace or current_workspace()
     return ws.datasets_file
+
+
+def _data_products_file(workspace: ContractsAppWorkspace | None = None) -> Path:
+    ws = workspace or current_workspace()
+    return ws.data_products_file
 
 
 def load_records(workspace: ContractsAppWorkspace | None = None) -> List[DatasetRecord]:
@@ -58,6 +68,31 @@ def save_records(records: List[DatasetRecord], workspace: ContractsAppWorkspace 
     datasets_path.write_text(
         json.dumps([r.__dict__ for r in records], indent=2), encoding="utf-8"
     )
+
+
+def load_data_product_payloads(
+    workspace: ContractsAppWorkspace | None = None,
+) -> List[Mapping[str, Any]]:
+    path = _data_products_file(workspace)
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, Mapping)]
+    return []
+
+
+def load_data_product_documents(
+    workspace: ContractsAppWorkspace | None = None,
+) -> List[OpenDataProductStandard]:
+    documents: List[OpenDataProductStandard] = []
+    for payload in load_data_product_payloads(workspace):
+        try:
+            documents.append(OpenDataProductStandard.from_dict(payload))
+        except Exception:
+            continue
+    return documents
 
 
 def queue_flash(message: str | None = None, error: str | None = None) -> str:
@@ -152,6 +187,7 @@ def scenario_run_rows(
                 "label": cfg.get("label", key.replace("-", " ").title()),
                 "description": cfg.get("description"),
                 "diagram": cfg.get("diagram"),
+                "category": cfg.get("category", "contract"),
                 "dataset_name": dataset_name,
                 "contract_id": params.get("contract_id"),
                 "contract_version": params.get("contract_version"),
@@ -354,6 +390,8 @@ def dq_version_records(
 
 __all__ = [
     "DatasetRecord",
+    "load_data_product_documents",
+    "load_data_product_payloads",
     "dq_version_records",
     "get_store",
     "load_contract_meta",

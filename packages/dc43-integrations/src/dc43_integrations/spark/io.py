@@ -1378,6 +1378,7 @@ def read_from_data_product(
     *,
     data_product_service: DataProductServiceClient,
     data_product_input: DataProductInputBinding | Mapping[str, object],
+    expected_contract_version: Optional[str] = None,
     contract_service: Optional[ContractServiceClient] = None,
     format: Optional[str] = None,
     path: Optional[str] = None,
@@ -1397,6 +1398,7 @@ def read_from_data_product(
     return read_with_contract(
         spark,
         contract_service=contract_service,
+        expected_contract_version=expected_contract_version,
         data_product_service=data_product_service,
         data_product_input=data_product_input,
         format=format,

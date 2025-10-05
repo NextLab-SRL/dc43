@@ -8,6 +8,12 @@ import pytest
 from pyspark.sql import SparkSession
 
 from dc43_demo_app import pipeline
+from dc43_demo_app.contracts_records import DatasetRecord
+from dc43_integrations.spark.io import (
+    ContractFirstDatasetLocator,
+    ContractVersionLocator,
+    StaticDatasetLocator,
+)
 from dc43_demo_app.contracts_workspace import prepare_demo_workspace
 
 prepare_demo_workspace()
@@ -103,6 +109,82 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
             .config("spark.ui.enabled", "false") \
             .config("spark.sql.shuffle.partitions", "2") \
             .getOrCreate()
+
+
+def test_data_product_input_locator_defaults_to_latest() -> None:
+    locator = pipeline._data_product_input_locator({})
+    assert isinstance(locator, ContractVersionLocator)
+    assert locator.dataset_version == "latest"
+    assert isinstance(locator.base, ContractFirstDatasetLocator)
+
+
+def test_data_product_input_locator_respects_version_and_id() -> None:
+    locator = pipeline._data_product_input_locator(
+        {"dataset_version": "2025-10-05", "dataset_id": "orders"}
+    )
+    assert isinstance(locator, ContractVersionLocator)
+    assert locator.dataset_version == "2025-10-05"
+    assert locator.dataset_id == "orders"
+
+
+def test_data_product_input_locator_accepts_custom_locator() -> None:
+    custom = StaticDatasetLocator(
+        dataset_id="orders",
+        dataset_version="custom",
+        base=ContractFirstDatasetLocator(),
+    )
+    locator = pipeline._data_product_input_locator({"dataset_locator": custom})
+    assert locator is custom
+
+
+def test_data_product_input_locator_prefers_latest_ok_record() -> None:
+    records = [
+        DatasetRecord(
+            contract_id="orders",
+            contract_version="1.1.0",
+            dataset_name="orders",
+            dataset_version="2025-09-28",
+            status="error",
+        ),
+        DatasetRecord(
+            contract_id="orders",
+            contract_version="1.1.0",
+            dataset_name="orders",
+            dataset_version="2025-10-05",
+            status="ok",
+        ),
+    ]
+
+    locator = pipeline._data_product_input_locator({"dataset_id": "orders"}, records=records)
+
+    assert isinstance(locator, ContractVersionLocator)
+    assert locator.dataset_version == "2025-10-05"
+
+
+def test_run_pipeline_refreshes_aliases_for_data_product_flow(monkeypatch) -> None:
+    refreshed: list[str | None] = []
+
+    def fake_refresh(dataset: str | None = None) -> None:
+        refreshed.append(dataset)
+
+    def fake_run_flow(**_: object) -> tuple[str, str]:
+        return "dp.analytics.stage", "20251005T065105464905Z"
+
+    monkeypatch.setattr(pipeline.contracts_server, "refresh_dataset_aliases", fake_refresh)
+    monkeypatch.setattr(pipeline, "_run_data_product_flow", fake_run_flow)
+
+    dataset, version = pipeline.run_pipeline(
+        contract_id=None,
+        contract_version=None,
+        dataset_name=None,
+        dataset_version=None,
+        run_type="observe",
+        data_product_flow={"input": {}, "output": {}},
+    )
+
+    assert dataset == "dp.analytics.stage"
+    assert version == "20251005T065105464905Z"
+    assert refreshed == [None]
 
 
 def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
