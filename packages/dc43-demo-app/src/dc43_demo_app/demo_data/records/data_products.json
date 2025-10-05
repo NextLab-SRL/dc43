@@ -22,6 +22,18 @@
         ]
       }
     ],
+    "inputPorts": [
+      {
+        "name": "orders-latest",
+        "version": "1.2.0",
+        "contractId": "orders",
+        "customProperties": [
+          {"property": "dc43.input.dataset", "value": "orders"},
+          {"property": "dc43.input.source_data_product", "value": "dp.orders"},
+          {"property": "dc43.input.source_output_port", "value": "orders-latest"}
+        ]
+      }
+    ],
     "customProperties": [
       {"property": "domain", "value": "sales"},
       {"property": "owner", "value": "commerce-platform"}
