@@ -15,6 +15,9 @@ def test_load_config_from_file(tmp_path: Path) -> None:
                 "[contract_store]",
                 f"root = '{tmp_path / 'contracts'}'",
                 "",
+                "[data_product]",
+                f"root = '{tmp_path / 'products'}'",
+                "",
                 "[auth]",
                 "token = 'secret'",
             ]
@@ -26,6 +29,8 @@ def test_load_config_from_file(tmp_path: Path) -> None:
     config = load_config(config_path)
     assert config.contract_store.type == "filesystem"
     assert config.contract_store.root == tmp_path / "contracts"
+    assert config.data_product_store.type == "memory"
+    assert config.data_product_store.root == tmp_path / "products"
     assert config.auth.token == "secret"
     assert config.governance.dataset_contract_link_builders == ()
 
@@ -37,10 +42,12 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
     monkeypatch.setenv("DC43_CONTRACT_STORE", str(tmp_path / "override"))
     monkeypatch.setenv("DC43_BACKEND_TOKEN", "env-token")
+    monkeypatch.setenv("DC43_DATA_PRODUCT_STORE", str(tmp_path / "dp"))
 
     config = load_config()
     assert config.contract_store.type == "filesystem"
     assert config.contract_store.root == tmp_path / "override"
+    assert config.data_product_store.root == tmp_path / "dp"
     assert config.auth.token == "env-token"
     assert config.unity_catalog.enabled is False
     assert config.governance.dataset_contract_link_builders == ()
@@ -79,6 +86,31 @@ def test_load_collibra_stub_config(tmp_path: Path) -> None:
         "contract_a": ("dp-a", "port-a"),
         "contract-b": ("dp-b", "port-b"),
     }
+
+
+def test_delta_store_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[contract_store]",
+                "type = 'delta'",
+                "table = 'governed.meta.contracts'",
+                "",
+                "[data_product]",
+                "type = 'delta'",
+                "table = 'governed.meta.data_products'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.contract_store.type == "delta"
+    assert config.contract_store.table == "governed.meta.contracts"
+    assert config.data_product_store.type == "delta"
+    assert config.data_product_store.table == "governed.meta.data_products"
 
 
 def test_load_collibra_http_config(tmp_path: Path) -> None:

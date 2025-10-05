@@ -8,6 +8,7 @@ from typing import Any
 __all__ = [
     "auth",
     "config",
+    "bootstrap",
     "contracts",
     "data_products",
     "data_quality",

@@ -11,6 +11,7 @@ import tomllib
 
 __all__ = [
     "ContractStoreConfig",
+    "DataProductStoreConfig",
     "AuthConfig",
     "GovernanceConfig",
     "UnityCatalogConfig",
@@ -26,6 +27,7 @@ class ContractStoreConfig:
     type: str = "filesystem"
     root: Path | None = None
     base_path: Path | None = None
+    table: str | None = None
     base_url: str | None = None
     token: str | None = None
     timeout: float = 10.0
@@ -40,6 +42,16 @@ class AuthConfig:
     """Authentication configuration for protecting backend endpoints."""
 
     token: str | None = None
+
+
+@dataclass(slots=True)
+class DataProductStoreConfig:
+    """Configuration for the active data product store implementation."""
+
+    type: str = "memory"
+    root: Path | None = None
+    base_path: Path | None = None
+    table: str | None = None
 
 
 @dataclass(slots=True)
@@ -66,6 +78,7 @@ class ServiceBackendsConfig:
     """Top level configuration for the service backend application."""
 
     contract_store: ContractStoreConfig = field(default_factory=ContractStoreConfig)
+    data_product_store: DataProductStoreConfig = field(default_factory=DataProductStoreConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
     unity_catalog: UnityCatalogConfig = field(default_factory=UnityCatalogConfig)
     governance: GovernanceConfig = field(default_factory=GovernanceConfig)
@@ -164,6 +177,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if isinstance(payload, MutableMapping)
         else {}
     )
+    data_product_section = (
+        payload.get("data_product")
+        if isinstance(payload, MutableMapping)
+        else {}
+    )
+
     auth_section = (
         payload.get("auth")
         if isinstance(payload, MutableMapping)
@@ -183,6 +202,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     store_type = "filesystem"
     root_value = None
     base_path_value = None
+    table_value = None
     base_url_value = None
     store_token_value = None
     timeout_value = 10.0
@@ -196,6 +216,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             store_type = raw_type.strip().lower()
         root_value = _coerce_path(store_section.get("root"))
         base_path_value = _coerce_path(store_section.get("base_path"))
+        table_raw = store_section.get("table")
+        if isinstance(table_raw, str) and table_raw.strip():
+            table_value = table_raw.strip()
         base_url_raw = store_section.get("base_url")
         if base_url_raw is not None:
             base_url_value = str(base_url_raw).strip() or None
@@ -211,6 +234,20 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if status_raw is not None:
             status_filter = str(status_raw).strip() or None
         catalog_value = _parse_catalog(store_section.get("catalog"))
+
+    dp_type = "memory"
+    dp_root_value = None
+    dp_base_path_value = None
+    dp_table_value = None
+    if isinstance(data_product_section, MutableMapping):
+        raw_type = data_product_section.get("type")
+        if isinstance(raw_type, str) and raw_type.strip():
+            dp_type = raw_type.strip().lower()
+        dp_root_value = _coerce_path(data_product_section.get("root"))
+        dp_base_path_value = _coerce_path(data_product_section.get("base_path"))
+        table_raw = data_product_section.get("table")
+        if isinstance(table_raw, str) and table_raw.strip():
+            dp_table_value = table_raw.strip()
 
     auth_token_value = None
     if isinstance(auth_section, MutableMapping):
@@ -259,6 +296,19 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         root_value = _coerce_path(env_root)
         base_path_value = root_value if base_path_value is None else base_path_value
 
+    env_contract_table = os.getenv("DC43_CONTRACT_STORE_TABLE")
+    if env_contract_table:
+        table_value = env_contract_table.strip() or table_value
+
+    env_dp_root = os.getenv("DC43_DATA_PRODUCT_STORE")
+    if env_dp_root:
+        dp_root_value = _coerce_path(env_dp_root)
+        dp_base_path_value = dp_root_value if dp_base_path_value is None else dp_base_path_value
+
+    env_dp_table = os.getenv("DC43_DATA_PRODUCT_TABLE")
+    if env_dp_table:
+        dp_table_value = env_dp_table.strip() or dp_table_value
+
     env_token = os.getenv("DC43_BACKEND_TOKEN")
     if env_token:
         auth_token_value = env_token.strip() or None
@@ -305,6 +355,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             type=store_type,
             root=root_value,
             base_path=base_path_value,
+            table=table_value,
             base_url=base_url_value,
             token=store_token_value,
             timeout=timeout_value,
@@ -312,6 +363,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             default_status=default_status,
             status_filter=status_filter,
             catalog=catalog_value,
+        ),
+        data_product_store=DataProductStoreConfig(
+            type=dp_type,
+            root=dp_root_value,
+            base_path=dp_base_path_value,
+            table=dp_table_value,
         ),
         auth=AuthConfig(token=auth_token_value),
         unity_catalog=UnityCatalogConfig(

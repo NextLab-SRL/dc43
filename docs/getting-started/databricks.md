@@ -60,11 +60,11 @@ settings:
 config = """
 [contract_store]
 type = "delta"
-base_path = "dbfs:/mnt/dc43-demo/contracts"
+table = "governed.meta.contracts"
 
 [data_product]
 type = "delta"
-base_path = "dbfs:/mnt/dc43-demo/data-products"
+table = "governed.meta.data_products"
 """
 
 dbutils.fs.mkdirs("dbfs:/mnt/dc43-demo/config")
@@ -72,17 +72,26 @@ dbutils.fs.put("dbfs:/mnt/dc43-demo/config/dc43-service-backends.toml", config, 
 ```
 
 Point the helper loader at this configuration when you create a contract or
-register a data product:
+register a data product. The bootstrap helpers provision the Unity-backed
+stores automatically and fall back to filesystem or remote deployments if you
+change the `type` fields (for example, `filesystem` for a DBFS prototype or
+`collibra_http` / an Azure-hosted backend that persists metadata in Postgres).
 
 ```python
+from dc43_service_backends.bootstrap import build_backends
 from dc43_service_backends.config import load_config
-from dc43_service_backends.contracts.backend import ContractServiceBackendFactory
-from dc43_service_backends.data_products import DataProductServiceBackendFactory
 
 config = load_config("dbfs:/mnt/dc43-demo/config/dc43-service-backends.toml")
-contract_backend = ContractServiceBackendFactory.from_config(config.contract_store)
-data_product_backend = DataProductServiceBackendFactory.from_config(config.data_product)
+contract_backend, data_product_backend = build_backends(config)
 ```
+
+When you prefer to materialise the catalogues in Unity tables, set the `table`
+fields as shown above. Switching to `base_path` keeps the previous behaviour of
+writing Delta files under `dbfs:/mnt/...`, which is useful for quick proofs of
+concept. Remote service deployments remain viable as well: keep the
+configuration pointing at your existing governance services (for example,
+Postgres- or Azure-backed APIs) and the Unity Catalog hooks continue to apply
+tags while the contract or product payloads live in those external stores.
 
 ## 4. Create a demo contract and data product
 

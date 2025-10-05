@@ -4,6 +4,16 @@ type = "filesystem"
 # Path to the filesystem contract store. Defaults to a "contracts" directory
 # inside the current working directory when unset.
 root = ""
+# Use ``table`` to back the service with a Unity Catalog table instead of a
+# filesystem directory. Requires ``type = "delta"`` and a Spark runtime.
+table = ""
+
+[data_product]
+# In-memory data product store mirrors the historical behaviour. Switch to
+# ``filesystem`` or ``delta`` to persist ODPS definitions.
+type = "memory"
+root = ""
+table = ""
 
 [auth]
 # Optional bearer token required for requests to the backend API.
