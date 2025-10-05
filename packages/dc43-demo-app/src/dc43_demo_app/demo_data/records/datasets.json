@@ -37,6 +37,6 @@
     "dataset_name": "customers",
     "dataset_version": "2024-01-01",
     "status": "ok",
-    "dq_details": {"violations": 0, "metrics": {"row_count": 2}}
+    "dq_details": {"violations": 0, "metrics": {"row_count": 5}}
   }
 ]
