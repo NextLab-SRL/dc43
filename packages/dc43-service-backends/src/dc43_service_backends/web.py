@@ -24,6 +24,7 @@ from dc43_service_backends.data_quality.backend import (
     LocalDataQualityServiceBackend,
 )
 from dc43_service_backends.governance.backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
+from dc43_service_backends.governance.unity_catalog import UnityCatalogLinker
 
 from .server import build_app
 
@@ -35,6 +36,7 @@ def build_local_app(
     data_product_backend: DataProductServiceBackend | None = None,
     dq_backend: DataQualityServiceBackend | None = None,
     governance_backend: GovernanceServiceBackend | None = None,
+    unity_catalog_linker: UnityCatalogLinker | None = None,
     dependencies: Sequence[object] | None = None,
 ) -> FastAPI:
     """Build a FastAPI application wired against in-process backends."""
@@ -53,6 +55,7 @@ def build_local_app(
             contract_client=contract_backend,
             dq_client=dq_backend,
             draft_store=store,
+            unity_catalog=unity_catalog_linker,
         )
 
     return build_app(

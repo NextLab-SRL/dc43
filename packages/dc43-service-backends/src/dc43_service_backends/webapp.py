@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import Sequence
 from threading import Lock
@@ -25,6 +26,7 @@ from .contracts.backend.stores import (
 )
 from .contracts.backend.stores.interface import ContractStore
 from .web import build_local_app
+from .governance.unity_catalog import build_linker_from_config
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ServiceBackendsConfig | None = None
@@ -109,13 +111,30 @@ def _resolve_dependencies(config: ServiceBackendsConfig) -> Sequence[object] | N
     return None
 
 
+def _resolve_unity_catalog(config: ServiceBackendsConfig):
+    try:
+        return build_linker_from_config(config.unity_catalog)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        warnings.warn(
+            f"Unity Catalog integration disabled due to error: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+
+
 def create_app(config: ServiceBackendsConfig | None = None) -> FastAPI:
     """Build a FastAPI application backed by local filesystem services."""
 
     active_config = configure_from_config(config)
     store = _resolve_store(active_config)
     dependencies = _resolve_dependencies(active_config)
-    return build_local_app(store, dependencies=dependencies)
+    unity_catalog = _resolve_unity_catalog(active_config)
+    return build_local_app(
+        store,
+        dependencies=dependencies,
+        unity_catalog_linker=unity_catalog,
+    )
 
 
 # Module-level application so ``uvicorn dc43_service_backends.webapp:app`` works.

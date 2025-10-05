@@ -15,6 +15,10 @@
 - `read_from_data_product` accepts an `expected_contract_version` argument so
   data-product reads can pin the upstream schema revision.
 
+### Removed
+- Removed the Databricks `UnityCatalogPublisher` wrapper now that Unity Catalog
+  tagging is handled transparently by the governance backend configuration.
+
 ### Fixed
 - `StrictWriteViolationStrategy` now reuses the wrapped strategy's contract status
   allowances so strict enforcement respects custom governance policies.

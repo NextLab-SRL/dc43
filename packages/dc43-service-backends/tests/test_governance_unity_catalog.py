@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+from typing import Mapping
+
+from dc43_service_backends.config import UnityCatalogConfig
+from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
+from dc43_service_backends.governance.unity_catalog import (
+    UnityCatalogLinker,
+    build_linker_from_config,
+    prefix_table_resolver,
+)
+
+
+def test_linker_updates_table() -> None:
+    updates: list[tuple[str, Mapping[str, str]]] = []
+
+    def _update(table_name: str, properties: Mapping[str, str]) -> None:
+        updates.append((table_name, dict(properties)))
+
+    linker = UnityCatalogLinker(
+        apply_table_properties=_update,
+        static_properties={"dc43.catalog_synced": "true"},
+    )
+
+    linker.link_dataset_contract(
+        dataset_id="table:governed.analytics.orders",
+        dataset_version="42",
+        contract_id="sales.orders",
+        contract_version="0.1.0",
+    )
+
+    assert updates == [
+        (
+            "governed.analytics.orders",
+            {
+                "dc43.contract_id": "sales.orders",
+                "dc43.contract_version": "0.1.0",
+                "dc43.dataset_version": "42",
+                "dc43.catalog_synced": "true",
+            },
+        )
+    ]
+
+
+def test_linker_skips_non_matching_datasets() -> None:
+    updates: list[tuple[str, Mapping[str, str]]] = []
+
+    def _update(table_name: str, properties: Mapping[str, str]) -> None:
+        updates.append((table_name, dict(properties)))
+
+    linker = UnityCatalogLinker(
+        apply_table_properties=_update,
+        table_resolver=prefix_table_resolver("table:"),
+    )
+
+    linker.link_dataset_contract(
+        dataset_id="path:dbfs:/tmp/orders",
+        dataset_version="7",
+        contract_id="sales.orders",
+        contract_version="0.1.0",
+    )
+
+    assert updates == []
+
+
+class _ContractClient:
+    def __init__(self) -> None:
+        self.links: list[tuple[str, str, str, str]] = []
+
+    def link_dataset_contract(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        contract_id: str,
+        contract_version: str,
+    ) -> None:
+        self.links.append((dataset_id, dataset_version, contract_id, contract_version))
+
+
+class _DQClient:
+    pass
+
+
+def test_local_backend_still_tags_with_remote_contract_client() -> None:
+    updates: list[tuple[str, Mapping[str, str]]] = []
+
+    def _update(table_name: str, properties: Mapping[str, str]) -> None:
+        updates.append((table_name, dict(properties)))
+
+    contract_client = _ContractClient()
+    backend = LocalGovernanceServiceBackend(
+        contract_client=contract_client,
+        dq_client=_DQClient(),
+        unity_catalog=UnityCatalogLinker(apply_table_properties=_update),
+    )
+
+    backend.link_dataset_contract(
+        dataset_id="table:governed.analytics.orders",
+        dataset_version="1",
+        contract_id="sales.orders",
+        contract_version="0.1.0",
+    )
+
+    assert contract_client.links == [
+        ("table:governed.analytics.orders", "1", "sales.orders", "0.1.0")
+    ]
+    assert updates == [
+        (
+            "governed.analytics.orders",
+            {
+                "dc43.contract_id": "sales.orders",
+                "dc43.contract_version": "0.1.0",
+                "dc43.dataset_version": "1",
+            },
+        )
+    ]
+
+
+class _Workspace:
+    def __init__(self) -> None:
+        self.tables = _Tables()
+
+
+class _Tables:
+    def __init__(self) -> None:
+        self.updates: list[tuple[str, Mapping[str, str]]] = []
+
+    def update(self, *, name: str, properties: Mapping[str, str]) -> None:
+        self.updates.append((name, dict(properties)))
+
+
+def test_build_linker_from_config_uses_workspace_builder() -> None:
+    workspace = _Workspace()
+
+    def _builder(config: UnityCatalogConfig) -> _Workspace:
+        assert config.enabled is True
+        assert config.dataset_prefix == "table:"
+        return workspace
+
+    config = UnityCatalogConfig(
+        enabled=True,
+        dataset_prefix="table:",
+        static_properties={"team": "governance"},
+    )
+
+    linker = build_linker_from_config(config, workspace_builder=_builder)
+    assert isinstance(linker, UnityCatalogLinker)
+
+    linker.link_dataset_contract(
+        dataset_id="table:governed.analytics.orders",
+        dataset_version="1",
+        contract_id="sales.orders",
+        contract_version="0.2.0",
+    )
+
+    assert workspace.tables.updates == [
+        (
+            "governed.analytics.orders",
+            {
+                "dc43.contract_id": "sales.orders",
+                "dc43.contract_version": "0.2.0",
+                "dc43.dataset_version": "1",
+                "team": "governance",
+            },
+        )
+    ]
+
+
+def test_build_linker_from_config_disabled() -> None:
+    config = UnityCatalogConfig(enabled=False)
+    linker = build_linker_from_config(config, workspace_builder=lambda cfg: _Workspace())
+    assert linker is None

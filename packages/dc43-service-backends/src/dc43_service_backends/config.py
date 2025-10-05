@@ -12,6 +12,7 @@ import tomllib
 __all__ = [
     "ContractStoreConfig",
     "AuthConfig",
+    "UnityCatalogConfig",
     "ServiceBackendsConfig",
     "load_config",
 ]
@@ -41,11 +42,24 @@ class AuthConfig:
 
 
 @dataclass(slots=True)
+class UnityCatalogConfig:
+    """Optional Databricks Unity Catalog synchronisation settings."""
+
+    enabled: bool = False
+    dataset_prefix: str = "table:"
+    workspace_profile: str | None = None
+    workspace_host: str | None = None
+    workspace_token: str | None = None
+    static_properties: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class ServiceBackendsConfig:
     """Top level configuration for the service backend application."""
 
     contract_store: ContractStoreConfig = field(default_factory=ContractStoreConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
+    unity_catalog: UnityCatalogConfig = field(default_factory=UnityCatalogConfig)
 
 
 def _first_existing_path(paths: list[str | os.PathLike[str] | None]) -> Path | None:
@@ -102,6 +116,32 @@ def _parse_catalog(section: Any) -> dict[str, tuple[str, str]]:
     return catalog
 
 
+def _parse_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalised = value.strip().lower()
+        if normalised in {"1", "true", "yes", "on"}:
+            return True
+        if normalised in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _parse_str_dict(section: Any) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not isinstance(section, MutableMapping):
+        return values
+    for key, value in section.items():
+        key_str = str(key).strip()
+        if not key_str:
+            continue
+        values[key_str] = str(value)
+    return values
+
+
 def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsConfig:
     """Load configuration from ``path`` or fall back to defaults."""
 
@@ -117,6 +157,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     )
     auth_section = (
         payload.get("auth")
+        if isinstance(payload, MutableMapping)
+        else {}
+    )
+    unity_section = (
+        payload.get("unity_catalog")
         if isinstance(payload, MutableMapping)
         else {}
     )
@@ -159,6 +204,28 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if token_raw is not None:
             auth_token_value = str(token_raw).strip() or None
 
+    unity_enabled = False
+    unity_prefix = "table:"
+    unity_profile = None
+    unity_host = None
+    unity_token = None
+    unity_static: dict[str, str] = {}
+    if isinstance(unity_section, MutableMapping):
+        unity_enabled = _parse_bool(unity_section.get("enabled"), False)
+        prefix_raw = unity_section.get("dataset_prefix")
+        if isinstance(prefix_raw, str) and prefix_raw.strip():
+            unity_prefix = prefix_raw.strip()
+        profile_raw = unity_section.get("workspace_profile")
+        if isinstance(profile_raw, str) and profile_raw.strip():
+            unity_profile = profile_raw.strip()
+        host_raw = unity_section.get("workspace_host")
+        if isinstance(host_raw, str) and host_raw.strip():
+            unity_host = host_raw.strip()
+        token_raw = unity_section.get("workspace_token")
+        if isinstance(token_raw, str) and token_raw.strip():
+            unity_token = token_raw.strip()
+        unity_static = _parse_str_dict(unity_section.get("static_properties"))
+
     env_root = os.getenv("DC43_CONTRACT_STORE")
     if env_root:
         root_value = _coerce_path(env_root)
@@ -167,6 +234,26 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     env_token = os.getenv("DC43_BACKEND_TOKEN")
     if env_token:
         auth_token_value = env_token.strip() or None
+
+    env_unity_enabled = os.getenv("DC43_UNITY_CATALOG_ENABLED")
+    if env_unity_enabled is not None:
+        unity_enabled = _parse_bool(env_unity_enabled, unity_enabled)
+
+    env_unity_prefix = os.getenv("DC43_UNITY_CATALOG_PREFIX")
+    if env_unity_prefix:
+        unity_prefix = env_unity_prefix.strip() or unity_prefix
+
+    env_profile = os.getenv("DATABRICKS_CONFIG_PROFILE")
+    if env_profile:
+        unity_profile = env_profile.strip() or None
+
+    env_host = os.getenv("DATABRICKS_HOST")
+    if env_host:
+        unity_host = env_host.strip() or None
+
+    env_workspace_token = os.getenv("DATABRICKS_TOKEN") or os.getenv("DC43_DATABRICKS_TOKEN")
+    if env_workspace_token:
+        unity_token = env_workspace_token.strip() or None
 
     return ServiceBackendsConfig(
         contract_store=ContractStoreConfig(
@@ -182,4 +269,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             catalog=catalog_value,
         ),
         auth=AuthConfig(token=auth_token_value),
+        unity_catalog=UnityCatalogConfig(
+            enabled=unity_enabled,
+            dataset_prefix=unity_prefix,
+            workspace_profile=unity_profile,
+            workspace_host=unity_host,
+            workspace_token=unity_token,
+            static_properties=unity_static,
+        ),
     )

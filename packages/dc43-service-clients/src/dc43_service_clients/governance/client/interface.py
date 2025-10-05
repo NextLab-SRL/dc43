@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Protocol
+from typing import Mapping, Optional, Protocol
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -33,6 +33,24 @@ class GovernanceServiceClient(Protocol):
         *,
         assessment: QualityAssessment,
     ) -> Mapping[str, object]:
+        ...
+
+    def link_dataset_contract(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        contract_id: str,
+        contract_version: str,
+    ) -> None:
+        ...
+
+    def get_linked_contract_version(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+    ) -> Optional[str]:
         ...
 
 

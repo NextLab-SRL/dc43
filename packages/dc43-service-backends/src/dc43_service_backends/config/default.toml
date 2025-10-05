@@ -8,3 +8,13 @@ root = ""
 [auth]
 # Optional bearer token required for requests to the backend API.
 token = ""
+
+[unity_catalog]
+# Disable Unity Catalog tagging by default; enable and supply Databricks
+# connection details (profile or host/token) to mirror dataset links into
+# catalog table properties.
+enabled = false
+dataset_prefix = "table:"
+workspace_profile = ""
+workspace_host = ""
+workspace_token = ""

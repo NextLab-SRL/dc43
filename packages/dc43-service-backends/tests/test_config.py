@@ -41,6 +41,7 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config.contract_store.type == "filesystem"
     assert config.contract_store.root == tmp_path / "override"
     assert config.auth.token == "env-token"
+    assert config.unity_catalog.enabled is False
 
 
 def test_load_collibra_stub_config(tmp_path: Path) -> None:
@@ -101,3 +102,51 @@ def test_load_collibra_http_config(tmp_path: Path) -> None:
     assert config.contract_store.token == "api-token"
     assert config.contract_store.timeout == 5.5
     assert config.contract_store.contracts_endpoint_template == "/custom/{data_product}/{port}"
+
+
+def test_unity_catalog_config_section(tmp_path: Path) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[unity_catalog]",
+                "enabled = true",
+                "dataset_prefix = 'table:'",
+                "workspace_profile = 'prod'",
+                "workspace_host = 'https://adb.example.com'",
+                "workspace_token = 'token-123'",
+                "",
+                "[unity_catalog.static_properties]",
+                "owner = 'governance'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.unity_catalog.enabled is True
+    assert config.unity_catalog.dataset_prefix == "table:"
+    assert config.unity_catalog.workspace_profile == "prod"
+    assert config.unity_catalog.workspace_host == "https://adb.example.com"
+    assert config.unity_catalog.workspace_token == "token-123"
+    assert config.unity_catalog.static_properties == {"owner": "governance"}
+
+
+def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
+    monkeypatch.setenv("DC43_UNITY_CATALOG_ENABLED", "yes")
+    monkeypatch.setenv("DC43_UNITY_CATALOG_PREFIX", "cat:")
+    monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", "unity-prod")
+    monkeypatch.setenv("DATABRICKS_HOST", "https://adb.example.com")
+    monkeypatch.setenv("DATABRICKS_TOKEN", "env-token")
+
+    config = load_config()
+    assert config.unity_catalog.enabled is True
+    assert config.unity_catalog.dataset_prefix == "cat:"
+    assert config.unity_catalog.workspace_profile == "unity-prod"
+    assert config.unity_catalog.workspace_host == "https://adb.example.com"
+    assert config.unity_catalog.workspace_token == "env-token"
