@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-3">
+  <a class="text-decoration-none" href="/pipeline-runs">&larr; Back to pipeline scenarios</a>
+</div>
+
+<div class="d-flex flex-wrap align-items-start gap-3 mb-3">
+  <div>
+    <h1 class="h2 mb-1">{{ scenario_row.label }}</h1>
+    <div class="text-muted small">Scenario key: {{ scenario_key }}</div>
+  </div>
+  {% if category_label %}
+  <span class="badge bg-secondary align-self-center">{{ category_label }}</span>
+  {% endif %}
+</div>
+
+<form id="scenario-run-form" class="mb-4" method="post" action="/pipeline/run">
+  <input type="hidden" name="scenario" value="{{ scenario_key }}"/>
+  <button class="btn btn-primary" type="submit">Run this scenario</button>
+</form>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h2 class="h5">Quick reference</h2>
+    <dl class="row small mb-0">
+      <dt class="col-sm-4">Primary dataset</dt>
+      <dd class="col-sm-8">
+        {% if dataset_name %}
+          <a href="/datasets/{{ dataset_name }}">{{ dataset_name }}</a>
+        {% else %}
+          <span class="text-muted">None recorded</span>
+        {% endif %}
+      </dd>
+      <dt class="col-sm-4">Contract</dt>
+      <dd class="col-sm-8">
+        {% set contract_id = (latest_record.contract_id if latest_record and latest_record.contract_id else scenario_row.contract_id) %}
+        {% set contract_version = (latest_record.contract_version if latest_record and latest_record.contract_version else scenario_row.contract_version) %}
+        {% if contract_id %}
+          <a href="/contracts/{{ contract_id }}">{{ contract_id }}</a>
+          {% if contract_version %}
+            <span class="text-muted">/</span>
+            <a href="/contracts/{{ contract_id }}/{{ contract_version }}">{{ contract_version }}</a>
+          {% endif %}
+        {% elif contract_version %}
+          {{ contract_version }}
+        {% else %}
+          <span class="text-muted">No output contract</span>
+        {% endif %}
+      </dd>
+      <dt class="col-sm-4">Default run type</dt>
+      <dd class="col-sm-8">{{ scenario_row.run_type }}</dd>
+      {% if latest_record and latest_record.draft_contract_version %}
+      <dt class="col-sm-4">Latest draft</dt>
+      <dd class="col-sm-8">
+        {% if latest_record.contract_id %}
+          <a href="/contracts/{{ latest_record.contract_id }}/{{ latest_record.draft_contract_version }}">{{ latest_record.draft_contract_version }}</a>
+        {% else %}
+          {{ latest_record.draft_contract_version }}
+        {% endif %}
+      </dd>
+      {% endif %}
+      {% if latest_record and latest_record.data_product_id %}
+      <dt class="col-sm-4">Data product</dt>
+      <dd class="col-sm-8">
+        <a href="/data-products/{{ latest_record.data_product_id }}">{{ latest_record.data_product_id }}</a>
+        {% if latest_record.data_product_port %}
+          <span class="text-muted">/</span>
+          <code>{{ latest_record.data_product_port }}</code>
+        {% endif %}
+        {% if latest_record.data_product_role %}
+          <span class="badge bg-secondary text-uppercase ms-1">{{ latest_record.data_product_role }}</span>
+        {% endif %}
+      </dd>
+      {% endif %}
+    </dl>
+    {% if activate_versions %}
+    <div class="mt-3">
+      <h3 class="h6">Default input slices</h3>
+      <ul class="small mb-0 ps-3">
+        {% for dataset, version in activate_versions.items() %}
+          <li><code>{{ dataset }}</code> → <code>{{ version }}</code></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if scenario_params.inputs or scenario_params.data_product_flow %}
+    <details class="mt-3 small">
+      <summary>Show raw configuration</summary>
+      <pre class="small mb-0">{{ scenario_params | tojson(indent=2) }}</pre>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
+{% if scenario_row.description or scenario_row.diagram %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h2 class="h5">Scenario flow</h2>
+    {% if scenario_row.description %}
+      <div class="mb-3">{{ scenario_row.description | safe }}</div>
+    {% endif %}
+    {% if scenario_row.diagram %}
+      {{ scenario_row.diagram | safe }}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if guide_sections %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h2 class="h5">Deep dive guide</h2>
+    {% for section in guide_sections %}
+      <section class="mb-4">
+        <h3 class="h6">{{ section.title }}</h3>
+        <div class="small">{{ section.content | safe }}</div>
+      </section>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if latest_record %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h2 class="h5">Latest outcome</h2>
+    <p class="small mb-2">
+      The most recent run produced
+      {% if latest_record.dataset_version %}
+        <strong>{{ latest_record.dataset_version }}</strong>
+      {% else %}
+        no materialised dataset
+      {% endif %}
+      with status <span class="badge {{ status_badges.get(latest_record.status|lower, 'bg-secondary') }}">{{ latest_record.status }}</span>.
+    </p>
+    {% if latest_record.reason %}
+    <p class="small text-muted mb-0">Reason: {{ latest_record.reason }}</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<h2 class="h4">Run history</h2>
+{% if has_history %}
+  {% for entry in history_entries %}
+    {% set record = entry.record %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+          <div>
+            <h3 class="h6 mb-1">
+              {% if record.dataset_version %}
+                Version {{ record.dataset_version }}
+              {% else %}
+                Planned run (no write)
+              {% endif %}
+            </h3>
+            <div class="text-muted small">Run type: {{ record.run_type }}</div>
+          </div>
+          <span class="badge {{ status_badges.get(record.status|lower, 'bg-secondary') }}">{{ record.status }}</span>
+        </div>
+        <dl class="row small mb-0">
+          {% if record.contract_id %}
+          <dt class="col-sm-4">Contract</dt>
+          <dd class="col-sm-8">
+            <a href="/contracts/{{ record.contract_id }}">{{ record.contract_id }}</a>
+            {% if record.contract_version %}
+              <span class="text-muted">/</span>
+              <a href="/contracts/{{ record.contract_id }}/{{ record.contract_version }}">{{ record.contract_version }}</a>
+            {% endif %}
+          </dd>
+          {% elif record.contract_version %}
+          <dt class="col-sm-4">Contract version</dt>
+          <dd class="col-sm-8">{{ record.contract_version }}</dd>
+          {% endif %}
+          {% if record.draft_contract_version %}
+          <dt class="col-sm-4">Draft proposed</dt>
+          <dd class="col-sm-8">{{ record.draft_contract_version }}</dd>
+          {% endif %}
+          {% if record.data_product_id %}
+          <dt class="col-sm-4">Data product</dt>
+          <dd class="col-sm-8">
+            <a href="/data-products/{{ record.data_product_id }}">{{ record.data_product_id }}</a>
+            {% if record.data_product_port %}
+              <span class="text-muted">/</span>
+              <code>{{ record.data_product_port }}</code>
+            {% endif %}
+            {% if record.data_product_role %}
+              <span class="badge bg-secondary text-uppercase ms-1">{{ record.data_product_role }}</span>
+            {% endif %}
+          </dd>
+          {% endif %}
+          {% if record.reason %}
+          <dt class="col-sm-4">Reason</dt>
+          <dd class="col-sm-8">{{ record.reason }}</dd>
+          {% endif %}
+          {% if entry.output_details.get('violation_strategy') %}
+          <dt class="col-sm-4">Violation strategy</dt>
+          <dd class="col-sm-8">{{ entry.output_details.get('violation_strategy') }}</dd>
+          {% endif %}
+          {% if record.violations %}
+          <dt class="col-sm-4">Violations</dt>
+          <dd class="col-sm-8">{{ record.violations }}</dd>
+          {% endif %}
+        </dl>
+        {% if entry.failed_expectations or entry.schema_errors or entry.dq_aux or entry.input_payloads or entry.output_details.get('warnings') %}
+        <details class="mt-3">
+          <summary class="small">Validation payload</summary>
+          <div class="mt-2">
+            {% if entry.failed_expectations %}
+            <div class="mb-3">
+              <strong class="small d-block mb-1">Failed expectations</strong>
+              <ul class="small mb-0 ps-3">
+                {% for key, info in entry.failed_expectations.items() %}
+                  <li>
+                    <code>{{ key }}</code> – {{ info.count }} rows
+                    {% if info.expression %}
+                      <span class="text-muted">({{ info.expression }})</span>
+                    {% endif %}
+                    {% if info.examples %}
+                      <details class="mt-1">
+                        <summary class="small">Examples</summary>
+                        <pre class="small mb-0">{{ info.examples | tojson(indent=2) }}</pre>
+                      </details>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if entry.schema_errors %}
+            <div class="mb-3">
+              <strong class="small d-block mb-1">Schema errors</strong>
+              <ul class="small mb-0 ps-3">
+                {% for err in entry.schema_errors %}
+                  <li>{{ err }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if entry.output_details.get('warnings') %}
+            <div class="mb-3">
+              <strong class="small d-block mb-1">Warnings</strong>
+              <ul class="small mb-0 ps-3">
+                {% for warning in entry.output_details.get('warnings') %}
+                  <li>{{ warning }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if entry.output_details.get('auxiliary_datasets') %}
+            <div class="mb-3">
+              <strong class="small d-block mb-1">Auxiliary datasets</strong>
+              <ul class="small mb-0 ps-3">
+                {% for aux in entry.output_details.get('auxiliary_datasets') %}
+                  <li>
+                    <span class="text-capitalize">{{ aux.kind }}</span> → <code>{{ aux.dataset }}</code>
+                    {% if aux.path %}
+                      <span class="text-muted">({{ aux.path }})</span>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if entry.dq_aux %}
+            <div class="mb-3">
+              <strong class="small d-block mb-1">Auxiliary DQ statuses</strong>
+              <ul class="small mb-0 ps-3">
+                {% for aux in entry.dq_aux %}
+                  {% set details = aux.get('details') if aux.get('details') is mapping else {} %}
+                  <li>
+                    <code>{{ aux.get('dataset_id') }}</code> → {{ aux.get('status') }}
+                    {% if details.get('draft_contract_version') %}
+                      <span class="text-muted">(draft {{ details.get('draft_contract_version') }})</span>
+                    {% endif %}
+                    {% if details.get('reason') %}
+                      <span class="text-muted"> – {{ details.get('reason') }}</span>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if entry.input_payloads %}
+            <div class="mb-0">
+              <strong class="small d-block mb-1">Input validation</strong>
+              {% for payload in entry.input_payloads %}
+                <details class="small mb-2">
+                  <summary>{{ payload.name }}</summary>
+                  <pre class="small mb-0">{{ payload.payload | tojson(indent=2) }}</pre>
+                </details>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-info">This scenario has not been run yet. Use the button above to trigger the first execution.</div>
+{% endif %}
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('scenario-run-form');
+    if (form) {
+      form.addEventListener('submit', function () {
+        const button = form.querySelector('button[type="submit"]');
+        if (!button || button.disabled) {
+          return;
+        }
+        button.disabled = true;
+        button.innerHTML = '';
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner-border spinner-border-sm me-2';
+        spinner.setAttribute('role', 'status');
+        spinner.setAttribute('aria-hidden', 'true');
+        button.appendChild(spinner);
+        const label = document.createElement('span');
+        label.textContent = 'Running…';
+        button.appendChild(label);
+      });
+    }
+
+    const mermaidNodes = document.querySelectorAll('.mermaid');
+    if (mermaidNodes.length && window.mermaid) {
+      if (typeof window.mermaid.run === 'function') {
+        window.mermaid.run({ nodes: mermaidNodes });
+      } else if (typeof window.mermaid.init === 'function') {
+        window.mermaid.init(undefined, mermaidNodes);
+      }
+    }
+  });
+</script>
+{% endblock %}
