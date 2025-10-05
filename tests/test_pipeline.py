@@ -14,7 +14,8 @@ from dc43_integrations.spark.io import (
     ContractVersionLocator,
     StaticDatasetLocator,
 )
-from dc43_demo_app.contracts_workspace import prepare_demo_workspace
+from dc43_demo_app.contracts_workspace import current_workspace, prepare_demo_workspace
+from dc43_demo_app.scenarios import SCENARIOS
 
 prepare_demo_workspace()
 
@@ -109,6 +110,87 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
             .config("spark.ui.enabled", "false") \
             .config("spark.sql.shuffle.partitions", "2") \
             .getOrCreate()
+
+
+def test_demo_pipeline_existing_contract_ok(tmp_path: Path) -> None:
+    workspace = current_workspace()
+
+    def _active_version(dataset: str) -> str | None:
+        latest = workspace.data_dir / dataset / "latest"
+        if not latest.exists():
+            return None
+        try:
+            resolved = latest.resolve()
+        except OSError:
+            resolved = latest
+        if resolved.is_dir():
+            marker = resolved / ".dc43_version"
+            if marker.exists():
+                try:
+                    text = marker.read_text().strip()
+                except OSError:
+                    text = ""
+                if text:
+                    return text
+            return resolved.name
+        return None
+
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_existing_ok"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
+
+    dataset_name: str | None = None
+    dataset_version: str | None = None
+    original_orders_version = _active_version("orders")
+
+    try:
+        pipeline.set_active_version("orders", "2025-10-05")
+
+        params = dict(SCENARIOS["ok"].get("params", {}))
+        params.setdefault("dataset_name", None)
+        params.setdefault("dataset_version", None)
+        dataset_name, dataset_version = pipeline.run_pipeline(
+            scenario_key="ok",
+            **params,
+        )
+
+        assert dataset_name == "orders_enriched"
+
+        updated = pipeline.load_records()
+        last = updated[-1]
+        assert last.dataset_name == dataset_name
+        assert last.dataset_version == dataset_version
+        assert last.status == "ok"
+        output_section = last.dq_details.get("output", {})
+        dq_status = output_section.get("dq_status") or {}
+        assert dq_status.get("status") == "ok"
+        assert not output_section.get("errors")
+        orders_section = last.dq_details.get("orders") or {}
+        orders_metrics = orders_section.get("metrics") or {}
+        assert orders_metrics.get("row_count") == 3
+        assert orders_metrics.get("violations.gt_amount", 0) == 0
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        if original_orders_version:
+            pipeline.set_active_version("orders", original_orders_version)
+        else:
+            pipeline.set_active_version("orders", "2024-01-01")
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
+        if dataset_name and dataset_version:
+            out_dir = Path(pipeline.DATA_DIR) / dataset_name / dataset_version
+            if out_dir.exists():
+                shutil.rmtree(out_dir, ignore_errors=True)
 
 
 def test_data_product_input_locator_defaults_to_latest() -> None:
