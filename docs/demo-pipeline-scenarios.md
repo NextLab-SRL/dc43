@@ -68,7 +68,7 @@ point the locator at the `orders latest → 2025-09-28` submission, including it
 | Scenario | Strategy | Target contract | Draft contract | Datasets written |
 | --- | --- | --- | --- | --- |
 | **No contract provided** | No-op (default) | *(none)* | *(none)* | Write blocked; the planned dataset is never created. |
-| **Existing contract OK** | No-op (default) | `orders_enriched:1.0.0` | *(none)* | `orders_enriched` persisted with the run timestamp. |
+| **Existing contract OK** | No-op (default) | `orders_enriched:1.0.0` | *(none)* | `orders_enriched` persisted with the run timestamp after reading `orders:1.1.0 → 2025-10-05`. |
 | **Existing contract fails DQ** | No-op (default) | `orders_enriched:1.1.0` | `orders_enriched:1.2.0` | `orders_enriched` is persisted with the run timestamp before governance returns a `block` verdict and a draft. |
 | **Contract fails schema and DQ** | No-op (default) | `orders_enriched:2.0.0` | `orders_enriched:2.1.0` | `orders_enriched` is written with the run timestamp, but schema drift and DQ failures downgrade the run to `block`. |
 | **Draft contract blocked** | No-op (default) | `orders_enriched:3.0.0` (draft) | *(none)* | Write blocked before the dataset is materialised because the contract status is not allowed. |
@@ -90,6 +90,7 @@ All dataset versions default to an ISO-8601 timestamp captured at write time. Wh
 
 #### Existing contract OK
 - **Target contract:** `orders_enriched:1.0.0` with no draft changes.
+- **Inputs:** `orders:1.1.0` pinned to slice `2025-10-05` alongside `customers:1.0.0` so historic slices with negative amounts stay out of the run.
 - **Dataset versions:** Writes `orders_enriched` once per run using the run timestamp as the dataset version.
 - **Outcome:** Post-write validation succeeds and the run records OK.
 

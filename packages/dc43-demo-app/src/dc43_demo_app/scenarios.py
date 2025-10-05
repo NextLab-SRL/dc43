@@ -188,6 +188,11 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             "contract_id": "orders_enriched",
             "contract_version": "1.0.0",
             "run_type": "enforce",
+            "inputs": {
+                "orders": {
+                    "dataset_version": "2025-10-05__pinned",
+                }
+            },
         },
         "guide": [
             _section(
