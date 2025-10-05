@@ -161,6 +161,32 @@ def test_data_product_input_locator_prefers_latest_ok_record() -> None:
     assert locator.dataset_version == "2025-10-05"
 
 
+def test_run_pipeline_refreshes_aliases_for_data_product_flow(monkeypatch) -> None:
+    refreshed: list[str | None] = []
+
+    def fake_refresh(dataset: str | None = None) -> None:
+        refreshed.append(dataset)
+
+    def fake_run_flow(**_: object) -> tuple[str, str]:
+        return "dp.analytics.stage", "20251005T065105464905Z"
+
+    monkeypatch.setattr(pipeline.contracts_server, "refresh_dataset_aliases", fake_refresh)
+    monkeypatch.setattr(pipeline, "_run_data_product_flow", fake_run_flow)
+
+    dataset, version = pipeline.run_pipeline(
+        contract_id=None,
+        contract_version=None,
+        dataset_name=None,
+        dataset_version=None,
+        run_type="observe",
+        data_product_flow={"input": {}, "output": {}},
+    )
+
+    assert dataset == "dp.analytics.stage"
+    assert version == "20251005T065105464905Z"
+    assert refreshed == [None]
+
+
 def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
     original_records = pipeline.load_records()
     dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"

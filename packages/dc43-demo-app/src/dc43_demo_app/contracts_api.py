@@ -31,7 +31,7 @@ from .contracts_records import (
 from .contracts_workspace import (
     current_workspace,
     prepare_demo_workspace,
-    refresh_dataset_aliases,
+    refresh_dataset_aliases as _refresh_dataset_aliases,
     register_dataset_version as _register_dataset_version,
     set_active_version as _set_active_version,
 )
@@ -58,6 +58,10 @@ def register_dataset_version(dataset: str, version: str, source: Path) -> None:
 
 def set_active_version(dataset: str, version: str) -> None:
     _set_active_version(current_workspace(), dataset, version)
+
+
+def refresh_dataset_aliases(dataset: str | None = None) -> None:
+    _refresh_dataset_aliases(current_workspace(), dataset)
 
 
 __all__ = [
