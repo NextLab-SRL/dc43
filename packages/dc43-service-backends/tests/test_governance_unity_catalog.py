@@ -92,7 +92,7 @@ def test_local_backend_still_tags_with_remote_contract_client() -> None:
     backend = LocalGovernanceServiceBackend(
         contract_client=contract_client,
         dq_client=_DQClient(),
-        unity_catalog=UnityCatalogLinker(apply_table_properties=_update),
+        link_hooks=[UnityCatalogLinker(apply_table_properties=_update).link_dataset_contract],
     )
 
     backend.link_dataset_contract(

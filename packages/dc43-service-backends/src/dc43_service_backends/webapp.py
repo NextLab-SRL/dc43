@@ -130,10 +130,11 @@ def create_app(config: ServiceBackendsConfig | None = None) -> FastAPI:
     store = _resolve_store(active_config)
     dependencies = _resolve_dependencies(active_config)
     unity_catalog = _resolve_unity_catalog(active_config)
+    link_hooks = [unity_catalog.link_dataset_contract] if unity_catalog else None
     return build_local_app(
         store,
         dependencies=dependencies,
-        unity_catalog_linker=unity_catalog,
+        link_hooks=link_hooks,
     )
 
 

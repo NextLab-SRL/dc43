@@ -19,7 +19,7 @@ from dc43_service_clients.data_quality import (
 )
 
 from .interface import GovernanceServiceBackend
-from ..unity_catalog import UnityCatalogLinker
+from ..hooks import DatasetContractLinkHook
 from dc43_service_clients.governance.models import (
     GovernanceCredentials,
     PipelineContextSpec,
@@ -40,7 +40,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         contract_client: ContractServiceBackend | ContractServiceClient,
         dq_client: DataQualityServiceBackend | DataQualityServiceClient,
         draft_store: ContractStore | None = None,
-        unity_catalog: UnityCatalogLinker | None = None,
+        link_hooks: Sequence[DatasetContractLinkHook] | None = None,
     ) -> None:
         self._contract_client = contract_client
         self._dq_client = dq_client
@@ -49,7 +49,9 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         self._status_cache: Dict[tuple[str, str, str, str], ValidationResult] = {}
         self._activity_log: Dict[str, Dict[Optional[str], Dict[str, Any]]] = {}
         self._dataset_links: Dict[tuple[str, Optional[str]], str] = {}
-        self._unity_catalog = unity_catalog
+        self._link_hooks: tuple[DatasetContractLinkHook, ...] = (
+            tuple(link_hooks) if link_hooks else ()
+        )
 
     # ------------------------------------------------------------------
     # Authentication lifecycle
@@ -272,8 +274,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         self._dataset_links[(dataset_id, dataset_version)] = link_value
         if dataset_version is not None:
             self._dataset_links.setdefault((dataset_id, None), link_value)
-        if self._unity_catalog is not None:
-            self._unity_catalog.link_dataset_contract(
+        for hook in self._link_hooks:
+            hook(
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
                 contract_id=contract_id,

@@ -250,6 +250,12 @@ arrives with the `link_dataset_contract` call. This keeps the integration
 compatible with remote deployments where the contract or product descriptors are
 served by HTTP backends backed by managed databases.
 
+The Unity Catalog bridge registers as a backend hook, so the REST contracts and
+client interfaces stay agnostic of Databricks-specific concerns. Pipelines and
+service clients call the same governance APIs regardless of whether tagging is
+enabled; the backend simply fans out the link operation to any configured hooks
+such as Unity Catalog or other metadata systems you might add later.
+
 ## 7. Next steps
 
 - Expose the contract and data product Delta stores through shared external

@@ -17,3 +17,7 @@
 - Documented and tested Unity Catalog tagging when the governance backend is
   wired to remote contract/data product services, ensuring remote databases such
   as PostgreSQL or Azure Files remain compatible.
+### Changed
+- Unity Catalog tagging now runs through pluggable governance hooks so service
+  and client interfaces stay technology agnostic while still supporting
+  Databricks-specific metadata updates.
