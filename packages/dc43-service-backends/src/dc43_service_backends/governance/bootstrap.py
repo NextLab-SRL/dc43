@@ -34,14 +34,30 @@ def load_link_hook_builder(spec: LinkHookBuilderSpec) -> LinkHookBuilder:
     attribute_path: str
     if ":" in spec:
         module_name, attribute_path = spec.split(":", 1)
+        module = import_module(module_name)
     else:
-        module_name, _, attribute_path = spec.rpartition(".")
-        if not module_name or not attribute_path:
+        parts = spec.split(".")
+        if len(parts) < 2:
             raise ValueError(
                 "link hook builder specification must include a module and attribute"
             )
 
-    module = import_module(module_name)
+        module = None
+        for index in range(len(parts) - 1, 0, -1):
+            module_name = ".".join(parts[:index])
+            attribute_path = ".".join(parts[index:])
+            try:
+                module = import_module(module_name)
+            except ModuleNotFoundError:
+                continue
+            else:
+                break
+
+        if module is None:
+            raise ModuleNotFoundError(
+                f"Unable to import link hook builder module for specification '{spec}'"
+            )
+
     target: object = module
     for part in attribute_path.split("."):
         if not part:

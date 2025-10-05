@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .config import ContractStoreConfig, DataProductStoreConfig, ServiceBackendsConfig
 from .contracts.backend import LocalContractServiceBackend
@@ -23,6 +24,20 @@ from .data_products import (
     LocalDataProductServiceBackend,
     StubCollibraDataProductAdapter,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - help type-checkers without importing pyspark
+    from pyspark.sql import SparkSession as SparkSessionType
+else:
+    SparkSessionType = object
+
+try:  # pragma: no cover - optional dependency resolved at runtime
+    from pyspark.sql import SparkSession as _SparkSession
+except ModuleNotFoundError:  # pragma: no cover - resolved via monkeypatch in tests
+    _SparkSession = None
+
+# Expose ``SparkSession`` so tests can monkeypatch it even when ``pyspark`` is
+# unavailable. Calls must use ``_get_spark_session`` to enforce runtime checks.
+SparkSession = _SparkSession  # type: ignore[assignment]
 
 __all__ = [
     "build_contract_store",
@@ -69,6 +84,15 @@ def _resolve_collibra_http_store(config: ContractStoreConfig) -> ContractStore:
     )
 
 
+def _get_spark_session(config_section: str) -> "SparkSessionType":
+    if SparkSession is None:
+        raise RuntimeError(
+            f"pyspark is required when {config_section}.type is 'delta'.",
+        )
+
+    return SparkSession.builder.getOrCreate()
+
+
 def build_contract_store(config: ContractStoreConfig) -> ContractStore:
     """Instantiate a contract store matching ``config``."""
 
@@ -81,14 +105,7 @@ def build_contract_store(config: ContractStoreConfig) -> ContractStore:
         return FSContractStore(str(path))
 
     if store_type == "delta":
-        try:
-            from pyspark.sql import SparkSession
-        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "pyspark is required when contract_store.type is 'delta'.",
-            ) from exc
-
-        spark = SparkSession.builder.getOrCreate()
+        spark = _get_spark_session("contract_store")
         table = config.table or None
         base_path = config.base_path or config.root
         if not (table or base_path):
@@ -132,14 +149,7 @@ def build_data_product_backend(config: DataProductStoreConfig) -> DataProductSer
         return FilesystemDataProductServiceBackend(path)
 
     if store_type == "delta":
-        try:
-            from pyspark.sql import SparkSession
-        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "pyspark is required when data_product_store.type is 'delta'.",
-            ) from exc
-
-        spark = SparkSession.builder.getOrCreate()
+        spark = _get_spark_session("data_product_store")
         table = config.table or None
         base_path = config.base_path or config.root
         if not (table or base_path):
