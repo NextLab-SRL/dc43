@@ -5,16 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from dc43_service_clients.contracts.client.local import LocalContractServiceClient
+from dc43_service_clients.data_products.client.local import (
+    LocalDataProductServiceClient,
+)
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
 from dc43_service_clients.governance.client.local import (
     LocalGovernanceServiceClient,
     build_local_governance_service,
 )
+from dc43_service_clients.testing import LocalDataProductServiceBackend
 
 from .contracts_records import (
     DatasetRecord,
     dq_version_records,
     get_store,
+    load_data_product_documents,
+    load_data_product_payloads,
     load_contract_meta,
     load_records,
     pop_flash,
@@ -25,7 +31,7 @@ from .contracts_records import (
 from .contracts_workspace import (
     current_workspace,
     prepare_demo_workspace,
-    refresh_dataset_aliases,
+    refresh_dataset_aliases as _refresh_dataset_aliases,
     register_dataset_version as _register_dataset_version,
     set_active_version as _set_active_version,
 )
@@ -40,6 +46,10 @@ store = get_store()
 contract_service = LocalContractServiceClient(store=store)
 dq_service = LocalDataQualityServiceClient()
 governance_service: LocalGovernanceServiceClient = build_local_governance_service(store)
+_DATA_PRODUCT_BACKEND = LocalDataProductServiceBackend()
+for _doc in load_data_product_documents():
+    _DATA_PRODUCT_BACKEND.put(_doc)
+data_product_service = LocalDataProductServiceClient(backend=_DATA_PRODUCT_BACKEND)
 
 
 def register_dataset_version(dataset: str, version: str, source: Path) -> None:
@@ -50,13 +60,20 @@ def set_active_version(dataset: str, version: str) -> None:
     _set_active_version(current_workspace(), dataset, version)
 
 
+def refresh_dataset_aliases(dataset: str | None = None) -> None:
+    _refresh_dataset_aliases(current_workspace(), dataset)
+
+
 __all__ = [
     "DATA_DIR",
     "DATASETS_FILE",
     "DatasetRecord",
     "contract_service",
+    "data_product_service",
     "dq_service",
     "governance_service",
+    "load_data_product_documents",
+    "load_data_product_payloads",
     "load_records",
     "save_records",
     "queue_flash",

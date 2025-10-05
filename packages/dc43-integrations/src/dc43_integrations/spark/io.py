@@ -31,6 +31,13 @@ from pyspark.sql import DataFrame, SparkSession
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
 from dc43_service_clients.data_quality.client.interface import DataQualityServiceClient
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
+from dc43_service_clients.data_products import (
+    DataProductInputBinding,
+    DataProductOutputBinding,
+    DataProductServiceClient,
+    normalise_input_binding,
+    normalise_output_binding,
+)
 from dc43_service_clients.governance.client.interface import GovernanceServiceClient
 from dc43_service_clients.governance import PipelineContext, normalise_pipeline_context
 from .data_quality import (
@@ -979,6 +986,8 @@ def read_with_contract(
     auto_cast: bool = True,
     data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
+    data_product_service: Optional[DataProductServiceClient] = None,
+    data_product_input: Optional[DataProductInputBinding | Mapping[str, object]] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1002,6 +1011,8 @@ def read_with_contract(
     auto_cast: bool = True,
     data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
+    data_product_service: Optional[DataProductServiceClient] = None,
+    data_product_input: Optional[DataProductInputBinding | Mapping[str, object]] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1025,6 +1036,8 @@ def read_with_contract(
     auto_cast: bool = True,
     data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
+    data_product_service: Optional[DataProductServiceClient] = None,
+    data_product_input: Optional[DataProductInputBinding | Mapping[str, object]] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1048,6 +1061,8 @@ def read_with_contract(
     # Governance / DQ orchestration
     data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
+    data_product_service: Optional[DataProductServiceClient] = None,
+    data_product_input: Optional[DataProductInputBinding | Mapping[str, object]] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     status_strategy: Optional[ReadStatusStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
@@ -1063,6 +1078,50 @@ def read_with_contract(
     """
     locator = dataset_locator or ContractFirstDatasetLocator()
     dq_status_handler = status_strategy or DefaultReadStatusStrategy()
+
+    dp_binding = normalise_input_binding(data_product_input)
+    dp_service = data_product_service
+    resolved_contract_id = contract_id
+    resolved_expected_version = expected_contract_version
+    if (
+        resolved_contract_id is None
+        and dp_service is not None
+        and dp_binding is not None
+        and dp_binding.source_data_product
+        and dp_binding.source_output_port
+    ):
+        try:
+            contract_ref = dp_service.resolve_output_contract(
+                data_product_id=dp_binding.source_data_product,
+                port_name=dp_binding.source_output_port,
+            )
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception(
+                "Failed to resolve output contract for data product %s port %s",
+                dp_binding.source_data_product,
+                dp_binding.source_output_port,
+            )
+        else:
+            if contract_ref is None:
+                logger.warning(
+                    "Data product %s output port %s did not provide a contract reference",
+                    dp_binding.source_data_product,
+                    dp_binding.source_output_port,
+                )
+            else:
+                resolved_contract_id, resolved_expected_version = contract_ref
+                logger.info(
+                    "Resolved contract %s:%s from data product %s output %s",
+                    resolved_contract_id,
+                    resolved_expected_version,
+                    dp_binding.source_data_product,
+                    dp_binding.source_output_port,
+                )
+
+    if resolved_contract_id is not None:
+        contract_id = resolved_contract_id
+    if expected_contract_version is None and resolved_expected_version is not None:
+        expected_contract_version = resolved_expected_version
 
     contract: Optional[OpenDataContractStandard] = None
     if contract_id:
@@ -1229,7 +1288,132 @@ def read_with_contract(
             ),
         )
 
+    if dp_service and dp_binding and contract is not None:
+        if not dp_binding.data_product:
+            logger.warning(
+                "data_product_input requires a data_product identifier to register input ports",
+            )
+        else:
+            port_name = (
+                dp_binding.port_name
+                or dp_binding.source_output_port
+                or contract.id
+            )
+            try:
+                registration = dp_service.register_input_port(
+                    data_product_id=dp_binding.data_product,
+                    port_name=port_name,
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                    bump=dp_binding.bump,
+                    custom_properties=dp_binding.custom_properties,
+                    source_data_product=dp_binding.source_data_product,
+                    source_output_port=dp_binding.source_output_port,
+                )
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to register data product input port %s on %s",
+                    port_name,
+                    dp_binding.data_product,
+                )
+            else:
+                if registration.changed:
+                    product = registration.product
+                    version = product.version or "<unknown>"
+                    if (product.status or "").lower() != "draft":
+                        raise RuntimeError(
+                            "Data product input registration did not produce a draft version"
+                        )
+                    raise RuntimeError(
+                        "Data product %s input port %s requires review at version %s"
+                        % (dp_binding.data_product, port_name, version)
+                    )
+
     return (df, status) if return_status else df
+
+
+def read_from_contract(
+    spark: SparkSession,
+    *,
+    contract_id: str,
+    contract_service: ContractServiceClient,
+    expected_contract_version: Optional[str] = None,
+    format: Optional[str] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    enforce: bool = True,
+    auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    status_strategy: Optional[ReadStatusStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
+    return_status: bool = True,
+) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
+    """Read and validate a dataset by referencing a contract identifier directly."""
+
+    return read_with_contract(
+        spark,
+        contract_id=contract_id,
+        contract_service=contract_service,
+        expected_contract_version=expected_contract_version,
+        format=format,
+        path=path,
+        table=table,
+        options=options,
+        enforce=enforce,
+        auto_cast=auto_cast,
+        data_quality_service=data_quality_service,
+        governance_service=governance_service,
+        dataset_locator=dataset_locator,
+        status_strategy=status_strategy,
+        pipeline_context=pipeline_context,
+        return_status=return_status,
+    )
+
+
+def read_from_data_product(
+    spark: SparkSession,
+    *,
+    data_product_service: DataProductServiceClient,
+    data_product_input: DataProductInputBinding | Mapping[str, object],
+    expected_contract_version: Optional[str] = None,
+    contract_service: Optional[ContractServiceClient] = None,
+    format: Optional[str] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    enforce: bool = True,
+    auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    status_strategy: Optional[ReadStatusStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
+    return_status: bool = True,
+) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
+    """Read a dataset by resolving the contract from a data product input binding."""
+
+    return read_with_contract(
+        spark,
+        contract_service=contract_service,
+        expected_contract_version=expected_contract_version,
+        data_product_service=data_product_service,
+        data_product_input=data_product_input,
+        format=format,
+        path=path,
+        table=table,
+        options=options,
+        enforce=enforce,
+        auto_cast=auto_cast,
+        data_quality_service=data_quality_service,
+        governance_service=governance_service,
+        dataset_locator=dataset_locator,
+        status_strategy=status_strategy,
+        pipeline_context=pipeline_context,
+        return_status=return_status,
+    )
 
 
 # Overloads allow static checkers to track the tuple return when ``return_status``
@@ -1250,10 +1434,12 @@ def write_with_contract(
     auto_cast: bool = True,
     data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
+    data_product_service: Optional[DataProductServiceClient] = None,
+    data_product_output: Optional[DataProductOutputBinding | Mapping[str, object]] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[True],
-    violation_strategy: Optional[WriteViolationStrategy] = ...,
+    violation_strategy: Optional[WriteViolationStrategy] = ..., 
 ) -> tuple[ValidationResult, Optional[ValidationResult]]:
     ...
 
@@ -1274,10 +1460,12 @@ def write_with_contract(
     auto_cast: bool = True,
     data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
+    data_product_service: Optional[DataProductServiceClient] = None,
+    data_product_output: Optional[DataProductOutputBinding | Mapping[str, object]] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: Literal[False] = False,
-    violation_strategy: Optional[WriteViolationStrategy] = ...,
+    violation_strategy: Optional[WriteViolationStrategy] = ..., 
 ) -> ValidationResult:
     ...
 
@@ -1297,6 +1485,8 @@ def write_with_contract(
     auto_cast: bool = True,
     data_quality_service: Optional[DataQualityServiceClient] = None,
     governance_service: Optional[GovernanceServiceClient] = None,
+    data_product_service: Optional[DataProductServiceClient] = None,
+    data_product_output: Optional[DataProductOutputBinding | Mapping[str, object]] = None,
     dataset_locator: Optional[DatasetLocatorStrategy] = None,
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = False,
@@ -1311,6 +1501,60 @@ def write_with_contract(
     locator = dataset_locator or ContractFirstDatasetLocator()
 
     strategy = violation_strategy or NoOpWriteViolationStrategy()
+    dp_output_binding = normalise_output_binding(data_product_output)
+    dp_service = data_product_service
+
+    resolved_contract_id = contract_id
+    resolved_expected_version = expected_contract_version
+    if (
+        resolved_contract_id is None
+        and dp_service is not None
+        and dp_output_binding is not None
+        and dp_output_binding.data_product
+        and dp_output_binding.port_name
+    ):
+        try:
+            contract_ref = dp_service.resolve_output_contract(
+                data_product_id=dp_output_binding.data_product,
+                port_name=dp_output_binding.port_name,
+            )
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception(
+                "Failed to resolve output contract for data product %s port %s",
+                dp_output_binding.data_product,
+                dp_output_binding.port_name,
+            )
+        else:
+            if contract_ref is None:
+                logger.warning(
+                    "Data product %s output port %s did not provide a contract reference",
+                    dp_output_binding.data_product,
+                    dp_output_binding.port_name,
+                )
+            else:
+                resolved_contract_id, resolved_expected_version = contract_ref
+                logger.info(
+                    "Resolved contract %s:%s from data product %s output %s",
+                    resolved_contract_id,
+                    resolved_expected_version,
+                    dp_output_binding.data_product,
+                    dp_output_binding.port_name,
+                )
+    elif (
+        resolved_contract_id is None
+        and dp_output_binding is not None
+        and dp_output_binding.data_product
+        and not dp_output_binding.port_name
+    ):
+        logger.warning(
+            "data_product_output for %s cannot resolve a contract without port_name",
+            dp_output_binding.data_product,
+        )
+
+    if resolved_contract_id is not None:
+        contract_id = resolved_contract_id
+    if expected_contract_version is None and resolved_expected_version is not None:
+        expected_contract_version = resolved_expected_version
 
     contract: Optional[OpenDataContractStandard] = None
     if contract_id:
@@ -1415,6 +1659,43 @@ def write_with_contract(
             if enforce:
                 raise ValueError(f"Contract validation failed: {result.errors}")
 
+    def _register_output_port_if_needed() -> None:
+        if dp_service is None or dp_output_binding is None or contract is None:
+            return
+        if not dp_output_binding.data_product:
+            logger.warning(
+                "data_product_output requires a data_product identifier to register output ports",
+            )
+            return
+        port_name = dp_output_binding.port_name or contract.id
+        try:
+            registration = dp_service.register_output_port(
+                data_product_id=dp_output_binding.data_product,
+                port_name=port_name,
+                contract_id=contract.id,
+                contract_version=contract.version,
+                bump=dp_output_binding.bump,
+                custom_properties=dp_output_binding.custom_properties,
+            )
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception(
+                "Failed to register data product output port %s on %s",
+                port_name,
+                dp_output_binding.data_product,
+            )
+        else:
+            if registration.changed:
+                product = registration.product
+                version = product.version or "<unknown>"
+                if (product.status or "").lower() != "draft":
+                    raise RuntimeError(
+                        "Data product output registration did not produce a draft version"
+                    )
+                raise RuntimeError(
+                    "Data product %s output port %s requires review at version %s"
+                    % (dp_output_binding.data_product, port_name, version)
+                )
+
     options_dict: Dict[str, str] = {}
     if resolution.write_options:
         options_dict.update(resolution.write_options)
@@ -1487,6 +1768,7 @@ def write_with_contract(
 
     if not requests:
         final_result = plan.result_factory() if plan.result_factory else result
+        _register_output_port_if_needed()
         if return_status:
             return final_result, None
         return final_result
@@ -1648,9 +1930,101 @@ def write_with_contract(
 
                 primary_status.details = primary_details
 
+    _register_output_port_if_needed()
+
     if return_status:
         return final_result, primary_status
     return final_result
+
+
+def write_with_contract_id(
+    *,
+    df: DataFrame,
+    contract_id: str,
+    contract_service: ContractServiceClient,
+    expected_contract_version: Optional[str] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    format: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    mode: str = "append",
+    enforce: bool = True,
+    auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
+    return_status: bool = False,
+    violation_strategy: Optional[WriteViolationStrategy] = None,
+) -> Any:
+    """Write a dataset while enforcing a specific contract identifier."""
+
+    return write_with_contract(
+        df=df,
+        contract_id=contract_id,
+        contract_service=contract_service,
+        expected_contract_version=expected_contract_version,
+        path=path,
+        table=table,
+        format=format,
+        options=options,
+        mode=mode,
+        enforce=enforce,
+        auto_cast=auto_cast,
+        data_quality_service=data_quality_service,
+        governance_service=governance_service,
+        dataset_locator=dataset_locator,
+        pipeline_context=pipeline_context,
+        return_status=return_status,
+        violation_strategy=violation_strategy,
+    )
+
+
+def write_to_data_product(
+    *,
+    df: DataFrame,
+    data_product_service: DataProductServiceClient,
+    data_product_output: DataProductOutputBinding | Mapping[str, object],
+    contract_id: Optional[str] = None,
+    contract_service: Optional[ContractServiceClient] = None,
+    expected_contract_version: Optional[str] = None,
+    path: Optional[str] = None,
+    table: Optional[str] = None,
+    format: Optional[str] = None,
+    options: Optional[Dict[str, str]] = None,
+    mode: str = "append",
+    enforce: bool = True,
+    auto_cast: bool = True,
+    data_quality_service: Optional[DataQualityServiceClient] = None,
+    governance_service: Optional[GovernanceServiceClient] = None,
+    dataset_locator: Optional[DatasetLocatorStrategy] = None,
+    pipeline_context: Optional[PipelineContextLike] = None,
+    return_status: bool = False,
+    violation_strategy: Optional[WriteViolationStrategy] = None,
+) -> Any:
+    """Write a dataset and register it against a data product output binding."""
+
+    return write_with_contract(
+        df=df,
+        contract_id=contract_id,
+        contract_service=contract_service,
+        data_product_service=data_product_service,
+        data_product_output=data_product_output,
+        expected_contract_version=expected_contract_version,
+        path=path,
+        table=table,
+        format=format,
+        options=options,
+        mode=mode,
+        enforce=enforce,
+        auto_cast=auto_cast,
+        data_quality_service=data_quality_service,
+        governance_service=governance_service,
+        dataset_locator=dataset_locator,
+        pipeline_context=pipeline_context,
+        return_status=return_status,
+        violation_strategy=violation_strategy,
+    )
 
 
 def _execute_write_request(
@@ -1659,7 +2033,22 @@ def _execute_write_request(
     governance_client: Optional[GovernanceServiceClient],
     enforce: bool,
 ) -> tuple[Optional[ValidationResult], Optional[ValidationResult]]:
-    writer = request.df.write
+    df_to_write = request.df
+    checkpointed = False
+    if request.path and request.mode.lower() == "overwrite":
+        try:
+            df_to_write = df_to_write.localCheckpoint(eager=True)
+        except Exception:  # pragma: no cover - defensive fallback
+            logger.exception(
+                "Failed to checkpoint dataframe prior to overwrite for %s",
+                request.path,
+            )
+        else:
+            checkpointed = True
+
+    validation = request.validation_factory() if request.validation_factory else None
+
+    writer = df_to_write.write
     if request.format:
         writer = writer.format(request.format)
     if request.options:
@@ -1674,8 +2063,6 @@ def _execute_write_request(
             raise ValueError("Either table or path must be provided for write")
         logger.info("Writing dataframe to path %s", request.path)
         writer.save(request.path)
-
-    validation = request.validation_factory() if request.validation_factory else None
     expectation_plan: list[Mapping[str, Any]] = []
     if validation is not None:
         raw_plan = validation.details.get("expectation_plan")
@@ -1697,7 +2084,7 @@ def _execute_write_request(
         dq_dataset_version = (
             request.dataset_version
             or get_delta_version(
-                request.df.sparkSession,
+                df_to_write.sparkSession,
                 table=request.table,
                 path=request.path,
             )
@@ -1706,7 +2093,7 @@ def _execute_write_request(
 
         def _post_write_observations() -> ObservationPayload:
             metrics, schema_payload, reused_metrics = build_metrics_payload(
-                request.df,
+                df_to_write,
                 contract,
                 validation=validation,
                 include_schema=True,
@@ -1792,4 +2179,14 @@ def _execute_write_request(
             contract_version=contract.version,
         )
 
-    return status, validation
+    try:
+        return status, validation
+    finally:
+        if checkpointed:
+            try:
+                df_to_write.unpersist()
+            except Exception:  # pragma: no cover - defensive cleanup
+                logger.exception(
+                    "Failed to unpersist checkpointed dataframe for %s",
+                    request.path,
+                )

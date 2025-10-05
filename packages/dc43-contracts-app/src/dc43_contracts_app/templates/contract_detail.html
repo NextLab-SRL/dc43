@@ -56,6 +56,36 @@
       {% endfor %}
     </ul>
     {% endif %}
+    {% if data_products %}
+    <h5>Data products</h5>
+    <div class="list-group mb-3">
+      {% for entry in data_products %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div>
+              <a href="/data-products/{{ entry.product_id }}">{{ entry.product_name }}</a>
+              {% if entry.port_name %}
+                <span class="text-muted">/</span>
+                <code>{{ entry.port_name }}</code>
+              {% endif %}
+            </div>
+            <div class="small text-muted">
+              {{ entry.direction | capitalize }} port{% if entry.port_version %} · version {{ entry.port_version }}{% endif %}
+            </div>
+          </div>
+          <span class="badge bg-secondary text-uppercase">{{ entry.direction }}</span>
+        </div>
+        {% if entry.custom_properties %}
+        <details class="mt-2">
+          <summary class="small text-muted">Custom properties</summary>
+          <pre class="small bg-light p-2 mt-2 rounded">{{ entry.custom_properties | tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   <div class="tab-pane fade" id="schema" role="tabpanel" aria-labelledby="schema-tab">
     {% for s in contract.schema %}

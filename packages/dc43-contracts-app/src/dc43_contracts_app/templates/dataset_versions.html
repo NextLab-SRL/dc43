@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Dataset {{ dataset_name }}</h1>
 <table class="table table-striped">
-  <thead><tr><th>Version</th><th>Contract</th><th>Status</th></tr></thead>
+  <thead><tr><th>Version</th><th>Contract</th><th>Data product</th><th>Status</th></tr></thead>
   <tbody>
   {% for r in records %}
   <tr>
@@ -17,6 +17,20 @@
         {% endif %}
       {% else %}
         <span class="text-muted">No contract</span>
+      {% endif %}
+    </td>
+    <td>
+      {% if r.data_product_id %}
+        <a href="/data-products/{{ r.data_product_id }}">{{ r.data_product_id }}</a>
+        {% if r.data_product_port %}
+          <span class="text-muted">/</span>
+          <code>{{ r.data_product_port }}</code>
+        {% endif %}
+        {% if r.data_product_role %}
+          <span class="badge bg-secondary text-uppercase ms-1">{{ r.data_product_role }}</span>
+        {% endif %}
+      {% else %}
+        <span class="text-muted">None</span>
       {% endif %}
     </td>
     <td>{{ r.status }}</td>

@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -64,6 +65,13 @@ async def redirect_datasets() -> RedirectResponse:
     return RedirectResponse(url=f"{CONTRACTS_APP_URL.rstrip('/')}/datasets", status_code=307)
 
 
+@app.get("/data-products")
+async def redirect_data_products() -> RedirectResponse:
+    if not CONTRACTS_APP_URL:
+        raise HTTPException(status_code=404, detail="Contracts app not configured")
+    return RedirectResponse(url=f"{CONTRACTS_APP_URL.rstrip('/')}/data-products", status_code=307)
+
+
 @app.get("/contracts/{path:path}")
 async def redirect_contract_pages(path: str) -> RedirectResponse:
     if not CONTRACTS_APP_URL:
@@ -80,11 +88,46 @@ async def redirect_dataset_pages(path: str) -> RedirectResponse:
     return RedirectResponse(url=url, status_code=307)
 
 
+@app.get("/data-products/{path:path}")
+async def redirect_data_product_pages(path: str) -> RedirectResponse:
+    if not CONTRACTS_APP_URL:
+        raise HTTPException(status_code=404, detail="Contracts app not configured")
+    url = f"{CONTRACTS_APP_URL.rstrip('/')}/data-products/{path}" if path else f"{CONTRACTS_APP_URL.rstrip('/')}/data-products"
+    return RedirectResponse(url=url, status_code=307)
+
+
 @app.get("/pipeline-runs", response_class=HTMLResponse)
 async def list_pipeline_runs(request: Request) -> HTMLResponse:
     records = load_records()
     recs = [r.__dict__.copy() for r in records]
     scenario_rows = scenario_run_rows(records, SCENARIOS)
+    category_labels = {
+        "contract": "Contract-focused pipelines",
+        "data-product": "Data product pipelines",
+    }
+    order = ["contract", "data-product"]
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in scenario_rows:
+        grouped.setdefault(row.get("category", "contract"), []).append(row)
+    scenario_groups = []
+    for key in order:
+        if key in grouped:
+            scenario_groups.append(
+                {
+                    "key": key,
+                    "label": category_labels.get(key, key.replace("-", " ").title()),
+                    "rows": grouped[key],
+                }
+            )
+    for key, rows in grouped.items():
+        if key not in order:
+            scenario_groups.append(
+                {
+                    "key": key,
+                    "label": category_labels.get(key, key.replace("-", " ").title()),
+                    "rows": rows,
+                }
+            )
     flash_token = request.query_params.get("flash")
     flash_message: str | None = None
     flash_error: str | None = None
@@ -98,6 +141,7 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
         "records": recs,
         "scenarios": SCENARIOS,
         "scenario_rows": scenario_rows,
+        "scenario_groups": scenario_groups,
         "message": flash_message,
         "error": flash_error,
     }
@@ -126,11 +170,13 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             params_cfg.get("dataset_name"),
             params_cfg.get("dataset_version"),
             params_cfg.get("run_type", "infer"),
-            params_cfg.get("collect_examples", False),
-            params_cfg.get("examples_limit", 5),
-            params_cfg.get("violation_strategy"),
-            params_cfg.get("inputs"),
-            params_cfg.get("output_adjustment"),
+            collect_examples=params_cfg.get("collect_examples", False),
+            examples_limit=params_cfg.get("examples_limit", 5),
+            violation_strategy=params_cfg.get("violation_strategy"),
+            enforce_contract_status=params_cfg.get("enforce_contract_status"),
+            inputs=params_cfg.get("inputs"),
+            output_adjustment=params_cfg.get("output_adjustment"),
+            data_product_flow=params_cfg.get("data_product_flow"),
             scenario_key=scenario,
         )
         label = (

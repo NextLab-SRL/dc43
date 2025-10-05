@@ -16,6 +16,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover - raised when optional de
 from pydantic import BaseModel
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+from dc43_service_clients.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    as_odps_dict as as_odps_product_dict,
+)
 from dc43_service_clients.data_quality.transport import (
     decode_observation_payload,
     decode_validation_result,
@@ -31,6 +36,7 @@ from dc43_service_clients.governance.transport import (
 from dc43_service_clients.governance.models import QualityAssessment
 
 from .contracts import ContractServiceBackend
+from .data_products import DataProductServiceBackend
 from .data_quality import DataQualityServiceBackend
 from .governance.backend import GovernanceServiceBackend
 
@@ -40,6 +46,24 @@ class _LinkDatasetPayload(BaseModel):
     dataset_version: str
     contract_id: str
     contract_version: str
+
+
+class _DataProductInputPayload(BaseModel):
+    port_name: str
+    contract_id: str
+    contract_version: str
+    bump: str = "minor"
+    custom_properties: Optional[Mapping[str, Any]] = None
+    source_data_product: Optional[str] = None
+    source_output_port: Optional[str] = None
+
+
+class _DataProductOutputPayload(BaseModel):
+    port_name: str
+    contract_id: str
+    contract_version: str
+    bump: str = "minor"
+    custom_properties: Optional[Mapping[str, Any]] = None
 
 
 class _EvaluateDQPayload(BaseModel):
@@ -101,6 +125,7 @@ def build_app(
     contract_backend: ContractServiceBackend,
     dq_backend: DataQualityServiceBackend,
     governance_backend: GovernanceServiceBackend,
+    data_product_backend: DataProductServiceBackend,
     dependencies: Sequence[object] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app exposing the provided backend implementations."""
@@ -160,6 +185,85 @@ def build_app(
         if version is None:
             raise HTTPException(status_code=404, detail="no contract linked")
         return {"contract_version": version}
+
+    # ------------------------------------------------------------------
+    # Data product endpoints
+    # ------------------------------------------------------------------
+    @router.get("/data-products/{data_product_id}/versions/{version}")
+    def get_data_product(data_product_id: str, version: str) -> Mapping[str, Any]:
+        try:
+            product = data_product_backend.get(data_product_id, version)
+        except FileNotFoundError as exc:  # pragma: no cover - backend signals missing product
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return as_odps_product_dict(product)
+
+    @router.get("/data-products/{data_product_id}/latest")
+    def latest_data_product(data_product_id: str) -> Mapping[str, Any]:
+        product = data_product_backend.latest(data_product_id)
+        if product is None:
+            raise HTTPException(status_code=404, detail="data product not found")
+        return as_odps_product_dict(product)
+
+    @router.get("/data-products/{data_product_id}/versions")
+    def list_data_product_versions(data_product_id: str) -> list[str]:
+        versions = data_product_backend.list_versions(data_product_id)
+        return [str(value) for value in versions]
+
+    @router.post("/data-products/{data_product_id}/input-ports")
+    def register_data_product_input(
+        data_product_id: str, payload: _DataProductInputPayload
+    ) -> Mapping[str, Any]:
+        result = data_product_backend.register_input_port(
+            data_product_id=data_product_id,
+            port=DataProductInputPort(
+                name=payload.port_name,
+                version=payload.contract_version,
+                contract_id=payload.contract_id,
+            ),
+            bump=payload.bump,
+            custom_properties=payload.custom_properties,
+            source_data_product=payload.source_data_product,
+            source_output_port=payload.source_output_port,
+        )
+        return {
+            "product": as_odps_product_dict(result.product),
+            "changed": result.changed,
+        }
+
+    @router.post("/data-products/{data_product_id}/output-ports")
+    def register_data_product_output(
+        data_product_id: str, payload: _DataProductOutputPayload
+    ) -> Mapping[str, Any]:
+        result = data_product_backend.register_output_port(
+            data_product_id=data_product_id,
+            port=DataProductOutputPort(
+                name=payload.port_name,
+                version=payload.contract_version,
+                contract_id=payload.contract_id,
+            ),
+            bump=payload.bump,
+            custom_properties=payload.custom_properties,
+        )
+        return {
+            "product": as_odps_product_dict(result.product),
+            "changed": result.changed,
+        }
+
+    @router.get("/data-products/{data_product_id}/output-ports/{port_name}/contract")
+    def resolve_data_product_output_contract(
+        data_product_id: str, port_name: str
+    ) -> Mapping[str, Any]:
+        contract = data_product_backend.resolve_output_contract(
+            data_product_id=data_product_id,
+            port_name=port_name,
+        )
+        if contract is None:
+            raise HTTPException(status_code=404, detail="output port not found")
+        contract_id, contract_version = contract
+        return {
+            "contract_id": contract_id,
+            "contract_version": contract_version,
+        }
 
     # ------------------------------------------------------------------
     # Data-quality endpoints

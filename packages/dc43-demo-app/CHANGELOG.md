@@ -10,3 +10,5 @@
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
   contracts and the new override workflow for development runs.
+- Data-product pipeline enforces the configured expected contract version when resolving
+  upstream inputs.

@@ -9,6 +9,7 @@ __all__ = [
     "auth",
     "config",
     "contracts",
+    "data_products",
     "data_quality",
     "governance",
     "server",

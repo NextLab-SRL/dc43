@@ -3,6 +3,7 @@
 <h1>Pipeline Scenarios</h1>
 {% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+{% set scenario_group_list = scenario_groups if scenario_groups else [{'key': 'default', 'label': 'Scenarios', 'rows': scenario_rows}] %}
 <table class="table table-striped align-middle" id="scenario-table">
   <thead>
     <tr>
@@ -16,7 +17,11 @@
     </tr>
   </thead>
   <tbody>
-  {% for scenario in scenario_rows %}
+  {% for group in scenario_group_list %}
+    <tr class="table-light">
+      <th colspan="7" class="text-uppercase small">{{ group.label }}</th>
+    </tr>
+    {% for scenario in group.rows %}
     {% set record = scenario.latest %}
     {% set output_details = record.dq_details.get('output', {}) if record else {} %}
     {% set fails = output_details.get('failed_expectations', {}) if output_details else {} %}
@@ -94,6 +99,36 @@
             {% endif %}
           </div>
         {% endif %}
+        {% set dp_meta = output_details.get('data_product') if output_details else {} %}
+        {% if record and record.data_product_id %}
+          <div class="small text-muted mt-2">Data product</div>
+          <div>
+            <a href="/data-products/{{ record.data_product_id }}">{{ record.data_product_id }}</a>
+            {% if record.data_product_port %}
+              <span class="text-muted">/</span>
+              <code>{{ record.data_product_port }}</code>
+            {% endif %}
+            {% if record.data_product_role %}
+              <span class="badge bg-secondary text-uppercase ms-1">{{ record.data_product_role }}</span>
+            {% endif %}
+          </div>
+        {% elif dp_meta %}
+          <div class="small text-muted mt-2">Data product</div>
+          <div>
+            {% if dp_meta.id %}
+              <a href="/data-products/{{ dp_meta.id }}">{{ dp_meta.id }}</a>
+            {% else %}
+              <span class="text-muted">Unknown</span>
+            {% endif %}
+            {% if dp_meta.port %}
+              <span class="text-muted">/</span>
+              <code>{{ dp_meta.port }}</code>
+            {% endif %}
+            {% if dp_meta.role %}
+              <span class="badge bg-secondary text-uppercase ms-1">{{ dp_meta.role }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
       </td>
       <td data-status-cell aria-live="polite">
         {% if record %}
@@ -147,6 +182,21 @@
               {% endfor %}
             </div>
           {% endif %}
+          {% set dp_meta = output_details.get('data_product') if output_details else {} %}
+          {% if dp_meta %}
+            <div class="small text-muted">
+              Data product →
+              {% if dp_meta.id %}
+                <a href="/data-products/{{ dp_meta.id }}">{{ dp_meta.id }}</a>
+              {% else %}
+                <span class="text-muted">unknown</span>
+              {% endif %}
+              {% if dp_meta.port %}
+                <span class="text-muted">/</span>
+                <code>{{ dp_meta.port }}</code>
+              {% endif %}
+            </div>
+          {% endif %}
           {% if not fails and not schema_errors %}
             {% if record.violations %}
               {{ record.violations }}
@@ -169,10 +219,10 @@
               </h2>
               <div id="dq-input-{{ scenario.key }}" class="accordion-collapse collapse">
                 <div class="accordion-body">
-                  {% for key in ['orders', 'customers'] %}
-                    {% if record.dq_details.get(key) %}
-                      <h6 class="text-capitalize">{{ key }}</h6>
-                      <pre class="small">{{ record.dq_details.get(key) | tojson(indent=2) }}</pre>
+                  {% for key, payload in record.dq_details.items() %}
+                    {% if key != 'output' %}
+                      <h6 class="text-capitalize">{{ key.replace('_', ' ') }}</h6>
+                      <pre class="small">{{ payload | tojson(indent=2) }}</pre>
                     {% endif %}
                   {% endfor %}
                 </div>
@@ -241,6 +291,22 @@
                       </ul>
                     </div>
                   {% endif %}
+                  {% if output_details.get('data_product') is mapping %}
+                    {% set dp_info = output_details.get('data_product') %}
+                    <div class="mb-2">
+                      <strong>Data product</strong>
+                      <div class="small">
+                        {% if dp_info.id %}<a href="/data-products/{{ dp_info.id }}">{{ dp_info.id }}</a>{% else %}<span class="text-muted">unknown</span>{% endif %}
+                        {% if dp_info.port %}
+                          <span class="text-muted">/</span>
+                          <code>{{ dp_info.port }}</code>
+                        {% endif %}
+                        {% if dp_info.role %}
+                          <span class="badge bg-secondary text-uppercase ms-1">{{ dp_info.role }}</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endif %}
                 </div>
               </div>
             </div>
@@ -258,6 +324,7 @@
         </form>
       </td>
     </tr>
+    {% endfor %}
   {% endfor %}
   </tbody>
 </table>
