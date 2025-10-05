@@ -39,13 +39,16 @@ single field without editing the TOML file:
 
 ## Service backend configuration schema
 
-The service backend configuration supports two tables: `contract_store` and
-`auth`.
+The service backend configuration supports three core tables:
+`contract_store`, `data_product`, and `auth`.
 
 ```toml
 [contract_store]
 type = "filesystem"
 root = "./contracts"
+
+[data_product]
+type = "memory"
 
 [auth]
 token = "change-me"
@@ -59,6 +62,7 @@ expose. Supported values are:
 | Type | Description |
 | ---- | ----------- |
 | `filesystem` | Stores contracts on the local filesystem using `FSContractStore`. |
+| `delta` | Persists contracts in a Delta table or Unity Catalog object via `DeltaContractStore`. Requires `pyspark`. |
 | `collibra_stub` | Wraps the in-repo Collibra stub adapter, useful for integration tests and demos that emulate Collibra workflows locally. |
 | `collibra_http` | Connects to a real Collibra Data Products deployment through `HttpCollibraContractAdapter`. |
 
@@ -69,6 +73,18 @@ The remaining keys under `contract_store` configure the selected backend.
 | Key | Type | Applies to | Description |
 | --- | ---- | ---------- | ----------- |
 | `root` | string | `filesystem` | Absolute or relative path to the directory that stores contracts. Defaults to `./contracts` when omitted. Paths may include `~` to reference the current user's home directory. |
+
+#### Delta contract store
+
+| Key | Type | Description |
+| --- | ---- | ----------- |
+| `table` | string | Fully-qualified Unity Catalog table name used to persist contracts. Required when running inside Databricks workspaces. |
+| `base_path` | string | Optional Delta path backing the table when Unity Catalog is not available. Mutually exclusive with `table`. |
+
+Set `type = "delta"` to activate the Delta-backed store. The service attempts to
+import `pyspark` and uses `SparkSession.builder.getOrCreate()` to access the
+workspace catalog. Provide either `table` or `base_path`; if both are defined
+the table takes precedence.
 
 #### Collibra stub contract store
 
@@ -98,6 +114,31 @@ port = "gold-quality"
 | `default_status` | string | Workflow status applied when upserting contracts. |
 | `status_filter` | string | Optional workflow status filter applied to listings. |
 | `catalog` | table | Mapping of contract identifiers to Collibra `{ data_product, port }` pairs as described above. |
+
+### Configuring the data product store
+
+`[data_product]` controls how the service persists Open Data Product Standard
+documents. Supported types are:
+
+| Type | Description |
+| ---- | ----------- |
+| `memory` | Stores definitions in-memory. Useful for local demos. |
+| `filesystem` | Persists each version as JSON files compatible with the ODPS schema. |
+| `delta` | Persists products in a Delta table or Unity Catalog object via `DeltaDataProductServiceBackend`. Requires `pyspark`. |
+| `collibra_stub` | Leverages the Collibra stub adapter to emulate remote data product catalogues. |
+
+Common keys include:
+
+| Key | Type | Applies to | Description |
+| --- | ---- | ---------- | ----------- |
+| `root` | string | `filesystem`, `collibra_stub` | Root directory used for JSON persistence or stub caches. |
+| `table` | string | `delta` | Fully-qualified Unity Catalog table used for ODPS payloads. |
+| `base_path` | string | `delta` | Delta path backing the table when Unity Catalog is unavailable. |
+
+Like the contract store, the Delta option automatically initialises the table and
+expects either `table` or `base_path` to be defined. Switching the type to a
+remote backend keeps the service compatible with managed stores such as
+PostgreSQL or Azure Files.
 
 #### Authentication
 

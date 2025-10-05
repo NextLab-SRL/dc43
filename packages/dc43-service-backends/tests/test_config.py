@@ -15,6 +15,9 @@ def test_load_config_from_file(tmp_path: Path) -> None:
                 "[contract_store]",
                 f"root = '{tmp_path / 'contracts'}'",
                 "",
+                "[data_product]",
+                f"root = '{tmp_path / 'products'}'",
+                "",
                 "[auth]",
                 "token = 'secret'",
             ]
@@ -26,7 +29,10 @@ def test_load_config_from_file(tmp_path: Path) -> None:
     config = load_config(config_path)
     assert config.contract_store.type == "filesystem"
     assert config.contract_store.root == tmp_path / "contracts"
+    assert config.data_product_store.type == "memory"
+    assert config.data_product_store.root == tmp_path / "products"
     assert config.auth.token == "secret"
+    assert config.governance.dataset_contract_link_builders == ()
 
 
 def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,11 +42,15 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
     monkeypatch.setenv("DC43_CONTRACT_STORE", str(tmp_path / "override"))
     monkeypatch.setenv("DC43_BACKEND_TOKEN", "env-token")
+    monkeypatch.setenv("DC43_DATA_PRODUCT_STORE", str(tmp_path / "dp"))
 
     config = load_config()
     assert config.contract_store.type == "filesystem"
     assert config.contract_store.root == tmp_path / "override"
+    assert config.data_product_store.root == tmp_path / "dp"
     assert config.auth.token == "env-token"
+    assert config.unity_catalog.enabled is False
+    assert config.governance.dataset_contract_link_builders == ()
 
 
 def test_load_collibra_stub_config(tmp_path: Path) -> None:
@@ -78,6 +88,31 @@ def test_load_collibra_stub_config(tmp_path: Path) -> None:
     }
 
 
+def test_delta_store_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[contract_store]",
+                "type = 'delta'",
+                "table = 'governed.meta.contracts'",
+                "",
+                "[data_product]",
+                "type = 'delta'",
+                "table = 'governed.meta.data_products'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.contract_store.type == "delta"
+    assert config.contract_store.table == "governed.meta.contracts"
+    assert config.data_product_store.type == "delta"
+    assert config.data_product_store.table == "governed.meta.data_products"
+
+
 def test_load_collibra_http_config(tmp_path: Path) -> None:
     config_path = tmp_path / "backends.toml"
     config_path.write_text(
@@ -101,3 +136,67 @@ def test_load_collibra_http_config(tmp_path: Path) -> None:
     assert config.contract_store.token == "api-token"
     assert config.contract_store.timeout == 5.5
     assert config.contract_store.contracts_endpoint_template == "/custom/{data_product}/{port}"
+
+
+def test_unity_catalog_config_section(tmp_path: Path) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[unity_catalog]",
+                "enabled = true",
+                "dataset_prefix = 'table:'",
+                "workspace_profile = 'prod'",
+                "workspace_host = 'https://adb.example.com'",
+                "workspace_token = 'token-123'",
+                "",
+                "[unity_catalog.static_properties]",
+                "owner = 'governance'",
+                "",
+                "[governance]",
+                "dataset_contract_link_builders = [",
+                "  'example.module:builder',",
+                "]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.unity_catalog.enabled is True
+    assert config.unity_catalog.dataset_prefix == "table:"
+    assert config.unity_catalog.workspace_profile == "prod"
+    assert config.unity_catalog.workspace_host == "https://adb.example.com"
+    assert config.unity_catalog.workspace_token == "token-123"
+    assert config.unity_catalog.static_properties == {"owner": "governance"}
+    assert config.governance.dataset_contract_link_builders == (
+        "example.module:builder",
+    )
+
+
+def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
+    monkeypatch.setenv("DC43_UNITY_CATALOG_ENABLED", "yes")
+    monkeypatch.setenv("DC43_UNITY_CATALOG_PREFIX", "cat:")
+    monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", "unity-prod")
+    monkeypatch.setenv("DATABRICKS_HOST", "https://adb.example.com")
+    monkeypatch.setenv("DATABRICKS_TOKEN", "env-token")
+    monkeypatch.setenv(
+        "DC43_GOVERNANCE_LINK_BUILDERS",
+        "custom.module:builder, other.module.hooks:make",
+    )
+
+    config = load_config()
+    assert config.unity_catalog.enabled is True
+    assert config.unity_catalog.dataset_prefix == "cat:"
+    assert config.unity_catalog.workspace_profile == "unity-prod"
+    assert config.unity_catalog.workspace_host == "https://adb.example.com"
+    assert config.unity_catalog.workspace_token == "env-token"
+    assert config.governance.dataset_contract_link_builders == (
+        "custom.module:builder",
+        "other.module.hooks:make",
+    )

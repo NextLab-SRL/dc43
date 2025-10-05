@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Sequence
 from threading import Lock
 
@@ -17,14 +16,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover - raised when extras abse
 
 from .auth import bearer_token_dependency
 from .config import ServiceBackendsConfig, load_config
-from .contracts.backend.stores import (
-    CollibraContractStore,
-    FSContractStore,
-    HttpCollibraContractAdapter,
-    StubCollibraContractAdapter,
-)
-from .contracts.backend.stores.interface import ContractStore
+from .bootstrap import build_contract_store, build_data_product_backend
 from .web import build_local_app
+from .governance.bootstrap import build_dataset_contract_link_hooks
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ServiceBackendsConfig | None = None
@@ -50,56 +44,6 @@ def _current_config() -> ServiceBackendsConfig:
         return _ACTIVE_CONFIG
 
 
-def _resolve_store(config: ServiceBackendsConfig) -> ContractStore:
-    """Return a contract store instance derived from the active configuration."""
-
-    store_config = config.contract_store
-    store_type = (store_config.type or "filesystem").lower()
-
-    if store_type == "filesystem":
-        root = store_config.root
-        path = Path(root) if root else Path.cwd() / "contracts"
-        path.mkdir(parents=True, exist_ok=True)
-        return FSContractStore(str(path))
-
-    if store_type == "collibra_stub":
-        base_path = store_config.base_path or store_config.root
-        path = Path(base_path).expanduser() if base_path else None
-        catalog = store_config.catalog or None
-        adapter = StubCollibraContractAdapter(
-            base_path=str(path) if path else None,
-            catalog=catalog,
-        )
-        return CollibraContractStore(
-            adapter,
-            default_status=store_config.default_status,
-            status_filter=store_config.status_filter,
-        )
-
-    if store_type == "collibra_http":
-        if not store_config.base_url:
-            raise RuntimeError(
-                "contract_store.base_url is required when type is 'collibra_http'"
-            )
-        adapter = HttpCollibraContractAdapter(
-            store_config.base_url,
-            token=store_config.token,
-            timeout=store_config.timeout,
-            contract_catalog=store_config.catalog or None,
-            contracts_endpoint_template=(
-                store_config.contracts_endpoint_template
-                or "/rest/2.0/dataproducts/{data_product}/ports/{port}/contracts"
-            ),
-        )
-        return CollibraContractStore(
-            adapter,
-            default_status=store_config.default_status,
-            status_filter=store_config.status_filter,
-        )
-
-    raise RuntimeError(f"Unsupported contract store type: {store_type}")
-
-
 def _resolve_dependencies(config: ServiceBackendsConfig) -> Sequence[object] | None:
     """Return global router dependencies (authentication) if configured."""
 
@@ -113,9 +57,16 @@ def create_app(config: ServiceBackendsConfig | None = None) -> FastAPI:
     """Build a FastAPI application backed by local filesystem services."""
 
     active_config = configure_from_config(config)
-    store = _resolve_store(active_config)
+    store = build_contract_store(active_config.contract_store)
+    data_product_backend = build_data_product_backend(active_config.data_product_store)
     dependencies = _resolve_dependencies(active_config)
-    return build_local_app(store, dependencies=dependencies)
+    link_hooks = build_dataset_contract_link_hooks(active_config)
+    return build_local_app(
+        store,
+        dependencies=dependencies,
+        data_product_backend=data_product_backend,
+        link_hooks=link_hooks or None,
+    )
 
 
 # Module-level application so ``uvicorn dc43_service_backends.webapp:app`` works.
