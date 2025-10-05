@@ -13,13 +13,16 @@ across the whole stack.
 
 ## Branching model
 
-- Do day-to-day development on the `dev` branch. Cut feature branches from `dev` and land them via
-  pull requests.
-- Protect `main`. Only merge pull requests from `dev` (or dedicated release branches) after they
-  pass review. Every merge to `main` is a potential release.
-- Let GitHub Actions publish artifacts. Once code lands on `main`, the release workflow decides
-  whether any packages need to ship and handles tagging, PyPI uploads, and GitHub Releases without
-  extra manual intervention.
+The repository follows a lightweight Gitflow-inspired process:
+
+- Protect both `dev` and `main` so all work flows through reviewed pull requests.
+- Cut feature branches from `dev`, keep them short-lived, and merge back only after validation
+  (tests, docs, changelog entries, etc.).
+- Treat `dev` as the staging branch. Collect validated changes there until you are ready to release.
+- When a release is needed, open a pull request from `dev` to `main`. Once merged, CI takes over and
+  publishes any packages that require shipping.
+- Let GitHub Actions publish artifacts. Every merge to `main` is a potential release, so avoid
+  force-pushing and keep history linear by preferring squash or rebase merges.
 
 ## Tagging strategy
 
@@ -74,25 +77,30 @@ package in the plan succeeds or the workflow fails without leaving dangling tags
 ### Multi-package release CLI
 
 To make tagging easier—especially when several packages need a release—you can use the helper
-script at [`scripts/release.py`](../scripts/release.py). The CLI inspects the repository to work out
-which packages changed since their most recent release tag, verifies that the version in each
-`VERSION` file is new, checks whether the version is already on PyPI, and then (optionally)
-creates and pushes the corresponding tags.
+script at [`scripts/release.py`](../scripts/release.py). The release workflow already invokes the CLI
+automatically, so merging into `main` is enough to ship a new version. Running the script locally is
+purely optional and helpful only when you want to preview what CI will do or when you need to
+produce a manual release outside the standard automation. The CLI inspects the repository to work
+out which packages changed since their most recent release tag, verifies that the version in each
+`VERSION` file is new, checks whether the version is already on PyPI, and then (optionally) creates
+and pushes the corresponding tags.
 
 Common workflows:
 
 - **Dry run:** list all packages, highlighting those that have changed and the tag that would be
-  created.
+  created. This mirrors the planning phase that runs in CI for every merge to `main`.
 
   ```bash
   python scripts/release.py
   ```
 
 - **Release everything that changed:** create annotated tags for all packages that need a release,
-  and push the branch plus tags to `origin` (`git push origin main --tags`). The CLI checks that the
-  target commit message already contains `[release]` to keep release commits easy to spot, and when
-  targeting `HEAD` it can amend the commit for you if the marker is missing. Use
-  `--allow-missing-release-marker` when intentionally tagging an older commit without the marker.
+  and push the branch plus tags to `origin` (`git push origin main --tags`). CI already performs this
+  step on your behalf after merges; reach for the flag only if you must cut a release manually (for
+  example while rerunning the automation from a hotfix branch). The CLI checks that the target
+  commit message already contains `[release]` to keep release commits easy to spot, and when targeting
+  `HEAD` it can amend the commit for you if the marker is missing. Use `--allow-missing-release-marker`
+  when intentionally tagging an older commit without the marker.
 
   ```bash
   python scripts/release.py --apply --push
