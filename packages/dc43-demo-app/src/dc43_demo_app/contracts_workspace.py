@@ -283,6 +283,12 @@ def register_dataset_version(
     dataset_dir = workspace.data_dir / dataset
     dataset_dir.mkdir(parents=True, exist_ok=True)
     target = _target_version_dir(dataset_dir, version)
+    try:
+        if source.resolve() == target.resolve():
+            _ensure_version_marker(target, version)
+            return
+    except OSError:
+        pass
     _link_path(target, source)
     _ensure_version_marker(target, version)
 
