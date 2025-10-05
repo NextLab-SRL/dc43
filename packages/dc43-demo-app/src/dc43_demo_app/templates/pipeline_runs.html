@@ -31,7 +31,7 @@
       <th scope="row" class="w-25">
         <div class="d-flex align-items-start gap-2">
           <div>
-            <div class="fw-semibold">{{ scenario.label }}</div>
+            <div class="fw-semibold"><a href="/pipeline-runs/{{ scenario.key }}">{{ scenario.label }}</a></div>
             <div class="text-muted small">{{ scenario.key }}</div>
           </div>
           {% if scenario.description or scenario.diagram %}
@@ -318,6 +318,7 @@
       </td>
       <td class="text-center">{{ scenario.run_count }}</td>
       <td class="text-end">
+        <a class="btn btn-outline-secondary btn-sm me-1" href="/pipeline-runs/{{ scenario.key }}">Details</a>
         <form class="d-inline" method="post" action="/pipeline/run">
           <input type="hidden" name="scenario" value="{{ scenario.key }}"/>
           <button class="btn btn-primary btn-sm" type="submit">Run</button>

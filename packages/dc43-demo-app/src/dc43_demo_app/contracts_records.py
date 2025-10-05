@@ -200,6 +200,54 @@ def scenario_run_rows(
     return rows
 
 
+def scenario_history(
+    records: Iterable[DatasetRecord],
+    scenario_key: str,
+    scenario_cfg: Mapping[str, Any],
+) -> Tuple[List[DatasetRecord], str]:
+    """Return the ordered history of runs associated with ``scenario_key``."""
+
+    params: Mapping[str, Any] = scenario_cfg.get("params", {})
+    dataset_name = _scenario_dataset_name(params)
+    dataset_records: List[DatasetRecord] = [
+        record for record in records if record.scenario_key == scenario_key
+    ]
+
+    if not dataset_records:
+        candidate_records = [
+            record for record in records if record.dataset_name == dataset_name
+        ]
+        if candidate_records:
+            contract_id = params.get("contract_id")
+            contract_version = params.get("contract_version")
+            run_type = params.get("run_type")
+            filtered: List[DatasetRecord] = []
+            for record in candidate_records:
+                if record.scenario_key and record.scenario_key != scenario_key:
+                    continue
+                if contract_id and record.contract_id and record.contract_id != contract_id:
+                    continue
+                if (
+                    contract_version
+                    and record.contract_version
+                    and record.contract_version != contract_version
+                ):
+                    continue
+                if run_type and record.run_type and record.run_type != run_type:
+                    continue
+                filtered.append(record)
+            if filtered:
+                dataset_records = filtered
+            else:
+                dataset_records = [
+                    record for record in candidate_records if not record.scenario_key
+                ]
+
+    dataset_records = list(dataset_records)
+    dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+    return dataset_records, dataset_name
+
+
 _STORE: FSContractStore | None = None
 
 
@@ -399,6 +447,7 @@ __all__ = [
     "pop_flash",
     "queue_flash",
     "save_records",
+    "scenario_history",
     "scenario_run_rows",
 ]
 

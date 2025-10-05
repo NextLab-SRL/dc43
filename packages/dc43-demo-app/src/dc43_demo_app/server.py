@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -20,10 +20,25 @@ from .contracts_records import (
     pop_flash,
     queue_flash,
     save_records,
+    scenario_history,
     scenario_run_rows,
 )
 from .contracts_workspace import prepare_demo_workspace
 from .scenarios import SCENARIOS
+
+CATEGORY_LABELS = {
+    "contract": "Contract-focused pipelines",
+    "data-product": "Data product pipelines",
+}
+
+STATUS_BADGES = {
+    "ok": "bg-success",
+    "success": "bg-success",
+    "warn": "bg-warning text-dark",
+    "warning": "bg-warning text-dark",
+    "block": "bg-danger",
+    "error": "bg-danger",
+}
 
 prepare_demo_workspace()
 
@@ -101,10 +116,6 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
     records = load_records()
     recs = [r.__dict__.copy() for r in records]
     scenario_rows = scenario_run_rows(records, SCENARIOS)
-    category_labels = {
-        "contract": "Contract-focused pipelines",
-        "data-product": "Data product pipelines",
-    }
     order = ["contract", "data-product"]
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in scenario_rows:
@@ -115,7 +126,7 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
             scenario_groups.append(
                 {
                     "key": key,
-                    "label": category_labels.get(key, key.replace("-", " ").title()),
+                    "label": CATEGORY_LABELS.get(key, key.replace("-", " ").title()),
                     "rows": grouped[key],
                 }
             )
@@ -124,7 +135,7 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
             scenario_groups.append(
                 {
                     "key": key,
-                    "label": category_labels.get(key, key.replace("-", " ").title()),
+                    "label": CATEGORY_LABELS.get(key, key.replace("-", " ").title()),
                     "rows": rows,
                 }
             )
@@ -146,6 +157,90 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
         "error": flash_error,
     }
     return templates.TemplateResponse("pipeline_runs.html", context)
+
+
+@app.get("/pipeline-runs/{scenario_key}", response_class=HTMLResponse)
+async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLResponse:
+    scenario_cfg = SCENARIOS.get(scenario_key)
+    if not scenario_cfg:
+        raise HTTPException(status_code=404, detail=f"Unknown scenario: {scenario_key}")
+
+    records = load_records()
+    history_records, dataset_name = scenario_history(records, scenario_key, scenario_cfg)
+    row_candidates = scenario_run_rows(records, {scenario_key: scenario_cfg})
+    scenario_row = row_candidates[0] if row_candidates else {
+        "key": scenario_key,
+        "label": scenario_cfg.get("label", scenario_key.replace("-", " ").title()),
+        "description": scenario_cfg.get("description"),
+        "diagram": scenario_cfg.get("diagram"),
+        "category": scenario_cfg.get("category", "contract"),
+        "dataset_name": dataset_name,
+        "contract_id": scenario_cfg.get("params", {}).get("contract_id"),
+        "contract_version": scenario_cfg.get("params", {}).get("contract_version"),
+        "run_type": scenario_cfg.get("params", {}).get("run_type", "infer"),
+        "run_count": 0,
+        "latest": None,
+    }
+
+    history_entries = []
+    for record in history_records:
+        record_payload = record.__dict__.copy()
+        dq_details = record_payload.get("dq_details")
+        if not isinstance(dq_details, Mapping):
+            dq_details = {}
+        output_details = dq_details.get("output", {}) if isinstance(dq_details, Mapping) else {}
+        if not isinstance(output_details, Mapping):
+            output_details = {}
+        failed_expectations = output_details.get("failed_expectations", {})
+        if not isinstance(failed_expectations, Mapping):
+            failed_expectations = {}
+        schema_errors = output_details.get("errors", [])
+        if not isinstance(schema_errors, list):
+            schema_errors = []
+        dq_aux = output_details.get("dq_auxiliary_statuses", [])
+        if not isinstance(dq_aux, list):
+            dq_aux = []
+        input_payloads = []
+        if isinstance(dq_details, Mapping):
+            for key, payload in dq_details.items():
+                if key == "output":
+                    continue
+                input_payloads.append({"name": key, "payload": payload})
+
+        history_entries.append(
+            {
+                "record": record_payload,
+                "output_details": output_details,
+                "failed_expectations": failed_expectations,
+                "schema_errors": schema_errors,
+                "dq_aux": dq_aux,
+                "input_payloads": input_payloads,
+            }
+        )
+
+    params_cfg = scenario_cfg.get("params", {})
+    latest_record = scenario_row.get("latest")
+    category_key = scenario_row.get("category", "contract")
+    category_label = CATEGORY_LABELS.get(
+        category_key, category_key.replace("-", " ").title()
+    )
+
+    context = {
+        "request": request,
+        "scenario_key": scenario_key,
+        "scenario": scenario_cfg,
+        "scenario_row": scenario_row,
+        "latest_record": latest_record,
+        "history_entries": history_entries,
+        "has_history": bool(history_entries),
+        "dataset_name": dataset_name,
+        "category_label": category_label,
+        "guide_sections": scenario_cfg.get("guide", []),
+        "scenario_params": params_cfg,
+        "activate_versions": scenario_cfg.get("activate_versions", {}),
+        "status_badges": STATUS_BADGES,
+    }
+    return templates.TemplateResponse("pipeline_run_detail.html", context)
 
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
