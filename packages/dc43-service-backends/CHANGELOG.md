@@ -21,3 +21,6 @@
 - Unity Catalog tagging now runs through pluggable governance hooks so service
   and client interfaces stay technology agnostic while still supporting
   Databricks-specific metadata updates.
+- The HTTP webapp delegates hook assembly to a governance bootstrap module, so
+  Databricks integrations and future extensions live in dedicated files rather
+  than being hard-coded in the entrypoint.

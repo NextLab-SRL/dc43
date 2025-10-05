@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from dc43_service_backends.config import UnityCatalogConfig
+import pytest
+
+from dc43_service_backends.config import ServiceBackendsConfig, UnityCatalogConfig
 from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
 from dc43_service_backends.governance.unity_catalog import (
     UnityCatalogLinker,
     build_linker_from_config,
     prefix_table_resolver,
 )
+from dc43_service_backends.governance.bootstrap import build_dataset_contract_link_hooks
 
 
 def test_linker_updates_table() -> None:
@@ -171,3 +174,34 @@ def test_build_linker_from_config_disabled() -> None:
     config = UnityCatalogConfig(enabled=False)
     linker = build_linker_from_config(config, workspace_builder=lambda cfg: _Workspace())
     assert linker is None
+
+
+def test_build_dataset_contract_link_hooks_uses_unity(monkeypatch) -> None:
+    config = ServiceBackendsConfig()
+    config.unity_catalog.enabled = True
+
+    linker = UnityCatalogLinker(apply_table_properties=lambda name, props: None)
+
+    monkeypatch.setattr(
+        "dc43_service_backends.governance.bootstrap.build_linker_from_config",
+        lambda cfg: linker,
+    )
+
+    hooks = build_dataset_contract_link_hooks(config)
+    assert hooks == (linker.link_dataset_contract,)
+
+
+def test_build_dataset_contract_link_hooks_warns_on_failure() -> None:
+    config = ServiceBackendsConfig()
+
+    def _broken_builder(*_: object) -> None:
+        raise RuntimeError("boom")
+
+    with pytest.warns(RuntimeWarning):
+        hooks = build_dataset_contract_link_hooks(
+            config,
+            extra_builders=[_broken_builder],
+            include_defaults=False,
+        )
+
+    assert hooks == ()
