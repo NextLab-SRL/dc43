@@ -976,11 +976,8 @@ def _data_product_input_locator(
     """Return the dataset locator used for data product reads."""
 
     dataset_id = config.get("dataset_id")
-    dataset_version = (
-        _preferred_dataset_version(config, records)
-        or config.get("dataset_version")
-        or "latest"
-    )
+    preferred_version = _preferred_dataset_version(config, records)
+    dataset_version = preferred_version or config.get("dataset_version") or "latest"
     default = ContractVersionLocator(
         dataset_version=str(dataset_version),
         dataset_id=str(dataset_id) if dataset_id not in (None, "") else None,
@@ -996,7 +993,12 @@ def _data_product_input_locator(
         overrides = locator_spec
     else:
         keys = ("dataset_id", "dataset_version", "path", "table", "format", "subpath", "base")
-        extracted = {key: config[key] for key in keys if key in config}
+        extracted = {
+            key: config[key]
+            for key in keys
+            if key in config
+            and not (key == "dataset_version" and preferred_version is not None)
+        }
         if extracted:
             overrides = extracted
 
@@ -1092,11 +1094,20 @@ def _run_data_product_flow(
     customers_contract_id = customers_cfg.get("contract_id") or "customers"
     customers_expected = customers_cfg.get("expected_contract_version")
     customers_version = customers_cfg.get("contract_version") or None
+    customers_locator = _apply_locator_overrides(
+        ContractVersionLocator(
+            dataset_version=str(customers_cfg.get("dataset_version") or "latest"),
+            dataset_id=str(customers_cfg.get("dataset_id") or "customers"),
+            base=ContractFirstDatasetLocator(),
+        ),
+        customers_cfg if isinstance(customers_cfg, Mapping) else None,
+    )
     customers_df, customers_status = read_with_contract(
         spark,
         contract_id=customers_contract_id,
         contract_service=contracts_server.contract_service,
         expected_contract_version=customers_expected,
+        dataset_locator=customers_locator,
         data_quality_service=contracts_server.dq_service,
         governance_service=governance,
         return_status=True,
