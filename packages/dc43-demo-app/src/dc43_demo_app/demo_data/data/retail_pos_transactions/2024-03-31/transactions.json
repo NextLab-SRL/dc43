@@ -1,0 +1,56 @@
+[
+  {
+    "transaction_id": "POS-90001",
+    "store_id": "NY-001",
+    "product_id": "SKU-TECH-1",
+    "quantity": 2,
+    "unit_price": 699.0,
+    "transaction_ts": "2024-03-31T10:05:00Z",
+    "sales_channel": "in_store"
+  },
+  {
+    "transaction_id": "POS-90002",
+    "store_id": "NY-001",
+    "product_id": "SKU-HOME-2",
+    "quantity": 1,
+    "unit_price": 129.0,
+    "transaction_ts": "2024-03-31T10:42:00Z",
+    "sales_channel": "in_store"
+  },
+  {
+    "transaction_id": "POS-90018",
+    "store_id": "SF-001",
+    "product_id": "SKU-TECH-1",
+    "quantity": 1,
+    "unit_price": 719.0,
+    "transaction_ts": "2024-03-31T09:58:00Z",
+    "sales_channel": "in_store"
+  },
+  {
+    "transaction_id": "POS-90102",
+    "store_id": "SF-001",
+    "product_id": "SKU-OUT-3",
+    "quantity": 3,
+    "unit_price": 59.0,
+    "transaction_ts": "2024-03-31T12:17:00Z",
+    "sales_channel": "curbside"
+  },
+  {
+    "transaction_id": "POS-90178",
+    "store_id": "CHI-010",
+    "product_id": "SKU-HOME-2",
+    "quantity": 2,
+    "unit_price": 119.0,
+    "transaction_ts": "2024-03-31T11:09:00Z",
+    "sales_channel": "in_store"
+  },
+  {
+    "transaction_id": "POS-90201",
+    "store_id": "CHI-010",
+    "product_id": "SKU-OUT-3",
+    "quantity": 1,
+    "unit_price": 55.0,
+    "transaction_ts": "2024-03-31T13:22:00Z",
+    "sales_channel": "online_pickup"
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_inventory_snapshot",
+  "name": "Inventory snapshot",
+  "description": {
+    "summary": "Daily midnight inventory counts per store and product.",
+    "usage": "Operational inventory dataset consumed by planning and analytics teams."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_inventory_snapshot",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "inventory.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_inventory_snapshot/{version}/inventory.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "inventory",
+      "primaryKey": ["store_id", "product_id"],
+      "properties": [
+        {"name": "store_id", "physicalType": "string", "required": true},
+        {"name": "product_id", "physicalType": "string", "required": true},
+        {"name": "on_hand", "physicalType": "integer", "required": true, "quality": [{"mustBeGreaterThanOrEqualTo": 0}]},
+        {"name": "snapshot_ts", "physicalType": "string", "required": true}
+      ]
+    }
+  ]
+}

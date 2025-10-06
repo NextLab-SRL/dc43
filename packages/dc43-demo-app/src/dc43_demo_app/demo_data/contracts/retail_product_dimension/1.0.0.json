@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_product_dimension",
+  "name": "Retail product dimension",
+  "description": {
+    "summary": "Merchandising catalog with product grouping attributes and unit costs.",
+    "usage": "Dimension table shared across analytics, ML features, and downstream consumers."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_product_dimension",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "product_dimension.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_product_dimension/{version}/product_dimension.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "product_dimension",
+      "primaryKey": ["product_key"],
+      "properties": [
+        {"name": "product_key", "physicalType": "string", "required": true},
+        {"name": "product_id", "physicalType": "string", "required": true},
+        {"name": "product_name", "physicalType": "string", "required": true},
+        {"name": "category", "physicalType": "string", "required": true},
+        {"name": "subcategory", "physicalType": "string", "required": true},
+        {"name": "department", "physicalType": "string", "required": true},
+        {"name": "unit_cost", "physicalType": "double", "required": true}
+      ]
+    }
+  ]
+}

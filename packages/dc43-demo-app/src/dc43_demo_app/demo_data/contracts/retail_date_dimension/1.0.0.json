@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_date_dimension",
+  "name": "Retail date dimension",
+  "description": {
+    "summary": "Calendar attributes for the retail business day grain.",
+    "usage": "Supports time-based slicing in the analytics mart and KPI layer."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_date_dimension",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "date_dimension.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_date_dimension/{version}/date_dimension.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "date_dimension",
+      "primaryKey": ["date_key"],
+      "properties": [
+        {"name": "date_key", "physicalType": "string", "required": true},
+        {"name": "business_date", "physicalType": "string", "required": true},
+        {"name": "day_of_week", "physicalType": "string", "required": true},
+        {"name": "week_of_year", "physicalType": "integer", "required": true},
+        {"name": "month", "physicalType": "integer", "required": true},
+        {"name": "quarter", "physicalType": "integer", "required": true},
+        {"name": "year", "physicalType": "integer", "required": true}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+[
+  {
+    "business_date": "2024-03-31",
+    "metric_id": "gross_sales_total",
+    "metric_label": "Gross Sales",
+    "value": 2716.0,
+    "unit": "USD",
+    "semantic_layer": {
+      "type": "measure",
+      "aggregation": "sum",
+      "expression": "sum(gross_sales)",
+      "description": "Aggregated sales revenue across all stores for the business day.",
+      "format": "currency"
+    }
+  },
+  {
+    "business_date": "2024-03-31",
+    "metric_id": "gross_margin_total",
+    "metric_label": "Gross Margin",
+    "value": 794.0,
+    "unit": "USD",
+    "semantic_layer": {
+      "type": "measure",
+      "aggregation": "sum",
+      "expression": "sum(gross_margin)",
+      "description": "Margin retained after product costs but before operating expenses.",
+      "format": "currency"
+    }
+  },
+  {
+    "business_date": "2024-03-31",
+    "metric_id": "sell_through_avg",
+    "metric_label": "Sell-through",
+    "value": 0.0784,
+    "unit": "ratio",
+    "semantic_layer": {
+      "type": "measure",
+      "aggregation": "average",
+      "expression": "avg(units_sold / (units_sold + inventory_on_hand))",
+      "description": "Average sell-through rate at the store/category grain.",
+      "format": "percent"
+    }
+  },
+  {
+    "business_date": "2024-03-31",
+    "metric_id": "inventory_at_risk",
+    "metric_label": "Inventory at Risk",
+    "value": 97.0,
+    "unit": "units",
+    "semantic_layer": {
+      "type": "measure",
+      "aggregation": "sum",
+      "expression": "sum(case when sell_through_rate < 0.1 then inventory_on_hand else 0 end)",
+      "description": "Units sitting in slow-moving categories with sell-through below 10%."
+    }
+  },
+  {
+    "business_date": "2024-03-31",
+    "metric_id": "forecast_bias",
+    "metric_label": "Forecast Bias",
+    "value": 0.62,
+    "unit": "ratio",
+    "semantic_layer": {
+      "type": "measure",
+      "aggregation": "calculated",
+      "expression": "(sum(forecast_units) - sum(units_sold)) / nullif(sum(units_sold), 0)",
+      "description": "Directional accuracy of the demand model across the retail footprint.",
+      "format": "percent"
+    }
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "product_key": "PROD-01",
+    "product_id": "SKU-HOME-2",
+    "product_name": "Everglow Smart Lamp",
+    "category": "Home",
+    "subcategory": "Lighting",
+    "department": "Home",
+    "unit_cost": 78.0
+  },
+  {
+    "product_key": "PROD-02",
+    "product_id": "SKU-OUT-3",
+    "product_name": "Trailblazer Camping Stove",
+    "category": "Outdoors",
+    "subcategory": "Camping",
+    "department": "Outdoors",
+    "unit_cost": 32.0
+  },
+  {
+    "product_key": "PROD-03",
+    "product_id": "SKU-TECH-1",
+    "product_name": "Nimbus XR Smartphone",
+    "category": "Electronics",
+    "subcategory": "Smartphones",
+    "department": "Electronics",
+    "unit_cost": 520.0
+  }
+]
