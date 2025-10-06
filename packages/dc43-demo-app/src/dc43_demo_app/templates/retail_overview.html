@@ -108,6 +108,12 @@
                 </div>
               </div>
             </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
+              <span class="text-uppercase fw-semibold">Catalog quick links</span>
+              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-tools-card">Data products</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-tools-card">Datasets</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-tools-card">Contracts</a>
+            </div>
             <div class="progress mb-4" style="height: 6px;">
               <div class="progress-bar bg-primary" id="retailTimelineProgress" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
@@ -165,6 +171,12 @@
           </div>
           <div class="tab-pane fade" id="story-flow" role="tabpanel" aria-labelledby="story-flow-tab">
             <p class="small text-muted">Each block represents a data product boundary. Internal datasets stay inside the product while exposed ports are surfaced downstream.</p>
+            <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
+              <span class="text-uppercase fw-semibold">Catalog quick links</span>
+              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-tools-card">Data products</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-tools-card">Datasets</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-tools-card">Contracts</a>
+            </div>
             <div class="mermaid">
 graph LR
   A["Retail operational foundation<br/>Source feeds"] --> B["Retail star schema<br/>Modelled data"]
@@ -176,6 +188,12 @@ graph LR
           </div>
           <div class="tab-pane fade" id="story-lineage" role="tabpanel" aria-labelledby="story-lineage-tab">
             <p class="small text-muted">Datasets are grouped by the data product zone that owns them. Ports surface public interfaces while internal assets stay inside their product boundary.</p>
+            <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
+              <span class="text-uppercase fw-semibold">Catalog quick links</span>
+              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-tools-card">Data products</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-tools-card">Datasets</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-tools-card">Contracts</a>
+            </div>
             <div class="mermaid">
 {{ dataset_lineage | safe }}
             </div>
@@ -1356,6 +1374,27 @@ graph LR
   setActive(0, { scroll: false });
   updateAutoButton();
   updateNextButton();
+})();
+</script>
+<script>
+(function () {
+  const tabLinks = Array.from(document.querySelectorAll('[data-retail-tab-link]'));
+  if (!tabLinks.length) {
+    return;
+  }
+  tabLinks.forEach(function (link) {
+    link.addEventListener('click', function () {
+      const controlId = link.getAttribute('data-retail-tab-link');
+      if (!controlId) {
+        return;
+      }
+      const trigger = document.getElementById(controlId);
+      if (trigger && window.bootstrap && window.bootstrap.Tab) {
+        const tab = window.bootstrap.Tab.getOrCreateInstance(trigger);
+        tab.show();
+      }
+    });
+  });
 })();
 </script>
 <script>

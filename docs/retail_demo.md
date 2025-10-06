@@ -91,13 +91,15 @@ applications:
 - **Executive dashboard** renders the KPI mart metrics with the semantic layer
   details that business intelligence tools would consume.
 
-The overview page now contains a **Run the Altair Retail pipeline** card that
-refreshes the cached fixtures in-place as well as an embedded Python snippet so
-audiences can copy the helper into notebooks. A Mermaid diagram illustrates how
-the source, modelled, ML, consumer, and aggregated products hand off datasets.
-A second dataset-level lineage view groups every contract by its owning data
-product zone so you can point out which ports are public and which assets remain
-internal to the product boundary.
+The overview page now contains a **Refresh the Altair Retail demo** card that
+explains how the cached fixtures are rebuilt and keeps presenters oriented with
+the sticky navigation rail. The story tabs now surface catalog quick links so
+you can jump directly to the data product, dataset, or contract tables while
+walking through the simulated timeline, flow, or lineage. A Mermaid diagram
+illustrates how the source, modelled, ML, consumer, and aggregated products hand
+off datasets. A second dataset-level lineage view groups every contract by its
+owning data product zone so you can point out which ports are public and which
+assets remain internal to the product boundary.
 
 New for longer workshops, a **Timeline player** animates six months of Altair
 Retail operations. Each milestone now replays the pipeline steps that occurred
@@ -116,9 +118,11 @@ that caused the milestone.
 
 A **Catalog crosslinks** tab set lists all data products, datasets, and
 contracts involved in the walkthrough. Each entry anchors back to the cards on
-the page or opens the authoritative record in the contracts catalog, making it
-easier to trace how a dataset moves from the operational sources through the
-consumer surfaces without leaving the retail demo UI. The dataset catalog
+the page or opens the authoritative record in the contracts catalog, and the
+story quick links make those anchors accessible directly from the timeline,
+flow, and lineage tabs. Together they make it easier to trace how a dataset
+moves from the operational sources through the consumer surfaces without leaving
+the retail demo UI. The dataset catalog
 highlights the owning zone for each feed, aligning with the Mermaid lineage
 diagram and the tags shown on the data product definitions.
 

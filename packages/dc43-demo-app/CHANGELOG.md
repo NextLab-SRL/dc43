@@ -10,8 +10,8 @@
   sample fixtures, a linear demand forecaster, documentation, and a UI scenario linking the assets.
 - Altair Retail UI pages that simulate a marketing activation planner and executive dashboard fed
   by the packaged datasets.
-- Altair Retail overview card that re-runs the demo pipeline, embeds a runnable Python snippet,
-  illustrates the end-to-end flow with Mermaid, and surfaces catalog crosslinks for products,
+- Altair Retail overview card that re-runs the demo pipeline, anchors sections with a sticky
+  navigation rail, illustrates the end-to-end flow with Mermaid, and surfaces catalog crosslinks for products,
   datasets, and contracts directly from the page.
 - Altair Retail overview enhancements with dataset-level lineage, zone badges, and a tabbed
   experience section that keeps offer highlights, activation, and dashboard visuals together.
@@ -23,6 +23,8 @@
 - Altair Retail timeline replay that simulates each pipeline step, highlights the exact rule
   failures and reject slices, drives status banners across the activation/dashboard tabs, and
   exposes a richer sample script for presenters to reuse in notebooks.
+- Altair Retail story tabs now include catalog quick links so presenters can jump straight to the
+  data product, dataset, or contract tables while narrating the flow, lineage, or incidents.
 
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
