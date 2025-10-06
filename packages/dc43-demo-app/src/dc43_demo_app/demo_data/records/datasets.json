@@ -230,7 +230,6 @@
       }
     },
     "run_type": "publish",
-    "scenario_key": "retail-simulator",
     "data_product_id": "dp.retail-experience",
     "data_product_port": "personalized-offers",
     "data_product_role": "consumer-output"

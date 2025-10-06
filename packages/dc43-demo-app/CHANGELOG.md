@@ -8,6 +8,8 @@
   on reads and writes.
 - Altair Retail walkthrough with source, modeled, ML, consumer, and KPI data products, including
   sample fixtures, a linear demand forecaster, documentation, and a UI scenario linking the assets.
+- Altair Retail UI pages that simulate a marketing activation planner and executive dashboard fed
+  by the packaged datasets.
 
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
@@ -16,4 +18,4 @@
   upstream inputs.
 - Altair Retail demo restructured into foundation, star schema, intelligence, experience, and
   analytics data products with internal feature stores, star-schema contracts, and updated UI
-  guidance.
+  guidance, now exposed via a dedicated navigation entry instead of a pipeline scenario.

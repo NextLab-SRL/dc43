@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="display-6 fw-semibold mb-3">Executive performance dashboard</h1>
+<p class="lead mb-4">
+  A lightweight dashboard that reads the KPI mart exported by the Altair Retail data product.
+  Business date: {{ business_date or "2024-03-31" }}.
+</p>
+<div class="row row-cols-1 row-cols-md-3 g-4 mb-5">
+  {% for metric in metrics %}
+  <div class="col">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <div class="text-muted small">{{ metric.metric_id }}</div>
+        <h2 class="h4 mb-2">{{ metric.label }}</h2>
+        <div class="display-6 fw-semibold">{{ metric.value_display }}</div>
+        <p class="text-muted small mt-3 mb-0">{{ metric.semantic.description }}</p>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <h2 class="h5">Sales by region</h2>
+        <ul class="list-group list-group-flush">
+          {% for region in region_rows %}
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between">
+              <span>{{ region.label }}</span>
+              <span class="fw-semibold">${{ '%.0f' | format(region.value) }}</span>
+            </div>
+            <div class="progress mt-2" role="progressbar" aria-valuenow="{{ region.share }}" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-bar" style="width: {{ '%.0f' | format(region.share) }}%"></div>
+            </div>
+            <div class="text-muted small mt-1">{{ '%.0f' | format(region.share) }}% of gross sales</div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body">
+        <h2 class="h5">Sales by category</h2>
+        <ul class="list-group list-group-flush">
+          {% for category in category_rows %}
+          <li class="list-group-item">
+            <div class="d-flex justify-content-between">
+              <span>{{ category.label }}</span>
+              <span class="fw-semibold">${{ '%.0f' | format(category.value) }}</span>
+            </div>
+            <div class="progress mt-2" role="progressbar" aria-valuenow="{{ category.share }}" aria-valuemin="0" aria-valuemax="100">
+              <div class="progress-bar bg-info" style="width: {{ '%.0f' | format(category.share) }}%"></div>
+            </div>
+            <div class="text-muted small mt-1">{{ '%.0f' | format(category.share) }}% of gross sales</div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card shadow-sm border-0 mt-5">
+  <div class="card-body">
+    <h2 class="h5">Semantic layer snapshot</h2>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">Metric</th>
+            <th scope="col">Aggregation</th>
+            <th scope="col">Expression</th>
+            <th scope="col">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for semantic in semantic_rows %}
+          <tr>
+            <th scope="row">{{ semantic.label }}</th>
+            <td>{{ semantic.aggregation }}</td>
+            <td><code>{{ semantic.expression }}</code></td>
+            <td>{{ semantic.description }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

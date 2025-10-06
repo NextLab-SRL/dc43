@@ -73,8 +73,18 @@ metadata embedded in `retail_kpi_mart`. Each record carries the KPI expression,
 aggregation type, default unit, and optional formatting hints. The web UI links
 these definitions to the new “Altair Retail end-to-end” scenario.
 
-## Scenario in the FastAPI UI
+## Retail demo UI
 
-The scenario key `retail-simulator` appears under the data-product pipelines in
-the demo web UI. It activates the new dataset versions and includes a Mermaid
-lineage diagram, making the module suitable for long-form onboarding sessions.
+The FastAPI demo app now exposes a dedicated **Altair Retail** section instead
+of surfacing the walkthrough as a standard pipeline scenario. The entry point at
+`/retail-demo` summarises the layered data products and links to two sample
+applications:
+
+- **Marketing activation** shows a faux campaign planner that groups the
+  personalised offers by store, region, and primary KPI so the audience can talk
+  through how forecasts drive the activation surface.
+- **Executive dashboard** renders the KPI mart metrics with the semantic layer
+  details that business intelligence tools would consume.
+
+The pages are backed by the same `run_retail_demo` helper used in code samples,
+so the UI stays in sync with the packaged fixtures and contracts.

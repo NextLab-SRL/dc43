@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row align-items-center mb-4">
+  <div class="col-lg-8">
+    <h1 class="display-5 fw-semibold mb-3">Altair Retail data product suite</h1>
+    <p class="lead mb-3">
+      Explore how Altair Retail packages operational sources, a modeled star schema,
+      a lightweight demand model, consumer activation, and executive analytics into
+      a single governed flow.
+    </p>
+    <p class="text-muted mb-4">Business date: {{ business_date or "2024-03-31" }}</p>
+    <div class="btn-group" role="group" aria-label="Retail demo views">
+      <a class="btn btn-primary" href="/retail-demo/activation">Marketing activation</a>
+      <a class="btn btn-outline-primary" href="/retail-demo/dashboard">Executive dashboard</a>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card shadow-sm border-0">
+      <div class="card-body">
+        <h2 class="h5">KPI preview</h2>
+        {% for metric in kpi_preview %}
+        <div class="d-flex justify-content-between align-items-baseline py-2 border-bottom">
+          <div>
+            <div class="fw-semibold">{{ metric.label }}</div>
+            <div class="text-muted small">{{ metric.semantic.expression }}</div>
+          </div>
+          <div class="fs-5">{{ metric.value_display }}</div>
+        </div>
+        {% endfor %}
+        <div class="small text-muted pt-2">Semantic layer metadata is sourced from the
+          packaged KPI mart, mirroring what BI tools would read.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2 class="h4 mb-3">Data products in the walkthrough</h2>
+<div class="row row-cols-1 row-cols-lg-2 g-4">
+  {% for product in products %}
+  <div class="col">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <div class="text-muted small">{{ product.identifier }}</div>
+            <h3 class="h5 mb-1">{{ product.name }}</h3>
+          </div>
+          <div>
+            {% for tag in product.tags %}
+            <span class="badge text-bg-secondary text-uppercase">{{ tag }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        <p class="mb-3">{{ product.summary }}</p>
+        {% if product.inputs %}
+        <div class="mb-2">
+          <div class="text-muted small text-uppercase">Inputs</div>
+          <div class="small">{{ product.inputs | join(', ') }}</div>
+        </div>
+        {% endif %}
+        <div>
+          <div class="text-muted small text-uppercase">Outputs</div>
+          <div class="small">{{ product.outputs | join(', ') }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<h2 class="h4 mt-5 mb-3">Offer highlights</h2>
+<div class="row row-cols-1 row-cols-md-3 g-4">
+  {% for store in store_cards %}
+  <div class="col">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <h3 class="h5 mb-0">{{ store.store_name }}</h3>
+            <div class="text-muted small">{{ store.region }} · {{ store.format | title }}</div>
+          </div>
+          <span class="badge text-bg-primary">{{ store.offer_count }} offers</span>
+        </div>
+        <p class="mb-1">Leading category: <strong>{{ store.headline_category }}</strong></p>
+        <p class="mb-3 text-muted small">Primary KPI: {{ store.headline_metric.replace('_', ' ') | title }}</p>
+        <div class="mb-3">
+          <div class="small text-muted text-uppercase mb-1">Recommended discount</div>
+          <div class="fw-semibold fs-5">{{ '%.1f' | format(store.discount_pct) }}%</div>
+        </div>
+        <div class="mb-2">
+          <div class="small text-muted">Forecast confidence</div>
+          <div class="progress" role="progressbar" aria-valuenow="{{ store.confidence_pct }}" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar bg-success" style="width: {{ '%.0f' | format(store.confidence_pct) }}%"></div>
+          </div>
+        </div>
+        <div>
+          <div class="small text-muted">Sell-through focus</div>
+          <div class="progress" role="progressbar" aria-valuenow="{{ store.sell_through_pct }}" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar bg-info" style="width: {{ '%.1f' | format(store.sell_through_pct) }}%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
