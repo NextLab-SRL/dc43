@@ -48,57 +48,67 @@ Guides for each component live under `docs/`:
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Governance & Stewardship
+flowchart LR
+    subgraph Governance Systems
+        direction TB
         Authoring["Authoring Tools\nJSON · Git · Notebooks"]
-        ContractStore["Contract Store Interface\nGit · Filesystem · APIs"]
-        DataProduct["Data Product Service Interface\nODPS registry · Ports"]
-        DQTool["Data Quality Governance Tool\nCatalog · Collibra"]
-        LinkHooks["Dataset↔Contract Link Hooks\nUnity Catalog · Custom"]
-        MetadataTargets["Metadata Targets\nUnity Catalog · APIs"]
+        ContractStore["Contract Store Interface\nFilesystem · Delta · APIs"]
+        DataProduct["Data Product Service\nODPS registry · Ports"]
+        DQTool["Data Quality Governance Tool\nCollibra · Unity Catalog"]
+        StewardUI["Steward Console\nWorkflow · Approvals"]
     end
 
-    subgraph Lifecycle Services
-        DraftModule["Contract Drafter Module"]
-        GovernanceSvc["Governance Service & DQ Manager\nmetrics · linking · drafts"]
+    subgraph Lifecycle Orchestration
+        direction TB
+        DraftModule["Drafting Service\nschema diff · proposals"]
+        GovernanceSvc["Governance Orchestrator\nmetrics router · linking"]
+        LinkHooks["Dataset↔Contract Link Hooks\nUnity Catalog · APIs"]
     end
 
-    subgraph Runtime Execution
-        DQEngine["Data Quality Engine\nmetrics generation"]
+    subgraph Runtime & Integrations
+        direction TB
         IOHelpers["Integration Adapters\nSpark · DLT"]
+        DQEngine["Data Quality Engine\nmetrics generation"]
         Pipelines["Business Pipelines"]
     end
 
-    Authoring -->|publish / review| ContractStore
+    subgraph Discovery Targets
+        MetadataTargets["Metadata Targets\nUnity Catalog · Catalog APIs"]
+    end
+
+    Authoring -->|submit drafts| ContractStore
     Authoring -->|publish products| DataProduct
-    ContractStore -->|serve versions| IOHelpers
     ContractStore -->|seed drafts| DraftModule
     DraftModule -->|return proposals| Authoring
-    DataProduct -->|port metadata| IOHelpers
-    IOHelpers -->|register ports| DataProduct
+    IOHelpers -->|ingest schema| DraftModule
+    StewardUI -->|approve lifecycle| GovernanceSvc
+    GovernanceSvc -->|status updates| ContractStore
+    ContractStore -->|serve versions| IOHelpers
+    GovernanceSvc -->|register ports| DataProduct
+    DataProduct -->|discover bindings| IOHelpers
     IOHelpers -->|apply contracts| Pipelines
     Pipelines -->|observations| IOHelpers
-    IOHelpers -->|metrics & schema drift| DQEngine
-    DQEngine -->|metrics package| GovernanceSvc
+    IOHelpers -->|metrics payload| DQEngine
+    DQEngine -->|checks & metrics| GovernanceSvc
+    GovernanceSvc -->|compatibility verdicts| IOHelpers
     GovernanceSvc -->|submit metrics| DQTool
-    DQTool -->|compatibility verdict| GovernanceSvc
-    DQTool -->|validated versions| ContractStore
-    GovernanceSvc -->|notify runtime| IOHelpers
+    DQTool -->|approval state| GovernanceSvc
     GovernanceSvc -->|link dataset ↔ contract| LinkHooks
     LinkHooks -->|propagate bindings| MetadataTargets
 ```
 
 This architecture clarifies how governance assets, lifecycle services, and runtime execution collaborate:
 
-- Governance systems own the authoritative contract, data-product, and data-quality services. Labeled edges (`publish / review`, `validated versions`) highlight how those systems steer approvals while exposing ODPS registries to runtime teams.
-- Lifecycle services—drafting and governance orchestration—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the governance service relays metrics, links datasets to contracts, and shares compatibility context with both stewards and pipelines.
-- Integration adapters inside runtime engines (Spark, DLT, …) apply contracts, emit observations, register ODPS ports, and react when governance signals change. Link hooks fan out approved bindings to workspace catalogs such as Unity Catalog.
+- Governance systems own the authoritative contract, data-product, and data-quality services while stewards drive approvals through workflow tooling. They expose ODCS registries to platform teams once a contract or port is ready for enforcement.
+- Lifecycle services—drafting and the governance orchestrator—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the orchestrator routes metrics, registers ODPS ports, records approvals, and emits dataset↔contract links.
+- Runtime integrations (Spark, DLT, …) apply contracts, emit observations, and surface schema drift or metrics back to governance. Approved bindings fan out through link hooks so workspace catalogs such as Unity Catalog stay in sync.
 
 ### Node & edge glossary
 
 - **Contract store interface** – pluggable storage adapters (filesystem, Delta, Collibra) that resolve authoritative contract versions.
 - **Data product service interface** – ODPS-compliant service that tracks input/output ports and the contract versions bound to each port.
-- **Governance service & DQ manager** – orchestration layer that relays metrics, links datasets to contracts, and fans out compatibility verdicts to runtimes.
+- **Governance orchestrator** – routes metrics, registers ODPS ports, records approvals, and fans out compatibility verdicts to runtimes.
+- **Steward console** – workflow surface (Collibra, bespoke UI) where data owners and stewards approve drafts, certify ports, and review contract status before publication.
 - **Data quality governance tool** – catalog or observability system (Collibra, Unity Catalog, bespoke services) that persists the compatibility matrix and performs the actual check evaluation once it receives metrics.
 - **Dataset↔contract link hooks** – post-link integrations (Unity Catalog table properties, metadata APIs) invoked whenever governance records a new binding.
 - **Metadata targets** – external catalogs updated by link hooks so downstream users can discover enforced contracts without querying dc43 directly.
