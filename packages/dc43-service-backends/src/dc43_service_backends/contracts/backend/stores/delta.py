@@ -9,8 +9,9 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover
     SparkSession = object  # type: ignore
 
+from ._sql_common import prepare_contract_row
 from .interface import ContractStore
-from dc43.core.odcs import as_odcs_dict, ensure_version, contract_identity, fingerprint, to_model
+from dc43.core.odcs import to_model
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
@@ -71,15 +72,11 @@ class DeltaContractStore(ContractStore):
         ref = self._table_ref()
         import json
 
-        ensure_version(contract)
-        cid, ver = contract_identity(contract)
-        odcs_dict = as_odcs_dict(contract)
-        json_str = json.dumps(odcs_dict, separators=(",", ":"))
-        fp = fingerprint(contract)
-        name_val = contract.name or cid
-        desc_usage = (
-            contract.description.usage if contract.description and contract.description.usage else None
-        )
+        cid, ver, payload = prepare_contract_row(contract)
+        json_str = payload["json"]
+        fp = payload["fingerprint"]
+        name_val = payload["name"]
+        desc_usage = payload.get("description")
         desc_sql = "NULL" if not desc_usage else "'" + str(desc_usage).replace("'", "''") + "'"
         json_sql = json_str.replace("'", "''")
         self.spark.sql(

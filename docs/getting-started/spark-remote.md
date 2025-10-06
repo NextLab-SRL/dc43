@@ -9,7 +9,7 @@ Ask your operations team for:
 
 - The base URL of the governance service (for example `https://governance.example.com`).
 - The shared `DC43_BACKEND_TOKEN` secret, if authentication is enabled.
-- Context about the backing contract store (filesystem, Collibra, Delta) so you can mirror behaviour locally when needed.
+- Context about the backing contract store (filesystem, SQL, Collibra, Delta) so you can mirror behaviour locally when needed.
 
 ## 2. Install the runtime helpers
 

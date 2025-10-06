@@ -2,6 +2,11 @@
 
 from .filesystem import FSContractStore
 from .delta import DeltaContractStore
+
+try:  # pragma: no cover - optional dependency
+    from .sql import SQLContractStore
+except ModuleNotFoundError:  # pragma: no cover
+    SQLContractStore = None  # type: ignore
 from .collibra import (
     CollibraContractAdapter,
     CollibraContractGateway,
@@ -25,3 +30,6 @@ __all__ = [
     "StubCollibraContractAdapter",
     "StubCollibraContractGateway",
 ]
+
+if SQLContractStore is not None:
+    __all__.append("SQLContractStore")

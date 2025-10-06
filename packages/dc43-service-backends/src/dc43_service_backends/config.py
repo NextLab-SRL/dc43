@@ -29,6 +29,8 @@ class ContractStoreConfig:
     base_path: Path | None = None
     table: str | None = None
     base_url: str | None = None
+    dsn: str | None = None
+    schema: str | None = None
     token: str | None = None
     timeout: float = 10.0
     contracts_endpoint_template: str | None = None
@@ -204,6 +206,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     base_path_value = None
     table_value = None
     base_url_value = None
+    dsn_value = None
+    schema_value = None
     store_token_value = None
     timeout_value = 10.0
     endpoint_template = None
@@ -222,6 +226,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         base_url_raw = store_section.get("base_url")
         if base_url_raw is not None:
             base_url_value = str(base_url_raw).strip() or None
+        dsn_raw = store_section.get("dsn")
+        if dsn_raw is not None:
+            dsn_value = str(dsn_raw).strip() or None
+        schema_raw = store_section.get("schema")
+        if schema_raw is not None:
+            schema_value = str(schema_raw).strip() or None
         token_raw = store_section.get("token")
         if token_raw is not None:
             store_token_value = str(token_raw).strip() or None
@@ -291,6 +301,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
                 if text:
                     link_builder_specs.append(text)
 
+    env_contract_type = os.getenv("DC43_CONTRACT_STORE_TYPE")
+    if env_contract_type:
+        normalised_type = env_contract_type.strip().lower()
+        if normalised_type:
+            store_type = normalised_type
+
     env_root = os.getenv("DC43_CONTRACT_STORE")
     if env_root:
         root_value = _coerce_path(env_root)
@@ -299,6 +315,14 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     env_contract_table = os.getenv("DC43_CONTRACT_STORE_TABLE")
     if env_contract_table:
         table_value = env_contract_table.strip() or table_value
+
+    env_contract_dsn = os.getenv("DC43_CONTRACT_STORE_DSN")
+    if env_contract_dsn:
+        dsn_value = env_contract_dsn.strip() or dsn_value
+
+    env_contract_schema = os.getenv("DC43_CONTRACT_STORE_SCHEMA")
+    if env_contract_schema:
+        schema_value = env_contract_schema.strip() or schema_value
 
     env_dp_root = os.getenv("DC43_DATA_PRODUCT_STORE")
     if env_dp_root:
@@ -357,6 +381,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             base_path=base_path_value,
             table=table_value,
             base_url=base_url_value,
+            dsn=dsn_value,
+            schema=schema_value,
             token=store_token_value,
             timeout=timeout_value,
             contracts_endpoint_template=endpoint_template,

@@ -30,6 +30,13 @@ single field without editing the TOML file:
 * Service backends:
   * `DC43_CONTRACT_STORE` – overrides the filesystem path or stub base path used
     by the active contract store.
+  * `DC43_CONTRACT_STORE_TYPE` – forces the contract store implementation
+    without editing the TOML file (`filesystem`, `sql`, `delta`, `collibra_stub`,
+    `collibra_http`).
+  * `DC43_CONTRACT_STORE_DSN` – provides a SQLAlchemy DSN when using the SQL
+    backend.
+  * `DC43_CONTRACT_STORE_TABLE` / `DC43_CONTRACT_STORE_SCHEMA` – override the
+    table or schema used by SQL and Delta stores.
   * `DC43_BACKEND_TOKEN` – overrides the bearer token required by the HTTP API.
 * Contracts app:
   * `DC43_CONTRACTS_APP_WORK_DIR` / `DC43_DEMO_WORK_DIR` – overrides the
@@ -62,7 +69,8 @@ expose. Supported values are:
 | Type | Description |
 | ---- | ----------- |
 | `filesystem` | Stores contracts on the local filesystem using `FSContractStore`. |
-| `delta` | Persists contracts in a Delta table or Unity Catalog object via `DeltaContractStore`. Requires `pyspark`. |
+| `sql` | Persists contracts in a relational database through `SQLContractStore`. Compatible with PostgreSQL, MySQL, SQL Server, SQLite, and any SQLAlchemy-supported backend. |
+| `delta` | Persists contracts in a Delta table or Unity Catalog object via `DeltaContractStore`. Requires `pyspark` and a Spark runtime. |
 | `collibra_stub` | Wraps the in-repo Collibra stub adapter, useful for integration tests and demos that emulate Collibra workflows locally. |
 | `collibra_http` | Connects to a real Collibra Data Products deployment through `HttpCollibraContractAdapter`. |
 
@@ -85,6 +93,16 @@ Set `type = "delta"` to activate the Delta-backed store. The service attempts to
 import `pyspark` and uses `SparkSession.builder.getOrCreate()` to access the
 workspace catalog. Provide either `table` or `base_path`; if both are defined
 the table takes precedence.
+
+#### SQL contract store
+
+| Key | Type | Description |
+| --- | ---- | ----------- |
+| `dsn` | string | **Required.** SQLAlchemy connection string (e.g. `postgresql+psycopg://user:pass@host/db`). Works with Azure SQL, Amazon RDS, Google Cloud SQL, or local engines such as SQLite. |
+| `table` | string | Optional table name used for persistence. Defaults to `contracts`. |
+| `schema` | string | Optional database schema or namespace that contains the contracts table. |
+
+Install the `sql` optional dependency (`pip install dc43-service-backends[sql]`) or add `sqlalchemy` to your environment before enabling this backend. Delta-backed storage already covers Spark-native Delta tables, so use the SQL store for managed relational services on Azure, AWS, or self-hosted databases.
 
 #### Collibra stub contract store
 

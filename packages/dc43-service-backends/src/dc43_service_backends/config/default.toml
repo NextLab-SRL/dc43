@@ -4,6 +4,10 @@ type = "filesystem"
 # Path to the filesystem contract store. Defaults to a "contracts" directory
 # inside the current working directory when unset.
 root = ""
+# DSN used by the SQL contract store (e.g. postgresql+psycopg://user:pass@host/db).
+dsn = ""
+# Optional schema name when using SQL-backed storage.
+schema = ""
 # Use ``table`` to back the service with a Unity Catalog table instead of a
 # filesystem directory. Requires ``type = "delta"`` and a Spark runtime.
 table = ""

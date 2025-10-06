@@ -6,7 +6,10 @@ It provisions:
 - A resource group
 - Log Analytics workspace for diagnostics
 - A Container Apps environment
-- A storage account and Azure Files share for the contract store
+- A storage account and Azure Files share for the contract store when
+  `contract_store_mode = "filesystem"`
+- Container App configuration for the SQL contract store when
+  `contract_store_mode = "sql"`
 - The container app with ingress enabled and registry credentials configured
 
 ## Usage
@@ -33,14 +36,27 @@ It provisions:
 | `container_registry_password` | Password or token for the registry. |
 | `image_tag` | Repository and tag of the container image (e.g. `dc43-service-backends-http:latest`). |
 | `backend_token` | Optional bearer token enforced by the service backends. |
-| `contract_storage` | Mount path used by the service to persist contracts. |
+| `contract_storage` | Mount path used by the service to persist contracts (filesystem mode). |
 
 Optional variables let you customise the container app name, ingress port, and
 scaling settings—see `variables.tf` for the full list.
 
+### Switching to the SQL contract store
+
+Set `contract_store_mode = "sql"` to disable the Azure Files share and inject
+the relational backend configuration instead. In this mode you must also
+provide:
+
+| Variable | Description |
+| -------- | ----------- |
+| `contract_store_dsn` | SQLAlchemy DSN with credentials (for example `postgresql+psycopg://user:pass@db.internal/dc43`). |
+| `contract_store_table` | Optional table name (defaults to `contracts`). |
+| `contract_store_schema` | Optional schema/namespace containing the table. |
+
 ## Outputs
 
 - `container_app_fqdn` – Public FQDN of the container app.
-- `storage_account_name` – Azure Storage account that holds the contracts share.
+- `storage_account_name` – Azure Storage account that holds the contracts share
+  (null when `contract_store_mode = "sql"`).
 
 Use the storage account to upload existing contracts or to back up drafts.
