@@ -36,6 +36,8 @@
   guidance, now exposed via a dedicated navigation entry instead of a pipeline scenario.
 - Altair Retail data product tags now emphasise source, modelled, ML, consumer, and aggregated
   personas instead of medallion labels to avoid confusion with the contracts medallion view.
+- Altair Retail overview now folds the catalog tables into the story tabs, trims the navigation
+  rail, and removes the KPI preview so the flow, lineage, and timeline visuals remain the focus.
 
 ### Fixed
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware

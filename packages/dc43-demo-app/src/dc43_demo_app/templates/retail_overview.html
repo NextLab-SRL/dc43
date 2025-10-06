@@ -7,7 +7,7 @@
 </div>
 {% endif %}
 <div class="row align-items-center mb-4">
-  <div class="col-lg-8">
+  <div class="col-lg-10 col-xl-8">
     <h1 class="display-5 fw-semibold mb-3">Altair Retail data product suite</h1>
     <p class="lead mb-3">
       Explore how Altair Retail packages operational sources, a modeled star schema,
@@ -18,28 +18,10 @@
     <p class="small text-muted">Explore the activation planner and dashboard directly on this page using the
       tabs in the experience section below.</p>
   </div>
-  <div class="col-lg-4">
-    <div class="card shadow-sm border-0">
-      <div class="card-body">
-        <h2 class="h5">KPI preview</h2>
-        {% for metric in kpi_preview %}
-        <div class="d-flex justify-content-between align-items-baseline py-2 border-bottom">
-          <div>
-            <div class="fw-semibold">{{ metric.label }}</div>
-            <div class="text-muted small">{{ metric.semantic.expression }}</div>
-          </div>
-          <div class="fs-5">{{ metric.value_display }}</div>
-        </div>
-        {% endfor %}
-        <div class="small text-muted pt-2">Semantic layer metadata is sourced from the
-          packaged KPI mart, mirroring what BI tools would read.</div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <div class="row g-4">
-  <div class="col-lg-3">
+  <div class="col-lg-3 col-xl-2 retail-overview-nav-column">
     <div class="retail-overview-nav card shadow-sm border-0">
       <div class="card-body">
         <h2 class="h6 text-uppercase text-muted mb-3">Navigate</h2>
@@ -48,7 +30,7 @@
           <a class="nav-link" data-retail-nav data-tab-control="story-timeline-tab" href="#retail-story-card">Timeline player</a>
           <a class="nav-link" data-retail-nav data-tab-control="story-flow-tab" href="#retail-story-card">Flow at a glance</a>
           <a class="nav-link" data-retail-nav data-tab-control="story-lineage-tab" href="#retail-story-card">Dataset lineage</a>
-          <a class="nav-link" data-retail-nav href="#retail-tools-card">Tools catalog</a>
+          <a class="nav-link" data-retail-nav data-tab-control="story-catalog-tab" href="#retail-story-card">Catalog &amp; tools</a>
           <a class="nav-link" data-retail-nav data-tab-control="experience-offers-tab" href="#retail-experience-card">Offer highlights</a>
           <a class="nav-link" data-retail-nav data-tab-control="experience-activation-tab" href="#retail-experience-card">Marketing activation</a>
           <a class="nav-link" data-retail-nav data-tab-control="experience-dashboard-tab" href="#retail-experience-card">Executive dashboard</a>
@@ -92,6 +74,9 @@
           <li class="nav-item" role="presentation">
             <button class="nav-link" id="story-lineage-tab" data-bs-toggle="tab" data-bs-target="#story-lineage" type="button" role="tab" aria-controls="story-lineage" aria-selected="false">Dataset lineage</button>
           </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="story-catalog-tab" data-bs-toggle="tab" data-bs-target="#story-catalog" type="button" role="tab" aria-controls="story-catalog" aria-selected="false">Catalog &amp; tools</button>
+          </li>
         </ul>
         <div class="tab-content pt-3" id="storyTabsContent">
           <div class="tab-pane fade show active" id="story-timeline" role="tabpanel" aria-labelledby="story-timeline-tab">
@@ -110,9 +95,9 @@
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
               <span class="text-uppercase fw-semibold">Catalog quick links</span>
-              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-tools-card">Data products</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-tools-card">Datasets</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-tools-card">Contracts</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-story-card">Data products</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-story-card">Datasets</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-story-card">Contracts</a>
             </div>
             <div class="progress mb-4" style="height: 6px;">
               <div class="progress-bar bg-primary" id="retailTimelineProgress" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
@@ -173,9 +158,9 @@
             <p class="small text-muted">Each block represents a data product boundary. Internal datasets stay inside the product while exposed ports are surfaced downstream.</p>
             <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
               <span class="text-uppercase fw-semibold">Catalog quick links</span>
-              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-tools-card">Data products</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-tools-card">Datasets</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-tools-card">Contracts</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-story-card">Data products</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-story-card">Datasets</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-story-card">Contracts</a>
             </div>
             <div class="mermaid">
 graph LR
@@ -190,177 +175,174 @@ graph LR
             <p class="small text-muted">Datasets are grouped by the data product zone that owns them. Ports surface public interfaces while internal assets stay inside their product boundary.</p>
             <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
               <span class="text-uppercase fw-semibold">Catalog quick links</span>
-              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-tools-card">Data products</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-tools-card">Datasets</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-tools-card">Contracts</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-story-card">Data products</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-story-card">Datasets</a>
+              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-story-card">Contracts</a>
             </div>
             <div class="mermaid">
 {{ dataset_lineage | safe }}
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-    <div class="card shadow-sm border-0 mb-4" id="retail-tools-card">
-      <div class="card-body">
-        <h2 class="h5 mb-1">Tools &amp; catalog crosslinks</h2>
-        <p class="text-muted small mb-3">Jump between data products, datasets, and contracts without leaving the walkthrough.</p>
-        <ul class="nav nav-tabs" id="catalogTabs" role="tablist">
-          <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="catalog-products-tab" data-bs-toggle="tab" data-bs-target="#catalog-products" type="button" role="tab" aria-controls="catalog-products" aria-selected="true">Data products</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="catalog-datasets-tab" data-bs-toggle="tab" data-bs-target="#catalog-datasets" type="button" role="tab" aria-controls="catalog-datasets" aria-selected="false">Datasets</button>
-          </li>
-          <li class="nav-item" role="presentation">
-            <button class="nav-link" id="catalog-contracts-tab" data-bs-toggle="tab" data-bs-target="#catalog-contracts" type="button" role="tab" aria-controls="catalog-contracts" aria-selected="false">Contracts</button>
-          </li>
-        </ul>
-        <div class="tab-content pt-3" id="catalogTabsContent">
-          <div class="tab-pane fade show active" id="catalog-products" role="tabpanel" aria-labelledby="catalog-products-tab">
-            <div class="table-responsive">
-              <table class="table align-middle">
-                <thead>
-                  <tr>
-                    <th scope="col">Product</th>
-                    <th scope="col">Owner</th>
-                    <th scope="col">Tags</th>
-                    <th scope="col">Ports</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for product in products %}
-                  <tr id="{{ product.anchor }}">
-                    <td>
-                      <a class="fw-semibold" href="{{ product.url }}" target="_blank" rel="noopener">{{ product.name }}</a>
-                      <div class="small text-muted">{{ product.identifier }}</div>
-                      <div class="small"><a class="link-secondary" href="#{{ product.anchor }}">Highlight in walkthrough</a></div>
-                    </td>
-                    <td class="small">{{ product.owner.replace('-', ' ') | title }}</td>
-                    <td>
-                      {% for tag in product.tags %}
-                      <span class="badge text-bg-light text-uppercase">{{ tag }}</span>
+          <div class="tab-pane fade" id="story-catalog" role="tabpanel" aria-labelledby="story-catalog-tab">
+            <p class="text-muted small mb-3">Jump between data products, datasets, and contracts without leaving the walkthrough.</p>
+            <ul class="nav nav-tabs" id="catalogTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="catalog-products-tab" data-bs-toggle="tab" data-bs-target="#catalog-products" type="button" role="tab" aria-controls="catalog-products" aria-selected="true">Data products</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="catalog-datasets-tab" data-bs-toggle="tab" data-bs-target="#catalog-datasets" type="button" role="tab" aria-controls="catalog-datasets" aria-selected="false">Datasets</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="catalog-contracts-tab" data-bs-toggle="tab" data-bs-target="#catalog-contracts" type="button" role="tab" aria-controls="catalog-contracts" aria-selected="false">Contracts</button>
+              </li>
+            </ul>
+            <div class="tab-content pt-3" id="catalogTabsContent">
+              <div class="tab-pane fade show active" id="catalog-products" role="tabpanel" aria-labelledby="catalog-products-tab">
+                <div class="table-responsive">
+                  <table class="table align-middle">
+                    <thead>
+                      <tr>
+                        <th scope="col">Product</th>
+                        <th scope="col">Owner</th>
+                        <th scope="col">Tags</th>
+                        <th scope="col">Ports</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for product in products %}
+                      <tr id="{{ product.anchor }}">
+                        <td>
+                          <a class="fw-semibold" href="{{ product.url }}" target="_blank" rel="noopener">{{ product.name }}</a>
+                          <div class="small text-muted">{{ product.identifier }}</div>
+                          <div class="small"><a class="link-secondary" href="#{{ product.anchor }}">Highlight in walkthrough</a></div>
+                        </td>
+                        <td class="small">{{ product.owner.replace('-', ' ') | title }}</td>
+                        <td>
+                          {% for tag in product.tags %}
+                          <span class="badge text-bg-light text-uppercase">{{ tag }}</span>
+                          {% endfor %}
+                        </td>
+                        <td class="small">
+                          <div><span class="text-muted text-uppercase">Inputs</span>: {{ product.inputs | join(', ') if product.inputs else 'None' }}</div>
+                          <div><span class="text-muted text-uppercase">Outputs</span>: {{ product.outputs | join(', ') }}</div>
+                        </td>
+                      </tr>
                       {% endfor %}
-                    </td>
-                    <td class="small">
-                      <div><span class="text-muted text-uppercase">Inputs</span>: {{ product.inputs | join(', ') if product.inputs else 'None' }}</div>
-                      <div><span class="text-muted text-uppercase">Outputs</span>: {{ product.outputs | join(', ') }}</div>
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div class="tab-pane fade" id="catalog-datasets" role="tabpanel" aria-labelledby="catalog-datasets-tab">
-            <div class="table-responsive">
-              <table class="table align-middle">
-                <thead>
-                  <tr>
-                    <th scope="col">Dataset</th>
-                    <th scope="col">Zone</th>
-                    <th scope="col">Type</th>
-                    <th scope="col">Data product</th>
-                    <th scope="col">Contract</th>
-                    <th scope="col">Port</th>
-                    <th scope="col">Rows</th>
-                    <th scope="col">Dependencies</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for dataset in dataset_catalog %}
-                  <tr id="{{ dataset.anchor }}">
-                    <td>
-                      <a class="fw-semibold" href="{{ dataset.url }}" target="_blank" rel="noopener">{{ dataset.identifier }}</a>
-                      <div class="small text-muted">{{ dataset.description }}</div>
-                      {% if dataset.internal %}
-                      <span class="badge text-bg-warning text-uppercase mt-1">Internal only</span>
-                      {% endif %}
-                      <div class="small"><a class="link-secondary" href="#{{ dataset.anchor }}">Highlight in walkthrough</a></div>
-                    </td>
-                    <td class="small">
-                      {% set zone_parts = dataset.zone_label.split(' — ') %}
-                      <span class="badge {{ dataset.zone_badge }} text-uppercase">{{ zone_parts[0] }}</span>
-                      {% if zone_parts|length > 1 %}
-                      <div class="text-muted">{{ zone_parts[1] }}</div>
-                      {% endif %}
-                    </td>
-                    <td class="small text-uppercase">{{ dataset.kind }}</td>
-                    <td class="small">
-                      {% if dataset.data_product %}
-                      <a href="{{ dataset.data_product.url }}" target="_blank" rel="noopener">{{ dataset.data_product.name }}</a>
-                      <div class="text-muted">{{ dataset.data_product.identifier }}</div>
-                      <div class="small"><a class="link-secondary" href="#{{ dataset.data_product.anchor }}">Highlight</a></div>
-                      {% else %}
-                      —
-                      {% endif %}
-                    </td>
-                    <td class="small">
-                      <a href="{{ dataset.contract_url }}" target="_blank" rel="noopener">{{ dataset.contract_id }}</a>
-                      <div class="small"><a class="link-secondary" href="#{{ dataset.contract_anchor }}">Highlight</a></div>
-                    </td>
-                    <td class="small">{{ dataset.output_port or '—' }}</td>
-                    <td class="small">{{ dataset.row_count }}</td>
-                    <td class="small">
-                      {% if dataset.dependencies %}
-                      {% for dep in dataset.dependencies %}
-                      <a href="{{ dep.url }}" target="_blank" rel="noopener" class="d-inline-block">{{ dep.identifier }}</a>{% if not loop.last %}, {% endif %}
-                      {% endfor %}
-                      {% else %}
-                      None
-                      {% endif %}
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div class="tab-pane fade" id="catalog-contracts" role="tabpanel" aria-labelledby="catalog-contracts-tab">
-            <div class="row row-cols-1 row-cols-md-2 g-4">
-              {% for contract in contract_cards %}
-              <div class="col" id="{{ contract.anchor }}">
-                <div class="card h-100 shadow-sm border-0">
-                  <div class="card-body">
-                    <h3 class="h6 fw-semibold mb-1"><a href="{{ contract.url }}" target="_blank" rel="noopener">{{ contract.contract_id }}</a></h3>
-                    <div class="small mb-2"><a class="link-secondary" href="#{{ contract.anchor }}">Highlight in walkthrough</a></div>
-                    <div class="small text-muted mb-3">{{ contract.dataset_count }} dataset{{ 's' if contract.dataset_count != 1 else '' }} ·
-                      {% for kind in contract.kinds %}<span class="badge text-bg-light text-uppercase me-1">{{ kind }}</span>{% endfor %}</div>
-                    <div class="mb-3">
-                      <div class="small text-muted text-uppercase mb-1">Datasets</div>
-                      <ul class="list-unstyled mb-0">
-                        {% for dataset_id in contract.dataset_ids %}
-                        <li>
-                          <a href="/datasets/{{ dataset_id }}" target="_blank" rel="noopener">{{ dataset_id }}</a>
-                          <a class="link-secondary small ms-1" href="#dataset-{{ dataset_id }}">Highlight</a>
-                        </li>
-                        {% endfor %}
-                      </ul>
-                    </div>
-                    {% if contract.product_refs %}
-                    <div>
-                      <div class="small text-muted text-uppercase mb-1">Data products</div>
-                      <ul class="list-unstyled mb-0">
-                        {% for ref in contract.product_refs %}
-                        <li>
-                          {% if ref.url %}
-                          <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.name }}</a>
-                          {% else %}
-                          {{ ref.name or ref.identifier }}
-                          {% endif %}
-                          <span class="text-muted small">({{ ref.identifier }})</span>
-                          {% if ref.anchor %}
-                          <a class="link-secondary small ms-1" href="#{{ ref.anchor }}">Highlight</a>
-                          {% endif %}
-                        </li>
-                        {% endfor %}
-                      </ul>
-                    </div>
-                    {% endif %}
-                  </div>
+                    </tbody>
+                  </table>
                 </div>
               </div>
-              {% endfor %}
+              <div class="tab-pane fade" id="catalog-datasets" role="tabpanel" aria-labelledby="catalog-datasets-tab">
+                <div class="table-responsive">
+                  <table class="table align-middle">
+                    <thead>
+                      <tr>
+                        <th scope="col">Dataset</th>
+                        <th scope="col">Zone</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Data product</th>
+                        <th scope="col">Contract</th>
+                        <th scope="col">Port</th>
+                        <th scope="col">Rows</th>
+                        <th scope="col">Dependencies</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for dataset in dataset_catalog %}
+                      <tr id="{{ dataset.anchor }}">
+                        <td>
+                          <a class="fw-semibold" href="{{ dataset.url }}" target="_blank" rel="noopener">{{ dataset.identifier }}</a>
+                          <div class="small text-muted">{{ dataset.description }}</div>
+                          {% if dataset.internal %}
+                          <span class="badge text-bg-warning text-uppercase mt-1">Internal only</span>
+                          {% endif %}
+                          <div class="small"><a class="link-secondary" href="#{{ dataset.anchor }}">Highlight in walkthrough</a></div>
+                        </td>
+                        <td class="small">
+                          {% set zone_parts = dataset.zone_label.split(' — ') %}
+                          <span class="badge {{ dataset.zone_badge }} text-uppercase">{{ zone_parts[0] }}</span>
+                          {% if zone_parts|length > 1 %}
+                          <div class="text-muted">{{ zone_parts[1] }}</div>
+                          {% endif %}
+                        </td>
+                        <td class="small text-uppercase">{{ dataset.kind }}</td>
+                        <td class="small">
+                          {% if dataset.data_product %}
+                          <a href="{{ dataset.data_product.url }}" target="_blank" rel="noopener">{{ dataset.data_product.name }}</a>
+                          <div class="text-muted">{{ dataset.data_product.identifier }}</div>
+                          <div class="small"><a class="link-secondary" href="#{{ dataset.data_product.anchor }}">Highlight</a></div>
+                          {% else %}
+                          —
+                          {% endif %}
+                        </td>
+                        <td class="small">
+                          <a href="{{ dataset.contract_url }}" target="_blank" rel="noopener">{{ dataset.contract_id }}</a>
+                          <div class="small"><a class="link-secondary" href="#{{ dataset.contract_anchor }}">Highlight</a></div>
+                        </td>
+                        <td class="small">{{ dataset.output_port or '—' }}</td>
+                        <td class="small">{{ dataset.row_count }}</td>
+                        <td class="small">
+                          {% if dataset.dependencies %}
+                          {% for dep in dataset.dependencies %}
+                          <a href="{{ dep.url }}" target="_blank" rel="noopener" class="d-inline-block">{{ dep.identifier }}</a>{% if not loop.last %}, {% endif %}
+                          {% endfor %}
+                          {% else %}
+                          None
+                          {% endif %}
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="tab-pane fade" id="catalog-contracts" role="tabpanel" aria-labelledby="catalog-contracts-tab">
+                <div class="row row-cols-1 row-cols-md-2 g-4">
+                  {% for contract in contract_cards %}
+                  <div class="col" id="{{ contract.anchor }}">
+                    <div class="card h-100 shadow-sm border-0">
+                      <div class="card-body">
+                        <h3 class="h6 fw-semibold mb-1"><a href="{{ contract.url }}" target="_blank" rel="noopener">{{ contract.contract_id }}</a></h3>
+                        <div class="small mb-2"><a class="link-secondary" href="#{{ contract.anchor }}">Highlight in walkthrough</a></div>
+                        <div class="small text-muted mb-3">{{ contract.dataset_count }} dataset{{ 's' if contract.dataset_count != 1 else '' }} ·
+                          {% for kind in contract.kinds %}<span class="badge text-bg-light text-uppercase me-1">{{ kind }}</span>{% endfor %}</div>
+                        <div class="mb-3">
+                          <div class="small text-muted text-uppercase mb-1">Datasets</div>
+                          <ul class="list-unstyled mb-0">
+                            {% for dataset_id in contract.dataset_ids %}
+                            <li>
+                              <a href="/datasets/{{ dataset_id }}" target="_blank" rel="noopener">{{ dataset_id }}</a>
+                              <a class="link-secondary small ms-1" href="#dataset-{{ dataset_id }}">Highlight</a>
+                            </li>
+                            {% endfor %}
+                          </ul>
+                        </div>
+                        {% if contract.product_refs %}
+                        <div>
+                          <div class="small text-muted text-uppercase mb-1">Data products</div>
+                          <ul class="list-unstyled mb-0">
+                            {% for ref in contract.product_refs %}
+                            <li>
+                              {% if ref.url %}
+                              <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.name }}</a>
+                              {% else %}
+                              {{ ref.name or ref.identifier }}
+                              {% endif %}
+                              <span class="text-muted small">({{ ref.identifier }})</span>
+                              {% if ref.anchor %}
+                              <a class="link-secondary small ms-1" href="#{{ ref.anchor }}">Highlight</a>
+                              {% endif %}
+                            </li>
+                            {% endfor %}
+                          </ul>
+                        </div>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -620,8 +602,19 @@ graph LR
 
 
 <style>
+  .retail-overview-nav-column {
+    max-width: 15rem;
+  }
+
+  @media (min-width: 992px) {
+    .retail-overview-nav-column {
+      flex: 0 0 15rem;
+    }
+  }
+
   .retail-overview-nav {
     border-radius: 0.75rem;
+    width: 100%;
   }
 
   @media (min-width: 992px) {
