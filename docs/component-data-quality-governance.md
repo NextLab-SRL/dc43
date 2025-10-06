@@ -39,12 +39,19 @@ flowchart LR
     Governance --> Drafts["Contract drafter"]
     Governance --> Stewardship["Steward workflows / alerts"]
     Governance --> Catalog["Compatibility matrix"]
+    Governance --> LinkHooks["Link hooks"]
+    LinkHooks --> Targets["Unity Catalog / metadata"]
 ```
 
 The compatibility matrix is the source dc43 queries before serving data.
 It records the latest known contract for every dataset version alongside
 the DQ verdict, enabling governance tools to visualise whether a dataset
 version is approved for consumption under a specific contract.
+
+Link hooks run as part of the same orchestration path. They mirror
+approved dataset↔contract bindings into external catalogs (Unity Catalog,
+bespoke metadata services) so readers discover the active governance
+context without polling the service backend.
 
 ## Design considerations
 

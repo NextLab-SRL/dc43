@@ -31,9 +31,17 @@ when promoting drafts. The store can additionally override `latest(...)` if it n
 flowchart LR
     Authoring["Authoring & Drafts"] -->|put contract| Store["Contract Store"]
     Collibra["Governance / Catalog"] -->|sync identifiers and status| Store
+    Governance["Governance service"] -->|link dataset ↔ contract| Store
+    Governance --> LinkHooks["Link hooks\nUnity Catalog / custom"]
+    LinkHooks --> Targets["Metadata targets"]
     Store -->|serve versions| Enforcement["dc43 IO Helpers"]
     Enforcement -->|draft proposals| Authoring
 ```
+
+Governance services call into the store whenever a dataset is linked to a
+contract. The resulting linkage triggers configured hooks (Unity Catalog,
+custom metadata APIs, …) so downstream catalogs remain aligned with the
+source of truth maintained by the contract store.
 
 ## Built-in Implementations
 
