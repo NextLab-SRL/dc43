@@ -42,3 +42,5 @@
 ### Fixed
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware
   inventory snapshots with the freshness reference checkpoint.
+- Restore the Altair Retail flow and dataset lineage tabs so their Mermaid diagrams render
+  the data product hand-offs and dataset zones instead of empty placeholders.

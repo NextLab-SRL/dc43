@@ -233,6 +233,65 @@ def _dataset_lineage_diagram() -> str:
     return "\n".join(lines)
 
 
+def _data_product_flow_diagram() -> str:
+    """Render a Mermaid diagram showing product hand-offs across the walkthrough."""
+
+    products = list(RETAIL_DATA_PRODUCTS.values())
+    products.sort(key=lambda item: item.identifier)
+    datasets = list(RETAIL_DATASETS.values())
+    dataset_to_product = {
+        dataset.identifier: dataset.data_product_id
+        for dataset in datasets
+        if dataset.data_product_id
+    }
+
+    lines: list[str] = ["graph LR"]
+    for zone_key, style in _ZONE_STYLES.items():
+        lines.append(f"  classDef zone-{zone_key} {style};")
+
+    node_ids: dict[str, str] = {}
+    for product in products:
+        zone = _zone_metadata(product)
+        node_id = product.identifier.replace(".", "_").replace("-", "_")
+        node_ids[product.identifier] = node_id
+        input_count = len(product.inputs)
+        output_count = len(product.outputs)
+        input_label = (
+            ", ".join(product.inputs)
+            if product.inputs
+            else "None"
+        )
+        output_label = ", ".join(product.outputs) if product.outputs else "None"
+        label_lines = [
+            product.name,
+            f"{zone['label']} zone · {output_count} port{'s' if output_count != 1 else ''}",
+            f"Inputs: {input_label}",
+            f"Outputs: {output_label}",
+        ]
+        label = "<br/>".join(label_lines).replace('"', "&quot;")
+        lines.append(f"  {node_id}[\"{label}\"]:::zone-{zone['key']}")
+
+    edges: set[tuple[str, str]] = set()
+    for dataset in datasets:
+        target_product = dataset.data_product_id
+        if not target_product:
+            continue
+        for dependency in dataset.dependencies:
+            source_product = dataset_to_product.get(dependency)
+            if not source_product or source_product == target_product:
+                continue
+            edges.add((source_product, target_product))
+
+    for source_id, target_id in sorted(edges):
+        source_node = node_ids.get(source_id)
+        target_node = node_ids.get(target_id)
+        if not source_node or not target_node:
+            continue
+        lines.append(f"  {source_node} --> {target_node}")
+
+    return "\n".join(lines)
+
+
 _DATASET_EXTRACTORS: Mapping[str, Callable[[RetailDemoRun], Iterable[Mapping[str, Any]]]] = {
     "retail_pos_transactions": lambda run: run.transactions,
     "retail_inventory_snapshot": lambda run: run.inventory,
@@ -562,6 +621,7 @@ async def retail_demo_overview(request: Request) -> HTMLResponse:
         "business_date": _retail_business_date(run),
         "dataset_catalog": _retail_dataset_catalog(run),
         "contract_cards": _retail_contract_cards(),
+        "data_product_flow": _data_product_flow_diagram(),
         "dataset_lineage": _dataset_lineage_diagram(),
         "timeline_events": _retail_demo_timeline(run),
         "message": message,

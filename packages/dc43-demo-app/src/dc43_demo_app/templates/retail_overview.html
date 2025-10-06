@@ -163,12 +163,7 @@
               <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-story-card">Contracts</a>
             </div>
             <div class="mermaid">
-graph LR
-  A["Retail operational foundation<br/>Source feeds"] --> B["Retail star schema<br/>Modelled data"]
-  B --> C["Retail demand intelligence<br/>ML features &amp; forecasts"]
-  C --> D["Customer experience<br/>Marketing activation"]
-  B --> E["Executive KPI mart<br/>Aggregated analytics"]
-  E --> F["Executive dashboard<br/>BI &amp; finance views"]
+{{ data_product_flow | safe }}
             </div>
           </div>
           <div class="tab-pane fade" id="story-lineage" role="tabpanel" aria-labelledby="story-lineage-tab">
@@ -821,6 +816,32 @@ graph LR
 <script id="retailTimelineData" type="application/json">{{ timeline_events | tojson }}</script>
 <script>
 (function () {
+  function renderMermaidDiagrams(attempt) {
+    if (attempt === undefined) {
+      attempt = 0;
+    }
+    if (!window.mermaid || typeof window.mermaid.run !== 'function') {
+      if (attempt < 10) {
+        setTimeout(function () {
+          renderMermaidDiagrams(attempt + 1);
+        }, 100);
+      }
+      return;
+    }
+    try {
+      window.mermaid.run({ querySelector: '#storyTabsContent .mermaid' });
+    } catch (err) {
+      console.warn('Unable to render Mermaid diagrams', err);
+    }
+  }
+
+  renderMermaidDiagrams();
+  document.querySelectorAll('#storyTabs button[data-bs-toggle="tab"]').forEach(function (tab) {
+    tab.addEventListener('shown.bs.tab', function () {
+      renderMermaidDiagrams();
+    });
+  });
+
   const dataScript = document.getElementById('retailTimelineData');
   if (!dataScript) {
     return;
