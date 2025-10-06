@@ -45,18 +45,23 @@ The `dc43_demo_app.retail_demo.pipeline.run_retail_demo` helper stitches togethe
 all datasets:
 
 ```python
-from dc43_demo_app.retail_demo import run_retail_demo
+from dc43_demo_app.retail_demo import run_retail_demo, simulate_retail_timeline
 
 run = run_retail_demo()
-print(f"Sales fact rows: {len(run.star_schema.sales_fact)}")
-print(f"Store dimension rows: {len(run.star_schema.store_dimension)}")
-print(f"Feature rows: {len(run.demand_features)}")
-print(f"Forecast outputs: {len(run.forecasts)}")
-for metric in run.kpis:
-    print(metric["metric_id"], metric["value"])
+for event in simulate_retail_timeline(run):
+    print(f"{event['date']} · {event['title']} ({event['state_summary']})")
+    for step in event['replay']['steps']:
+        status = step['status_label']
+        print(f"  - {step['label']}: {status}")
+        if step.get('rule'):
+            rule = step['rule']
+            print(f"    rule {rule['name']} expected {rule['expected']} but saw {rule['actual']}")
+    if event.get('rejects'):
+        reject = event['rejects']
+        print(f"  reject slice {reject['dataset']} captured {reject['reject_rows']} rows")
 ```
 
-The helper performs the following steps:
+The helpers perform the following steps:
 
 1. Load the source fixtures (POS, inventory, catalog) from the package.
 2. Assemble the retail star schema (`retail_sales_fact` plus store/product/date
@@ -95,14 +100,19 @@ product zone so you can point out which ports are public and which assets remain
 internal to the product boundary.
 
 New for longer workshops, a **Timeline player** animates six months of Altair
-Retail operations. Each milestone pauses the playback so presenters can surface
-freshness incidents, new product launches, schema rollbacks, or KPI contract
-expansions without leaving the page. The detail panel pulls live figures from
-the cached pipeline run—row counts, contract versions, missing records, and KPI
-values—so facilitators can quantify each beat rather than relying on scripted
-talking points. The controls drive the catalog anchors and include outbound
-links that open the underlying dataset, contract, or product page in a new tab,
-making it easy to audit the artefacts that caused the milestone.
+Retail operations. Each milestone now replays the pipeline steps that occurred
+during that period, animating contract checks, downstream freezes, and
+recoveries so the facilitator can narrate incidents as they unfold. The detail
+panel highlights which rule failed, the expected versus observed values, and
+the fallback action (for example serving the `::valid` slice when a contract
+reject is emitted). UI banners above the offer, activation, and dashboard tabs
+mirror the simulated state so audiences see when the experience is paused,
+stale, or healthy. The replay also surfaces reject diagnostics—sample rows,
+counts, and contract versions—making it easy to demonstrate how the platform
+captures bad data while keeping consumers online. As before, the controls drive
+catalog anchors and include outbound links that open the underlying dataset,
+contract, or product page in a new tab, making it easy to audit the artefacts
+that caused the milestone.
 
 A **Catalog crosslinks** tab set lists all data products, datasets, and
 contracts involved in the walkthrough. Each entry anchors back to the cards on

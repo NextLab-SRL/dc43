@@ -63,15 +63,22 @@
     <div class="card h-100 shadow-sm border-0">
       <div class="card-body">
         <h2 class="h5">Sample code</h2>
-        <p class="small text-muted">Recreate the walkthrough in notebooks or scripts with the bundled helpers.</p>
-        <pre class="mb-0"><code class="language-python">from dc43_demo_app.retail_demo import run_retail_demo
+        <p class="small text-muted">Replay the full story programmatically: run the pipeline and inspect each timeline
+          milestone with step status, rule context, and reject diagnostics.</p>
+        <pre class="mb-0"><code class="language-python">from dc43_demo_app.retail_demo import run_retail_demo, simulate_retail_timeline
 
 run = run_retail_demo()
-print(f"Business date: {run.kpis[0]['business_date']}")
-print(f"Sales fact rows: {len(run.star_schema.sales_fact)}")
-print(f"Forecast outputs: {len(run.forecasts)}")
-for metric in run.kpis:
-    print(metric["metric_id"], metric["value"])</code></pre>
+for event in simulate_retail_timeline(run):
+    print(f"{event['date']} · {event['title']} ({event['state_summary']})")
+    for step in event['replay']['steps']:
+        print(f"  → {step['label']}: {step['status_label']}")
+        if step.get('rule'):
+            rule = step['rule']
+            print(f"     rule '{rule['name']}' expected {rule['expected']} but saw {rule['actual']}")
+    if event.get('rejects'):
+        reject = event['rejects']
+        print(f"  reject slice {reject['dataset']} captured {reject['reject_rows']} rows while"
+              f" {reject['valid_rows']} stayed valid")</code></pre>
       </div>
     </div>
   </div>
@@ -86,8 +93,8 @@ for metric in run.kpis:
           you can narrate incidents, releases, and stakeholder outcomes.</p>
       </div>
       <div class="d-flex align-items-center gap-2 flex-wrap">
-        <button class="btn btn-primary btn-sm" id="retailTimelinePlay" type="button">Play timeline</button>
-        <button class="btn btn-outline-secondary btn-sm" id="retailTimelineNext" type="button">Next milestone</button>
+        <button class="btn btn-primary btn-sm" id="retailTimelineNext" type="button">Start timeline</button>
+        <button class="btn btn-outline-primary btn-sm" id="retailTimelineAuto" type="button">Auto play</button>
         <div class="small text-muted">Active:
           <span class="fw-semibold" id="retailTimelineActiveLabel">Not started</span>
         </div>
@@ -119,11 +126,35 @@ for metric in run.kpis:
             <span class="badge text-bg-secondary text-uppercase" id="retailTimelineDetailBadge">Milestone</span>
             <span class="fw-semibold" id="retailTimelineDetailTitle">Select a milestone to begin the demo.</span>
           </div>
+          <p class="small text-primary fw-semibold mb-2 d-none" id="retailTimelineDetailState"></p>
           <p class="small text-muted mb-3" id="retailTimelineDetailNarrative">Use the play controls to animate the story or
             click an individual milestone to jump ahead.</p>
           <div id="retailTimelineDetailInsights" class="mb-3"></div>
+          <div id="retailTimelineDetailReplay" class="mb-3 d-none">
+            <h4 class="h6 text-uppercase text-muted">Pipeline replay</h4>
+            <div id="retailTimelineReplaySteps" class="timeline-replay-steps"></div>
+          </div>
+          <div id="retailTimelineDetailIncident" class="alert alert-warning d-none"></div>
           <div id="retailTimelineDetailCallouts"></div>
           <div id="retailTimelineDetailLinks" class="mt-3"></div>
+          <div id="retailTimelineDetailReject" class="timeline-reject-card mt-3 d-none">
+            <h4 class="h6 text-uppercase text-muted">Reject diagnostics</h4>
+            <div class="timeline-reject-meta small mb-3" id="retailTimelineRejectMeta"></div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <div class="timeline-reject-panel">
+                  <div class="timeline-reject-title">Valid slice</div>
+                  <pre class="timeline-reject-sample" id="retailTimelineRejectValid"></pre>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="timeline-reject-panel">
+                  <div class="timeline-reject-title">Reject sample</div>
+                  <pre class="timeline-reject-sample" id="retailTimelineRejectInvalid"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -342,6 +373,13 @@ graph LR
 <div class="tab-content pt-3" id="experienceTabsContent">
   <div class="tab-pane fade show active" id="experience-offers" role="tabpanel"
     aria-labelledby="experience-offers-tab">
+    <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="offers">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
+        <span class="timeline-ui-label fw-semibold"></span>
+      </div>
+      <div class="timeline-ui-message small mb-0"></div>
+    </div>
     <div class="row row-cols-1 row-cols-md-3 g-4">
       {% for store in store_cards %}
       <div class="col">
@@ -386,6 +424,13 @@ graph LR
   </div>
   <div class="tab-pane fade" id="experience-activation" role="tabpanel"
     aria-labelledby="experience-activation-tab">
+    <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="activation">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
+        <span class="timeline-ui-label fw-semibold"></span>
+      </div>
+      <div class="timeline-ui-message small mb-0"></div>
+    </div>
     {% for store in activation_stores %}
     <div class="card mb-4 shadow-sm border-0">
       <div class="card-header d-flex justify-content-between align-items-center">
@@ -460,6 +505,13 @@ graph LR
   </div>
   <div class="tab-pane fade" id="experience-dashboard" role="tabpanel"
     aria-labelledby="experience-dashboard-tab">
+    <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="dashboard">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
+        <span class="timeline-ui-label fw-semibold"></span>
+      </div>
+      <div class="timeline-ui-message small mb-0"></div>
+    </div>
     <div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
       {% for metric in dashboard_metrics %}
       <div class="col">
@@ -596,6 +648,136 @@ graph LR
   .timeline-link-highlight {
     font-size: 0.75rem;
   }
+
+  .timeline-replay-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .timeline-replay-step {
+    background-color: #fff;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(13, 110, 253, 0.1);
+    padding: 0.75rem 1rem;
+    box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.05);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .timeline-replay-step[data-status="running"] {
+    border-color: rgba(13, 110, 253, 0.45);
+    box-shadow: 0 0.45rem 1.2rem rgba(13, 110, 253, 0.18);
+  }
+
+  .timeline-replay-step[data-status="failed"] {
+    border-color: rgba(220, 53, 69, 0.3);
+    box-shadow: inset 0 0 0 1px rgba(220, 53, 69, 0.2);
+  }
+
+  .timeline-replay-step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .timeline-replay-badge {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.03em;
+  }
+
+  .timeline-replay-label {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  .timeline-replay-message {
+    font-size: 0.85rem;
+    color: #343a40;
+    margin-bottom: 0.5rem;
+  }
+
+  .timeline-replay-rule {
+    font-size: 0.8rem;
+    color: #6c757d;
+    background-color: rgba(255, 193, 7, 0.12);
+    border-radius: 0.35rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .timeline-replay-rule strong {
+    color: #0c5460;
+  }
+
+  .timeline-replay-outputs {
+    font-size: 0.78rem;
+    color: #6c757d;
+    margin-bottom: 0;
+  }
+
+  .timeline-replay-outputs dt {
+    font-weight: 600;
+  }
+
+  .timeline-replay-outputs dd {
+    margin-bottom: 0.35rem;
+  }
+
+  .timeline-ui-banner {
+    border-width: 1px;
+  }
+
+  .timeline-ui-banner .timeline-ui-status {
+    font-size: 0.65rem;
+    letter-spacing: 0.03em;
+  }
+
+  .timeline-ui-banner .timeline-ui-label {
+    font-size: 0.85rem;
+  }
+
+  .timeline-ui-banner .timeline-ui-message {
+    color: #495057;
+  }
+
+  .timeline-reject-card {
+    background-color: #f8f9fa;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(13, 110, 253, 0.12);
+    padding: 1rem 1.25rem;
+  }
+
+  .timeline-reject-panel {
+    background-color: #fff;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(13, 110, 253, 0.12);
+    padding: 0.75rem;
+    height: 100%;
+  }
+
+  .timeline-reject-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.5rem;
+  }
+
+  .timeline-reject-sample {
+    font-size: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 0.35rem;
+    border: 1px dashed rgba(13, 110, 253, 0.25);
+    padding: 0.75rem;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .timeline-incident-alert {
+    font-size: 0.85rem;
+  }
 </style>
 <script id="retailTimelineData" type="application/json">{{ timeline_events | tojson }}</script>
 <script>
@@ -620,43 +802,108 @@ graph LR
   }
   const detailTitle = document.getElementById('retailTimelineDetailTitle');
   const detailBadge = document.getElementById('retailTimelineDetailBadge');
+  const detailState = document.getElementById('retailTimelineDetailState');
   const detailNarrative = document.getElementById('retailTimelineDetailNarrative');
   const detailInsights = document.getElementById('retailTimelineDetailInsights');
+  const detailReplay = document.getElementById('retailTimelineDetailReplay');
+  const detailReplaySteps = document.getElementById('retailTimelineReplaySteps');
+  const detailIncident = document.getElementById('retailTimelineDetailIncident');
   const detailCallouts = document.getElementById('retailTimelineDetailCallouts');
   const detailLinks = document.getElementById('retailTimelineDetailLinks');
+  const detailReject = document.getElementById('retailTimelineDetailReject');
+  const detailRejectMeta = document.getElementById('retailTimelineRejectMeta');
+  const detailRejectValid = document.getElementById('retailTimelineRejectValid');
+  const detailRejectInvalid = document.getElementById('retailTimelineRejectInvalid');
   const progress = document.getElementById('retailTimelineProgress');
   const activeLabel = document.getElementById('retailTimelineActiveLabel');
-  const playBtn = document.getElementById('retailTimelinePlay');
   const nextBtn = document.getElementById('retailTimelineNext');
-  let activeIndex = 0;
-  let playing = false;
-  let timer = null;
+  const autoBtn = document.getElementById('retailTimelineAuto');
+  const uiBanners = new Map();
+  document.querySelectorAll('.timeline-ui-banner').forEach(function (banner) {
+    const target = banner.getAttribute('data-ui-target');
+    if (target) {
+      uiBanners.set(target, banner);
+    }
+  });
   const highlightTimers = new Map();
-
-  function updatePlayButton() {
-    if (!playBtn) {
+  const replayTimers = [];
+  const stepStates = [];
+  let activeIndex = 0;
+  let autoplaying = false;
+  let timer = null;
+  const stepStatusClasses = {
+    running: 'text-bg-primary',
+    success: 'text-bg-success',
+    completed: 'text-bg-success',
+    warning: 'text-bg-warning text-dark',
+    blocked: 'text-bg-warning text-dark',
+    failed: 'text-bg-danger',
+    recovering: 'text-bg-info text-dark',
+    investigating: 'text-bg-secondary',
+    captured: 'text-bg-info text-dark',
+  };
+  const uiStatusClasses = {
+    steady: 'alert-success',
+    live: 'alert-success',
+    recovering: 'alert-info',
+    qa: 'alert-info',
+    paused: 'alert-warning',
+    fallback: 'alert-warning',
+    blocked: 'alert-danger',
+    stale: 'alert-warning',
+    unstable: 'alert-danger',
+    investigating: 'alert-secondary',
+  };
+  function updateNextButton() {
+    if (!nextBtn) {
       return;
     }
-    if (playing) {
-      playBtn.textContent = 'Pause';
-      playBtn.classList.remove('btn-primary');
-      playBtn.classList.add('btn-outline-primary');
+    if (activeIndex === 0) {
+      nextBtn.textContent = 'Start timeline';
+    } else if (activeIndex >= events.length - 1) {
+      nextBtn.textContent = 'Restart timeline';
     } else {
-      playBtn.textContent = 'Play timeline';
-      playBtn.classList.remove('btn-outline-primary');
-      playBtn.classList.add('btn-primary');
+      nextBtn.textContent = 'Next milestone';
     }
   }
-
+  function updateAutoButton() {
+    if (!autoBtn) {
+      return;
+    }
+    if (autoplaying) {
+      autoBtn.textContent = 'Pause auto play';
+      autoBtn.classList.remove('btn-outline-primary');
+      autoBtn.classList.add('btn-primary');
+    } else {
+      autoBtn.textContent = 'Auto play';
+      autoBtn.classList.remove('btn-primary');
+      autoBtn.classList.add('btn-outline-primary');
+    }
+  }
+  function clearReplayTimers() {
+    while (replayTimers.length) {
+      clearTimeout(replayTimers.pop());
+    }
+    stepStates.length = 0;
+  }
   function stopPlayback() {
-    playing = false;
+    autoplaying = false;
     if (timer) {
       clearTimeout(timer);
       timer = null;
     }
-    updatePlayButton();
+    clearReplayTimers();
+    updateAutoButton();
   }
-
+  function scheduleAdvance() {
+    if (!autoplaying) {
+      return;
+    }
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(advance, 4500);
+  }
   function formatRichText(text) {
     const fragment = document.createDocumentFragment();
     const parts = String(text).split('`');
@@ -674,7 +921,6 @@ graph LR
     }
     return fragment;
   }
-
   function renderCallouts(items) {
     detailCallouts.innerHTML = '';
     if (!items || !items.length) {
@@ -694,7 +940,6 @@ graph LR
     });
     detailCallouts.appendChild(list);
   }
-
   function highlightAnchor(anchorSelector) {
     if (!anchorSelector) {
       return;
@@ -718,7 +963,6 @@ graph LR
     }, 2000);
     highlightTimers.set(target, timeout);
   }
-
   function renderInsights(items) {
     if (!detailInsights) {
       return;
@@ -753,7 +997,6 @@ graph LR
     });
     detailInsights.appendChild(container);
   }
-
   function renderLinks(items) {
     detailLinks.innerHTML = '';
     if (!items || !items.length) {
@@ -790,17 +1033,224 @@ graph LR
     });
     detailLinks.appendChild(list);
   }
-
+  function setStepStatus(state, statusKey, labelText) {
+    const badge = state.badge;
+    const className = stepStatusClasses[statusKey] || 'text-bg-secondary';
+    badge.className = 'badge ' + className + ' timeline-replay-badge';
+    badge.textContent = labelText || statusKey;
+    state.element.setAttribute('data-status', statusKey);
+  }
+  function buildStepElement(step) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'timeline-replay-step';
+    wrapper.setAttribute('data-status', 'pending');
+    const header = document.createElement('div');
+    header.className = 'timeline-replay-step-header';
+    const badge = document.createElement('span');
+    badge.className = 'badge text-bg-secondary timeline-replay-badge';
+    badge.textContent = 'Pending';
+    const label = document.createElement('span');
+    label.className = 'timeline-replay-label';
+    label.textContent = step.label || 'Step';
+    header.appendChild(badge);
+    header.appendChild(label);
+    wrapper.appendChild(header);
+    if (step.message) {
+      const message = document.createElement('div');
+      message.className = 'timeline-replay-message';
+      message.textContent = step.message;
+      wrapper.appendChild(message);
+    }
+    if (step.rule) {
+      const ruleBox = document.createElement('div');
+      ruleBox.className = 'timeline-replay-rule';
+      if (step.rule.name) {
+        const title = document.createElement('strong');
+        title.textContent = step.rule.name + ': ';
+        ruleBox.appendChild(title);
+      }
+      const body = document.createElement('span');
+      const expected = step.rule.expected ? 'expected ' + step.rule.expected : '';
+      const actual = step.rule.actual ? 'saw ' + step.rule.actual : '';
+      body.textContent = [step.rule.message || step.message || '', expected, actual].filter(Boolean).join(' · ');
+      ruleBox.appendChild(body);
+      if (step.rule.impact) {
+        const impact = document.createElement('div');
+        impact.textContent = step.rule.impact;
+        ruleBox.appendChild(impact);
+      }
+      wrapper.appendChild(ruleBox);
+    }
+    if (step.outputs) {
+      const list = document.createElement('dl');
+      list.className = 'timeline-replay-outputs';
+      Object.keys(step.outputs).forEach(function (key) {
+        const dt = document.createElement('dt');
+        dt.textContent = key;
+        const dd = document.createElement('dd');
+        dd.textContent = String(step.outputs[key]);
+        list.appendChild(dt);
+        list.appendChild(dd);
+      });
+      wrapper.appendChild(list);
+    }
+    stepStates.push({ element: wrapper, badge, step });
+    return wrapper;
+  }
+  function renderReplay(replay) {
+    clearReplayTimers();
+    if (!detailReplay || !detailReplaySteps) {
+      return;
+    }
+    detailReplaySteps.innerHTML = '';
+    if (!replay || !Array.isArray(replay.steps) || !replay.steps.length) {
+      detailReplay.classList.add('d-none');
+      return;
+    }
+    replay.steps.forEach(function (step) {
+      detailReplaySteps.appendChild(buildStepElement(step));
+    });
+    detailReplay.classList.remove('d-none');
+    let elapsed = 0;
+    stepStates.forEach(function (state, index) {
+      const startDelay = elapsed + (index === 0 ? 0 : 400);
+      const finishDelay = startDelay + (state.step.duration_ms || 1500);
+      replayTimers.push(setTimeout(function () {
+        setStepStatus(state, 'running', 'Running');
+      }, startDelay));
+      replayTimers.push(setTimeout(function () {
+        const statusKey = (state.step.status || 'success').toLowerCase();
+        const label = state.step.status_label || statusKey;
+        setStepStatus(state, statusKey, label);
+      }, finishDelay));
+      elapsed = finishDelay;
+    });
+  }
+  function renderIncident(event) {
+    if (!detailIncident) {
+      return;
+    }
+    detailIncident.classList.add('d-none');
+    detailIncident.innerHTML = '';
+    const replay = event.replay || {};
+    const steps = Array.isArray(replay.steps) ? replay.steps : [];
+    const failing = steps.find(function (step) {
+      return (step.status || '').toLowerCase() === 'failed' && step.rule;
+    });
+    if (!failing) {
+      return;
+    }
+    const severity = (event.severity || '').toLowerCase();
+    const severityClass = severity === 'danger' ? 'alert-danger' : 'alert-warning';
+    detailIncident.className = 'alert timeline-incident-alert ' + severityClass;
+    const title = document.createElement('div');
+    title.className = 'fw-semibold mb-1';
+    title.textContent = failing.rule.name || 'Rule violation';
+    detailIncident.appendChild(title);
+    const summary = document.createElement('div');
+    summary.className = 'mb-2';
+    summary.textContent = failing.message || event.summary || 'Contract validation failed.';
+    detailIncident.appendChild(summary);
+    const bullets = document.createElement('ul');
+    bullets.className = 'ps-3 mb-0';
+    if (failing.rule.expected) {
+      const li = document.createElement('li');
+      li.textContent = 'Expected ' + failing.rule.expected;
+      bullets.appendChild(li);
+    }
+    if (failing.rule.actual) {
+      const li = document.createElement('li');
+      li.textContent = 'Observed ' + failing.rule.actual;
+      bullets.appendChild(li);
+    }
+    if (failing.rule.impact) {
+      const li = document.createElement('li');
+      li.textContent = failing.rule.impact;
+      bullets.appendChild(li);
+    }
+    detailIncident.appendChild(bullets);
+    detailIncident.classList.remove('d-none');
+  }
+  function renderReject(reject) {
+    if (!detailReject) {
+      return;
+    }
+    detailReject.classList.add('d-none');
+    if (!reject) {
+      if (detailRejectMeta) {
+        detailRejectMeta.textContent = '';
+      }
+      return;
+    }
+    if (detailRejectMeta) {
+      const parts = [];
+      if (reject.dataset) {
+        parts.push('Dataset ' + reject.dataset);
+      }
+      if (reject.contract_version) {
+        parts.push('Contract ' + reject.contract_version);
+      }
+      if (typeof reject.valid_rows !== 'undefined' && typeof reject.reject_rows !== 'undefined') {
+        parts.push(String(reject.valid_rows) + ' valid · ' + String(reject.reject_rows) + ' reject');
+      }
+      detailRejectMeta.textContent = parts.join(' · ');
+    }
+    if (detailRejectValid) {
+      const valid = reject.valid_sample && reject.valid_sample.length ? reject.valid_sample : [{ message: 'No valid sample captured.' }];
+      detailRejectValid.textContent = JSON.stringify(valid, null, 2);
+    }
+    if (detailRejectInvalid) {
+      const invalid = reject.reject_sample && reject.reject_sample.length ? reject.reject_sample : [{ message: 'No rejects emitted.' }];
+      detailRejectInvalid.textContent = JSON.stringify(invalid, null, 2);
+    }
+    detailReject.classList.remove('d-none');
+  }
+  function applyUiState(uiState) {
+    uiBanners.forEach(function (banner, key) {
+      const state = uiState ? uiState[key] : null;
+      if (!state) {
+        banner.classList.add('d-none');
+        return;
+      }
+      const statusKey = (state.status || '').toLowerCase();
+      const className = uiStatusClasses[statusKey] || 'alert-secondary';
+      banner.className = 'timeline-ui-banner alert ' + className;
+      const statusEl = banner.querySelector('.timeline-ui-status');
+      const labelEl = banner.querySelector('.timeline-ui-label');
+      const messageEl = banner.querySelector('.timeline-ui-message');
+      if (statusEl) {
+        statusEl.textContent = state.label || (statusKey ? statusKey.toUpperCase() : 'STATUS');
+      }
+      if (labelEl) {
+        labelEl.textContent = state.label || (statusKey ? statusKey.replace(/_/g, ' ') : '');
+      }
+      if (messageEl) {
+        messageEl.textContent = state.message || '';
+      }
+      banner.classList.remove('d-none');
+    });
+  }
   function renderDetail(event) {
     detailBadge.textContent = event.milestone_label || 'Milestone';
     detailBadge.className = 'badge ' + (event.badge_class || 'text-bg-secondary') + ' text-uppercase';
     detailTitle.textContent = event.date + ' · ' + event.title;
+    if (detailState) {
+      if (event.state_summary) {
+        detailState.textContent = event.state_summary;
+        detailState.classList.remove('d-none');
+      } else {
+        detailState.textContent = '';
+        detailState.classList.add('d-none');
+      }
+    }
     detailNarrative.textContent = event.narrative || event.summary || '';
     renderInsights(event.insights || []);
+    renderReplay(event.replay || null);
+    renderIncident(event);
     renderCallouts(event.callouts || []);
     renderLinks(event.links || []);
+    renderReject(event.rejects || null);
   }
-
   function setActive(index, options) {
     if (index < 0 || index >= events.length) {
       return;
@@ -819,41 +1269,39 @@ graph LR
     });
     const event = events[index];
     renderDetail(event);
+    applyUiState(event.ui_state || {});
     if (activeLabel) {
-      activeLabel.textContent = event.date + ' · ' + event.title;
+      let label = event.date + ' · ' + event.title;
+      if (event.state_summary) {
+        label += ' – ' + event.state_summary;
+      }
+      activeLabel.textContent = label;
     }
     if (progress) {
       const pct = ((index + 1) / events.length) * 100;
       progress.style.width = pct + '%';
       progress.setAttribute('aria-valuenow', String(Math.round(pct)));
     }
+    updateNextButton();
   }
-
   function advance() {
     if (activeIndex >= events.length - 1) {
       stopPlayback();
+      setActive(0, { scroll: false });
       return;
     }
     setActive(activeIndex + 1);
-    if (playing) {
+    if (autoplaying) {
       scheduleAdvance();
     }
   }
-
-  function scheduleAdvance() {
-    if (timer) {
-      clearTimeout(timer);
-    }
-    timer = setTimeout(advance, 4000);
-  }
-
-  if (playBtn) {
-    playBtn.addEventListener('click', function () {
-      if (playing) {
+  if (autoBtn) {
+    autoBtn.addEventListener('click', function () {
+      if (autoplaying) {
         stopPlayback();
       } else {
-        playing = true;
-        updatePlayButton();
+        autoplaying = true;
+        updateAutoButton();
         if (!listItems[activeIndex].classList.contains('active')) {
           setActive(activeIndex, { scroll: false });
         }
@@ -861,7 +1309,6 @@ graph LR
       }
     });
   }
-
   if (nextBtn) {
     nextBtn.addEventListener('click', function () {
       stopPlayback();
@@ -872,16 +1319,15 @@ graph LR
       }
     });
   }
-
   listItems.forEach(function (item, idx) {
     item.addEventListener('click', function () {
       stopPlayback();
       setActive(idx);
     });
   });
-
   setActive(0, { scroll: false });
-  updatePlayButton();
+  updateAutoButton();
+  updateNextButton();
 })();
 </script>
 {% endblock %}

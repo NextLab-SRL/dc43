@@ -19,6 +19,7 @@ from .pipeline import (
     prepare_demand_features,
     run_retail_demo,
 )
+from .timeline import simulate_retail_timeline
 
 __all__ = [
     "DemandForecaster",
@@ -36,4 +37,5 @@ __all__ = [
     "prepare_demand_features",
     "run_retail_demo",
     "load_dataset",
+    "simulate_retail_timeline",
 ]

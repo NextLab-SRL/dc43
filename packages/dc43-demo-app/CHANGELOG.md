@@ -20,6 +20,9 @@
 - Altair Retail demo timeline insights that surface live metrics, highlight anchors, and
   outbound links to dataset, contract, and product records alongside the catalog tables that
   now open the authoritative pages in new tabs.
+- Altair Retail timeline replay that simulates each pipeline step, highlights the exact rule
+  failures and reject slices, drives status banners across the activation/dashboard tabs, and
+  exposes a richer sample script for presenters to reuse in notebooks.
 
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
