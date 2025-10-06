@@ -16,6 +16,7 @@ On top of the conceptual platform, dc43 ships opinionated integrations that you 
 
 - Spark & DLT pipelines via `dc43_integrations.spark.io` with schema/metric helpers from `dc43_service_backends.data_quality.backend` for auto-casting and contract-aware IO.
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
+- Open Data Product backends (`dc43_service_backends.data_products.backend`) that let product owners register ports and bind them to contracts via ODPS-compliant metadata stores.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
 - Scenario-first getting started guides (operations setup, local Spark flows, remote integrations, and the contracts app helper) live in [`docs/getting-started/`](docs/getting-started/README.md).
 
@@ -28,10 +29,12 @@ dc43 exposes a small set of well-defined components. Swap any of them without re
 | Layer | Component | Responsibility |
 | --- | --- | --- |
 | Governance | **Contract manager/store interface** | Retrieve, version, and persist contracts from catalog-backed or file-based sources. |
+| Governance | **Data product service interface** | Manage ODPS data products, register input/output ports, and bind them to contract versions for runtime discovery. |
+| Governance | **Dataset↔contract link hooks** | Propagate dataset/contract bindings to external catalogs (Unity Catalog, bespoke metadata APIs) after governance approves the linkage. |
 | Governance | **Data quality manager interface** | Coordinate with an external DQ governance tool (e.g., Collibra, Unity Catalog) that records dataset↔contract alignment and approval state. |
 | Authoring support | **Contract drafter module** | Generate ODCS drafts from observed data or schema drift events before handing them back to governance. |
 | Runtime services | **Data-quality metrics engine** | Collect contract-driven metrics in execution engines and forward them to the governance tool for status evaluation. |
-| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43_integrations.spark`). |
+| Integration | **Integration adapters** | Bridge the contract, data product, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43_integrations.spark`). |
 
 Guides for each component live under `docs/`:
 
@@ -49,12 +52,15 @@ flowchart TD
     subgraph Governance & Stewardship
         Authoring["Authoring Tools\nJSON · Git · Notebooks"]
         ContractStore["Contract Store Interface\nGit · Filesystem · APIs"]
+        DataProduct["Data Product Service Interface\nODPS registry · Ports"]
         DQTool["Data Quality Governance Tool\nCatalog · Collibra"]
+        LinkHooks["Dataset↔Contract Link Hooks\nUnity Catalog · Custom"]
+        MetadataTargets["Metadata Targets\nUnity Catalog · APIs"]
     end
 
     subgraph Lifecycle Services
         DraftModule["Contract Drafter Module"]
-        DQManager["Data Quality Manager Interface"]
+        GovernanceSvc["Governance Service & DQ Manager\nmetrics · linking · drafts"]
     end
 
     subgraph Runtime Execution
@@ -64,30 +70,38 @@ flowchart TD
     end
 
     Authoring -->|publish / review| ContractStore
+    Authoring -->|publish products| DataProduct
     ContractStore -->|serve versions| IOHelpers
     ContractStore -->|seed drafts| DraftModule
     DraftModule -->|return proposals| Authoring
+    DataProduct -->|port metadata| IOHelpers
+    IOHelpers -->|register ports| DataProduct
     IOHelpers -->|apply contracts| Pipelines
     Pipelines -->|observations| IOHelpers
     IOHelpers -->|metrics & schema drift| DQEngine
-    DQEngine -->|metrics package| DQManager
-    DQManager -->|submit metrics| DQTool
-    DQTool -->|compatibility verdict| DQManager
+    DQEngine -->|metrics package| GovernanceSvc
+    GovernanceSvc -->|submit metrics| DQTool
+    DQTool -->|compatibility verdict| GovernanceSvc
     DQTool -->|validated versions| ContractStore
-    DQManager -->|notify runtime| IOHelpers
+    GovernanceSvc -->|notify runtime| IOHelpers
+    GovernanceSvc -->|link dataset ↔ contract| LinkHooks
+    LinkHooks -->|propagate bindings| MetadataTargets
 ```
 
 This architecture clarifies how governance assets, lifecycle services, and runtime execution collaborate:
 
-- Governance systems own the authoritative contract store and the data-quality tool. Labeled edges (`publish / review`, `validated versions`) highlight how those systems steer approvals.
-- Lifecycle services—drafting and data-quality management—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the DQ manager relays metrics, waits for a verdict, and shares compatibility context with both stewards and pipelines.
-- Integration adapters inside runtime engines (Spark, DLT, …) apply contracts, emit observations, and react when governance signals change.
+- Governance systems own the authoritative contract, data-product, and data-quality services. Labeled edges (`publish / review`, `validated versions`) highlight how those systems steer approvals while exposing ODPS registries to runtime teams.
+- Lifecycle services—drafting and governance orchestration—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the governance service relays metrics, links datasets to contracts, and shares compatibility context with both stewards and pipelines.
+- Integration adapters inside runtime engines (Spark, DLT, …) apply contracts, emit observations, register ODPS ports, and react when governance signals change. Link hooks fan out approved bindings to workspace catalogs such as Unity Catalog.
 
 ### Node & edge glossary
 
 - **Contract store interface** – pluggable storage adapters (filesystem, Delta, Collibra) that resolve authoritative contract versions.
-- **Data quality manager interface** – the dc43 protocol that hands metrics to the governance platform and retrieves compatibility verdicts.
+- **Data product service interface** – ODPS-compliant service that tracks input/output ports and the contract versions bound to each port.
+- **Governance service & DQ manager** – orchestration layer that relays metrics, links datasets to contracts, and fans out compatibility verdicts to runtimes.
 - **Data quality governance tool** – catalog or observability system (Collibra, Unity Catalog, bespoke services) that persists the compatibility matrix and performs the actual check evaluation once it receives metrics.
+- **Dataset↔contract link hooks** – post-link integrations (Unity Catalog table properties, metadata APIs) invoked whenever governance records a new binding.
+- **Metadata targets** – external catalogs updated by link hooks so downstream users can discover enforced contracts without querying dc43 directly.
 - **Metrics package** – the bundle of row counts, expectation results, and schema drift context emitted by the runtime so the governance tool can recompute the dataset↔contract status.
 
 Variations—such as Collibra-governed contracts or bespoke storage backends—slot into the same model by substituting implementations of the interfaces described above.
