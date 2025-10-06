@@ -53,6 +53,19 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config.governance.dataset_contract_link_builders == ()
 
 
+def test_env_overrides_contract_store_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
+    monkeypatch.setenv("DC43_CONTRACT_STORE_TYPE", "SQL")
+    monkeypatch.setenv("DC43_CONTRACT_STORE_DSN", "sqlite:///example.db")
+
+    config = load_config()
+    assert config.contract_store.type == "sql"
+    assert config.contract_store.dsn == "sqlite:///example.db"
+
+
 def test_load_collibra_stub_config(tmp_path: Path) -> None:
     config_path = tmp_path / "backends.toml"
     config_path.write_text(

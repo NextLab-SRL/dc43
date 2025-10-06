@@ -20,6 +20,12 @@
 - Added bootstrap helpers (`build_backends`, `build_contract_store`,
   `build_data_product_backend`) that translate the TOML configuration into
   concrete backends for notebooks, services, or tests.
+- Introduced `SQLContractStore` so deployments can persist contracts in
+  relational databases (PostgreSQL, MySQL, SQL Server, SQLite) via SQLAlchemy.
+- Documented SQL-backed deployment guidance and configuration templates covering
+  managed databases on Azure, AWS, and other clouds.
+- Terraform blueprints for Azure Container Apps and AWS Fargate now accept
+  `contract_store_mode = "sql"` to inject DSNs and skip shared storage mounts.
 - Documented and tested Unity Catalog tagging when the governance backend is
   wired to remote contract/data product services, ensuring remote databases such
   as PostgreSQL or Azure Files remain compatible.
@@ -40,3 +46,8 @@
 - Contract and data product store configuration now accept `table` entries and
   `data_product` settings so Unity Catalog tables or alternative storage layers
   can be selected without modifying the service code.
+- Contract store configuration adds `dsn`/`schema` keys plus corresponding
+  environment overrides for SQL deployments.
+- Configuration loaders respect `DC43_CONTRACT_STORE_TYPE`, enabling IaC tools
+  to switch backends without editing TOML files, and the Delta store reuses the
+  SQL serialisation helper to keep schemas aligned.

@@ -50,6 +50,18 @@ def test_build_contract_store_filesystem(tmp_path: Path) -> None:
     assert isinstance(store, FSContractStore)
 
 
+def test_build_contract_store_sql(tmp_path: Path) -> None:
+    pytest.importorskip("sqlalchemy")
+    dsn = f"sqlite:///{tmp_path / 'contracts.db'}"
+    cfg = ContractStoreConfig(type="sql", dsn=dsn, table="contracts")
+
+    store = build_contract_store(cfg)
+
+    from dc43_service_backends.contracts.backend.stores.sql import SQLContractStore
+
+    assert isinstance(store, SQLContractStore)
+
+
 def test_build_data_product_backend_memory() -> None:
     backend = build_data_product_backend(DataProductStoreConfig(type="memory"))
     assert isinstance(backend, LocalDataProductServiceBackend)

@@ -118,6 +118,25 @@ def build_contract_store(config: ContractStoreConfig) -> ContractStore:
             path=str(base_path) if base_path and not table else None,
         )
 
+    if store_type == "sql":
+        try:
+            from sqlalchemy import create_engine
+        except ModuleNotFoundError as exc:  # pragma: no cover - handled in tests
+            raise RuntimeError(
+                "sqlalchemy is required when contract_store.type is 'sql'.",
+            ) from exc
+
+        from .contracts.backend.stores.sql import SQLContractStore
+
+        if not config.dsn:
+            raise RuntimeError(
+                "contract_store.dsn must be configured when type is 'sql'",
+            )
+
+        engine = create_engine(config.dsn)
+        table_name = config.table or "contracts"
+        return SQLContractStore(engine, table_name=table_name, schema=config.schema)
+
     if store_type == "collibra_stub":
         return _resolve_collibra_store(config)
 

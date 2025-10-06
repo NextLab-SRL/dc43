@@ -126,7 +126,7 @@ This architecture separates the libraries that ship with dc43 from the external 
 - **dc43 integrations & clients** include the runtime adapters plus the request/response protocols defined under [`dc43_service_clients`](packages/dc43-service-clients/src/dc43_service_clients). These clients declare how to fetch contracts, submit governance assessments, and register ODPS ports without exposing storage details.
 - **dc43 service backends** live in [`dc43_service_backends`](packages/dc43-service-backends/src/dc43_service_backends). They combine contract stores, the drafting module, the governance orchestrator, ODPS product registries, and the data-quality engine that materialises expectations from ODCS documents.
 - **Stewardship platforms** (Collibra, Unity Catalog UIs, custom consoles) sit outside this repository. The governance backend offers hook points so approval workflows can run there while still receiving compatibility assessments and draft details via [`governance.backend.local`](packages/dc43-service-backends/src/dc43_service_backends/governance/backend/local.py) and the hook interfaces in [`governance.hooks`](packages/dc43-service-backends/src/dc43_service_backends/governance/hooks.py).
-- **Storage & catalog backends** highlight the concrete infrastructure that backs each service: filesystem or Delta-backed contract stores and metadata targets updated by link hooks such as [`governance.unity_catalog`](packages/dc43-service-backends/src/dc43_service_backends/governance/unity_catalog.py).
+- **Storage & catalog backends** highlight the concrete infrastructure that backs each service: filesystem, SQL, or Delta-backed contract stores and metadata targets updated by link hooks such as [`governance.unity_catalog`](packages/dc43-service-backends/src/dc43_service_backends/governance/unity_catalog.py).
 
 ### Node & edge glossary
 
@@ -149,7 +149,7 @@ dc43 now ships as a family of distributions so you can install only the layers y
 | Distribution | Imports | Responsibility | Depends on |
 | --- | --- | --- | --- |
 | `dc43-service-clients` | `dc43_service_clients.*` | Typed service clients, request/response models, and governance helpers that front-end applications can embed. | `open-data-contract-standard` |
-| `dc43-service-backends` | `dc43_service_backends.*` | Reference backend implementations (filesystem store, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43-service-clients` |
+| `dc43-service-backends` | `dc43_service_backends.*` | Reference backend implementations (filesystem/SQL stores, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43-service-clients` |
 | `dc43-integrations` | `dc43_integrations.*` | Runtime adapters such as the Spark helpers that call into client APIs without requiring backend dependencies. | `dc43-service-clients` |
 | `dc43` | `dc43.*` | Aggregating package that wires the CLI/demo and depends on the three modules above. | all of the above |
 
@@ -157,6 +157,7 @@ dc43 now ships as a family of distributions so you can install only the layers y
 
 - **Service contracts only**: `pip install dc43-service-clients`
 - **Backend reference services**: `pip install dc43-service-backends`
+- **Backend services with SQL storage**: `pip install "dc43-service-backends[sql]"`
 - **HTTP service backends**: `pip install "dc43-service-backends[http]"` (see
   [`deploy/http-backend/README.md`](deploy/http-backend/README.md) for a
   containerised deployment recipe)

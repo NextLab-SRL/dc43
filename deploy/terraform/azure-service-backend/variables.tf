@@ -40,22 +40,52 @@ variable "backend_token" {
   default     = ""
 }
 
+variable "contract_store_mode" {
+  description = "Contract store backing implementation (filesystem or sql)"
+  type        = string
+  default     = "filesystem"
+
+  validation {
+    condition     = contains(["filesystem", "sql"], lower(var.contract_store_mode))
+    error_message = "contract_store_mode must be either 'filesystem' or 'sql'."
+  }
+}
+
 variable "contract_storage" {
-  description = "Path mounted inside the container for contracts"
+  description = "Path mounted inside the container for contracts (filesystem mode only)"
   type        = string
   default     = "/contracts"
 }
 
 variable "contract_share_name" {
-  description = "Azure Files share used for contract storage"
+  description = "Azure Files share used for contract storage when contract_store_mode = 'filesystem'"
   type        = string
   default     = "contracts"
 }
 
 variable "contract_share_quota_gb" {
-  description = "Quota for the Azure Files share"
+  description = "Quota for the Azure Files share when contract_store_mode = 'filesystem'"
   type        = number
   default     = 100
+}
+
+variable "contract_store_dsn" {
+  description = "SQLAlchemy DSN used when contract_store_mode = 'sql'"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "contract_store_table" {
+  description = "Contracts table name when using the SQL store"
+  type        = string
+  default     = "contracts"
+}
+
+variable "contract_store_schema" {
+  description = "Optional schema/namespace used by the SQL contract store"
+  type        = string
+  default     = ""
 }
 
 variable "container_app_environment_name" {
