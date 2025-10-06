@@ -93,12 +93,6 @@
                 </div>
               </div>
             </div>
-            <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
-              <span class="text-uppercase fw-semibold">Catalog quick links</span>
-              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-story-card">Data products</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-story-card">Datasets</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-story-card">Contracts</a>
-            </div>
             <div class="progress mb-4" style="height: 6px;">
               <div class="progress-bar bg-primary" id="retailTimelineProgress" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
             </div>
@@ -156,24 +150,12 @@
           </div>
           <div class="tab-pane fade" id="story-flow" role="tabpanel" aria-labelledby="story-flow-tab">
             <p class="small text-muted">Each block represents a data product boundary. Internal datasets stay inside the product while exposed ports are surfaced downstream.</p>
-            <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
-              <span class="text-uppercase fw-semibold">Catalog quick links</span>
-              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-story-card">Data products</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-story-card">Datasets</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-story-card">Contracts</a>
-            </div>
             <div class="mermaid">
 {{ data_product_flow | safe }}
             </div>
           </div>
           <div class="tab-pane fade" id="story-lineage" role="tabpanel" aria-labelledby="story-lineage-tab">
             <p class="small text-muted">Datasets are grouped by the data product zone that owns them. Ports surface public interfaces while internal assets stay inside their product boundary.</p>
-            <div class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
-              <span class="text-uppercase fw-semibold">Catalog quick links</span>
-              <a class="link-secondary" data-retail-tab-link="catalog-products-tab" href="#retail-story-card">Data products</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-datasets-tab" href="#retail-story-card">Datasets</a>
-              <a class="link-secondary" data-retail-tab-link="catalog-contracts-tab" href="#retail-story-card">Contracts</a>
-            </div>
             <div class="mermaid">
 {{ dataset_lineage | safe }}
             </div>
@@ -816,11 +798,14 @@
 <script id="retailTimelineData" type="application/json">{{ timeline_events | tojson }}</script>
 <script>
 (function () {
+  let mermaidRenderIndex = 0;
+
   function renderMermaidDiagrams(attempt) {
     if (attempt === undefined) {
       attempt = 0;
     }
-    if (!window.mermaid || typeof window.mermaid.run !== 'function') {
+    const mermaid = window.mermaid;
+    if (!mermaid || typeof mermaid.render !== 'function') {
       if (attempt < 10) {
         setTimeout(function () {
           renderMermaidDiagrams(attempt + 1);
@@ -828,11 +813,29 @@
       }
       return;
     }
-    try {
-      window.mermaid.run({ querySelector: '#storyTabsContent .mermaid' });
-    } catch (err) {
-      console.warn('Unable to render Mermaid diagrams', err);
-    }
+
+    document.querySelectorAll('#storyTabsContent .mermaid').forEach(function (node) {
+      const source = node.dataset.mermaidSource || node.textContent;
+      if (!source) {
+        return;
+      }
+      node.dataset.mermaidSource = source;
+      if (!node.dataset.mermaidId) {
+        mermaidRenderIndex += 1;
+        node.dataset.mermaidId = 'retail-mermaid-' + mermaidRenderIndex;
+      }
+      const renderId = node.dataset.mermaidId + '-' + Date.now();
+      mermaid.render(renderId, source.trim())
+        .then(function (result) {
+          node.innerHTML = result.svg;
+          if (typeof result.bindFunctions === 'function') {
+            result.bindFunctions(node);
+          }
+        })
+        .catch(function (err) {
+          console.warn('Unable to render Mermaid diagram', err);
+        });
+    });
   }
 
   renderMermaidDiagrams();

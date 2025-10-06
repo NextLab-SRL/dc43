@@ -93,11 +93,10 @@ applications:
 
 The overview page now contains a **Refresh the Altair Retail demo** card that
 explains how the cached fixtures are rebuilt and keeps presenters oriented with
-the sticky navigation rail. The story tabs now surface catalog quick links so
-you can jump directly to the data product, dataset, or contract tables while
-walking through the simulated timeline, flow, or lineage, and a dedicated
-**Catalog & tools** tab keeps the full tables within the same card. A Mermaid
-diagram illustrates how the source, modelled, ML, consumer, and aggregated
+the sticky navigation rail. The story tabs keep the simulated timeline, flow,
+lineage, and catalog content together inside a single card, making it easy to
+switch context without leaving the walkthrough. A Mermaid diagram illustrates
+how the source, modelled, ML, consumer, and aggregated
 products hand off datasets. A second dataset-level lineage view groups every
 contract by its owning data product zone so you can point out which ports are
 public and which assets remain internal to the product boundary.
@@ -119,11 +118,9 @@ that caused the milestone.
 
 The integrated **Catalog & tools** tab lists all data products, datasets, and
 contracts involved in the walkthrough. Each entry anchors back to the cards on
-the page or opens the authoritative record in the contracts catalog, and the
-story quick links make those anchors accessible directly from the timeline,
-flow, and lineage tabs. Together they make it easier to trace how a dataset
-moves from the operational sources through the consumer surfaces without
-leaving the retail demo UI. The dataset catalog
+the page or opens the authoritative record in the contracts catalog, making it
+easy to trace how a dataset moves from the operational sources through the
+consumer surfaces without leaving the retail demo UI. The dataset catalog
 highlights the owning zone for each feed, aligning with the Mermaid lineage
 diagram and the tags shown on the data product definitions.
 

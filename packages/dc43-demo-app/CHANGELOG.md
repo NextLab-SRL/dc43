@@ -23,8 +23,6 @@
 - Altair Retail timeline replay that simulates each pipeline step, highlights the exact rule
   failures and reject slices, drives status banners across the activation/dashboard tabs, and
   exposes a richer sample script for presenters to reuse in notebooks.
-- Altair Retail story tabs now include catalog quick links so presenters can jump straight to the
-  data product, dataset, or contract tables while narrating the flow, lineage, or incidents.
 
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
@@ -38,9 +36,11 @@
   personas instead of medallion labels to avoid confusion with the contracts medallion view.
 - Altair Retail overview now folds the catalog tables into the story tabs, trims the navigation
   rail, and removes the KPI preview so the flow, lineage, and timeline visuals remain the focus.
+- Altair Retail story tabs now render Mermaid diagrams inline and drop the catalog quick-link
+  banners so the timeline, flow, and lineage visuals stay front and centre.
 
 ### Fixed
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware
   inventory snapshots with the freshness reference checkpoint.
-- Restore the Altair Retail flow and dataset lineage tabs so their Mermaid diagrams render
-  the data product hand-offs and dataset zones instead of empty placeholders.
+- Ensure the Altair Retail flow and dataset lineage tabs render their Mermaid diagrams reliably
+  inside the story tabs instead of leaving the graph source text visible.
