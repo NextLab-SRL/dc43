@@ -573,7 +573,7 @@ async def retail_demo_overview(request: Request) -> HTMLResponse:
 async def retail_demo_rerun() -> HTMLResponse:
     global _RETAIL_RUN
     _RETAIL_RUN = await asyncio.to_thread(run_retail_demo)
-    params = urlencode({"msg": "Retail demo pipeline refreshed."})
+    params = urlencode({"msg": "Retail demo data refreshed."})
     return RedirectResponse(url=f"/retail-demo?{params}", status_code=303)
 
 

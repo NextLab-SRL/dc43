@@ -38,570 +38,598 @@
   </div>
 </div>
 
-<div class="row g-4 mb-5">
-  <div class="col-lg-5">
-    <div class="card h-100 shadow-sm border-0" id="retail-run-card">
+<div class="row g-4">
+  <div class="col-lg-3">
+    <div class="retail-overview-nav card shadow-sm border-0">
       <div class="card-body">
-        <h2 class="h5">Run the Altair Retail pipeline</h2>
-        <p class="mb-3">The fixtures on this page are cached from the latest demo run. Trigger a new
-          execution to reload the operational sources, rebuild the star schema, score the
-          demand model, and publish the downstream assets.</p>
+        <h2 class="h6 text-uppercase text-muted mb-3">Navigate</h2>
+        <div class="nav nav-pills flex-column gap-2" id="retailNav">
+          <a class="nav-link active" data-retail-nav href="#retail-run-card">Refresh demo run</a>
+          <a class="nav-link" data-retail-nav data-tab-control="story-timeline-tab" href="#retail-story-card">Timeline player</a>
+          <a class="nav-link" data-retail-nav data-tab-control="story-flow-tab" href="#retail-story-card">Flow at a glance</a>
+          <a class="nav-link" data-retail-nav data-tab-control="story-lineage-tab" href="#retail-story-card">Dataset lineage</a>
+          <a class="nav-link" data-retail-nav href="#retail-tools-card">Tools catalog</a>
+          <a class="nav-link" data-retail-nav data-tab-control="experience-offers-tab" href="#retail-experience-card">Offer highlights</a>
+          <a class="nav-link" data-retail-nav data-tab-control="experience-activation-tab" href="#retail-experience-card">Marketing activation</a>
+          <a class="nav-link" data-retail-nav data-tab-control="experience-dashboard-tab" href="#retail-experience-card">Executive dashboard</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-9">
+    <div class="card shadow-sm border-0 mb-4" id="retail-run-card">
+      <div class="card-body">
+        <h2 class="h5">Refresh the Altair Retail demo run</h2>
+        <p class="mb-3">Everything on this page reads from a cached demo execution. Refresh the run to replay the packaged pipeline so the activation, dashboard, and timeline tabs stay aligned on the same snapshot.</p>
         <ol class="small ps-3 mb-3">
           <li>Load operational sources (`retail_pos_transactions`, `retail_inventory_snapshot`, `retail_product_catalog`).</li>
-          <li>Assemble the modelled snowflake schema (`retail_sales_fact` plus dimensions).</li>
-          <li>Engineer ML features and forecast demand.</li>
+          <li>Rebuild the modelled snowflake schema (`retail_sales_fact` plus supporting dimensions).</li>
+          <li>Engineer ML features and score the demand forecast.</li>
           <li>Publish marketing offers and aggregate the KPI mart.</li>
         </ol>
+        <p class="small text-muted mb-3">The timeline tab animates these curated results instead of running the jobs live, so you always have a consistent story to present.</p>
         <form method="post" action="/retail-demo/run" class="d-flex align-items-center gap-3 flex-wrap">
-          <button type="submit" class="btn btn-success">Re-run demo pipeline</button>
-          <span class="small text-muted">Caches refresh instantly with the packaged sample data.</span>
+          <button type="submit" class="btn btn-success">Refresh demo data</button>
+          <span class="small text-muted">Rebuilds the cached fixtures in seconds.</span>
         </form>
       </div>
     </div>
-  </div>
-  <div class="col-lg-7">
-    <div class="card h-100 shadow-sm border-0">
+    <div class="card shadow-sm border-0 mb-4" id="retail-story-card">
       <div class="card-body">
-        <h2 class="h5">Sample code</h2>
-        <p class="small text-muted">Replay the full story programmatically: run the pipeline and inspect each timeline
-          milestone with step status, rule context, and reject diagnostics.</p>
-        <pre class="mb-0"><code class="language-python">from dc43_demo_app.retail_demo import run_retail_demo, simulate_retail_timeline
-
-run = run_retail_demo()
-for event in simulate_retail_timeline(run):
-    print(f"{event['date']} · {event['title']} ({event['state_summary']})")
-    for step in event['replay']['steps']:
-        print(f"  → {step['label']}: {step['status_label']}")
-        if step.get('rule'):
-            rule = step['rule']
-            print(f"     rule '{rule['name']}' expected {rule['expected']} but saw {rule['actual']}")
-    if event.get('rejects'):
-        reject = event['rejects']
-        print(f"  reject slice {reject['dataset']} captured {reject['reject_rows']} rows while"
-              f" {reject['valid_rows']} stayed valid")</code></pre>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="card shadow-sm border-0 mb-5" id="retail-timeline-card">
-  <div class="card-body">
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-      <div>
-        <h2 class="h5 mb-1">Timeline player</h2>
-        <p class="small text-muted mb-0">Animate six months of Altair Retail operations. The player pauses at milestones so
-          you can narrate incidents, releases, and stakeholder outcomes.</p>
-      </div>
-      <div class="d-flex align-items-center gap-2 flex-wrap">
-        <button class="btn btn-primary btn-sm" id="retailTimelineNext" type="button">Start timeline</button>
-        <button class="btn btn-outline-primary btn-sm" id="retailTimelineAuto" type="button">Auto play</button>
-        <div class="small text-muted">Active:
-          <span class="fw-semibold" id="retailTimelineActiveLabel">Not started</span>
-        </div>
-      </div>
-    </div>
-    <div class="progress mb-4" style="height: 6px;">
-      <div class="progress-bar bg-primary" id="retailTimelineProgress" role="progressbar" style="width: 0%;"
-        aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-    </div>
-    <div class="row g-4">
-      <div class="col-lg-5">
-        <div class="list-group small" id="retailTimelineList">
-          {% for event in timeline_events %}
-          <button type="button"
-            class="list-group-item list-group-item-action d-flex justify-content-between align-items-start"
-            data-index="{{ event.index }}">
-            <div class="ms-2 me-auto">
-              <div class="fw-semibold">{{ event.date }} · {{ event.title }}</div>
-              <div class="text-muted">{{ event.summary }}</div>
-            </div>
-            <span class="badge {{ event.badge_class }} rounded-pill text-uppercase">{{ event.milestone_label }}</span>
-          </button>
-          {% endfor %}
-        </div>
-      </div>
-      <div class="col-lg-7">
-        <div class="border rounded p-4 h-100 bg-light" id="retailTimelineDetail">
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <span class="badge text-bg-secondary text-uppercase" id="retailTimelineDetailBadge">Milestone</span>
-            <span class="fw-semibold" id="retailTimelineDetailTitle">Select a milestone to begin the demo.</span>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+          <div>
+            <h2 class="h5 mb-1">Story, flow, and lineage</h2>
+            <p class="small text-muted mb-0">Switch tabs to narrate the simulated incidents, highlight the product flow, or dive into dataset lineage.</p>
           </div>
-          <p class="small text-primary fw-semibold mb-2 d-none" id="retailTimelineDetailState"></p>
-          <p class="small text-muted mb-3" id="retailTimelineDetailNarrative">Use the play controls to animate the story or
-            click an individual milestone to jump ahead.</p>
-          <div id="retailTimelineDetailInsights" class="mb-3"></div>
-          <div id="retailTimelineDetailReplay" class="mb-3 d-none">
-            <h4 class="h6 text-uppercase text-muted">Pipeline replay</h4>
-            <div id="retailTimelineReplaySteps" class="timeline-replay-steps"></div>
-          </div>
-          <div id="retailTimelineDetailIncident" class="alert alert-warning d-none"></div>
-          <div id="retailTimelineDetailCallouts"></div>
-          <div id="retailTimelineDetailLinks" class="mt-3"></div>
-          <div id="retailTimelineDetailReject" class="timeline-reject-card mt-3 d-none">
-            <h4 class="h6 text-uppercase text-muted">Reject diagnostics</h4>
-            <div class="timeline-reject-meta small mb-3" id="retailTimelineRejectMeta"></div>
-            <div class="row g-3">
-              <div class="col-md-6">
-                <div class="timeline-reject-panel">
-                  <div class="timeline-reject-title">Valid slice</div>
-                  <pre class="timeline-reject-sample" id="retailTimelineRejectValid"></pre>
+        </div>
+        <ul class="nav nav-tabs" id="storyTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="story-timeline-tab" data-bs-toggle="tab" data-bs-target="#story-timeline" type="button" role="tab" aria-controls="story-timeline" aria-selected="true">Timeline player</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="story-flow-tab" data-bs-toggle="tab" data-bs-target="#story-flow" type="button" role="tab" aria-controls="story-flow" aria-selected="false">Flow at a glance</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="story-lineage-tab" data-bs-toggle="tab" data-bs-target="#story-lineage" type="button" role="tab" aria-controls="story-lineage" aria-selected="false">Dataset lineage</button>
+          </li>
+        </ul>
+        <div class="tab-content pt-3" id="storyTabsContent">
+          <div class="tab-pane fade show active" id="story-timeline" role="tabpanel" aria-labelledby="story-timeline-tab">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+              <div>
+                <h3 class="h6 mb-1">Timeline player</h3>
+                <p class="small text-muted mb-0">Animate six months of Altair Retail operations. The player pauses at milestones so you can narrate incidents, releases, and stakeholder outcomes.</p>
+              </div>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <button class="btn btn-primary btn-sm" id="retailTimelineNext" type="button">Start timeline</button>
+                <button class="btn btn-outline-primary btn-sm" id="retailTimelineAuto" type="button">Auto play</button>
+                <div class="small text-muted">Active:
+                  <span class="fw-semibold" id="retailTimelineActiveLabel">Not started</span>
                 </div>
               </div>
-              <div class="col-md-6">
-                <div class="timeline-reject-panel">
-                  <div class="timeline-reject-title">Reject sample</div>
-                  <pre class="timeline-reject-sample" id="retailTimelineRejectInvalid"></pre>
+            </div>
+            <div class="progress mb-4" style="height: 6px;">
+              <div class="progress-bar bg-primary" id="retailTimelineProgress" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <div class="row g-4">
+              <div class="col-lg-5">
+                <div class="list-group small" id="retailTimelineList">
+                  {% for event in timeline_events %}
+                  <button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" data-index="{{ event.index }}">
+                    <div class="ms-2 me-auto">
+                      <div class="fw-semibold">{{ event.date }} · {{ event.title }}</div>
+                      <div class="text-muted">{{ event.summary }}</div>
+                    </div>
+                    <span class="badge {{ event.badge_class }} rounded-pill text-uppercase">{{ event.milestone_label }}</span>
+                  </button>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="col-lg-7">
+                <div class="border rounded p-4 h-100 bg-light" id="retailTimelineDetail">
+                  <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="badge text-bg-secondary text-uppercase" id="retailTimelineDetailBadge">Milestone</span>
+                    <span class="fw-semibold" id="retailTimelineDetailTitle">Select a milestone to begin the demo.</span>
+                  </div>
+                  <p class="small text-primary fw-semibold mb-2 d-none" id="retailTimelineDetailState"></p>
+                  <p class="small text-muted mb-3" id="retailTimelineDetailNarrative">Use the play controls to animate the story or click an individual milestone to jump ahead.</p>
+                  <div id="retailTimelineDetailInsights" class="mb-3"></div>
+                  <div id="retailTimelineDetailReplay" class="mb-3 d-none">
+                    <h4 class="h6 text-uppercase text-muted">Pipeline replay</h4>
+                    <div id="retailTimelineReplaySteps" class="timeline-replay-steps"></div>
+                  </div>
+                  <div id="retailTimelineDetailIncident" class="alert alert-warning d-none"></div>
+                  <div id="retailTimelineDetailCallouts"></div>
+                  <div id="retailTimelineDetailLinks" class="mt-3"></div>
+                  <div id="retailTimelineDetailReject" class="timeline-reject-card mt-3 d-none">
+                    <h4 class="h6 text-uppercase text-muted">Reject diagnostics</h4>
+                    <div class="timeline-reject-meta small mb-3" id="retailTimelineRejectMeta"></div>
+                    <div class="row g-3">
+                      <div class="col-md-6">
+                        <div class="timeline-reject-panel">
+                          <div class="timeline-reject-title">Valid slice</div>
+                          <pre class="timeline-reject-sample" id="retailTimelineRejectValid"></pre>
+                        </div>
+                      </div>
+                      <div class="col-md-6">
+                        <div class="timeline-reject-panel">
+                          <div class="timeline-reject-title">Reject sample</div>
+                          <pre class="timeline-reject-sample" id="retailTimelineRejectInvalid"></pre>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="card shadow-sm border-0 mb-5">
-  <div class="card-body">
-    <h2 class="h5">Flow at a glance</h2>
-    <p class="small text-muted">Each block represents a data product boundary. Internal datasets stay inside the
-      product while exposed ports are surfaced downstream.</p>
-    <div class="mermaid">
+          <div class="tab-pane fade" id="story-flow" role="tabpanel" aria-labelledby="story-flow-tab">
+            <p class="small text-muted">Each block represents a data product boundary. Internal datasets stay inside the product while exposed ports are surfaced downstream.</p>
+            <div class="mermaid">
 graph LR
   A["Retail operational foundation<br/>Source feeds"] --> B["Retail star schema<br/>Modelled data"]
   B --> C["Retail demand intelligence<br/>ML features &amp; forecasts"]
   C --> D["Customer experience<br/>Marketing activation"]
   B --> E["Executive KPI mart<br/>Aggregated analytics"]
   E --> F["Executive dashboard<br/>BI &amp; finance views"]
-    </div>
-  </div>
-</div>
-
-<div class="card shadow-sm border-0 mb-5">
-  <div class="card-body">
-    <h2 class="h5">Dataset lineage</h2>
-    <p class="small text-muted">Datasets are grouped by the data product zone that owns them. Ports surface public
-      interfaces while internal assets stay inside their product boundary.</p>
-    <div class="mermaid">
+            </div>
+          </div>
+          <div class="tab-pane fade" id="story-lineage" role="tabpanel" aria-labelledby="story-lineage-tab">
+            <p class="small text-muted">Datasets are grouped by the data product zone that owns them. Ports surface public interfaces while internal assets stay inside their product boundary.</p>
+            <div class="mermaid">
 {{ dataset_lineage | safe }}
-    </div>
-  </div>
-</div>
-
-<h2 class="h4 mb-3">Catalog crosslinks</h2>
-<p class="text-muted">Jump between data products, datasets, and contracts without leaving the walkthrough.</p>
-<ul class="nav nav-tabs" id="catalogTabs" role="tablist">
-  <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="catalog-products-tab" data-bs-toggle="tab" data-bs-target="#catalog-products" type="button" role="tab" aria-controls="catalog-products" aria-selected="true">Data products</button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="catalog-datasets-tab" data-bs-toggle="tab" data-bs-target="#catalog-datasets" type="button" role="tab" aria-controls="catalog-datasets" aria-selected="false">Datasets</button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="catalog-contracts-tab" data-bs-toggle="tab" data-bs-target="#catalog-contracts" type="button" role="tab" aria-controls="catalog-contracts" aria-selected="false">Contracts</button>
-  </li>
-</ul>
-<div class="tab-content pt-3" id="catalogTabsContent">
-  <div class="tab-pane fade show active" id="catalog-products" role="tabpanel" aria-labelledby="catalog-products-tab">
-    <div class="table-responsive">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th scope="col">Product</th>
-            <th scope="col">Owner</th>
-            <th scope="col">Tags</th>
-            <th scope="col">Ports</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for product in products %}
-          <tr id="{{ product.anchor }}">
-            <td>
-              <a class="fw-semibold" href="{{ product.url }}" target="_blank" rel="noopener">{{ product.name }}</a>
-              <div class="small text-muted">{{ product.identifier }}</div>
-              <div class="small"><a class="link-secondary" href="#{{ product.anchor }}">Highlight in walkthrough</a></div>
-            </td>
-            <td class="small">{{ product.owner.replace('-', ' ') | title }}</td>
-            <td>
-              {% for tag in product.tags %}
-              <span class="badge text-bg-light text-uppercase">{{ tag }}</span>
-              {% endfor %}
-            </td>
-            <td class="small">
-              <div><span class="text-muted text-uppercase">Inputs</span>: {{ product.inputs | join(', ') if product.inputs else 'None' }}</div>
-              <div><span class="text-muted text-uppercase">Outputs</span>: {{ product.outputs | join(', ') }}</div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  <div class="tab-pane fade" id="catalog-datasets" role="tabpanel" aria-labelledby="catalog-datasets-tab">
-    <div class="table-responsive">
-      <table class="table align-middle">
-        <thead>
-          <tr>
-            <th scope="col">Dataset</th>
-            <th scope="col">Zone</th>
-            <th scope="col">Type</th>
-            <th scope="col">Data product</th>
-            <th scope="col">Contract</th>
-            <th scope="col">Port</th>
-            <th scope="col">Rows</th>
-            <th scope="col">Dependencies</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for dataset in dataset_catalog %}
-          <tr id="{{ dataset.anchor }}">
-            <td>
-              <a class="fw-semibold" href="{{ dataset.url }}" target="_blank" rel="noopener">{{ dataset.identifier }}</a>
-              <div class="small text-muted">{{ dataset.description }}</div>
-              {% if dataset.internal %}
-              <span class="badge text-bg-warning text-uppercase mt-1">Internal only</span>
-              {% endif %}
-              <div class="small"><a class="link-secondary" href="#{{ dataset.anchor }}">Highlight in walkthrough</a></div>
-            </td>
-            <td class="small">
-              {% set zone_parts = dataset.zone_label.split(' — ') %}
-              <span class="badge {{ dataset.zone_badge }} text-uppercase">{{ zone_parts[0] }}</span>
-              {% if zone_parts|length > 1 %}
-              <div class="text-muted">{{ zone_parts[1] }}</div>
-              {% endif %}
-            </td>
-            <td class="small text-uppercase">{{ dataset.kind }}</td>
-            <td class="small">
-              {% if dataset.data_product %}
-              <a href="{{ dataset.data_product.url }}" target="_blank" rel="noopener">{{ dataset.data_product.name }}</a>
-              <div class="text-muted">{{ dataset.data_product.identifier }}</div>
-              <div class="small"><a class="link-secondary" href="#{{ dataset.data_product.anchor }}">Highlight</a></div>
-              {% else %}
-              —
-              {% endif %}
-            </td>
-            <td class="small">
-              <a href="{{ dataset.contract_url }}" target="_blank" rel="noopener">{{ dataset.contract_id }}</a>
-              <div class="small"><a class="link-secondary" href="#{{ dataset.contract_anchor }}">Highlight</a></div>
-            </td>
-            <td class="small">{{ dataset.output_port or '—' }}</td>
-            <td class="small">{{ dataset.row_count }}</td>
-            <td class="small">
-              {% if dataset.dependencies %}
-              {% for dep in dataset.dependencies %}
-              <a href="{{ dep.url }}" target="_blank" rel="noopener" class="d-inline-block">{{ dep.identifier }}</a>{% if not loop.last %}, {% endif %}
-              {% endfor %}
-              {% else %}
-              None
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  <div class="tab-pane fade" id="catalog-contracts" role="tabpanel" aria-labelledby="catalog-contracts-tab">
-    <div class="row row-cols-1 row-cols-md-2 g-4">
-      {% for contract in contract_cards %}
-      <div class="col" id="{{ contract.anchor }}">
-        <div class="card h-100 shadow-sm border-0">
-          <div class="card-body">
-            <h3 class="h6 fw-semibold mb-1"><a href="{{ contract.url }}" target="_blank" rel="noopener">{{ contract.contract_id }}</a></h3>
-            <div class="small mb-2"><a class="link-secondary" href="#{{ contract.anchor }}">Highlight in walkthrough</a></div>
-            <div class="small text-muted mb-3">{{ contract.dataset_count }} dataset{{ 's' if contract.dataset_count != 1 else '' }} ·
-              {% for kind in contract.kinds %}<span class="badge text-bg-light text-uppercase me-1">{{ kind }}</span>{% endfor %}</div>
-            <div class="mb-3">
-              <div class="small text-muted text-uppercase mb-1">Datasets</div>
-              <ul class="list-unstyled mb-0">
-                {% for dataset_id in contract.dataset_ids %}
-                <li>
-                  <a href="/datasets/{{ dataset_id }}" target="_blank" rel="noopener">{{ dataset_id }}</a>
-                  <a class="link-secondary small ms-1" href="#dataset-{{ dataset_id }}">Highlight</a>
-                </li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% if contract.product_refs %}
-            <div>
-              <div class="small text-muted text-uppercase mb-1">Data products</div>
-              <ul class="list-unstyled mb-0">
-                {% for ref in contract.product_refs %}
-                <li>
-                  {% if ref.url %}
-                  <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.name }}</a>
-                  {% else %}
-                  {{ ref.name or ref.identifier }}
-                  {% endif %}
-                  <span class="text-muted small">({{ ref.identifier }})</span>
-                  {% if ref.anchor %}
-                  <a class="link-secondary small ms-1" href="#{{ ref.anchor }}">Highlight</a>
-                  {% endif %}
-                </li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-
-<h2 class="h4 mt-5 mb-3">Experience &amp; analytics walkthrough</h2>
-<p class="text-muted">Switch between the customer offer summary, activation planning workspace, and
-  executive dashboard without leaving the page.</p>
-<ul class="nav nav-tabs" id="experienceTabs" role="tablist">
-  <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="experience-offers-tab" data-bs-toggle="tab"
-      data-bs-target="#experience-offers" type="button" role="tab" aria-controls="experience-offers"
-      aria-selected="true">Offer highlights</button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="experience-activation-tab" data-bs-toggle="tab"
-      data-bs-target="#experience-activation" type="button" role="tab" aria-controls="experience-activation"
-      aria-selected="false">Marketing activation</button>
-  </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link" id="experience-dashboard-tab" data-bs-toggle="tab"
-      data-bs-target="#experience-dashboard" type="button" role="tab" aria-controls="experience-dashboard"
-      aria-selected="false">Executive dashboard</button>
-  </li>
-</ul>
-<div class="tab-content pt-3" id="experienceTabsContent">
-  <div class="tab-pane fade show active" id="experience-offers" role="tabpanel"
-    aria-labelledby="experience-offers-tab">
-    <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="offers">
-      <div class="d-flex align-items-center gap-2 mb-1">
-        <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
-        <span class="timeline-ui-label fw-semibold"></span>
-      </div>
-      <div class="timeline-ui-message small mb-0"></div>
-    </div>
-    <div class="row row-cols-1 row-cols-md-3 g-4">
-      {% for store in store_cards %}
-      <div class="col">
-        <div class="card h-100 shadow-sm border-0">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-start mb-3">
-              <div>
-                <h3 class="h5 mb-0">{{ store.store_name }}</h3>
-                <div class="text-muted small">{{ store.region }} · {{ store.format | title }}</div>
-              </div>
-              <span class="badge text-bg-primary">{{ store.offer_count }} offers</span>
-            </div>
-            <p class="mb-1">Leading category: <strong>{{ store.headline_category }}</strong></p>
-            <p class="mb-3 text-muted small">Primary KPI: {{ store.headline_metric.replace('_', ' ') | title }}</p>
-            <div class="mb-3">
-              <div class="small text-muted text-uppercase mb-1">Recommended discount</div>
-              <div class="fw-semibold fs-5">{{ '%.1f' | format(store.discount_pct) }}%</div>
-            </div>
-            <div class="mb-2">
-              <div class="small text-muted">Forecast confidence</div>
-              <div class="progress" role="progressbar" aria-valuenow="{{ store.confidence_pct }}" aria-valuemin="0"
-                aria-valuemax="100">
-                <div class="progress-bar bg-success" style="width: {{ '%.0f' | format(store.confidence_pct) }}%"></div>
-              </div>
-            </div>
-            <div>
-              <div class="small text-muted">Sell-through focus</div>
-              <div class="progress" role="progressbar" aria-valuenow="{{ store.sell_through_pct }}" aria-valuemin="0"
-                aria-valuemax="100">
-                <div class="progress-bar bg-info" style="width: {{ '%.1f' | format(store.sell_through_pct) }}%"></div>
-              </div>
             </div>
           </div>
         </div>
       </div>
-      {% else %}
-      <div class="col">
-        <div class="alert alert-info mb-0">No offers generated by the demo pipeline yet.</div>
-      </div>
-      {% endfor %}
     </div>
-  </div>
-  <div class="tab-pane fade" id="experience-activation" role="tabpanel"
-    aria-labelledby="experience-activation-tab">
-    <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="activation">
-      <div class="d-flex align-items-center gap-2 mb-1">
-        <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
-        <span class="timeline-ui-label fw-semibold"></span>
-      </div>
-      <div class="timeline-ui-message small mb-0"></div>
-    </div>
-    {% for store in activation_stores %}
-    <div class="card mb-4 shadow-sm border-0">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <div>
-          <h3 class="h6 mb-0">{{ store.store_name }}</h3>
-          <div class="text-muted small">{{ store.region }} · {{ store.format | title }}{% if store.square_feet %} ·
-            {{ store.square_feet | int }} sq ft{% endif %}</div>
-        </div>
-        <span class="badge text-bg-primary">{{ store.offers | length }} active offers</span>
-      </div>
+    <div class="card shadow-sm border-0 mb-4" id="retail-tools-card">
       <div class="card-body">
-        <div class="row g-4">
-          <div class="col-md-4">
-            <h4 class="h6 text-uppercase text-muted">KPI focus</h4>
-            <ul class="list-unstyled mb-0">
-              {% for mix in store.metric_mix %}
-              <li class="mb-2">
-                <span class="badge text-bg-secondary text-uppercase">{{ mix.metric_label }}</span>
-                <div class="text-muted small">{{ mix.count }} offer{% if mix.count != 1 %}s{% endif %} · {{ '%.0f' | format(mix.share) }}%
-                  of plan</div>
-              </li>
-              {% else %}
-              <li class="text-muted small">No KPI emphasis recorded.</li>
-              {% endfor %}
-            </ul>
-          </div>
-          <div class="col-md-8">
+        <h2 class="h5 mb-1">Tools &amp; catalog crosslinks</h2>
+        <p class="text-muted small mb-3">Jump between data products, datasets, and contracts without leaving the walkthrough.</p>
+        <ul class="nav nav-tabs" id="catalogTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="catalog-products-tab" data-bs-toggle="tab" data-bs-target="#catalog-products" type="button" role="tab" aria-controls="catalog-products" aria-selected="true">Data products</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="catalog-datasets-tab" data-bs-toggle="tab" data-bs-target="#catalog-datasets" type="button" role="tab" aria-controls="catalog-datasets" aria-selected="false">Datasets</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="catalog-contracts-tab" data-bs-toggle="tab" data-bs-target="#catalog-contracts" type="button" role="tab" aria-controls="catalog-contracts" aria-selected="false">Contracts</button>
+          </li>
+        </ul>
+        <div class="tab-content pt-3" id="catalogTabsContent">
+          <div class="tab-pane fade show active" id="catalog-products" role="tabpanel" aria-labelledby="catalog-products-tab">
             <div class="table-responsive">
-              <table class="table table-sm align-middle">
-                <thead class="table-light">
+              <table class="table align-middle">
+                <thead>
                   <tr>
-                    <th scope="col">Offer</th>
-                    <th scope="col" class="text-center">Category</th>
-                    <th scope="col" class="text-center">KPI</th>
-                    <th scope="col" class="text-end">Discount</th>
-                    <th scope="col" class="text-end">Forecast units</th>
-                    <th scope="col" class="text-end">Confidence</th>
-                    <th scope="col" class="text-end">Sell-through</th>
+                    <th scope="col">Product</th>
+                    <th scope="col">Owner</th>
+                    <th scope="col">Tags</th>
+                    <th scope="col">Ports</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for offer in store.offers %}
-                  <tr>
-                    <th scope="row">
-                      <div class="fw-semibold">{{ offer.offer_id }}</div>
-                      <div class="text-muted small">Customer {{ offer.customer_id }}</div>
-                    </th>
-                    <td class="text-center">{{ offer.category }}</td>
-                    <td class="text-center">{{ offer.primary_metric_label }}</td>
-                    <td class="text-end">{{ '%.1f' | format(offer.discount_pct) }}%</td>
-                    <td class="text-end">
-                      {{ '%.0f' | format(offer.forecast_units) }}
-                      <div class="progress mt-1" role="progressbar" aria-valuenow="{{ offer.forecast_share }}"
-                        aria-valuemin="0" aria-valuemax="100">
-                        <div class="progress-bar" style="width: {{ '%.0f' | format(offer.forecast_share) }}%"></div>
-                      </div>
+                  {% for product in products %}
+                  <tr id="{{ product.anchor }}">
+                    <td>
+                      <a class="fw-semibold" href="{{ product.url }}" target="_blank" rel="noopener">{{ product.name }}</a>
+                      <div class="small text-muted">{{ product.identifier }}</div>
+                      <div class="small"><a class="link-secondary" href="#{{ product.anchor }}">Highlight in walkthrough</a></div>
                     </td>
-                    <td class="text-end">{{ '%.0f' | format(offer.confidence_pct) }}%</td>
-                    <td class="text-end">{{ '%.1f' | format(offer.sell_through_pct) }}%</td>
+                    <td class="small">{{ product.owner.replace('-', ' ') | title }}</td>
+                    <td>
+                      {% for tag in product.tags %}
+                      <span class="badge text-bg-light text-uppercase">{{ tag }}</span>
+                      {% endfor %}
+                    </td>
+                    <td class="small">
+                      <div><span class="text-muted text-uppercase">Inputs</span>: {{ product.inputs | join(', ') if product.inputs else 'None' }}</div>
+                      <div><span class="text-muted text-uppercase">Outputs</span>: {{ product.outputs | join(', ') }}</div>
+                    </td>
                   </tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-    {% else %}
-    <div class="alert alert-info">No offers generated by the demo pipeline yet.</div>
-    {% endfor %}
-  </div>
-  <div class="tab-pane fade" id="experience-dashboard" role="tabpanel"
-    aria-labelledby="experience-dashboard-tab">
-    <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="dashboard">
-      <div class="d-flex align-items-center gap-2 mb-1">
-        <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
-        <span class="timeline-ui-label fw-semibold"></span>
-      </div>
-      <div class="timeline-ui-message small mb-0"></div>
-    </div>
-    <div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
-      {% for metric in dashboard_metrics %}
-      <div class="col">
-        <div class="card h-100 shadow-sm border-0">
-          <div class="card-body">
-            <div class="text-muted small">{{ metric.metric_id }}</div>
-            <h3 class="h5 mb-2">{{ metric.label }}</h3>
-            <div class="display-6 fw-semibold">{{ metric.value_display }}</div>
-            <p class="text-muted small mt-3 mb-0">{{ metric.semantic.description }}</p>
+          <div class="tab-pane fade" id="catalog-datasets" role="tabpanel" aria-labelledby="catalog-datasets-tab">
+            <div class="table-responsive">
+              <table class="table align-middle">
+                <thead>
+                  <tr>
+                    <th scope="col">Dataset</th>
+                    <th scope="col">Zone</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Data product</th>
+                    <th scope="col">Contract</th>
+                    <th scope="col">Port</th>
+                    <th scope="col">Rows</th>
+                    <th scope="col">Dependencies</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for dataset in dataset_catalog %}
+                  <tr id="{{ dataset.anchor }}">
+                    <td>
+                      <a class="fw-semibold" href="{{ dataset.url }}" target="_blank" rel="noopener">{{ dataset.identifier }}</a>
+                      <div class="small text-muted">{{ dataset.description }}</div>
+                      {% if dataset.internal %}
+                      <span class="badge text-bg-warning text-uppercase mt-1">Internal only</span>
+                      {% endif %}
+                      <div class="small"><a class="link-secondary" href="#{{ dataset.anchor }}">Highlight in walkthrough</a></div>
+                    </td>
+                    <td class="small">
+                      {% set zone_parts = dataset.zone_label.split(' — ') %}
+                      <span class="badge {{ dataset.zone_badge }} text-uppercase">{{ zone_parts[0] }}</span>
+                      {% if zone_parts|length > 1 %}
+                      <div class="text-muted">{{ zone_parts[1] }}</div>
+                      {% endif %}
+                    </td>
+                    <td class="small text-uppercase">{{ dataset.kind }}</td>
+                    <td class="small">
+                      {% if dataset.data_product %}
+                      <a href="{{ dataset.data_product.url }}" target="_blank" rel="noopener">{{ dataset.data_product.name }}</a>
+                      <div class="text-muted">{{ dataset.data_product.identifier }}</div>
+                      <div class="small"><a class="link-secondary" href="#{{ dataset.data_product.anchor }}">Highlight</a></div>
+                      {% else %}
+                      —
+                      {% endif %}
+                    </td>
+                    <td class="small">
+                      <a href="{{ dataset.contract_url }}" target="_blank" rel="noopener">{{ dataset.contract_id }}</a>
+                      <div class="small"><a class="link-secondary" href="#{{ dataset.contract_anchor }}">Highlight</a></div>
+                    </td>
+                    <td class="small">{{ dataset.output_port or '—' }}</td>
+                    <td class="small">{{ dataset.row_count }}</td>
+                    <td class="small">
+                      {% if dataset.dependencies %}
+                      {% for dep in dataset.dependencies %}
+                      <a href="{{ dep.url }}" target="_blank" rel="noopener" class="d-inline-block">{{ dep.identifier }}</a>{% if not loop.last %}, {% endif %}
+                      {% endfor %}
+                      {% else %}
+                      None
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    <div class="row g-4">
-      <div class="col-lg-6">
-        <div class="card shadow-sm border-0 h-100">
-          <div class="card-body">
-            <h4 class="h6">Sales by region</h4>
-            <ul class="list-group list-group-flush">
-              {% for region in dashboard_region_rows %}
-              <li class="list-group-item">
-                <div class="d-flex justify-content-between">
-                  <span>{{ region.label }}</span>
-                  <span class="fw-semibold">${{ '%.0f' | format(region.value) }}</span>
+          <div class="tab-pane fade" id="catalog-contracts" role="tabpanel" aria-labelledby="catalog-contracts-tab">
+            <div class="row row-cols-1 row-cols-md-2 g-4">
+              {% for contract in contract_cards %}
+              <div class="col" id="{{ contract.anchor }}">
+                <div class="card h-100 shadow-sm border-0">
+                  <div class="card-body">
+                    <h3 class="h6 fw-semibold mb-1"><a href="{{ contract.url }}" target="_blank" rel="noopener">{{ contract.contract_id }}</a></h3>
+                    <div class="small mb-2"><a class="link-secondary" href="#{{ contract.anchor }}">Highlight in walkthrough</a></div>
+                    <div class="small text-muted mb-3">{{ contract.dataset_count }} dataset{{ 's' if contract.dataset_count != 1 else '' }} ·
+                      {% for kind in contract.kinds %}<span class="badge text-bg-light text-uppercase me-1">{{ kind }}</span>{% endfor %}</div>
+                    <div class="mb-3">
+                      <div class="small text-muted text-uppercase mb-1">Datasets</div>
+                      <ul class="list-unstyled mb-0">
+                        {% for dataset_id in contract.dataset_ids %}
+                        <li>
+                          <a href="/datasets/{{ dataset_id }}" target="_blank" rel="noopener">{{ dataset_id }}</a>
+                          <a class="link-secondary small ms-1" href="#dataset-{{ dataset_id }}">Highlight</a>
+                        </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                    {% if contract.product_refs %}
+                    <div>
+                      <div class="small text-muted text-uppercase mb-1">Data products</div>
+                      <ul class="list-unstyled mb-0">
+                        {% for ref in contract.product_refs %}
+                        <li>
+                          {% if ref.url %}
+                          <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.name }}</a>
+                          {% else %}
+                          {{ ref.name or ref.identifier }}
+                          {% endif %}
+                          <span class="text-muted small">({{ ref.identifier }})</span>
+                          {% if ref.anchor %}
+                          <a class="link-secondary small ms-1" href="#{{ ref.anchor }}">Highlight</a>
+                          {% endif %}
+                        </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                    {% endif %}
+                  </div>
                 </div>
-                <div class="progress mt-2" role="progressbar" aria-valuenow="{{ region.share }}" aria-valuemin="0"
-                  aria-valuemax="100">
-                  <div class="progress-bar" style="width: {{ '%.0f' | format(region.share) }}%"></div>
-                </div>
-                <div class="text-muted small mt-1">{{ '%.0f' | format(region.share) }}% of gross sales</div>
-              </li>
+              </div>
               {% endfor %}
-            </ul>
-          </div>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <div class="card shadow-sm border-0 h-100">
-          <div class="card-body">
-            <h4 class="h6">Sales by category</h4>
-            <ul class="list-group list-group-flush">
-              {% for category in dashboard_category_rows %}
-              <li class="list-group-item">
-                <div class="d-flex justify-content-between">
-                  <span>{{ category.label }}</span>
-                  <span class="fw-semibold">${{ '%.0f' | format(category.value) }}</span>
-                </div>
-                <div class="progress mt-2" role="progressbar" aria-valuenow="{{ category.share }}" aria-valuemin="0"
-                  aria-valuemax="100">
-                  <div class="progress-bar bg-info" style="width: {{ '%.0f' | format(category.share) }}%"></div>
-                </div>
-                <div class="text-muted small mt-1">{{ '%.0f' | format(category.share) }}% of gross sales</div>
-              </li>
-              {% endfor %}
-            </ul>
+            </div>
           </div>
         </div>
       </div>
     </div>
-    <div class="card shadow-sm border-0 mt-4">
+    <div class="card shadow-sm border-0 mb-4" id="retail-experience-card">
       <div class="card-body">
-        <h4 class="h6">Semantic layer snapshot</h4>
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead class="table-light">
-              <tr>
-                <th scope="col">Metric</th>
-                <th scope="col">Aggregation</th>
-                <th scope="col">Expression</th>
-                <th scope="col">Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for semantic in dashboard_semantic_rows %}
-              <tr>
-                <th scope="row">{{ semantic.label }}</th>
-                <td>{{ semantic.aggregation }}</td>
-                <td><code>{{ semantic.expression }}</code></td>
-                <td>{{ semantic.description }}</td>
-              </tr>
+        <h2 class="h5 mb-3">Experience &amp; analytics walkthrough</h2>
+        <p class="text-muted">Switch between the customer offer summary, activation planning workspace, and executive dashboard without leaving the page.</p>
+        <ul class="nav nav-tabs" id="experienceTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="experience-offers-tab" data-bs-toggle="tab" data-bs-target="#experience-offers" type="button" role="tab" aria-controls="experience-offers" aria-selected="true">Offer highlights</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="experience-activation-tab" data-bs-toggle="tab" data-bs-target="#experience-activation" type="button" role="tab" aria-controls="experience-activation" aria-selected="false">Marketing activation</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="experience-dashboard-tab" data-bs-toggle="tab" data-bs-target="#experience-dashboard" type="button" role="tab" aria-controls="experience-dashboard" aria-selected="false">Executive dashboard</button>
+          </li>
+        </ul>
+        <div class="tab-content pt-3" id="experienceTabsContent">
+          <div class="tab-pane fade show active" id="experience-offers" role="tabpanel" aria-labelledby="experience-offers-tab">
+            <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="offers">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
+                <span class="timeline-ui-label fw-semibold"></span>
+              </div>
+              <div class="timeline-ui-message small mb-0"></div>
+            </div>
+            <div class="row row-cols-1 row-cols-md-3 g-4">
+              {% for store in store_cards %}
+              <div class="col">
+                <div class="card h-100 shadow-sm border-0">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                      <div>
+                        <h3 class="h5 mb-0">{{ store.store_name }}</h3>
+                        <div class="text-muted small">{{ store.region }} · {{ store.format | title }}</div>
+                      </div>
+                      <span class="badge text-bg-primary">{{ store.offer_count }} offers</span>
+                    </div>
+                    <p class="mb-1">Leading category: <strong>{{ store.headline_category }}</strong></p>
+                    <p class="mb-3 text-muted small">Primary KPI: {{ store.headline_metric.replace('_', ' ') | title }}</p>
+                    <div class="mb-3">
+                      <div class="small text-muted text-uppercase mb-1">Recommended discount</div>
+                      <div class="fw-semibold fs-5">{{ '%.1f' | format(store.discount_pct) }}%</div>
+                    </div>
+                    <div class="mb-2">
+                      <div class="small text-muted">Forecast confidence</div>
+                      <div class="progress" role="progressbar" aria-valuenow="{{ store.confidence_pct }}" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar bg-success" style="width: {{ '%.0f' | format(store.confidence_pct) }}%"></div>
+                      </div>
+                    </div>
+                    <div>
+                      <div class="small text-muted">Sell-through focus</div>
+                      <div class="progress" role="progressbar" aria-valuenow="{{ store.sell_through_pct }}" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar bg-info" style="width: {{ '%.1f' | format(store.sell_through_pct) }}%"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {% else %}
+              <div class="col">
+                <div class="alert alert-info mb-0">No offers generated by the demo pipeline yet.</div>
+              </div>
               {% endfor %}
-            </tbody>
-          </table>
+            </div>
+          </div>
+          <div class="tab-pane fade" id="experience-activation" role="tabpanel" aria-labelledby="experience-activation-tab">
+            <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="activation">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
+                <span class="timeline-ui-label fw-semibold"></span>
+              </div>
+              <div class="timeline-ui-message small mb-0"></div>
+            </div>
+            {% for store in activation_stores %}
+            <div class="card mb-4 shadow-sm border-0">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                  <h3 class="h6 mb-0">{{ store.store_name }}</h3>
+                  <div class="text-muted small">{{ store.region }} · {{ store.format | title }}{% if store.square_feet %} · {{ store.square_feet | int }} sq ft{% endif %}</div>
+                </div>
+                <span class="badge text-bg-primary">{{ store.offers | length }} active offers</span>
+              </div>
+              <div class="card-body">
+                <div class="row g-4">
+                  <div class="col-md-4">
+                    <h4 class="h6 text-uppercase text-muted">KPI focus</h4>
+                    <ul class="list-unstyled mb-0">
+                      {% for mix in store.metric_mix %}
+                      <li class="mb-2">
+                        <span class="badge text-bg-secondary text-uppercase">{{ mix.metric_label }}</span>
+                        <div class="text-muted small">{{ mix.count }} offer{% if mix.count != 1 %}s{% endif %} · {{ '%.0f' | format(mix.share) }}% of plan</div>
+                      </li>
+                      {% else %}
+                      <li class="text-muted small">No KPI emphasis recorded.</li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                  <div class="col-md-8">
+                    <div class="table-responsive">
+                      <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                          <tr>
+                            <th scope="col">Offer</th>
+                            <th scope="col" class="text-center">Category</th>
+                            <th scope="col" class="text-center">KPI</th>
+                            <th scope="col" class="text-end">Discount</th>
+                            <th scope="col" class="text-end">Forecast units</th>
+                            <th scope="col" class="text-end">Confidence</th>
+                            <th scope="col" class="text-end">Sell-through</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for offer in store.offers %}
+                          <tr>
+                            <th scope="row">
+                              <div class="fw-semibold">{{ offer.offer_id }}</div>
+                              <div class="text-muted small">Customer {{ offer.customer_id }}</div>
+                            </th>
+                            <td class="text-center">{{ offer.category }}</td>
+                            <td class="text-center">{{ offer.primary_metric_label }}</td>
+                            <td class="text-end">{{ '%.1f' | format(offer.discount_pct) }}%</td>
+                            <td class="text-end">
+                              {{ '%.0f' | format(offer.forecast_units) }}
+                              <div class="progress mt-1" role="progressbar" aria-valuenow="{{ offer.forecast_share }}" aria-valuemin="0" aria-valuemax="100">
+                                <div class="progress-bar" style="width: {{ '%.0f' | format(offer.forecast_share) }}%"></div>
+                              </div>
+                            </td>
+                            <td class="text-end">{{ '%.0f' | format(offer.confidence_pct) }}%</td>
+                            <td class="text-end">{{ '%.1f' | format(offer.sell_through_pct) }}%</td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% else %}
+            <div class="alert alert-info">No offers generated by the demo pipeline yet.</div>
+            {% endfor %}
+          </div>
+          <div class="tab-pane fade" id="experience-dashboard" role="tabpanel" aria-labelledby="experience-dashboard-tab">
+            <div class="timeline-ui-banner alert alert-secondary d-none" data-ui-target="dashboard">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge text-bg-light text-uppercase timeline-ui-status"></span>
+                <span class="timeline-ui-label fw-semibold"></span>
+              </div>
+              <div class="timeline-ui-message small mb-0"></div>
+            </div>
+            <div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
+              {% for metric in dashboard_metrics %}
+              <div class="col">
+                <div class="card h-100 shadow-sm border-0">
+                  <div class="card-body">
+                    <div class="text-muted small">{{ metric.metric_id }}</div>
+                    <div class="fw-semibold fs-4">{{ metric.value_display }}</div>
+                    <div class="text-muted small">{{ metric.label }}</div>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="row g-4 mb-4">
+              <div class="col-lg-7">
+                <div class="card h-100 shadow-sm border-0">
+                  <div class="card-body">
+                    <h3 class="h6 text-uppercase text-muted">Regional momentum</h3>
+                    <div class="table-responsive">
+                      <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                          <tr>
+                            <th scope="col">Region</th>
+                            <th scope="col" class="text-end">YoY revenue</th>
+                            <th scope="col" class="text-end">Offer lift</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for row in dashboard_region_rows %}
+                          <tr>
+                            <th scope="row">{{ row.region }}</th>
+                            <td class="text-end">{{ row.revenue_display }}</td>
+                            <td class="text-end">{{ row.offer_lift_display }}</td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-5">
+                <div class="card h-100 shadow-sm border-0">
+                  <div class="card-body">
+                    <h3 class="h6 text-uppercase text-muted">Category mix</h3>
+                    <div class="table-responsive">
+                      <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                          <tr>
+                            <th scope="col">Category</th>
+                            <th scope="col" class="text-end">YoY revenue</th>
+                            <th scope="col" class="text-end">Plan gap</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {% for row in dashboard_category_rows %}
+                          <tr>
+                            <th scope="row">{{ row.category }}</th>
+                            <td class="text-end">{{ row.revenue_display }}</td>
+                            <td class="text-end">{{ row.plan_gap_display }}</td>
+                          </tr>
+                          {% endfor %}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card shadow-sm border-0">
+              <div class="card-body">
+                <h3 class="h6 text-uppercase text-muted">Semantic layer</h3>
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                      <tr>
+                        <th scope="col">Metric</th>
+                        <th scope="col">Aggregation</th>
+                        <th scope="col">Expression</th>
+                        <th scope="col">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for row in dashboard_semantic_rows %}
+                      <tr>
+                        <th scope="row">{{ row.label }}</th>
+                        <td>{{ row.aggregation }}</td>
+                        <td><code>{{ row.expression }}</code></td>
+                        <td>{{ row.description }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </div>
+
+
 <style>
+  .retail-overview-nav {
+    border-radius: 0.75rem;
+  }
+
+  @media (min-width: 992px) {
+    .retail-overview-nav {
+      position: sticky;
+      top: 6rem;
+    }
+  }
+
+  .retail-overview-nav .nav-link {
+    border-radius: 0.5rem;
+    font-weight: 500;
+    color: #495057;
+  }
+
+  .retail-overview-nav .nav-link:hover {
+    background-color: rgba(13, 110, 253, 0.08);
+    color: #0d6efd;
+  }
+
+  .retail-overview-nav .nav-link.active {
+    background-color: rgba(13, 110, 253, 0.15);
+    color: #0d6efd;
+    box-shadow: inset 0 0 0 1px rgba(13, 110, 253, 0.25);
+  }
+
   .timeline-highlight {
     animation: timelineHighlightPulse 2s ease-out;
     outline: 0.2rem solid rgba(13, 110, 253, 0.6);
@@ -1328,6 +1356,86 @@ graph LR
   setActive(0, { scroll: false });
   updateAutoButton();
   updateNextButton();
+})();
+</script>
+<script>
+(function () {
+  const navLinks = Array.from(document.querySelectorAll('[data-retail-nav]'));
+  if (!navLinks.length) {
+    return;
+  }
+  function setActive(link) {
+    navLinks.forEach(function (item) {
+      item.classList.toggle('active', item === link);
+    });
+  }
+  const tabMap = new Map();
+  navLinks.forEach(function (link) {
+    const controlId = link.getAttribute('data-tab-control');
+    if (controlId) {
+      tabMap.set(controlId, link);
+      link.addEventListener('click', function () {
+        const trigger = document.getElementById(controlId);
+        if (trigger && window.bootstrap && window.bootstrap.Tab) {
+          const tab = window.bootstrap.Tab.getOrCreateInstance(trigger);
+          tab.show();
+        }
+      });
+    }
+    link.addEventListener('click', function () {
+      setActive(link);
+    });
+  });
+  const observerLinks = [];
+  navLinks.forEach(function (link) {
+    if (link.hasAttribute('data-tab-control')) {
+      return;
+    }
+    const href = link.getAttribute('href');
+    if (!href || !href.startsWith('#')) {
+      return;
+    }
+    const section = document.querySelector(href);
+    if (section) {
+      observerLinks.push({ link: link, section: section });
+    }
+  });
+  if (observerLinks.length && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          const found = observerLinks.find(function (item) {
+            return item.section === entry.target;
+          });
+          if (found) {
+            setActive(found.link);
+          }
+        }
+      });
+    }, { rootMargin: '-55% 0px -35% 0px', threshold: 0.1 });
+    observerLinks.forEach(function (item) {
+      observer.observe(item.section);
+    });
+  }
+  document.querySelectorAll('[data-bs-toggle="tab"]').forEach(function (tab) {
+    tab.addEventListener('shown.bs.tab', function (event) {
+      const navLink = tabMap.get(event.target.id);
+      if (navLink) {
+        setActive(navLink);
+        const href = navLink.getAttribute('href');
+        if (href && href.startsWith('#')) {
+          const section = document.querySelector(href);
+          if (section) {
+            try {
+              section.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+            } catch (err) {
+              console.warn('Unable to scroll to section', href, err);
+            }
+          }
+        }
+      }
+    });
+  });
 })();
 </script>
 {% endblock %}
