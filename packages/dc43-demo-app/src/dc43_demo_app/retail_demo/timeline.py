@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping
 
 from .data import RETAIL_DATASETS
@@ -154,7 +154,11 @@ def simulate_retail_timeline(run: RetailDemoRun) -> list[dict[str, Any]]:
     snapshot_dt = _parse_iso8601(latest_snapshot_ts)
     freshness_delay_hours = 36
     if snapshot_dt:
-        freshness_delay_hours = max(int((datetime(2024, 2, 12, 6, 0) - snapshot_dt).total_seconds() // 3600 * -1), 36)
+        reference_dt = datetime(2024, 2, 12, 6, 0, tzinfo=timezone.utc)
+        if snapshot_dt.tzinfo is not None:
+            reference_dt = reference_dt.astimezone(snapshot_dt.tzinfo)
+        delta_hours = int((reference_dt - snapshot_dt).total_seconds() // 3600)
+        freshness_delay_hours = max(delta_hours, 36)
     feature_rows = len(run.demand_features)
     feature_versions = sorted(
         {

@@ -34,3 +34,7 @@
   guidance, now exposed via a dedicated navigation entry instead of a pipeline scenario.
 - Altair Retail data product tags now emphasise source, modelled, ML, consumer, and aggregated
   personas instead of medallion labels to avoid confusion with the contracts medallion view.
+
+### Fixed
+- Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware
+  inventory snapshots with the freshness reference checkpoint.
