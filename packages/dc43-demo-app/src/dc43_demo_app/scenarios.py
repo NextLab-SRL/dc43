@@ -144,10 +144,9 @@ from pyspark.sql import SparkSession
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
+    read_from_contract,
 )
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -157,26 +156,25 @@ def run_no_contract(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Resolve inputs and fail fast when no output contract is supplied."""
+    '''Resolve inputs and fail fast when no output contract is supplied.'''
 
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2025-10-05"),
         status_strategy=DefaultReadStatusStrategy(),
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -326,11 +324,10 @@ from pyspark.sql import SparkSession
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -340,26 +337,25 @@ def run_orders_enriched_ok(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Execute the happy-path pipeline for orders_enriched:1.0.0."""
+    '''Execute the happy-path pipeline for orders_enriched:1.0.0.'''
 
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2025-10-05__pinned"),
         status_strategy=DefaultReadStatusStrategy(),
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -368,17 +364,12 @@ def run_orders_enriched_ok(
     enriched_df = orders_df.join(customers_df, "customer_id", "left")
 
     run_version = datetime.now(timezone.utc).isoformat()
-    result = write_with_contract(
+    result = write_with_contract_id(
         df=enriched_df,
         contract_id="orders_enriched",
         expected_contract_version="==1.0.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
-        data_product_output={
-            "data_product": "demo.analytics",
-            "port_name": "orders-enriched",
-        },
         dataset_locator=StaticDatasetLocator(
             dataset_id="orders_enriched",
             dataset_version=run_version,
@@ -524,11 +515,10 @@ from pyspark.sql import SparkSession, functions as F
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -538,26 +528,25 @@ def run_orders_enriched_dq_failure(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Intentionally break a quality rule to surface a blocking verdict."""
+    '''Intentionally break a quality rule to surface a blocking verdict.'''
 
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -567,13 +556,12 @@ def run_orders_enriched_dq_failure(
     failing_df = enriched_df.withColumn("amount", F.col("amount") - F.lit(120))
 
     run_version = datetime.now(timezone.utc).isoformat()
-    result = write_with_contract(
+    result = write_with_contract_id(
         df=failing_df,
         contract_id="orders_enriched",
         expected_contract_version="==1.1.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
         dataset_locator=StaticDatasetLocator(dataset_version=run_version),
         pipeline_context={"scenario": "dq"},
     )
@@ -715,11 +703,10 @@ from pyspark.sql import SparkSession, functions as F
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -729,26 +716,25 @@ def run_orders_enriched_schema_and_dq(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Trigger combined schema and DQ failures for orders_enriched:2.0.0."""
+    '''Trigger combined schema and DQ failures for orders_enriched:2.0.0.'''
 
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -761,13 +747,12 @@ def run_orders_enriched_schema_and_dq(
     )
 
     run_version = datetime.now(timezone.utc).isoformat()
-    result = write_with_contract(
+    result = write_with_contract_id(
         df=broken_df,
         contract_id="orders_enriched",
         expected_contract_version="==2.0.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
         dataset_locator=StaticDatasetLocator(dataset_version=run_version),
         pipeline_context={"scenario": "schema-dq"},
     )
@@ -899,7 +884,7 @@ def enforce_active_contract_only(
     *,
     contract_service: ContractServiceClient,
 ) -> None:
-    """Abort publishing when the target contract remains in draft status."""
+    '''Abort publishing when the target contract remains in draft status.'''
 
     contract = contract_service.get("orders_enriched", "3.0.0")
     status = (getattr(contract, "status", "") or "").lower()
@@ -1051,12 +1036,11 @@ from pyspark.sql import SparkSession, functions as F
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_integrations.spark.violation_strategy import NoOpWriteViolationStrategy
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -1066,20 +1050,19 @@ def run_allow_draft_contract(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Accept a draft contract while recording the override decision."""
+    '''Accept a draft contract while recording the override decision.'''
 
     status_strategy = DefaultReadStatusStrategy(
         allowed_contract_statuses=("active", "draft"),
         allow_missing_contract_status=False,
     )
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(
             dataset_id="orders::valid",
@@ -1088,11 +1071,11 @@ def run_allow_draft_contract(
         status_strategy=status_strategy,
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=status_strategy,
@@ -1112,13 +1095,12 @@ def run_allow_draft_contract(
         allow_missing_contract_status=False,
     )
     run_version = datetime.now(timezone.utc).isoformat()
-    result = write_with_contract(
+    result = write_with_contract_id(
         df=boosted_df,
         contract_id="orders_enriched",
         expected_contract_version="==3.0.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
         dataset_locator=StaticDatasetLocator(dataset_version=run_version),
         violation_strategy=violation_strategy,
         pipeline_context={"scenario": "contract-draft-override"},
@@ -1254,10 +1236,9 @@ from pyspark.sql import SparkSession
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
+    read_from_contract,
 )
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -1267,17 +1248,16 @@ def fail_on_blocked_input(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Raise immediately when the latest orders slice is blocked."""
+    '''Raise immediately when the latest orders slice is blocked.'''
 
     try:
-        read_from_data_product(
+        read_from_contract(
             spark,
-            data_product_service=data_products,
-            data_product_input={"data_product": "orders", "port_name": "latest"},
+            contract_id="orders",
             contract_service=contract_service,
+            expected_contract_version="1.1.0",
             data_quality_service=dq_service,
             dataset_locator=StaticDatasetLocator(dataset_version="latest"),
             status_strategy=DefaultReadStatusStrategy(),
@@ -1425,11 +1405,10 @@ from pyspark.sql import SparkSession
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -1439,16 +1418,15 @@ def run_prefer_valid_subset(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Switch reads to the curated valid slice while running in observe mode."""
+    '''Switch reads to the curated valid slice while running in observe mode.'''
 
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(
             dataset_id="orders::valid",
@@ -1457,11 +1435,11 @@ def run_prefer_valid_subset(
         status_strategy=DefaultReadStatusStrategy(),
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -1470,13 +1448,12 @@ def run_prefer_valid_subset(
     enriched_df = orders_df.join(customers_df, "customer_id", "left")
 
     run_version = datetime.now(timezone.utc).isoformat()
-    write_with_contract(
+    write_with_contract_id(
         df=enriched_df,
         contract_id="orders_enriched",
         expected_contract_version="==1.1.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
         dataset_locator=StaticDatasetLocator(dataset_version=run_version),
         enforce=False,  # observe mode – do not raise on warnings
         pipeline_context={
@@ -1624,11 +1601,10 @@ from pyspark.sql import SparkSession, functions as F
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -1638,16 +1614,15 @@ def run_valid_subset_violation(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Demonstrate that clean inputs can still produce a blocking output."""
+    '''Demonstrate that clean inputs can still produce a blocking output.'''
 
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(
             dataset_id="orders::valid",
@@ -1656,11 +1631,11 @@ def run_valid_subset_violation(
         status_strategy=DefaultReadStatusStrategy(),
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -1673,13 +1648,12 @@ def run_valid_subset_violation(
     )
 
     run_version = datetime.now(timezone.utc).isoformat()
-    result = write_with_contract(
+    result = write_with_contract_id(
         df=broken_df,
         contract_id="orders_enriched",
         expected_contract_version="==1.1.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
         dataset_locator=StaticDatasetLocator(dataset_version=run_version),
         pipeline_context={"scenario": "read-valid-subset-violation"},
     )
@@ -1869,7 +1843,7 @@ def run_data_product_roundtrip(
     data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Consume a published port, persist a governed stage, and publish a new port."""
+    '''Consume a published port, persist a governed stage, and publish a new port.'''
 
     orders_df = read_from_data_product(
         spark,
@@ -2084,12 +2058,11 @@ from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     ReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_service_clients.data_quality import ValidationResult
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -2097,7 +2070,7 @@ from dc43_service_clients.data_quality.client.interface import (
 
 @dataclass
 class DowngradeBlockingReadStrategy(ReadStatusStrategy):
-    """Custom read strategy that downgrades blocking verdicts to a warning."""
+    '''Custom read strategy that downgrades blocking verdicts to a warning.'''
 
     note: str
     target_status: str = "warn"
@@ -2121,30 +2094,29 @@ def run_force_blocked_slice(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Force a blocked slice through the pipeline while recording the override."""
+    '''Force a blocked slice through the pipeline while recording the override.'''
 
     override_strategy = DowngradeBlockingReadStrategy(
         note="Manual override: forced latest slice (→2025-09-28)",
         target_status="warn",
     )
-    orders_df, orders_status = read_from_data_product(
+    orders_df, orders_status = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="latest"),
         status_strategy=override_strategy,
         return_status=True,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -2153,13 +2125,12 @@ def run_force_blocked_slice(
     enriched_df = orders_df.join(customers_df, "customer_id", "left")
 
     run_version = datetime.now(timezone.utc).isoformat()
-    result = write_with_contract(
+    result = write_with_contract_id(
         df=enriched_df,
         contract_id="orders_enriched",
         expected_contract_version="==1.1.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
         dataset_locator=StaticDatasetLocator(dataset_version=run_version),
         enforce=False,
         pipeline_context={
@@ -2314,12 +2285,11 @@ from pyspark.sql import SparkSession
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    write_with_contract,
+    read_from_contract,
+    write_with_contract_id,
 )
 from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_products import DataProductServiceClient
 from dc43_service_clients.data_quality.client.interface import (
     DataQualityServiceClient,
 )
@@ -2329,26 +2299,25 @@ def run_split_invalid_rows(
     spark: SparkSession,
     *,
     contract_service: ContractServiceClient,
-    data_products: DataProductServiceClient,
     dq_service: DataQualityServiceClient,
 ) -> None:
-    """Write primary, valid, and reject datasets when violations occur."""
+    '''Write primary, valid, and reject datasets when violations occur.'''
 
-    orders_df = read_from_data_product(
+    orders_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "orders", "port_name": "latest"},
+        contract_id="orders",
         contract_service=contract_service,
+        expected_contract_version="1.1.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
         return_status=False,
     )
-    customers_df = read_from_data_product(
+    customers_df = read_from_contract(
         spark,
-        data_product_service=data_products,
-        data_product_input={"data_product": "customers", "port_name": "latest"},
+        contract_id="customers",
         contract_service=contract_service,
+        expected_contract_version="1.0.0",
         data_quality_service=dq_service,
         dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
         status_strategy=DefaultReadStatusStrategy(),
@@ -2362,13 +2331,12 @@ def run_split_invalid_rows(
         write_primary_on_violation=True,
     )
     run_version = datetime.now(timezone.utc).isoformat()
-    result = write_with_contract(
+    result = write_with_contract_id(
         df=enriched_df,
         contract_id="orders_enriched",
         expected_contract_version="==1.1.0",
         contract_service=contract_service,
         data_quality_service=dq_service,
-        data_product_service=data_products,
         dataset_locator=StaticDatasetLocator(dataset_version=run_version),
         violation_strategy=strategy,
         enforce=False,
