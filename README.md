@@ -49,31 +49,34 @@ Guides for each component live under `docs/`:
 
 ```mermaid
 flowchart LR
-    subgraph Governance Systems
+    subgraph Producers & Runtime Systems
         direction TB
-        Authoring["Authoring Tools\nJSON · Git · Notebooks"]
-        ContractStore["Contract Store Interface\nFilesystem · Delta · APIs"]
-        DataProduct["Data Product Service\nODPS registry · Ports"]
-        DQTool["Data Quality Governance Tool\nCollibra · Unity Catalog"]
-        StewardUI["Steward Console\nWorkflow · Approvals"]
-    end
-
-    subgraph Lifecycle Orchestration
-        direction TB
-        DraftModule["Drafting Service\nschema diff · proposals"]
-        GovernanceSvc["Governance Orchestrator\nmetrics router · linking"]
-        LinkHooks["Dataset↔Contract Link Hooks\nUnity Catalog · APIs"]
-    end
-
-    subgraph Runtime & Integrations
-        direction TB
+        Authoring["Authoring Tools\nNotebooks · CI Pipelines"]
         IOHelpers["Integration Adapters\nSpark · DLT"]
         DQEngine["Data Quality Engine\nmetrics generation"]
         Pipelines["Business Pipelines"]
     end
 
-    subgraph Discovery Targets
-        MetadataTargets["Metadata Targets\nUnity Catalog · Catalog APIs"]
+    subgraph dc43 Core Services
+        direction TB
+        ContractStore["Contract Store Interface\nversioned APIs"]
+        DraftModule["Drafting Service\nschema diff · proposals"]
+        GovernanceSvc["Governance Orchestrator\nmetrics router · linking"]
+        LinkHooks["Dataset↔Contract Link Hooks\nUnity Catalog · APIs"]
+    end
+
+    subgraph External Governance Platforms
+        direction TB
+        StewardUI["Steward Console\nCollibra workflow · custom UI"]
+        DQTool["Data Quality Governance Tool\nCollibra · Unity Catalog"]
+        DataProduct["Data Product Service\nODPS registry · Ports"]
+    end
+
+    subgraph Storage & Catalog Backends
+        direction TB
+        Filesystem["Filesystem · Git\ncontract artifacts"]
+        Delta["Delta Tables\ncontract snapshots"]
+        CatalogTargets["Metadata Catalogs\nUnity Catalog · APIs"]
     end
 
     Authoring -->|submit drafts| ContractStore
@@ -94,14 +97,18 @@ flowchart LR
     GovernanceSvc -->|submit metrics| DQTool
     DQTool -->|approval state| GovernanceSvc
     GovernanceSvc -->|link dataset ↔ contract| LinkHooks
-    LinkHooks -->|propagate bindings| MetadataTargets
+    LinkHooks -->|propagate bindings| CatalogTargets
+    ContractStore -->|persist| Filesystem
+    ContractStore -->|persist| Delta
+    DataProduct -->|persist| CatalogTargets
 ```
 
-This architecture clarifies how governance assets, lifecycle services, and runtime execution collaborate:
+This architecture now separates runtime producers, dc43 services, and external governance platforms so their roles are explicit:
 
-- Governance systems own the authoritative contract, data-product, and data-quality services while stewards drive approvals through workflow tooling. They expose ODCS registries to platform teams once a contract or port is ready for enforcement.
-- Lifecycle services—drafting and the governance orchestrator—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the orchestrator routes metrics, registers ODPS ports, records approvals, and emits dataset↔contract links.
-- Runtime integrations (Spark, DLT, …) apply contracts, emit observations, and surface schema drift or metrics back to governance. Approved bindings fan out through link hooks so workspace catalogs such as Unity Catalog stay in sync.
+- **Producers & runtime systems** run the code that emits drafts, applies contracts, and reports metrics. Authoring tools and business pipelines interact with dc43 through integration adapters and the shared data-quality engine.
+- **dc43 core services** host the interfaces shipped by this repository: storage abstractions, the drafting service, the governance orchestrator, and the hook framework used to broadcast contract↔dataset links.
+- **External governance platforms** (Collibra, Unity Catalog, ODPS registries) own steward-facing workflow, compatibility verdicts, and published data products. dc43 integrates with them without re-implementing those products.
+- **Storage & catalog backends** show the concrete systems that back the interfaces—filesystems or Delta tables for contract persistence and metadata catalogs where link hooks publish bindings. Highlighting them clarifies where platform operators plug in their existing infrastructure.
 
 ### Node & edge glossary
 
@@ -111,7 +118,8 @@ This architecture clarifies how governance assets, lifecycle services, and runti
 - **Steward console** – workflow surface (Collibra, bespoke UI) where data owners and stewards approve drafts, certify ports, and review contract status before publication.
 - **Data quality governance tool** – catalog or observability system (Collibra, Unity Catalog, bespoke services) that persists the compatibility matrix and performs the actual check evaluation once it receives metrics.
 - **Dataset↔contract link hooks** – post-link integrations (Unity Catalog table properties, metadata APIs) invoked whenever governance records a new binding.
-- **Metadata targets** – external catalogs updated by link hooks so downstream users can discover enforced contracts without querying dc43 directly.
+- **Filesystem / Git, Delta tables** – example persistence layers that back the contract store interface depending on how teams version specifications.
+- **Metadata catalogs** – external catalogs updated by link hooks so downstream users can discover enforced contracts without querying dc43 directly.
 - **Metrics package** – the bundle of row counts, expectation results, and schema drift context emitted by the runtime so the governance tool can recompute the dataset↔contract status.
 
 Variations—such as Collibra-governed contracts or bespoke storage backends—slot into the same model by substituting implementations of the interfaces described above.
