@@ -13,6 +13,17 @@ variable "ecr_image_uri" {
   type        = string
 }
 
+variable "contract_store_mode" {
+  description = "Contract store backing implementation (filesystem or sql)"
+  type        = string
+  default     = "filesystem"
+
+  validation {
+    condition     = contains(["filesystem", "sql"], lower(var.contract_store_mode))
+    error_message = "contract_store_mode must be either 'filesystem' or 'sql'."
+  }
+}
+
 variable "backend_token" {
   description = "Bearer token enforced by the service"
   type        = string
@@ -20,14 +31,39 @@ variable "backend_token" {
 }
 
 variable "contract_filesystem" {
-  description = "Identifier for the EFS file system"
+  description = "Identifier for the EFS file system (filesystem mode)"
   type        = string
 }
 
 variable "contract_storage_path" {
-  description = "Mount path inside the container for the contract store"
+  description = "Mount path inside the container for the contract store (filesystem mode)"
   type        = string
   default     = "/contracts"
+}
+
+variable "contract_store_dsn" {
+  description = "SQLAlchemy DSN used when contract_store_mode = 'sql'"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "contract_store_dsn_secret_arn" {
+  description = "Secrets Manager ARN or SSM Parameter ARN containing the DSN (sql mode optional alternative to contract_store_dsn)"
+  type        = string
+  default     = ""
+}
+
+variable "contract_store_table" {
+  description = "Contracts table name when using the SQL store"
+  type        = string
+  default     = "contracts"
+}
+
+variable "contract_store_schema" {
+  description = "Optional schema/namespace used by the SQL contract store"
+  type        = string
+  default     = ""
 }
 
 variable "private_subnet_ids" {

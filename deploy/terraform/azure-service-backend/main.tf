@@ -17,12 +17,19 @@ provider "azurerm" {
   subscription_id = var.subscription_id
 }
 
+locals {
+  contract_store_mode = lower(var.contract_store_mode)
+  use_filesystem      = local.contract_store_mode == "filesystem"
+  use_sql             = local.contract_store_mode == "sql"
+}
+
 resource "azurerm_resource_group" "main" {
   name     = var.resource_group_name
   location = var.location
 }
 
 resource "random_string" "storage_suffix" {
+  count   = local.use_filesystem ? 1 : 0
   length  = 6
   upper   = false
   special = false
@@ -44,7 +51,8 @@ resource "azurerm_container_app_environment" "main" {
 }
 
 resource "azurerm_storage_account" "contracts" {
-  name                     = lower(substr(replace("${var.resource_group_name}${random_string.storage_suffix.result}", "-", ""), 0, 24))
+  count                    = local.use_filesystem ? 1 : 0
+  name                     = lower(substr(replace("${var.resource_group_name}${random_string.storage_suffix[0].result}", "-", ""), 0, 24))
   location                 = azurerm_resource_group.main.location
   resource_group_name      = azurerm_resource_group.main.name
   account_kind             = "StorageV2"
@@ -54,8 +62,9 @@ resource "azurerm_storage_account" "contracts" {
 }
 
 resource "azurerm_storage_share" "contracts" {
+  count                = local.use_filesystem ? 1 : 0
   name                 = var.contract_share_name
-  storage_account_name = azurerm_storage_account.contracts.name
+  storage_account_name = azurerm_storage_account.contracts[0].name
   quota                = var.contract_share_quota_gb
 }
 
@@ -87,9 +96,20 @@ resource "azurerm_container_app" "main" {
     value = var.container_registry_password
   }
 
-  secret {
-    name  = "contracts-storage-key"
-    value = azurerm_storage_account.contracts.primary_access_key
+  dynamic "secret" {
+    for_each = local.use_filesystem ? [azurerm_storage_account.contracts[0].primary_access_key] : []
+    content {
+      name  = "contracts-storage-key"
+      value = secret.value
+    }
+  }
+
+  dynamic "secret" {
+    for_each = local.use_sql ? [var.contract_store_dsn] : []
+    content {
+      name  = "contract-store-dsn"
+      value = secret.value
+    }
   }
 
   template {
@@ -107,28 +127,76 @@ resource "azurerm_container_app" "main" {
         value = var.backend_token
       }
 
-      env {
-        name  = "DC43_CONTRACT_STORE"
-        value = var.contract_storage
+      dynamic "env" {
+        for_each = local.use_filesystem ? [var.contract_storage] : []
+        content {
+          name  = "DC43_CONTRACT_STORE"
+          value = env.value
+        }
       }
 
-      volume_mounts {
-        name      = "contracts"
-        mount_path = var.contract_storage
+      dynamic "env" {
+        for_each = local.use_sql ? [1] : []
+        content {
+          name  = "DC43_CONTRACT_STORE_TYPE"
+          value = "sql"
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.use_sql ? [var.contract_store_table] : []
+        content {
+          name  = "DC43_CONTRACT_STORE_TABLE"
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.use_sql && length(trimspace(var.contract_store_schema)) > 0 ? [trimspace(var.contract_store_schema)] : []
+        content {
+          name  = "DC43_CONTRACT_STORE_SCHEMA"
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.use_sql ? [1] : []
+        content {
+          name        = "DC43_CONTRACT_STORE_DSN"
+          secret_name = "contract-store-dsn"
+        }
+      }
+
+      dynamic "volume_mounts" {
+        for_each = local.use_filesystem ? [1] : []
+        content {
+          name       = "contracts"
+          mount_path = var.contract_storage
+        }
       }
     }
 
-    volume {
-      name                                 = "contracts"
-      storage_type                          = "AzureFile"
-      storage_name                          = azurerm_storage_account.contracts.name
-      storage_account_name                  = azurerm_storage_account.contracts.name
-      share_name                            = azurerm_storage_share.contracts.name
-      storage_account_key_secret_name       = "contracts-storage-key"
+    dynamic "volume" {
+      for_each = local.use_filesystem ? [1] : []
+      content {
+        name                           = "contracts"
+        storage_type                    = "AzureFile"
+        storage_name                    = azurerm_storage_account.contracts[0].name
+        storage_account_name            = azurerm_storage_account.contracts[0].name
+        share_name                      = azurerm_storage_share.contracts[0].name
+        storage_account_key_secret_name = "contracts-storage-key"
+      }
     }
   }
 
   tags = var.tags
+
+  lifecycle {
+    precondition {
+      condition     = !local.use_sql || length(trimspace(var.contract_store_dsn)) > 0
+      error_message = "contract_store_dsn must be provided when contract_store_mode = 'sql'."
+    }
+  }
 }
 
 output "container_app_fqdn" {
@@ -136,5 +204,5 @@ output "container_app_fqdn" {
 }
 
 output "storage_account_name" {
-  value = azurerm_storage_account.contracts.name
+  value = local.use_filesystem ? azurerm_storage_account.contracts[0].name : null
 }

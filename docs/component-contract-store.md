@@ -31,15 +31,24 @@ when promoting drafts. The store can additionally override `latest(...)` if it n
 flowchart LR
     Authoring["Authoring & Drafts"] -->|put contract| Store["Contract Store"]
     Collibra["Governance / Catalog"] -->|sync identifiers and status| Store
+    Governance["Governance service"] -->|link dataset ↔ contract| Store
+    Governance --> LinkHooks["Link hooks\nUnity Catalog / custom"]
+    LinkHooks --> Targets["Metadata targets"]
     Store -->|serve versions| Enforcement["dc43 IO Helpers"]
     Enforcement -->|draft proposals| Authoring
 ```
+
+Governance services call into the store whenever a dataset is linked to a
+contract. The resulting linkage triggers configured hooks (Unity Catalog,
+custom metadata APIs, …) so downstream catalogs remain aligned with the
+source of truth maintained by the contract store.
 
 ## Built-in Implementations
 
 | Store | Ideal Use Case | Characteristics |
 | --- | --- | --- |
 | [`FSContractStore`](../packages/dc43-service-backends/src/dc43_service_backends/contracts/backend/stores/filesystem.py) | Simple deployments, Databricks Repos, dev/test | Persists JSON files under a base path (DBFS, mounted volume). Easy to inspect and version with Git or object storage. |
+| [`SQLContractStore`](../packages/dc43-service-backends/src/dc43_service_backends/contracts/backend/stores/sql.py) | Teams that standardise on managed databases (Azure SQL, Amazon RDS, PostgreSQL, MySQL) | Uses SQLAlchemy to persist contracts in relational tables. Works with any engine supported by SQLAlchemy and keeps governance metadata queryable via SQL. |
 | [`DeltaContractStore`](../packages/dc43-service-backends/src/dc43_service_backends/contracts/backend/stores/delta.py) | Teams standardizing on Delta or Unity Catalog | Stores contracts and metadata rows inside a Delta table. Supports ACID writes, SQL discovery, and time travel. Requires `pyspark`. |
 | [`CollibraContractStore`](../packages/dc43-service-backends/src/dc43_service_backends/contracts/backend/stores/collibra.py) | Organizations with Collibra-driven governance | Delegates storage and lifecycle to Collibra via the `CollibraContractAdapter`. Allows filtering by Collibra status (Draft, Validated, Deprecated) and can share workflows with Collibra stewards. Compatibility aliases for the old gateway naming remain available. |
 
@@ -71,6 +80,7 @@ Guides for existing stores live under
 
 - [Filesystem store](implementations/contract-store/fs.md)
 - [Delta-backed store](implementations/contract-store/delta.md)
+- [SQL-backed store](implementations/contract-store/sql.md)
 - [Collibra-backed store](implementations/contract-store/collibra.md)
 
 Document additional backends (REST services, Git, object storage, …)

@@ -16,6 +16,7 @@ On top of the conceptual platform, dc43 ships opinionated integrations that you 
 
 - Spark & DLT pipelines via `dc43_integrations.spark.io` with schema/metric helpers from `dc43_service_backends.data_quality.backend` for auto-casting and contract-aware IO.
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
+- Open Data Product backends (`dc43_service_backends.data_products.backend`) that let product owners register ports and bind them to contracts via ODPS-compliant metadata stores.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
 - Scenario-first getting started guides (operations setup, local Spark flows, remote integrations, and the contracts app helper) live in [`docs/getting-started/`](docs/getting-started/README.md).
 
@@ -28,10 +29,12 @@ dc43 exposes a small set of well-defined components. Swap any of them without re
 | Layer | Component | Responsibility |
 | --- | --- | --- |
 | Governance | **Contract manager/store interface** | Retrieve, version, and persist contracts from catalog-backed or file-based sources. |
+| Governance | **Data product service interface** | Manage ODPS data products, register input/output ports, and bind them to contract versions for runtime discovery. |
+| Governance | **Dataset↔contract link hooks** | Propagate dataset/contract bindings to external catalogs (Unity Catalog, bespoke metadata APIs) after governance approves the linkage. |
 | Governance | **Data quality manager interface** | Coordinate with an external DQ governance tool (e.g., Collibra, Unity Catalog) that records dataset↔contract alignment and approval state. |
 | Authoring support | **Contract drafter module** | Generate ODCS drafts from observed data or schema drift events before handing them back to governance. |
 | Runtime services | **Data-quality metrics engine** | Collect contract-driven metrics in execution engines and forward them to the governance tool for status evaluation. |
-| Integration | **Integration adapters** | Bridge the contract, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43_integrations.spark`). |
+| Integration | **Integration adapters** | Bridge the contract, data product, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43_integrations.spark`). |
 
 Guides for each component live under `docs/`:
 
@@ -45,50 +48,97 @@ Guides for each component live under `docs/`:
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Governance & Stewardship
-        Authoring["Authoring Tools\nJSON · Git · Notebooks"]
-        ContractStore["Contract Store Interface\nGit · Filesystem · APIs"]
-        DQTool["Data Quality Governance Tool\nCatalog · Collibra"]
-    end
+flowchart LR
+    classDef external fill:#fef3c7,stroke:#b45309,stroke-width:1px;
+    classDef dc43lib fill:#dbeafe,stroke:#1d4ed8,stroke-width:1px;
+    classDef dc43svc fill:#ede9fe,stroke:#5b21b6,stroke-width:1px;
+    classDef infra fill:#f3f4f6,stroke:#374151,stroke-dasharray:5 3;
+    classDef ecosystem fill:#f1f5f9,stroke:#0f172a,stroke-width:1px;
 
-    subgraph Lifecycle Services
-        DraftModule["Contract Drafter Module"]
-        DQManager["Data Quality Manager Interface"]
-    end
-
-    subgraph Runtime Execution
-        DQEngine["Data Quality Engine\nmetrics generation"]
-        IOHelpers["Integration Adapters\nSpark · DLT"]
+    subgraph Producers & Runtimes
+        direction TB
+        Authoring["Authoring Tools\nNotebooks · CI Pipelines"]
         Pipelines["Business Pipelines"]
     end
 
-    Authoring -->|publish / review| ContractStore
-    ContractStore -->|serve versions| IOHelpers
-    ContractStore -->|seed drafts| DraftModule
-    DraftModule -->|return proposals| Authoring
-    IOHelpers -->|apply contracts| Pipelines
-    Pipelines -->|observations| IOHelpers
-    IOHelpers -->|metrics & schema drift| DQEngine
-    DQEngine -->|metrics package| DQManager
-    DQManager -->|submit metrics| DQTool
-    DQTool -->|compatibility verdict| DQManager
-    DQTool -->|validated versions| ContractStore
-    DQManager -->|notify runtime| IOHelpers
+    subgraph dc43 Integrations & Clients
+        direction TB
+        Integration["Integration Adapters\nSpark · DLT · HTTP"]
+        Clients["Service Clients\ncontracts · governance · data products"]
+    end
+
+    subgraph dc43 Service Backends
+        direction TB
+        ContractSvc["Contract Service Backend\ninterface + stores"]
+        Drafting["Drafting Service\nschema diff · proposals"]
+        Governance["Governance Orchestrator\nlinking · approvals"]
+        DataProductBackend["Data Product Backend\nODPS registry · ports"]
+        QualityEngine["Data Quality Engine\nmetrics evaluation"]
+        LinkHooks["Dataset↔Contract Hooks\nUnity Catalog · APIs"]
+    end
+
+    subgraph Stewardship Platforms
+        direction TB
+        StewardUI["Steward Console\nCollibra workflow · custom UI"]
+        QualityTool["Data Quality Governance Tool\nCollibra · Unity Catalog"]
+    end
+
+    subgraph Storage & Catalog Backends
+        direction TB
+        ContractStores["Contract Stores\nFilesystem · Delta"]
+        MetadataTargets["Metadata Catalogs\nUnity Catalog · APIs"]
+    end
+
+    Authoring --> Integration
+    Pipelines --> Integration
+
+    Integration <--> Clients
+
+    Clients <--> ContractSvc
+    Clients <--> Governance
+    Clients <--> DataProductBackend
+
+    Governance --> Drafting
+    Drafting --> ContractSvc
+
+    Governance --> QualityEngine
+    QualityEngine --> Governance
+
+    Governance --> LinkHooks
+    LinkHooks --> MetadataTargets
+
+    Governance <--> StewardUI
+    Governance <--> QualityTool
+
+    ContractSvc --> ContractStores
+    DataProductBackend --> MetadataTargets
+
+    class Authoring,Pipelines external;
+    class Integration,Clients dc43lib;
+    class ContractSvc,Drafting,Governance,DataProductBackend,QualityEngine,LinkHooks dc43svc;
+    class ContractStores,MetadataTargets infra;
+    class StewardUI,QualityTool ecosystem;
 ```
 
-This architecture clarifies how governance assets, lifecycle services, and runtime execution collaborate:
+This architecture separates the libraries that ship with dc43 from the external systems they orchestrate:
 
-- Governance systems own the authoritative contract store and the data-quality tool. Labeled edges (`publish / review`, `validated versions`) highlight how those systems steer approvals.
-- Lifecycle services—drafting and data-quality management—mediate between governance and runtime. The drafter turns runtime feedback into proposals while the DQ manager relays metrics, waits for a verdict, and shares compatibility context with both stewards and pipelines.
-- Integration adapters inside runtime engines (Spark, DLT, …) apply contracts, emit observations, and react when governance signals change.
+- **Producers & runtimes** only call into dc43 through the integration adapters. Notebooks, CI pipelines, and Spark jobs import helpers such as [`dc43_integrations.spark.io`](packages/dc43-integrations/src/dc43_integrations/spark/io.py) which assemble schema metrics and forward requests to the services through typed clients.
+- **dc43 integrations & clients** include the runtime adapters plus the request/response protocols defined under [`dc43_service_clients`](packages/dc43-service-clients/src/dc43_service_clients). These clients declare how to fetch contracts, submit governance assessments, and register ODPS ports without exposing storage details.
+- **dc43 service backends** live in [`dc43_service_backends`](packages/dc43-service-backends/src/dc43_service_backends). They combine contract stores, the drafting module, the governance orchestrator, ODPS product registries, and the data-quality engine that materialises expectations from ODCS documents.
+- **Stewardship platforms** (Collibra, Unity Catalog UIs, custom consoles) sit outside this repository. The governance backend offers hook points so approval workflows can run there while still receiving compatibility assessments and draft details via [`governance.backend.local`](packages/dc43-service-backends/src/dc43_service_backends/governance/backend/local.py) and the hook interfaces in [`governance.hooks`](packages/dc43-service-backends/src/dc43_service_backends/governance/hooks.py).
+- **Storage & catalog backends** highlight the concrete infrastructure that backs each service: filesystem, SQL, or Delta-backed contract stores and metadata targets updated by link hooks such as [`governance.unity_catalog`](packages/dc43-service-backends/src/dc43_service_backends/governance/unity_catalog.py).
 
 ### Node & edge glossary
 
-- **Contract store interface** – pluggable storage adapters (filesystem, Delta, Collibra) that resolve authoritative contract versions.
-- **Data quality manager interface** – the dc43 protocol that hands metrics to the governance platform and retrieves compatibility verdicts.
-- **Data quality governance tool** – catalog or observability system (Collibra, Unity Catalog, bespoke services) that persists the compatibility matrix and performs the actual check evaluation once it receives metrics.
-- **Metrics package** – the bundle of row counts, expectation results, and schema drift context emitted by the runtime so the governance tool can recompute the dataset↔contract status.
+- **Integration adapters** – runtime entry points (Spark, HTTP) that call every service through the typed clients, gather schema metrics, and assemble observation payloads for governance reviews. See [`spark/io.py`](packages/dc43-integrations/src/dc43_integrations/spark/io.py) and [`spark/data_quality.py`](packages/dc43-integrations/src/dc43_integrations/spark/data_quality.py).
+- **Service clients** – thin protocols implemented by backends or HTTP gateways that expose contract, governance, and data-product actions to adapters without binding them to storage choices. Interfaces live under [`contracts/client`](packages/dc43-service-clients/src/dc43_service_clients/contracts/client), [`governance/client`](packages/dc43-service-clients/src/dc43_service_clients/governance/client), and [`data_products/client`](packages/dc43-service-clients/src/dc43_service_clients/data_products/client).
+- **Contract service backend** – resolves, versions, and stores ODCS documents using pluggable stores such as the filesystem adapter in [`contracts.backend`](packages/dc43-service-backends/src/dc43_service_backends/contracts/backend).
+- **Drafting service** – materialises schema diffs and draft ODCS payloads based on validation results so stewards can review suggested changes. Implementation details live in [`contracts/backend/drafting.py`](packages/dc43-service-backends/src/dc43_service_backends/contracts/backend/drafting.py).
+- **Governance orchestrator** – evaluates observation payloads, records compatibility results, triggers draft generation, and invokes dataset-link hooks during approvals via [`governance/backend/local.py`](packages/dc43-service-backends/src/dc43_service_backends/governance/backend/local.py) and [`governance/hooks.py`](packages/dc43-service-backends/src/dc43_service_backends/governance/hooks.py).
+- **Data product backend** – persists ODPS product definitions and port bindings in repositories such as Delta tables or Collibra exports. See [`data_products/backend`](packages/dc43-service-backends/src/dc43_service_backends/data_products/backend).
+- **Data quality engine** – projects contract expectations into executable rules and reuses stored metrics when possible to cut redundant checks through [`data_quality/backend/engine.py`](packages/dc43-service-backends/src/dc43_service_backends/data_quality/backend/engine.py).
+- **Dataset↔contract link hooks** – extension points (for example the Unity Catalog linker) that propagate approvals to metadata catalogs after governance records a new binding. Implementations live under [`governance/unity_catalog.py`](packages/dc43-service-backends/src/dc43_service_backends/governance/unity_catalog.py).
+- **Storage and catalog backends** – infrastructure that underpins the services: filesystem/Git paths, Delta tables, Unity Catalog, or bespoke APIs configured through the backend modules inside [`contracts/backend/stores`](packages/dc43-service-backends/src/dc43_service_backends/contracts/backend/stores) and the Unity Catalog integration referenced above.
 
 Variations—such as Collibra-governed contracts or bespoke storage backends—slot into the same model by substituting implementations of the interfaces described above.
 
@@ -99,7 +149,7 @@ dc43 now ships as a family of distributions so you can install only the layers y
 | Distribution | Imports | Responsibility | Depends on |
 | --- | --- | --- | --- |
 | `dc43-service-clients` | `dc43_service_clients.*` | Typed service clients, request/response models, and governance helpers that front-end applications can embed. | `open-data-contract-standard` |
-| `dc43-service-backends` | `dc43_service_backends.*` | Reference backend implementations (filesystem store, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43-service-clients` |
+| `dc43-service-backends` | `dc43_service_backends.*` | Reference backend implementations (filesystem/SQL stores, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43-service-clients` |
 | `dc43-integrations` | `dc43_integrations.*` | Runtime adapters such as the Spark helpers that call into client APIs without requiring backend dependencies. | `dc43-service-clients` |
 | `dc43` | `dc43.*` | Aggregating package that wires the CLI/demo and depends on the three modules above. | all of the above |
 
@@ -107,6 +157,7 @@ dc43 now ships as a family of distributions so you can install only the layers y
 
 - **Service contracts only**: `pip install dc43-service-clients`
 - **Backend reference services**: `pip install dc43-service-backends`
+- **Backend services with SQL storage**: `pip install "dc43-service-backends[sql]"`
 - **HTTP service backends**: `pip install "dc43-service-backends[http]"` (see
   [`deploy/http-backend/README.md`](deploy/http-backend/README.md) for a
   containerised deployment recipe)

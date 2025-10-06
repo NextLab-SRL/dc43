@@ -2,6 +2,10 @@
 # Copy this file to a writable location (e.g. /etc/dc43/service-backends.toml)
 # and adjust the values to match your environment.
 
+# Environment variables (`DC43_CONTRACT_STORE_TYPE`, `DC43_CONTRACT_STORE_DSN`,
+# etc.) override the values below at runtime, which is helpful for Terraform or
+# container orchestrators that inject secrets without editing the file.
+
 # ---------------------------------------------------------------------------
 # Filesystem-backed contract store
 # ---------------------------------------------------------------------------
@@ -28,6 +32,16 @@ root = "./contracts"
 # [contract_store.catalog."product-quality"]
 # data_product = "data-products/customer"
 # port = "gold-quality"
+
+# ---------------------------------------------------------------------------
+# SQL contract store (uncomment to persist contracts in PostgreSQL, MySQL,
+# SQLite, etc.). Install the ``sql`` extra or ensure ``sqlalchemy`` is available.
+# ---------------------------------------------------------------------------
+# [contract_store]
+# type = "sql"
+# dsn = "postgresql+psycopg://user:password@db.internal/dc43"
+# table = "contracts"
+# schema = "governance"
 
 # ---------------------------------------------------------------------------
 # Collibra HTTP contract store (uncomment when pointing at a live Collibra

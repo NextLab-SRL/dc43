@@ -12,25 +12,32 @@ continuing or blocking the pipeline.
 
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and
    map them to contract ids supplied by the data contract manager.
-2. **Validate and coerce data** using the retrieved contract while
+2. **Register and resolve data product bindings** so ODPS input/output
+   ports remain in sync with contract versions exposed by governance
+   services.
+3. **Validate and coerce data** using the retrieved contract while
    respecting enforcement flags.
-3. **Call the governance service** with validation metrics so it can
+4. **Call the governance service** with validation metrics so it can
    consult the contract manager, data-quality engine, and draft tooling.
-4. **Surface governance decisions** (status, drafts, recorded
+5. **Surface governance decisions** (status, drafts, recorded
    provenance) back to the runtime so pipelines can block, warn, or
    persist draft proposals alongside the dataset version.
-5. **Expose ergonomic APIs** for orchestrators—wrapping multiple
+6. **Expose ergonomic APIs** for orchestrators—wrapping multiple
    component calls behind a simple read/write interface.
 
 ```mermaid
 flowchart TD
     Adapter["Integration adapter"] -->|fetch contract| ContractMgr["Data contract manager"]
+    Adapter -->|resolve / register ports| ProductSvc["Data product service"]
+    ProductSvc --> ContractMgr
     ContractMgr --> ContractStore["Contract store"]
     Adapter -->|observations| Governance["Governance service"]
     Governance -->|fetch| ContractMgr
     Governance -->|evaluate| DQEngine["Data quality engine"]
     Governance --> Drafts["Contract drafter"]
     Governance --> Steward["Compatibility matrix / steward tooling"]
+    Governance --> LinkHooks["Dataset↔contract link hooks"]
+    LinkHooks --> Targets["Unity Catalog / metadata targets"]
     Steward -->|verdict| Adapter
 ```
 

@@ -12,6 +12,64 @@ provider "aws" {
   region = var.aws_region
 }
 
+locals {
+  contract_store_mode = lower(var.contract_store_mode)
+  use_filesystem      = local.contract_store_mode == "filesystem"
+  use_sql             = local.contract_store_mode == "sql"
+  sql_schema          = trimspace(var.contract_store_schema)
+  task_environment    = concat(
+    [
+      {
+        name  = "DC43_BACKEND_TOKEN"
+        value = var.backend_token
+      }
+    ],
+    local.use_filesystem ? [
+      {
+        name  = "DC43_CONTRACT_STORE"
+        value = var.contract_storage_path
+      }
+    ] : [],
+    local.use_sql ? concat(
+      [
+        {
+          name  = "DC43_CONTRACT_STORE_TYPE"
+          value = "sql"
+        },
+        {
+          name  = "DC43_CONTRACT_STORE_TABLE"
+          value = var.contract_store_table
+        }
+      ],
+      local.sql_schema != "" ? [
+        {
+          name  = "DC43_CONTRACT_STORE_SCHEMA"
+          value = local.sql_schema
+        }
+      ] : []
+    ) : [],
+    local.use_sql && var.contract_store_dsn_secret_arn == "" ? [
+      {
+        name  = "DC43_CONTRACT_STORE_DSN"
+        value = var.contract_store_dsn
+      }
+    ] : []
+  )
+  task_secrets = local.use_sql && var.contract_store_dsn_secret_arn != "" ? [
+    {
+      name      = "DC43_CONTRACT_STORE_DSN"
+      valueFrom = var.contract_store_dsn_secret_arn
+    }
+  ] : []
+  mount_points = local.use_filesystem ? [
+    {
+      containerPath = var.contract_storage_path
+      sourceVolume  = "contracts"
+      readOnly      = false
+    }
+  ] : []
+}
+
 resource "aws_ecs_cluster" "main" {
   name = var.cluster_name
 }
@@ -53,8 +111,9 @@ resource "aws_iam_role" "task" {
 }
 
 resource "aws_iam_role_policy" "task_efs" {
-  name = "${var.cluster_name}-efs-access"
-  role = aws_iam_role.task.id
+  count = local.use_filesystem ? 1 : 0
+  name  = "${var.cluster_name}-efs-access"
+  role  = aws_iam_role.task.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -66,13 +125,14 @@ resource "aws_iam_role_policy" "task_efs" {
           "elasticfilesystem:ClientWrite",
           "elasticfilesystem:ClientRootAccess"
         ]
-        Resource = aws_efs_file_system.contracts.arn
+        Resource = aws_efs_file_system.contracts[0].arn
       }
     ]
   })
 }
 
 resource "aws_security_group" "efs" {
+  count       = local.use_filesystem ? 1 : 0
   name        = "${var.cluster_name}-efs"
   description = "Allow NFS from ECS tasks"
   vpc_id      = var.vpc_id
@@ -94,16 +154,17 @@ resource "aws_security_group" "efs" {
 }
 
 resource "aws_efs_file_system" "contracts" {
+  count          = local.use_filesystem ? 1 : 0
   creation_token = var.contract_filesystem
   encrypted      = true
 }
 
 resource "aws_efs_mount_target" "contracts" {
-  for_each = toset(var.private_subnet_ids)
+  for_each = local.use_filesystem ? toset(var.private_subnet_ids) : toset([])
 
-  file_system_id  = aws_efs_file_system.contracts.id
+  file_system_id  = aws_efs_file_system.contracts[0].id
   subnet_id       = each.value
-  security_groups = [aws_security_group.efs.id]
+  security_groups = [aws_security_group.efs[0].id]
 }
 
 resource "aws_lb" "main" {
@@ -153,12 +214,15 @@ resource "aws_ecs_task_definition" "main" {
   execution_role_arn       = aws_iam_role.task_execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
-  volume {
-    name = "contracts"
+  dynamic "volume" {
+    for_each = local.use_filesystem ? [1] : []
+    content {
+      name = "contracts"
 
-    efs_volume_configuration {
-      file_system_id     = aws_efs_file_system.contracts.id
-      transit_encryption = "ENABLED"
+      efs_volume_configuration {
+        file_system_id     = aws_efs_file_system.contracts[0].id
+        transit_encryption = "ENABLED"
+      }
     }
   }
 
@@ -173,13 +237,15 @@ resource "aws_ecs_task_definition" "main" {
         protocol      = "tcp"
       }]
       environment = [
-        {
-          name  = "DC43_BACKEND_TOKEN"
-          value = var.backend_token
-        },
-        {
-          name  = "DC43_CONTRACT_STORE"
-          value = var.contract_storage_path
+        for env in local.task_environment : {
+          name  = env.name
+          value = env.value
+        }
+      ]
+      secrets = [
+        for secret in local.task_secrets : {
+          name      = secret.name
+          valueFrom = secret.valueFrom
         }
       ]
       logConfiguration = {
@@ -190,13 +256,16 @@ resource "aws_ecs_task_definition" "main" {
           awslogs-stream-prefix = "dc43"
         }
       }
-      mountPoints = [{
-        containerPath = var.contract_storage_path
-        sourceVolume  = "contracts"
-        readOnly      = false
-      }]
+      mountPoints = local.mount_points
     }
   ])
+
+  lifecycle {
+    precondition {
+      condition     = !local.use_sql || var.contract_store_dsn_secret_arn != "" || length(trimspace(var.contract_store_dsn)) > 0
+      error_message = "Provide contract_store_dsn or contract_store_dsn_secret_arn when contract_store_mode = 'sql'."
+    }
+  }
 }
 
 resource "aws_ecs_service" "main" {
@@ -236,5 +305,5 @@ output "service_name" {
 }
 
 output "efs_id" {
-  value = aws_efs_file_system.contracts.id
+  value = local.use_filesystem ? aws_efs_file_system.contracts[0].id : null
 }

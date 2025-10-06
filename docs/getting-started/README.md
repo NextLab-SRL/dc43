@@ -9,6 +9,7 @@ material when you want to dive deeper.
 - [Spark developers: run dc43 fully locally](spark-local.md)
 - [Spark developers: consume shared dc43 services](spark-remote.md)
 - [Spark developers: generate pipeline stubs with the contracts app](spark-contract-app-helper.md)
+- [Databricks teams: integrate dc43 with Unity Catalog](databricks.md)
 
 The guides assume you have a working Python 3.11 environment. When you work from a source checkout run `pip install -e .` from the
 repository root so editable installs pick up sibling packages.
