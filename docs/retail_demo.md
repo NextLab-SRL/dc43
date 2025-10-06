@@ -97,16 +97,20 @@ internal to the product boundary.
 New for longer workshops, a **Timeline player** animates six months of Altair
 Retail operations. Each milestone pauses the playback so presenters can surface
 freshness incidents, new product launches, schema rollbacks, or KPI contract
-expansions without leaving the page. The controls drive the catalog anchors, so
-facilitators can jump straight from the story beat to the relevant dataset,
-contract, or faux application tab.
+expansions without leaving the page. The detail panel pulls live figures from
+the cached pipeline run—row counts, contract versions, missing records, and KPI
+values—so facilitators can quantify each beat rather than relying on scripted
+talking points. The controls drive the catalog anchors and include outbound
+links that open the underlying dataset, contract, or product page in a new tab,
+making it easy to audit the artefacts that caused the milestone.
 
 A **Catalog crosslinks** tab set lists all data products, datasets, and
 contracts involved in the walkthrough. Each entry anchors back to the cards on
-the page, making it easier to trace how a dataset moves from the operational
-sources through the consumer surfaces without leaving the retail demo UI. The
-dataset catalog highlights the owning zone for each feed, aligning with the
-Mermaid lineage diagram and the tags shown on the data product definitions.
+the page or opens the authoritative record in the contracts catalog, making it
+easier to trace how a dataset moves from the operational sources through the
+consumer surfaces without leaving the retail demo UI. The dataset catalog
+highlights the owning zone for each feed, aligning with the Mermaid lineage
+diagram and the tags shown on the data product definitions.
 
 Finally, an **Experience & analytics walkthrough** section uses tabs to keep the
 offer highlights, marketing activation planner, and executive dashboard in a

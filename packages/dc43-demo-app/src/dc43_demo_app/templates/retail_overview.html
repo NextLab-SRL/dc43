@@ -121,6 +121,7 @@ for metric in run.kpis:
           </div>
           <p class="small text-muted mb-3" id="retailTimelineDetailNarrative">Use the play controls to animate the story or
             click an individual milestone to jump ahead.</p>
+          <div id="retailTimelineDetailInsights" class="mb-3"></div>
           <div id="retailTimelineDetailCallouts"></div>
           <div id="retailTimelineDetailLinks" class="mt-3"></div>
         </div>
@@ -185,8 +186,9 @@ graph LR
           {% for product in products %}
           <tr id="{{ product.anchor }}">
             <td>
-              <a class="fw-semibold" href="#{{ product.anchor }}">{{ product.name }}</a>
+              <a class="fw-semibold" href="{{ product.url }}" target="_blank" rel="noopener">{{ product.name }}</a>
               <div class="small text-muted">{{ product.identifier }}</div>
+              <div class="small"><a class="link-secondary" href="#{{ product.anchor }}">Highlight in walkthrough</a></div>
             </td>
             <td class="small">{{ product.owner.replace('-', ' ') | title }}</td>
             <td>
@@ -223,11 +225,12 @@ graph LR
           {% for dataset in dataset_catalog %}
           <tr id="{{ dataset.anchor }}">
             <td>
-              <span class="fw-semibold">{{ dataset.identifier }}</span>
+              <a class="fw-semibold" href="{{ dataset.url }}" target="_blank" rel="noopener">{{ dataset.identifier }}</a>
               <div class="small text-muted">{{ dataset.description }}</div>
               {% if dataset.internal %}
               <span class="badge text-bg-warning text-uppercase mt-1">Internal only</span>
               {% endif %}
+              <div class="small"><a class="link-secondary" href="#{{ dataset.anchor }}">Highlight in walkthrough</a></div>
             </td>
             <td class="small">
               {% set zone_parts = dataset.zone_label.split(' — ') %}
@@ -239,21 +242,23 @@ graph LR
             <td class="small text-uppercase">{{ dataset.kind }}</td>
             <td class="small">
               {% if dataset.data_product %}
-              <a href="#{{ dataset.data_product.anchor }}">{{ dataset.data_product.name }}</a>
+              <a href="{{ dataset.data_product.url }}" target="_blank" rel="noopener">{{ dataset.data_product.name }}</a>
               <div class="text-muted">{{ dataset.data_product.identifier }}</div>
+              <div class="small"><a class="link-secondary" href="#{{ dataset.data_product.anchor }}">Highlight</a></div>
               {% else %}
               —
               {% endif %}
             </td>
             <td class="small">
-              <a href="#{{ dataset.contract_anchor }}">{{ dataset.contract_id }}</a>
+              <a href="{{ dataset.contract_url }}" target="_blank" rel="noopener">{{ dataset.contract_id }}</a>
+              <div class="small"><a class="link-secondary" href="#{{ dataset.contract_anchor }}">Highlight</a></div>
             </td>
             <td class="small">{{ dataset.output_port or '—' }}</td>
             <td class="small">{{ dataset.row_count }}</td>
             <td class="small">
               {% if dataset.dependencies %}
               {% for dep in dataset.dependencies %}
-              <a href="#{{ dep.anchor }}" class="d-inline-block">{{ dep.identifier }}</a>{% if not loop.last %}, {% endif %}
+              <a href="{{ dep.url }}" target="_blank" rel="noopener" class="d-inline-block">{{ dep.identifier }}</a>{% if not loop.last %}, {% endif %}
               {% endfor %}
               {% else %}
               None
@@ -271,14 +276,18 @@ graph LR
       <div class="col" id="{{ contract.anchor }}">
         <div class="card h-100 shadow-sm border-0">
           <div class="card-body">
-            <h3 class="h6 fw-semibold mb-1">{{ contract.contract_id }}</h3>
+            <h3 class="h6 fw-semibold mb-1"><a href="{{ contract.url }}" target="_blank" rel="noopener">{{ contract.contract_id }}</a></h3>
+            <div class="small mb-2"><a class="link-secondary" href="#{{ contract.anchor }}">Highlight in walkthrough</a></div>
             <div class="small text-muted mb-3">{{ contract.dataset_count }} dataset{{ 's' if contract.dataset_count != 1 else '' }} ·
               {% for kind in contract.kinds %}<span class="badge text-bg-light text-uppercase me-1">{{ kind }}</span>{% endfor %}</div>
             <div class="mb-3">
               <div class="small text-muted text-uppercase mb-1">Datasets</div>
               <ul class="list-unstyled mb-0">
                 {% for dataset_id in contract.dataset_ids %}
-                <li><a href="#dataset-{{ dataset_id }}">{{ dataset_id }}</a></li>
+                <li>
+                  <a href="/datasets/{{ dataset_id }}" target="_blank" rel="noopener">{{ dataset_id }}</a>
+                  <a class="link-secondary small ms-1" href="#dataset-{{ dataset_id }}">Highlight</a>
+                </li>
                 {% endfor %}
               </ul>
             </div>
@@ -288,12 +297,15 @@ graph LR
               <ul class="list-unstyled mb-0">
                 {% for ref in contract.product_refs %}
                 <li>
-                  {% if ref.anchor %}
-                  <a href="#{{ ref.anchor }}">{{ ref.name }}</a>
+                  {% if ref.url %}
+                  <a href="{{ ref.url }}" target="_blank" rel="noopener">{{ ref.name }}</a>
                   {% else %}
                   {{ ref.name or ref.identifier }}
                   {% endif %}
                   <span class="text-muted small">({{ ref.identifier }})</span>
+                  {% if ref.anchor %}
+                  <a class="link-secondary small ms-1" href="#{{ ref.anchor }}">Highlight</a>
+                  {% endif %}
                 </li>
                 {% endfor %}
               </ul>
@@ -537,6 +549,54 @@ graph LR
     </div>
   </div>
 </div>
+<style>
+  .timeline-highlight {
+    animation: timelineHighlightPulse 2s ease-out;
+    outline: 0.2rem solid rgba(13, 110, 253, 0.6);
+    outline-offset: 0.1rem;
+  }
+
+  @keyframes timelineHighlightPulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.35);
+    }
+
+    100% {
+      box-shadow: 0 0 0 1.5rem rgba(13, 110, 253, 0);
+    }
+  }
+
+  .timeline-insight-card {
+    background-color: #fff;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(13, 110, 253, 0.1);
+    padding: 0.75rem 1rem;
+    height: 100%;
+  }
+
+  .timeline-insight-card .timeline-insight-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.35rem;
+  }
+
+  .timeline-insight-card .timeline-insight-value {
+    font-weight: 600;
+    font-size: 1.1rem;
+  }
+
+  .timeline-insight-card .timeline-insight-description {
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin-top: 0.35rem;
+  }
+
+  .timeline-link-highlight {
+    font-size: 0.75rem;
+  }
+</style>
 <script id="retailTimelineData" type="application/json">{{ timeline_events | tojson }}</script>
 <script>
 (function () {
@@ -561,6 +621,7 @@ graph LR
   const detailTitle = document.getElementById('retailTimelineDetailTitle');
   const detailBadge = document.getElementById('retailTimelineDetailBadge');
   const detailNarrative = document.getElementById('retailTimelineDetailNarrative');
+  const detailInsights = document.getElementById('retailTimelineDetailInsights');
   const detailCallouts = document.getElementById('retailTimelineDetailCallouts');
   const detailLinks = document.getElementById('retailTimelineDetailLinks');
   const progress = document.getElementById('retailTimelineProgress');
@@ -570,6 +631,7 @@ graph LR
   let activeIndex = 0;
   let playing = false;
   let timer = null;
+  const highlightTimers = new Map();
 
   function updatePlayButton() {
     if (!playBtn) {
@@ -633,6 +695,65 @@ graph LR
     detailCallouts.appendChild(list);
   }
 
+  function highlightAnchor(anchorSelector) {
+    if (!anchorSelector) {
+      return;
+    }
+    const target = document.querySelector(anchorSelector);
+    if (!target) {
+      return;
+    }
+    try {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    } catch (err) {
+      console.warn('Unable to scroll to anchor', anchorSelector, err);
+    }
+    target.classList.add('timeline-highlight');
+    if (highlightTimers.has(target)) {
+      clearTimeout(highlightTimers.get(target));
+    }
+    const timeout = setTimeout(function () {
+      target.classList.remove('timeline-highlight');
+      highlightTimers.delete(target);
+    }, 2000);
+    highlightTimers.set(target, timeout);
+  }
+
+  function renderInsights(items) {
+    if (!detailInsights) {
+      return;
+    }
+    detailInsights.innerHTML = '';
+    if (!items || !items.length) {
+      return;
+    }
+    const container = document.createElement('div');
+    container.className = 'row g-3';
+    items.forEach(function (item) {
+      const col = document.createElement('div');
+      col.className = 'col-sm-6';
+      const card = document.createElement('div');
+      card.className = 'timeline-insight-card';
+      const label = document.createElement('div');
+      label.className = 'timeline-insight-label';
+      label.textContent = item.label || 'Insight';
+      const value = document.createElement('div');
+      value.className = 'timeline-insight-value';
+      value.textContent = item.value || '';
+      card.appendChild(label);
+      card.appendChild(value);
+      if (item.description) {
+        const desc = document.createElement('div');
+        desc.className = 'timeline-insight-description';
+        desc.textContent = item.description;
+        card.appendChild(desc);
+      }
+      col.appendChild(card);
+      container.appendChild(col);
+    });
+    detailInsights.appendChild(container);
+  }
+
   function renderLinks(items) {
     detailLinks.innerHTML = '';
     if (!items || !items.length) {
@@ -646,10 +767,25 @@ graph LR
     list.className = 'ps-3 mb-0';
     items.forEach(function (item) {
       const li = document.createElement('li');
-      const anchor = document.createElement('a');
-      anchor.href = item.href || '#';
-      anchor.textContent = item.label || item.href || 'Link';
-      li.appendChild(anchor);
+      const link = document.createElement('a');
+      link.href = item.href || '#';
+      link.textContent = item.label || item.href || 'Link';
+      if ((item.href || '').startsWith('/')) {
+        link.target = '_blank';
+        link.rel = 'noopener';
+      }
+      li.appendChild(link);
+      if (item.anchor) {
+        const focus = document.createElement('button');
+        focus.type = 'button';
+        focus.className = 'btn btn-link btn-sm px-1 timeline-link-highlight';
+        focus.textContent = 'Highlight';
+        focus.addEventListener('click', function (event) {
+          event.preventDefault();
+          highlightAnchor(item.anchor);
+        });
+        li.appendChild(focus);
+      }
       list.appendChild(li);
     });
     detailLinks.appendChild(list);
@@ -660,6 +796,7 @@ graph LR
     detailBadge.className = 'badge ' + (event.badge_class || 'text-bg-secondary') + ' text-uppercase';
     detailTitle.textContent = event.date + ' · ' + event.title;
     detailNarrative.textContent = event.narrative || event.summary || '';
+    renderInsights(event.insights || []);
     renderCallouts(event.callouts || []);
     renderLinks(event.links || []);
   }
@@ -744,6 +881,7 @@ graph LR
   });
 
   setActive(0, { scroll: false });
+  updatePlayButton();
 })();
 </script>
 {% endblock %}

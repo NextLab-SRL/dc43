@@ -17,6 +17,9 @@
   experience section that keeps offer highlights, activation, and dashboard visuals together.
 - Altair Retail timeline player that animates months of incidents, releases, and KPI launches,
   pausing on each milestone with deep links into the catalog and faux applications.
+- Altair Retail demo timeline insights that surface live metrics, highlight anchors, and
+  outbound links to dataset, contract, and product records alongside the catalog tables that
+  now open the authoritative pages in new tabs.
 
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active

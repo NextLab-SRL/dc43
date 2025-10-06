@@ -166,6 +166,7 @@ def _product_cards() -> list[dict[str, Any]]:
         data["outputs"] = list(product.outputs)
         data["tags"] = list(product.tags)
         data["anchor"] = f"product-{product.identifier}"
+        data["url"] = f"/data-products/{product.identifier}"
         cards.append(data)
     return cards
 
@@ -274,6 +275,7 @@ def _retail_dataset_catalog(run: RetailDemoRun) -> list[dict[str, Any]]:
             {
                 "identifier": dep,
                 "anchor": f"dataset-{dep}",
+                "url": f"/datasets/{dep}",
             }
             for dep in dataset.dependencies
         ]
@@ -281,6 +283,7 @@ def _retail_dataset_catalog(run: RetailDemoRun) -> list[dict[str, Any]]:
             {
                 "identifier": dataset.identifier,
                 "anchor": f"dataset-{dataset.identifier}",
+                "url": f"/datasets/{dataset.identifier}",
                 "kind": dataset.kind,
                 "description": dataset.description,
                 "data_product": (
@@ -288,6 +291,7 @@ def _retail_dataset_catalog(run: RetailDemoRun) -> list[dict[str, Any]]:
                         "identifier": product.identifier,
                         "name": product.name,
                         "anchor": f"product-{product.identifier}",
+                        "url": f"/data-products/{product.identifier}",
                     }
                     if product
                     else None
@@ -295,6 +299,7 @@ def _retail_dataset_catalog(run: RetailDemoRun) -> list[dict[str, Any]]:
                 "output_port": dataset.output_port,
                 "contract_id": dataset.contract_id,
                 "contract_anchor": f"contract-{dataset.contract_id}",
+                "contract_url": f"/contracts/{dataset.contract_id}",
                 "dependencies": dependencies,
                 "internal": dataset.internal,
                 "row_count": len(payload),
@@ -326,6 +331,7 @@ def _retail_contract_cards() -> list[dict[str, Any]]:
             {
                 "contract_id": contract_id,
                 "anchor": f"contract-{contract_id}",
+                "url": f"/contracts/{contract_id}",
                 "dataset_ids": sorted(dataset_ids),
                 "dataset_count": len(dataset_ids),
                 "kinds": sorted(
@@ -338,6 +344,7 @@ def _retail_contract_cards() -> list[dict[str, Any]]:
                         if pid and RETAIL_DATA_PRODUCTS.get(pid)
                         else pid,
                         "anchor": f"product-{pid}" if pid else None,
+                        "url": f"/data-products/{pid}" if pid else None,
                     }
                     for pid in product_ids
                 ],
@@ -477,8 +484,89 @@ def _retail_business_date(run: RetailDemoRun) -> str:
     return ""
 
 
-def _retail_demo_timeline() -> list[dict[str, Any]]:
+def _timeline_insight(label: str, value: str, description: str | None = None) -> dict[str, str]:
+    """Compose a structured insight for the timeline detail panel."""
+
+    data = {"label": label, "value": value}
+    if description:
+        data["description"] = description
+    return data
+
+
+def _timeline_link_for_dataset(identifier: str, label: str | None = None) -> dict[str, str]:
+    """Return a link dictionary that targets a dataset locally and in the catalog."""
+
+    dataset_label = label or f"{identifier} dataset"
+    return {
+        "label": dataset_label,
+        "href": f"/datasets/{identifier}",
+        "anchor": f"#dataset-{identifier}",
+    }
+
+
+def _timeline_link_for_product(identifier: str, label: str | None = None) -> dict[str, str]:
+    """Return a link dictionary that points at a data product record."""
+
+    product_label = label or identifier
+    return {
+        "label": product_label,
+        "href": f"/data-products/{identifier}",
+        "anchor": f"#product-{identifier}",
+    }
+
+
+def _timeline_link_for_contract(identifier: str, label: str | None = None) -> dict[str, str]:
+    """Return a link dictionary that targets a contract entry."""
+
+    contract_label = label or f"Contract {identifier}"
+    return {
+        "label": contract_label,
+        "href": f"/contracts/{identifier}",
+        "anchor": f"#contract-{identifier}",
+    }
+
+
+def _retail_demo_timeline(run: RetailDemoRun) -> list[dict[str, Any]]:
     """Simulate a multi-month operational timeline for the walkthrough."""
+
+    store_lookup = _retail_store_lookup(run)
+    store_count = len(store_lookup)
+    product_count = len({str(row.get("product_id")) for row in run.catalog})
+    transaction_count = len(run.transactions)
+    transaction_days = len({str(row.get("transaction_ts", ""))[:10] for row in run.transactions if row.get("transaction_ts")})
+    inventory_count = len(run.inventory)
+    expected_inventory = store_count * product_count
+    missing_inventory = max(expected_inventory - inventory_count, 0)
+    latest_snapshot_ts = max(
+        (str(row.get("snapshot_ts", "")) for row in run.inventory if row.get("snapshot_ts")),
+        default="",
+    )
+    feature_rows = len(run.demand_features)
+    feature_versions = sorted({str(row.get("feature_version", "")) for row in run.demand_features if row.get("feature_version")})
+    forecast_rows = len(run.forecasts)
+    model_versions = sorted({str(row.get("model_version", "")) for row in run.forecasts if row.get("model_version")})
+    forecast_feature_versions = sorted(
+        {str(row.get("feature_version", "")) for row in run.forecasts if row.get("feature_version")}
+    )
+    offer_rows = len(run.offers)
+    offer_store_count = len({str(row.get("store_id", "")) for row in run.offers if row.get("store_id")})
+    max_discount = max((float(row.get("recommended_discount", 0.0)) for row in run.offers), default=0.0)
+    min_discount = min((float(row.get("recommended_discount", 0.0)) for row in run.offers), default=0.0)
+    kpi_rows = len(run.kpis)
+    bias_metric = next((metric for metric in run.kpis if metric.get("metric_id") == "forecast_bias"), None)
+    bias_value = float(bias_metric.get("value", 0.0)) if bias_metric else 0.0
+    bias_percent = f"{bias_value * 100:.0f}%" if bias_metric else "N/A"
+    sales_fact_rows = len(run.star_schema.sales_fact)
+    sales_fact_columns = len(run.star_schema.sales_fact[0]) if run.star_schema.sales_fact else 0
+    foundation_versions = sorted(
+        {RETAIL_DATASETS[identifier].dataset_version for identifier in ("retail_pos_transactions", "retail_inventory_snapshot", "retail_product_catalog")}
+    )
+    inventory_version = RETAIL_DATASETS["retail_inventory_snapshot"].dataset_version
+    features_version = RETAIL_DATASETS["retail_demand_features"].dataset_version
+    forecast_version = RETAIL_DATASETS["retail_demand_forecast"].dataset_version
+    offers_version = RETAIL_DATASETS["retail_personalized_offers"].dataset_version
+    kpi_version = RETAIL_DATASETS["retail_kpi_mart"].dataset_version
+    sales_fact_version = RETAIL_DATASETS["retail_sales_fact"].dataset_version
 
     events: list[dict[str, Any]] = [
         {
@@ -497,18 +585,27 @@ def _retail_demo_timeline() -> list[dict[str, Any]]:
                 "Highlight the `dp.retail-foundation` product card to explain how multiple ports live under one boundary.",
             ],
             "links": [
-                {
-                    "label": "retail_pos_transactions dataset",
-                    "href": "#dataset-retail_pos_transactions",
-                },
-                {
-                    "label": "retail_inventory_snapshot dataset",
-                    "href": "#dataset-retail_inventory_snapshot",
-                },
-                {
-                    "label": "dp.retail-foundation",
-                    "href": "#product-dp.retail-foundation",
-                },
+                _timeline_link_for_dataset("retail_pos_transactions"),
+                _timeline_link_for_dataset("retail_inventory_snapshot"),
+                _timeline_link_for_dataset("retail_product_catalog"),
+                _timeline_link_for_product("dp.retail-foundation", "dp.retail-foundation data product"),
+            ],
+            "insights": [
+                _timeline_insight(
+                    "Transactions ingested",
+                    f"{transaction_count} rows",
+                    f"{store_count} stores captured across {transaction_days or 1} business day(s).",
+                ),
+                _timeline_insight(
+                    "Catalog coverage",
+                    f"{product_count} active SKUs",
+                    "Product master joins inventory and POS feeds inside the foundation product.",
+                ),
+                _timeline_insight(
+                    "Contract versions",
+                    ", ".join(foundation_versions),
+                    "Source contracts promoted for the launch.",
+                ),
             ],
         },
         {
@@ -529,10 +626,25 @@ def _retail_demo_timeline() -> list[dict[str, Any]]:
                 "Explain that the star schema rebuild is skipped because the foundation product failed, keeping ML features safe.",
             ],
             "links": [
-                {
-                    "label": "retail_inventory_snapshot dataset",
-                    "href": "#dataset-retail_inventory_snapshot",
-                }
+                _timeline_link_for_dataset("retail_inventory_snapshot"),
+                _timeline_link_for_contract("retail_inventory_snapshot"),
+            ],
+            "insights": [
+                _timeline_insight(
+                    "Expected snapshot rows",
+                    f"{expected_inventory}",
+                    f"{store_count} stores × {product_count} SKUs should be present.",
+                ),
+                _timeline_insight(
+                    "Received snapshot rows",
+                    f"{inventory_count}",
+                    f"{missing_inventory} combinations missing and flagged by freshness checks.",
+                ),
+                _timeline_insight(
+                    "Last successful snapshot",
+                    latest_snapshot_ts or "Unavailable",
+                    f"Contract version {inventory_version} awaiting replay.",
+                ),
             ],
         },
         {
@@ -553,14 +665,29 @@ def _retail_demo_timeline() -> list[dict[str, Any]]:
                 "Discuss how semantic tags on the forecast dataset help downstream consumers understand the version shift.",
             ],
             "links": [
-                {
-                    "label": "retail_demand_features dataset",
-                    "href": "#dataset-retail_demand_features",
-                },
-                {
-                    "label": "retail_demand_forecast dataset",
-                    "href": "#dataset-retail_demand_forecast",
-                },
+                _timeline_link_for_dataset("retail_demand_features"),
+                _timeline_link_for_dataset("retail_demand_forecast"),
+                _timeline_link_for_product("dp.retail-intelligence", "dp.retail-intelligence data product"),
+            ],
+            "insights": [
+                _timeline_insight(
+                    "Feature rows published",
+                    f"{feature_rows}",
+                    "Internal store/category feature store refreshed inside the intelligence product.",
+                ),
+                _timeline_insight(
+                    "Feature versions",
+                    ", ".join(filter(None, feature_versions)) or features_version,
+                    f"Contract version {features_version} promoted to prod.",
+                ),
+                _timeline_insight(
+                    "Forecast models",
+                    ", ".join(filter(None, model_versions)) or "v0.1.0",
+                    (
+                        f"{forecast_rows} predictions scored under contract {forecast_version} "
+                        f"with feature version {', '.join(filter(None, forecast_feature_versions)) or 'N/A'}."
+                    ),
+                ),
             ],
         },
         {
@@ -580,10 +707,25 @@ def _retail_demo_timeline() -> list[dict[str, Any]]:
                 "Reinforce that no upstream contracts changed—only the consumer-facing schema evolved.",
             ],
             "links": [
-                {
-                    "label": "retail_personalized_offers dataset",
-                    "href": "#dataset-retail_personalized_offers",
-                }
+                _timeline_link_for_dataset("retail_personalized_offers"),
+                _timeline_link_for_product("dp.retail-experience", "dp.retail-experience data product"),
+            ],
+            "insights": [
+                _timeline_insight(
+                    "Offers published",
+                    f"{offer_rows}",
+                    f"Targeting refreshed across {offer_store_count} stores.",
+                ),
+                _timeline_insight(
+                    "Discount guardrail",
+                    f"{min_discount * 100:.0f}% – {max_discount * 100:.0f}%",
+                    "Experience team tunes the allowable range per persona.",
+                ),
+                _timeline_insight(
+                    "Contract version",
+                    offers_version,
+                    "Consumer schema iteration applied without upstream changes.",
+                ),
             ],
         },
         {
@@ -602,14 +744,26 @@ def _retail_demo_timeline() -> list[dict[str, Any]]:
                 "Show the contract card for `retail_kpi_mart` to link governance with BI consumption.",
             ],
             "links": [
-                {
-                    "label": "retail_kpi_mart dataset",
-                    "href": "#dataset-retail_kpi_mart",
-                },
-                {
-                    "label": "Contract retail_kpi_mart",
-                    "href": "#contract-retail_kpi_mart",
-                },
+                _timeline_link_for_dataset("retail_kpi_mart"),
+                _timeline_link_for_contract("retail_kpi_mart"),
+                _timeline_link_for_product("dp.retail-analytics", "dp.retail-analytics data product"),
+            ],
+            "insights": [
+                _timeline_insight(
+                    "Semantic metrics",
+                    f"{kpi_rows}",
+                    "Executive mart publishes governed measures with business context.",
+                ),
+                _timeline_insight(
+                    "Forecast bias",
+                    bias_percent,
+                    "New KPI surfaces model accuracy across the fleet.",
+                ),
+                _timeline_insight(
+                    "Contract version",
+                    kpi_version,
+                    "Analytics zone signs off expanded schema.",
+                ),
             ],
         },
         {
@@ -630,9 +784,29 @@ def _retail_demo_timeline() -> list[dict[str, Any]]:
             ],
             "links": [
                 {
-                    "label": "Run the Altair Retail pipeline",
-                    "href": "#retail-run-card",
-                }
+                    "label": "View recent pipeline runs",
+                    "href": "/pipeline-runs",
+                    "anchor": "#retail-run-card",
+                },
+                _timeline_link_for_dataset("retail_sales_fact"),
+                _timeline_link_for_contract("retail_sales_fact"),
+            ],
+            "insights": [
+                _timeline_insight(
+                    "Sales fact rows",
+                    f"{sales_fact_rows}",
+                    "Regression suite validates the snowflake schema before publication.",
+                ),
+                _timeline_insight(
+                    "Schema columns",
+                    f"{sales_fact_columns}",
+                    "Automated checks guard against unintended contract changes.",
+                ),
+                _timeline_insight(
+                    "Contract version",
+                    sales_fact_version,
+                    "Rollback automation restores the approved interface before rerun.",
+                ),
             ],
         },
     ]
@@ -711,7 +885,7 @@ async def retail_demo_overview(request: Request) -> HTMLResponse:
         "dataset_catalog": _retail_dataset_catalog(run),
         "contract_cards": _retail_contract_cards(),
         "dataset_lineage": _dataset_lineage_diagram(),
-        "timeline_events": _retail_demo_timeline(),
+        "timeline_events": _retail_demo_timeline(run),
         "message": message,
     }
     return templates.TemplateResponse("retail_overview.html", context)
