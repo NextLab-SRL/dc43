@@ -1,0 +1,60 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_kpi_mart",
+  "name": "Retail KPI mart",
+  "description": {
+    "summary": "Executive-ready KPIs derived from the retail star schema and ML predictions.",
+    "usage": "Consumed by BI tools via a semantic layer describing measures and attributes."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_kpi_mart",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "kpis.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_kpi_mart/{version}/kpis.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "kpi_records",
+      "primaryKey": ["business_date", "metric_id"],
+      "properties": [
+        {"name": "business_date", "physicalType": "string", "required": true},
+        {"name": "metric_id", "physicalType": "string", "required": true},
+        {"name": "metric_label", "physicalType": "string", "required": true},
+        {"name": "value", "physicalType": "double", "required": true},
+        {"name": "unit", "physicalType": "string", "required": true},
+        {
+          "name": "semantic_layer",
+          "physicalType": "object",
+          "required": true,
+          "properties": [
+            {"name": "type", "physicalType": "string", "required": true},
+            {"name": "aggregation", "physicalType": "string", "required": true},
+            {"name": "expression", "physicalType": "string", "required": true},
+            {"name": "format", "physicalType": "string"},
+            {"name": "description", "physicalType": "string"}
+          ]
+        }
+      ]
+    }
+  ]
+}

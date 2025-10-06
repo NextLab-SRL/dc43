@@ -1,0 +1,74 @@
+[
+  {
+    "date_key": "20240331",
+    "business_date": "2024-03-31",
+    "store_key": "STORE-01",
+    "store_id": "CHI-010",
+    "category": "Home",
+    "forecast_units": 3.0,
+    "confidence": 0.7,
+    "model_version": "v0.1.0",
+    "feature_version": "2024.03.demo",
+    "prediction_ts": "2025-10-06T12:20:29Z"
+  },
+  {
+    "date_key": "20240331",
+    "business_date": "2024-03-31",
+    "store_key": "STORE-01",
+    "store_id": "CHI-010",
+    "category": "Outdoors",
+    "forecast_units": 1.5,
+    "confidence": 0.62,
+    "model_version": "v0.1.0",
+    "feature_version": "2024.03.demo",
+    "prediction_ts": "2025-10-06T12:20:29Z"
+  },
+  {
+    "date_key": "20240331",
+    "business_date": "2024-03-31",
+    "store_key": "STORE-02",
+    "store_id": "NY-001",
+    "category": "Electronics",
+    "forecast_units": 4.2,
+    "confidence": 0.78,
+    "model_version": "v0.1.0",
+    "feature_version": "2024.03.demo",
+    "prediction_ts": "2025-10-06T12:20:29Z"
+  },
+  {
+    "date_key": "20240331",
+    "business_date": "2024-03-31",
+    "store_key": "STORE-02",
+    "store_id": "NY-001",
+    "category": "Home",
+    "forecast_units": 1.6,
+    "confidence": 0.58,
+    "model_version": "v0.1.0",
+    "feature_version": "2024.03.demo",
+    "prediction_ts": "2025-10-06T12:20:29Z"
+  },
+  {
+    "date_key": "20240331",
+    "business_date": "2024-03-31",
+    "store_key": "STORE-03",
+    "store_id": "SF-001",
+    "category": "Electronics",
+    "forecast_units": 2.1,
+    "confidence": 0.74,
+    "model_version": "v0.1.0",
+    "feature_version": "2024.03.demo",
+    "prediction_ts": "2025-10-06T12:20:29Z"
+  },
+  {
+    "date_key": "20240331",
+    "business_date": "2024-03-31",
+    "store_key": "STORE-03",
+    "store_id": "SF-001",
+    "category": "Outdoors",
+    "forecast_units": 3.8,
+    "confidence": 0.81,
+    "model_version": "v0.1.0",
+    "feature_version": "2024.03.demo",
+    "prediction_ts": "2025-10-06T12:20:29Z"
+  }
+]

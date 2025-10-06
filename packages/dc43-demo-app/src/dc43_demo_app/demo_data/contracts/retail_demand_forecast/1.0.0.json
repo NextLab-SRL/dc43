@@ -1,0 +1,53 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_demand_forecast",
+  "name": "Demand forecast",
+  "description": {
+    "summary": "Machine learning output forecasting next-day demand per store and category.",
+    "usage": "Downstream consumers align promotions, staffing, and replenishment to forecast."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_demand_forecast",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "forecast.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_demand_forecast/{version}/forecast.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "forecast",
+      "primaryKey": ["date_key", "store_key", "category"],
+      "properties": [
+        {"name": "date_key", "physicalType": "string", "required": true},
+        {"name": "business_date", "physicalType": "string", "required": true},
+        {"name": "store_key", "physicalType": "string", "required": true},
+        {"name": "store_id", "physicalType": "string", "required": true},
+        {"name": "category", "physicalType": "string", "required": true},
+        {"name": "forecast_units", "physicalType": "double", "required": true},
+        {"name": "confidence", "physicalType": "double", "required": true, "quality": [{"mustBeBetween": [0, 1]}]},
+        {"name": "model_version", "physicalType": "string", "required": true},
+        {"name": "feature_version", "physicalType": "string", "required": true},
+        {"name": "prediction_ts", "physicalType": "string", "required": true}
+      ]
+    }
+  ]
+}

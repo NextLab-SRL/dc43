@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_store_dimension",
+  "name": "Retail store dimension",
+  "description": {
+    "summary": "Store attributes including format, region, and footprint metadata.",
+    "usage": "Links the sales fact to store master data for analytics and ML enrichment."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_store_dimension",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "store_dimension.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_store_dimension/{version}/store_dimension.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "store_dimension",
+      "primaryKey": ["store_key"],
+      "properties": [
+        {"name": "store_key", "physicalType": "string", "required": true},
+        {"name": "store_id", "physicalType": "string", "required": true},
+        {"name": "store_name", "physicalType": "string", "required": true},
+        {"name": "region", "physicalType": "string", "required": true},
+        {"name": "format", "physicalType": "string", "required": true},
+        {"name": "square_feet", "physicalType": "integer", "required": true}
+      ]
+    }
+  ]
+}

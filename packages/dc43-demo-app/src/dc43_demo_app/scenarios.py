@@ -2373,6 +2373,126 @@ def run_split_invalid_rows(
             ),
         ],
     },
+    "retail-simulator": {
+        "label": "Altair Retail end-to-end",
+        "category": "data-product",
+        "description": (
+            "<p>Walk through the Altair Retail supply chain from raw POS data to "
+            "personalised offers and executive KPIs.</p>"
+            "<ul>"
+            "<li><strong>Foundation:</strong> Source-aligned feeds for POS, inventory,"
+            " and the merchandising catalog.</li>"
+            "<li><strong>Model:</strong> A retail star schema that publishes the sales"
+            " fact alongside store, product, and date dimensions.</li>"
+            "<li><strong>Intelligence:</strong> An internal feature store and demand"
+            " forecast powering downstream activations.</li>"
+            "<li><strong>Consumers:</strong> Mobile offers and an executive KPI mart"
+            " surfaced through governed contracts.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart LR
+                    Foundation["dp.retail-foundation
+retail_pos_transactions · retail_inventory_snapshot · retail_product_catalog"] --> Insights
+                    Insights["dp.retail-insights
+retail_sales_fact + dimensions"] --> Intelligence
+                    Insights --> Analytics
+                    Intelligence["dp.retail-intelligence
+retail_demand_features + retail_demand_forecast"] --> Experience
+                    Intelligence --> Analytics
+                    Experience["dp.retail-experience
+retail_personalized_offers"]
+                    Analytics["dp.retail-analytics
+retail_kpi_mart + semantic layer"]
+                    Experience --> Consumers{{"Marketing activation"}}
+                    Analytics --> Execs{{"Executive dashboards"}}
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": {
+            "retail_pos_transactions": "2024-03-31",
+            "retail_inventory_snapshot": "2024-03-31",
+            "retail_product_catalog": "2024-03-31",
+            "retail_sales_fact": "2024-03-31",
+            "retail_store_dimension": "2024-03-31",
+            "retail_product_dimension": "2024-03-31",
+            "retail_date_dimension": "2024-03-31",
+            "retail_demand_features": "2024-03-31",
+            "retail_demand_forecast": "2024-03-31",
+            "retail_personalized_offers": "2024-03-31",
+            "retail_kpi_mart": "2024-03-31",
+        },
+        "params": {
+            "dataset_name": "retail_personalized_offers",
+            "contract_id": "retail_personalized_offers",
+            "contract_version": "1.0.0",
+            "run_type": "enforce",
+        },
+        "guide": [
+            _section(
+                "What this example shows",
+                """
+                <p>
+                  A full-stack retail demo that packages multiple data products:
+                  operational feeds, an analytics mart, a lightweight ML model,
+                  customer-facing outputs, and a KPI mart with a semantic layer.
+                </p>
+                """,
+            ),
+            _section(
+                "How the products line up",
+                """
+                <ul>
+                  <li><strong>Foundation</strong> – <code>dp.retail-foundation</code>
+                      packages the operational sources in one governed product.</li>
+                  <li><strong>Star schema</strong> – <code>dp.retail-insights</code>
+                      publishes <code>retail_sales_fact</code> with store, product,
+                      and date dimensions.</li>
+                  <li><strong>Intelligence</strong> – <code>dp.retail-intelligence</code>
+                      holds the internal <code>retail_demand_features</code>
+                      dataset and the exposed <code>retail_demand_forecast</code>.</li>
+                  <li><strong>Experiences</strong> – <code>dp.retail-experience</code>
+                      activates <code>retail_personalized_offers</code> for
+                      marketing teams.</li>
+                  <li><strong>Analytics</strong> – <code>dp.retail-analytics</code>
+                      serves <code>retail_kpi_mart</code> with semantic measures for
+                      executive BI.</li>
+                </ul>
+                """,
+            ),
+            _section(
+                "Semantic layer spotlight",
+                """
+                <p>
+                  The KPI mart bundles a semantic layer with each record. The
+                  measures map directly to the contracts UI thanks to
+                  <code>semantic_layer</code> attributes and the
+                  <code>RETAIL_SEMANTIC_MEASURES</code> registry exposed by the
+                  demo module.
+                </p>
+                """,
+            ),
+            _code_section(
+                "Replaying the pipeline in Python",
+                """
+from dc43_demo_app.retail_demo import run_retail_demo
+
+demo = run_retail_demo()
+print(f"Sales fact: {len(demo.star_schema.sales_fact)} rows")
+print(f"Store dimension: {len(demo.star_schema.store_dimension)} rows")
+print(f"Demand features: {len(demo.demand_features)} rows")
+print(f"Forecast outputs: {len(demo.forecasts)} rows")
+for metric in demo.kpis:
+    print(metric["metric_id"], metric["value"], metric["semantic_layer"]["expression"])
+                """,
+                "<p>The helper stitches together sources, the demand forecaster, and the KPI builder so the workshop can focus on data product lineage instead of boilerplate ETL code.</p>",
+            ),
+        ],
+    },
 }
 
 __all__ = ["SCENARIOS", "_DEFAULT_SLICE", "_INVALID_SLICE"]
