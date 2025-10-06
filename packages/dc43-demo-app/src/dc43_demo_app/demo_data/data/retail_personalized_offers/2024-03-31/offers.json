@@ -1,0 +1,62 @@
+[
+  {
+    "customer_id": "CUST-3102",
+    "store_key": "STORE-01",
+    "store_id": "CHI-010",
+    "business_date": "2024-03-31",
+    "offer_id": "OFF-HOME-05",
+    "category": "Home",
+    "recommended_discount": 0.07,
+    "forecast_units": 3.0,
+    "primary_metric": "inventory_turn",
+    "confidence": 0.7,
+    "sell_through_rate": 0.0606,
+    "region": "Midwest",
+    "rationale": "Encourage repeat purchase to lift Midwest lighting turn"
+  },
+  {
+    "customer_id": "CUST-1001",
+    "store_key": "STORE-02",
+    "store_id": "NY-001",
+    "business_date": "2024-03-31",
+    "offer_id": "OFF-ELITE-01",
+    "category": "Electronics",
+    "recommended_discount": 0.1,
+    "forecast_units": 4.2,
+    "primary_metric": "sell_through",
+    "confidence": 0.78,
+    "sell_through_rate": 0.125,
+    "region": "Northeast",
+    "rationale": "Boost smartphone sell-through ahead of weekend traffic"
+  },
+  {
+    "customer_id": "CUST-1040",
+    "store_key": "STORE-02",
+    "store_id": "NY-001",
+    "business_date": "2024-03-31",
+    "offer_id": "OFF-HOME-05",
+    "category": "Home",
+    "recommended_discount": 0.08,
+    "forecast_units": 1.6,
+    "primary_metric": "margin_guardrail",
+    "confidence": 0.58,
+    "sell_through_rate": 0.0256,
+    "region": "Northeast",
+    "rationale": "Clear lamp inventory while staying above 35% margin"
+  },
+  {
+    "customer_id": "CUST-2005",
+    "store_key": "STORE-03",
+    "store_id": "SF-001",
+    "business_date": "2024-03-31",
+    "offer_id": "OFF-OUT-09",
+    "category": "Outdoors",
+    "recommended_discount": 0.12,
+    "forecast_units": 3.8,
+    "primary_metric": "forecast_accuracy",
+    "confidence": 0.81,
+    "sell_through_rate": 0.12,
+    "region": "West Coast",
+    "rationale": "Align camping stove promo with demand spike from ML forecast"
+  }
+]

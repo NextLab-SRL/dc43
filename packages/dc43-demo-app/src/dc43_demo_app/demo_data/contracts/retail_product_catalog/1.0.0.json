@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_product_catalog",
+  "name": "Product catalog",
+  "description": {
+    "summary": "Reference master data for products sold in Altair Retail stores.",
+    "usage": "Conformed dimension joined to operational facts and analytics marts."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_product_catalog",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "products.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_product_catalog/{version}/products.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "products",
+      "primaryKey": ["product_id"],
+      "properties": [
+        {"name": "product_id", "physicalType": "string", "required": true, "unique": true},
+        {"name": "product_name", "physicalType": "string", "required": true},
+        {"name": "category", "physicalType": "string", "required": true},
+        {"name": "subcategory", "physicalType": "string", "required": true},
+        {"name": "unit_cost", "physicalType": "double", "required": true, "quality": [{"mustBeGreaterThanOrEqualTo": 0}]},
+        {"name": "currency", "physicalType": "string", "required": true}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "store_key": "STORE-01",
+    "store_id": "CHI-010",
+    "store_name": "Altair Chicago River",
+    "region": "Midwest",
+    "format": "suburban",
+    "square_feet": 22000
+  },
+  {
+    "store_key": "STORE-02",
+    "store_id": "NY-001",
+    "store_name": "Altair Manhattan Flagship",
+    "region": "Northeast",
+    "format": "flagship",
+    "square_feet": 28000
+  },
+  {
+    "store_key": "STORE-03",
+    "store_id": "SF-001",
+    "store_name": "Altair Market Street",
+    "region": "West Coast",
+    "format": "urban",
+    "square_feet": 18000
+  }
+]

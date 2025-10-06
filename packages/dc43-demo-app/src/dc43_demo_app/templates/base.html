@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>DC43 Demo</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css"/>
+    <style>
+      .form-control::placeholder,
+      textarea::placeholder {
+        color: var(--bs-secondary-color);
+        opacity: 0.7;
+        font-style: italic;
+      }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="/">DC43 Demo</a>
+    <div class="navbar-nav">
+      <a class="nav-link" href="/pipeline-runs">Pipeline runs</a>
+      <a class="nav-link" href="/retail-demo">Altair Retail</a>
+      <a class="nav-link" href="/contracts">Contracts</a>
+      <a class="nav-link" href="/datasets">Datasets</a>
+      <a class="nav-link" href="/data-products">Data products</a>
+      <a class="nav-link" href="/integration-helper">Integration helper</a>
+    </div>
+  </div>
+</nav>
+<div class="container">
+{% block content %}{% endblock %}
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/scala.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/java.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/sql.min.js"></script>
+<script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+    window.mermaid = mermaid;
+</script>
+<script>
+  if (window.hljs && window.hljs.highlightAll) {
+    window.hljs.highlightAll();
+  }
+</script>
+</body>
+</html>

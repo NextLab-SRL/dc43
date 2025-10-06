@@ -1,0 +1,57 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_demand_features",
+  "name": "Retail demand features",
+  "description": {
+    "summary": "Feature aggregates per store and category derived from the retail star schema.",
+    "usage": "Internal feature store used to score the demand forecasting model."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_demand_features",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "demand_features.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_demand_features/{version}/demand_features.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "demand_features",
+      "primaryKey": ["date_key", "store_key", "category"],
+      "properties": [
+        {"name": "date_key", "physicalType": "string", "required": true},
+        {"name": "business_date", "physicalType": "string", "required": true},
+        {"name": "store_key", "physicalType": "string", "required": true},
+        {"name": "store_id", "physicalType": "string", "required": true},
+        {"name": "category", "physicalType": "string", "required": true},
+        {"name": "region", "physicalType": "string", "required": true},
+        {"name": "format", "physicalType": "string", "required": true},
+        {"name": "feature_version", "physicalType": "string", "required": true},
+        {"name": "units_sold", "physicalType": "integer", "required": true},
+        {"name": "gross_sales", "physicalType": "double", "required": true},
+        {"name": "gross_margin", "physicalType": "double", "required": true},
+        {"name": "inventory_on_hand", "physicalType": "integer", "required": true},
+        {"name": "sell_through_rate", "physicalType": "double", "required": true},
+        {"name": "gross_margin_pct", "physicalType": "double", "required": true}
+      ]
+    }
+  ]
+}
