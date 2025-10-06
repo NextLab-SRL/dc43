@@ -15,10 +15,8 @@
       a single governed flow.
     </p>
     <p class="text-muted mb-4">Business date: {{ business_date or "2024-03-31" }}</p>
-    <div class="btn-group" role="group" aria-label="Retail demo views">
-      <a class="btn btn-primary" href="/retail-demo/activation">Marketing activation</a>
-      <a class="btn btn-outline-primary" href="/retail-demo/dashboard">Executive dashboard</a>
-    </div>
+    <p class="small text-muted">Explore the activation planner and dashboard directly on this page using the
+      tabs in the experience section below.</p>
   </div>
   <div class="col-lg-4">
     <div class="card shadow-sm border-0">
@@ -90,46 +88,23 @@ graph LR
   B --> C["Retail demand intelligence<br/>ML features &amp; forecasts"]
   C --> D["Customer experience<br/>Marketing activation"]
   B --> E["Executive KPI mart<br/>Aggregated analytics"]
+  E --> F["Executive dashboard<br/>BI &amp; finance views"]
     </div>
   </div>
 </div>
 
-<h2 class="h4 mb-3">Data products in the walkthrough</h2>
-<div class="row row-cols-1 row-cols-lg-2 g-4">
-  {% for product in products %}
-  <div class="col" id="{{ product.anchor }}">
-    <div class="card h-100 shadow-sm border-0">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start mb-2">
-          <div>
-            <div class="text-muted small">{{ product.identifier }}</div>
-            <h3 class="h5 mb-1">{{ product.name }}</h3>
-          </div>
-          <div>
-            {% for tag in product.tags %}
-            <span class="badge text-bg-secondary text-uppercase">{{ tag }}</span>
-            {% endfor %}
-          </div>
-        </div>
-        <p class="mb-3">{{ product.summary }}</p>
-        <div class="mb-2 small text-muted">Owner: {{ product.owner.replace('-', ' ') | title }}</div>
-        {% if product.inputs %}
-        <div class="mb-2">
-          <div class="text-muted small text-uppercase">Inputs</div>
-          <div class="small">{{ product.inputs | join(', ') }}</div>
-        </div>
-        {% endif %}
-        <div>
-          <div class="text-muted small text-uppercase">Outputs</div>
-          <div class="small">{{ product.outputs | join(', ') }}</div>
-        </div>
-      </div>
+<div class="card shadow-sm border-0 mb-5">
+  <div class="card-body">
+    <h2 class="h5">Dataset lineage</h2>
+    <p class="small text-muted">Datasets are grouped by the data product zone that owns them. Ports surface public
+      interfaces while internal assets stay inside their product boundary.</p>
+    <div class="mermaid">
+{{ dataset_lineage | safe }}
     </div>
   </div>
-  {% endfor %}
 </div>
 
-<h2 class="h4 mt-5 mb-3">Catalog crosslinks</h2>
+<h2 class="h4 mb-3">Catalog crosslinks</h2>
 <p class="text-muted">Jump between data products, datasets, and contracts without leaving the walkthrough.</p>
 <ul class="nav nav-tabs" id="catalogTabs" role="tablist">
   <li class="nav-item" role="presentation">
@@ -183,6 +158,7 @@ graph LR
         <thead>
           <tr>
             <th scope="col">Dataset</th>
+            <th scope="col">Zone</th>
             <th scope="col">Type</th>
             <th scope="col">Data product</th>
             <th scope="col">Contract</th>
@@ -199,6 +175,13 @@ graph LR
               <div class="small text-muted">{{ dataset.description }}</div>
               {% if dataset.internal %}
               <span class="badge text-bg-warning text-uppercase mt-1">Internal only</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% set zone_parts = dataset.zone_label.split(' — ') %}
+              <span class="badge {{ dataset.zone_badge }} text-uppercase">{{ zone_parts[0] }}</span>
+              {% if zone_parts|length > 1 %}
+              <div class="text-muted">{{ zone_parts[1] }}</div>
               {% endif %}
             </td>
             <td class="small text-uppercase">{{ dataset.kind }}</td>
@@ -272,40 +255,234 @@ graph LR
   </div>
 </div>
 
-<h2 class="h4 mt-5 mb-3">Offer highlights</h2>
-<div class="row row-cols-1 row-cols-md-3 g-4">
-  {% for store in store_cards %}
-  <div class="col">
-    <div class="card h-100 shadow-sm border-0">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start mb-3">
-          <div>
-            <h3 class="h5 mb-0">{{ store.store_name }}</h3>
-            <div class="text-muted small">{{ store.region }} · {{ store.format | title }}</div>
+<h2 class="h4 mt-5 mb-3">Experience &amp; analytics walkthrough</h2>
+<p class="text-muted">Switch between the customer offer summary, activation planning workspace, and
+  executive dashboard without leaving the page.</p>
+<ul class="nav nav-tabs" id="experienceTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="experience-offers-tab" data-bs-toggle="tab"
+      data-bs-target="#experience-offers" type="button" role="tab" aria-controls="experience-offers"
+      aria-selected="true">Offer highlights</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="experience-activation-tab" data-bs-toggle="tab"
+      data-bs-target="#experience-activation" type="button" role="tab" aria-controls="experience-activation"
+      aria-selected="false">Marketing activation</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="experience-dashboard-tab" data-bs-toggle="tab"
+      data-bs-target="#experience-dashboard" type="button" role="tab" aria-controls="experience-dashboard"
+      aria-selected="false">Executive dashboard</button>
+  </li>
+</ul>
+<div class="tab-content pt-3" id="experienceTabsContent">
+  <div class="tab-pane fade show active" id="experience-offers" role="tabpanel"
+    aria-labelledby="experience-offers-tab">
+    <div class="row row-cols-1 row-cols-md-3 g-4">
+      {% for store in store_cards %}
+      <div class="col">
+        <div class="card h-100 shadow-sm border-0">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+              <div>
+                <h3 class="h5 mb-0">{{ store.store_name }}</h3>
+                <div class="text-muted small">{{ store.region }} · {{ store.format | title }}</div>
+              </div>
+              <span class="badge text-bg-primary">{{ store.offer_count }} offers</span>
+            </div>
+            <p class="mb-1">Leading category: <strong>{{ store.headline_category }}</strong></p>
+            <p class="mb-3 text-muted small">Primary KPI: {{ store.headline_metric.replace('_', ' ') | title }}</p>
+            <div class="mb-3">
+              <div class="small text-muted text-uppercase mb-1">Recommended discount</div>
+              <div class="fw-semibold fs-5">{{ '%.1f' | format(store.discount_pct) }}%</div>
+            </div>
+            <div class="mb-2">
+              <div class="small text-muted">Forecast confidence</div>
+              <div class="progress" role="progressbar" aria-valuenow="{{ store.confidence_pct }}" aria-valuemin="0"
+                aria-valuemax="100">
+                <div class="progress-bar bg-success" style="width: {{ '%.0f' | format(store.confidence_pct) }}%"></div>
+              </div>
+            </div>
+            <div>
+              <div class="small text-muted">Sell-through focus</div>
+              <div class="progress" role="progressbar" aria-valuenow="{{ store.sell_through_pct }}" aria-valuemin="0"
+                aria-valuemax="100">
+                <div class="progress-bar bg-info" style="width: {{ '%.1f' | format(store.sell_through_pct) }}%"></div>
+              </div>
+            </div>
           </div>
-          <span class="badge text-bg-primary">{{ store.offer_count }} offers</span>
         </div>
-        <p class="mb-1">Leading category: <strong>{{ store.headline_category }}</strong></p>
-        <p class="mb-3 text-muted small">Primary KPI: {{ store.headline_metric.replace('_', ' ') | title }}</p>
-        <div class="mb-3">
-          <div class="small text-muted text-uppercase mb-1">Recommended discount</div>
-          <div class="fw-semibold fs-5">{{ '%.1f' | format(store.discount_pct) }}%</div>
-        </div>
-        <div class="mb-2">
-          <div class="small text-muted">Forecast confidence</div>
-          <div class="progress" role="progressbar" aria-valuenow="{{ store.confidence_pct }}" aria-valuemin="0" aria-valuemax="100">
-            <div class="progress-bar bg-success" style="width: {{ '%.0f' | format(store.confidence_pct) }}%"></div>
-          </div>
-        </div>
+      </div>
+      {% else %}
+      <div class="col">
+        <div class="alert alert-info mb-0">No offers generated by the demo pipeline yet.</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="tab-pane fade" id="experience-activation" role="tabpanel"
+    aria-labelledby="experience-activation-tab">
+    {% for store in activation_stores %}
+    <div class="card mb-4 shadow-sm border-0">
+      <div class="card-header d-flex justify-content-between align-items-center">
         <div>
-          <div class="small text-muted">Sell-through focus</div>
-          <div class="progress" role="progressbar" aria-valuenow="{{ store.sell_through_pct }}" aria-valuemin="0" aria-valuemax="100">
-            <div class="progress-bar bg-info" style="width: {{ '%.1f' | format(store.sell_through_pct) }}%"></div>
+          <h3 class="h6 mb-0">{{ store.store_name }}</h3>
+          <div class="text-muted small">{{ store.region }} · {{ store.format | title }}{% if store.square_feet %} ·
+            {{ store.square_feet | int }} sq ft{% endif %}</div>
+        </div>
+        <span class="badge text-bg-primary">{{ store.offers | length }} active offers</span>
+      </div>
+      <div class="card-body">
+        <div class="row g-4">
+          <div class="col-md-4">
+            <h4 class="h6 text-uppercase text-muted">KPI focus</h4>
+            <ul class="list-unstyled mb-0">
+              {% for mix in store.metric_mix %}
+              <li class="mb-2">
+                <span class="badge text-bg-secondary text-uppercase">{{ mix.metric_label }}</span>
+                <div class="text-muted small">{{ mix.count }} offer{% if mix.count != 1 %}s{% endif %} · {{ '%.0f' | format(mix.share) }}%
+                  of plan</div>
+              </li>
+              {% else %}
+              <li class="text-muted small">No KPI emphasis recorded.</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="col-md-8">
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th scope="col">Offer</th>
+                    <th scope="col" class="text-center">Category</th>
+                    <th scope="col" class="text-center">KPI</th>
+                    <th scope="col" class="text-end">Discount</th>
+                    <th scope="col" class="text-end">Forecast units</th>
+                    <th scope="col" class="text-end">Confidence</th>
+                    <th scope="col" class="text-end">Sell-through</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for offer in store.offers %}
+                  <tr>
+                    <th scope="row">
+                      <div class="fw-semibold">{{ offer.offer_id }}</div>
+                      <div class="text-muted small">Customer {{ offer.customer_id }}</div>
+                    </th>
+                    <td class="text-center">{{ offer.category }}</td>
+                    <td class="text-center">{{ offer.primary_metric_label }}</td>
+                    <td class="text-end">{{ '%.1f' | format(offer.discount_pct) }}%</td>
+                    <td class="text-end">
+                      {{ '%.0f' | format(offer.forecast_units) }}
+                      <div class="progress mt-1" role="progressbar" aria-valuenow="{{ offer.forecast_share }}"
+                        aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar" style="width: {{ '%.0f' | format(offer.forecast_share) }}%"></div>
+                      </div>
+                    </td>
+                    <td class="text-end">{{ '%.0f' | format(offer.confidence_pct) }}%</td>
+                    <td class="text-end">{{ '%.1f' | format(offer.sell_through_pct) }}%</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
     </div>
+    {% else %}
+    <div class="alert alert-info">No offers generated by the demo pipeline yet.</div>
+    {% endfor %}
   </div>
-  {% endfor %}
+  <div class="tab-pane fade" id="experience-dashboard" role="tabpanel"
+    aria-labelledby="experience-dashboard-tab">
+    <div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
+      {% for metric in dashboard_metrics %}
+      <div class="col">
+        <div class="card h-100 shadow-sm border-0">
+          <div class="card-body">
+            <div class="text-muted small">{{ metric.metric_id }}</div>
+            <h3 class="h5 mb-2">{{ metric.label }}</h3>
+            <div class="display-6 fw-semibold">{{ metric.value_display }}</div>
+            <p class="text-muted small mt-3 mb-0">{{ metric.semantic.description }}</p>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h4 class="h6">Sales by region</h4>
+            <ul class="list-group list-group-flush">
+              {% for region in dashboard_region_rows %}
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between">
+                  <span>{{ region.label }}</span>
+                  <span class="fw-semibold">${{ '%.0f' | format(region.value) }}</span>
+                </div>
+                <div class="progress mt-2" role="progressbar" aria-valuenow="{{ region.share }}" aria-valuemin="0"
+                  aria-valuemax="100">
+                  <div class="progress-bar" style="width: {{ '%.0f' | format(region.share) }}%"></div>
+                </div>
+                <div class="text-muted small mt-1">{{ '%.0f' | format(region.share) }}% of gross sales</div>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 h-100">
+          <div class="card-body">
+            <h4 class="h6">Sales by category</h4>
+            <ul class="list-group list-group-flush">
+              {% for category in dashboard_category_rows %}
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between">
+                  <span>{{ category.label }}</span>
+                  <span class="fw-semibold">${{ '%.0f' | format(category.value) }}</span>
+                </div>
+                <div class="progress mt-2" role="progressbar" aria-valuenow="{{ category.share }}" aria-valuemin="0"
+                  aria-valuemax="100">
+                  <div class="progress-bar bg-info" style="width: {{ '%.0f' | format(category.share) }}%"></div>
+                </div>
+                <div class="text-muted small mt-1">{{ '%.0f' | format(category.share) }}% of gross sales</div>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card shadow-sm border-0 mt-4">
+      <div class="card-body">
+        <h4 class="h6">Semantic layer snapshot</h4>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Metric</th>
+                <th scope="col">Aggregation</th>
+                <th scope="col">Expression</th>
+                <th scope="col">Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for semantic in dashboard_semantic_rows %}
+              <tr>
+                <th scope="row">{{ semantic.label }}</th>
+                <td>{{ semantic.aggregation }}</td>
+                <td><code>{{ semantic.expression }}</code></td>
+                <td>{{ semantic.description }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

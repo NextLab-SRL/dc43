@@ -90,8 +90,18 @@ The overview page now contains a **Run the Altair Retail pipeline** card that
 refreshes the cached fixtures in-place as well as an embedded Python snippet so
 audiences can copy the helper into notebooks. A Mermaid diagram illustrates how
 the source, modelled, ML, consumer, and aggregated products hand off datasets.
+A second dataset-level lineage view groups every contract by its owning data
+product zone so you can point out which ports are public and which assets remain
+internal to the product boundary.
 
 A **Catalog crosslinks** tab set lists all data products, datasets, and
 contracts involved in the walkthrough. Each entry anchors back to the cards on
 the page, making it easier to trace how a dataset moves from the operational
-sources through the consumer surfaces without leaving the retail demo UI.
+sources through the consumer surfaces without leaving the retail demo UI. The
+dataset catalog highlights the owning zone for each feed, aligning with the
+Mermaid lineage diagram and the tags shown on the data product definitions.
+
+Finally, an **Experience & analytics walkthrough** section uses tabs to keep the
+offer highlights, marketing activation planner, and executive dashboard in a
+single page. Demo facilitators can flip between the faux applications without
+changing routes, reinforcing how one pipeline powers multiple stakeholders.

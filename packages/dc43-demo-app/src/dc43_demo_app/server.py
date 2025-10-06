@@ -31,6 +31,7 @@ from .scenarios import SCENARIOS
 from .retail_demo import (
     RETAIL_DATA_PRODUCTS,
     RETAIL_DATASETS,
+    RetailDataProduct,
     RetailDemoRun,
     run_retail_demo,
 )
@@ -58,6 +59,32 @@ CONTRACTS_TEMPLATE_DIR = resources.files("dc43_contracts_app") / "templates"
 PIPELINE_TEMPLATE_DIR = BASE_DIR / "templates"
 
 _RETAIL_RUN: RetailDemoRun | None = None
+
+_ZONE_STYLES: Mapping[str, str] = {
+    "source": "fill:#E3F2FD,stroke:#1E88E5,color:#0D47A1,stroke-width:1px",
+    "modelled": "fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20,stroke-width:1px",
+    "ml": "fill:#FFF3E0,stroke:#FB8C00,color:#E65100,stroke-width:1px",
+    "consumer": "fill:#F3E5F5,stroke:#8E24AA,color:#4A148C,stroke-width:1px",
+    "aggregated": "fill:#E0F7FA,stroke:#00838F,color:#006064,stroke-width:1px",
+    "shared": "fill:#ECEFF1,stroke:#607D8B,color:#37474F,stroke-width:1px",
+}
+
+_ZONE_BADGES: Mapping[str, str] = {
+    "source": "text-bg-primary",
+    "modelled": "text-bg-success",
+    "ml": "text-bg-warning text-dark",
+    "consumer": "text-bg-danger",
+    "aggregated": "text-bg-info text-dark",
+    "shared": "text-bg-secondary",
+}
+
+_PRODUCT_ZONE_LOOKUP: Mapping[str, tuple[str, str]] = {
+    "dp.retail-foundation": ("source", "Source"),
+    "dp.retail-insights": ("modelled", "Modelled"),
+    "dp.retail-intelligence": ("ml", "ML"),
+    "dp.retail-experience": ("consumer", "Consumer"),
+    "dp.retail-analytics": ("aggregated", "Aggregated"),
+}
 
 _env_loader = ChoiceLoader(
     [
@@ -136,6 +163,67 @@ def _product_cards() -> list[dict[str, Any]]:
     return cards
 
 
+def _zone_metadata(product: RetailDataProduct | None) -> dict[str, str]:
+    """Return display and styling information for a product's zone."""
+
+    if product and product.identifier in _PRODUCT_ZONE_LOOKUP:
+        zone_key, zone_label = _PRODUCT_ZONE_LOOKUP[product.identifier]
+        product_label = product.name
+    else:
+        zone_key, zone_label = ("shared", "Shared")
+        product_label = product.name if product else "Shared assets"
+    style = _ZONE_STYLES.get(zone_key, _ZONE_STYLES["shared"])
+    return {
+        "key": zone_key,
+        "label": zone_label,
+        "product_label": product_label,
+        "style": style,
+        "badge": _ZONE_BADGES.get(zone_key, _ZONE_BADGES["shared"]),
+    }
+
+
+def _dataset_lineage_diagram() -> str:
+    """Build a Mermaid graph that highlights dataset lineage and product zones."""
+
+    datasets = list(RETAIL_DATASETS.values())
+    datasets.sort(key=lambda item: item.identifier)
+    grouped: defaultdict[str | None, list] = defaultdict(list)
+    for dataset in datasets:
+        grouped[dataset.data_product_id].append(dataset)
+
+    lines: list[str] = ["graph LR"]
+    for zone_key, style in _ZONE_STYLES.items():
+        lines.append(f"  classDef zone-{zone_key} {style};")
+
+    for product_id, members in grouped.items():
+        product = RETAIL_DATA_PRODUCTS.get(product_id) if product_id else None
+        zone = _zone_metadata(product)
+        subgraph_id = (product_id or "shared").replace(".", "_").replace("-", "_")
+        title = zone["product_label"]
+        zone_label = zone["label"]
+        lines.append(f"  subgraph {subgraph_id}[\"{title}<br/>{zone_label} zone\"]")
+        for dataset in sorted(members, key=lambda item: item.identifier):
+            node_id = dataset.identifier
+            kind_label = str(dataset.kind or "").replace("_", " ").title()
+            label_lines = [dataset.identifier, f"{zone_label} · {kind_label}"]
+            if dataset.output_port:
+                port_line = f"Port: {dataset.output_port}"
+                if dataset.internal:
+                    port_line += " (internal)"
+                label_lines.append(port_line)
+            elif dataset.internal:
+                label_lines.append("Internal asset")
+            label = "<br/>".join(label_lines)
+            lines.append(f"    {node_id}[\"{label}\"]:::zone-{zone['key']}")
+        lines.append("  end")
+
+    for dataset in datasets:
+        for dep in dataset.dependencies:
+            lines.append(f"  {dep} --> {dataset.identifier}")
+
+    return "\n".join(lines)
+
+
 _DATASET_EXTRACTORS: Mapping[str, Callable[[RetailDemoRun], Iterable[Mapping[str, Any]]]] = {
     "retail_pos_transactions": lambda run: run.transactions,
     "retail_inventory_snapshot": lambda run: run.inventory,
@@ -169,6 +257,11 @@ def _retail_dataset_catalog(run: RetailDemoRun) -> list[dict[str, Any]]:
     catalog: list[dict[str, Any]] = []
     for dataset in RETAIL_DATASETS.values():
         product = RETAIL_DATA_PRODUCTS.get(dataset.data_product_id or "")
+        zone = _zone_metadata(product)
+        if product:
+            zone_display = f"{zone['label']} — {product.name}"
+        else:
+            zone_display = zone["label"]
         payload = _dataset_payload(run, dataset.identifier)
         dependencies = [
             {
@@ -198,6 +291,9 @@ def _retail_dataset_catalog(run: RetailDemoRun) -> list[dict[str, Any]]:
                 "dependencies": dependencies,
                 "internal": dataset.internal,
                 "row_count": len(payload),
+                "zone_label": zone_display,
+                "zone_key": zone["key"],
+                "zone_badge": zone["badge"],
             }
         )
     catalog.sort(key=lambda item: (item.get("data_product", {}).get("name", ""), item["identifier"]))
@@ -406,16 +502,33 @@ async def redirect_data_products() -> RedirectResponse:
 @app.get("/retail-demo", response_class=HTMLResponse)
 async def retail_demo_overview(request: Request) -> HTMLResponse:
     run = _retail_demo_run_cached()
-    metrics = [_format_metric_card(metric) for metric in run.kpis[:3]]
+    dashboard_metrics = [_format_metric_card(metric) for metric in run.kpis]
+    kpi_preview = dashboard_metrics[:3]
+    region_rows, category_rows = _dashboard_breakdowns(run)
+    semantic_rows = [
+        {
+            "label": card["label"],
+            "aggregation": card["semantic"].get("aggregation", ""),
+            "expression": card["semantic"].get("expression", ""),
+            "description": card["semantic"].get("description", ""),
+        }
+        for card in dashboard_metrics
+    ]
     message = request.query_params.get("msg")
     context = {
         "request": request,
         "products": _product_cards(),
         "store_cards": _store_offer_cards(run),
-        "kpi_preview": metrics,
+        "activation_stores": _store_activation_rows(run),
+        "kpi_preview": kpi_preview,
+        "dashboard_metrics": dashboard_metrics,
+        "dashboard_region_rows": region_rows,
+        "dashboard_category_rows": category_rows,
+        "dashboard_semantic_rows": semantic_rows,
         "business_date": _retail_business_date(run),
         "dataset_catalog": _retail_dataset_catalog(run),
         "contract_cards": _retail_contract_cards(),
+        "dataset_lineage": _dataset_lineage_diagram(),
         "message": message,
     }
     return templates.TemplateResponse("retail_overview.html", context)

@@ -13,6 +13,8 @@
 - Altair Retail overview card that re-runs the demo pipeline, embeds a runnable Python snippet,
   illustrates the end-to-end flow with Mermaid, and surfaces catalog crosslinks for products,
   datasets, and contracts directly from the page.
+- Altair Retail overview enhancements with dataset-level lineage, zone badges, and a tabbed
+  experience section that keeps offer highlights, activation, and dashboard visuals together.
 
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
