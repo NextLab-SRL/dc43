@@ -9,11 +9,11 @@ single walkthrough that is ideal for workshops or long-form demos.
 
 | Product | Purpose | Key ports |
 | --- | --- | --- |
-| `dp.retail-foundation` | Curates operational sources spanning POS, inventory, and merchandising master data. | `pos-transactions`, `inventory-snapshot`, `product-master` |
-| `dp.retail-insights` | Publishes the retail star schema – sales fact plus store, product, and date dimensions. | `sales-fact`, `store-dimension`, `product-dimension`, `date-dimension` |
-| `dp.retail-intelligence` | Hosts the internal feature store and demand forecast outputs. | `demand-features` *(internal)*, `demand-forecast` |
-| `dp.retail-experience` | Activates personalized offers for marketing teams. | `personalized-offers` |
-| `dp.retail-analytics` | Serves governed KPIs with semantic metadata for BI tooling. | `executive-metrics` |
+| `dp.retail-foundation` | Curates operational sources spanning POS, inventory, and merchandising master data. *(Tags: source, operational)* | `pos-transactions`, `inventory-snapshot`, `product-master` |
+| `dp.retail-insights` | Publishes the retail star schema – sales fact plus store, product, and date dimensions. *(Tags: modelled, analytics)* | `sales-fact`, `store-dimension`, `product-dimension`, `date-dimension` |
+| `dp.retail-intelligence` | Hosts the internal feature store and demand forecast outputs. *(Tags: ml, features)* | `demand-features` *(internal)*, `demand-forecast` |
+| `dp.retail-experience` | Activates personalized offers for marketing teams. *(Tags: consumer, activation)* | `personalized-offers` |
+| `dp.retail-analytics` | Serves governed KPIs with semantic metadata for BI tooling. *(Tags: aggregated, semantic)* | `executive-metrics` |
 
 Each product keeps track of its upstream dependencies via the `RETAIL_DATASETS`
 registry in `dc43_demo_app.retail_demo.data`. Internal datasets such as
@@ -86,5 +86,12 @@ applications:
 - **Executive dashboard** renders the KPI mart metrics with the semantic layer
   details that business intelligence tools would consume.
 
-The pages are backed by the same `run_retail_demo` helper used in code samples,
-so the UI stays in sync with the packaged fixtures and contracts.
+The overview page now contains a **Run the Altair Retail pipeline** card that
+refreshes the cached fixtures in-place as well as an embedded Python snippet so
+audiences can copy the helper into notebooks. A Mermaid diagram illustrates how
+the source, modelled, ML, consumer, and aggregated products hand off datasets.
+
+A **Catalog crosslinks** tab set lists all data products, datasets, and
+contracts involved in the walkthrough. Each entry anchors back to the cards on
+the page, making it easier to trace how a dataset moves from the operational
+sources through the consumer surfaces without leaving the retail demo UI.

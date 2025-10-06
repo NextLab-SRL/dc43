@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import urlencode
 
 from collections import Counter, defaultdict
@@ -28,7 +28,12 @@ from .contracts_records import (
 )
 from .contracts_workspace import prepare_demo_workspace
 from .scenarios import SCENARIOS
-from .retail_demo import RETAIL_DATA_PRODUCTS, RetailDemoRun, run_retail_demo
+from .retail_demo import (
+    RETAIL_DATA_PRODUCTS,
+    RETAIL_DATASETS,
+    RetailDemoRun,
+    run_retail_demo,
+)
 
 CATEGORY_LABELS = {
     "contract": "Contract-focused pipelines",
@@ -121,12 +126,121 @@ def _product_cards() -> list[dict[str, Any]]:
     """Expose the Altair Retail data product catalogue for the overview page."""
 
     cards: list[dict[str, Any]] = []
-    for product in RETAIL_DATA_PRODUCTS.values():
+    for product in sorted(RETAIL_DATA_PRODUCTS.values(), key=lambda item: item.name):
         data = asdict(product)
         data["inputs"] = list(product.inputs)
         data["outputs"] = list(product.outputs)
         data["tags"] = list(product.tags)
+        data["anchor"] = f"product-{product.identifier}"
         cards.append(data)
+    return cards
+
+
+_DATASET_EXTRACTORS: Mapping[str, Callable[[RetailDemoRun], Iterable[Mapping[str, Any]]]] = {
+    "retail_pos_transactions": lambda run: run.transactions,
+    "retail_inventory_snapshot": lambda run: run.inventory,
+    "retail_product_catalog": lambda run: run.catalog,
+    "retail_sales_fact": lambda run: run.star_schema.sales_fact,
+    "retail_store_dimension": lambda run: run.star_schema.store_dimension,
+    "retail_product_dimension": lambda run: run.star_schema.product_dimension,
+    "retail_date_dimension": lambda run: run.star_schema.date_dimension,
+    "retail_demand_features": lambda run: run.demand_features,
+    "retail_demand_forecast": lambda run: run.forecasts,
+    "retail_personalized_offers": lambda run: run.offers,
+    "retail_kpi_mart": lambda run: run.kpis,
+}
+
+
+def _dataset_payload(run: RetailDemoRun, identifier: str) -> list[Mapping[str, Any]]:
+    """Return the in-memory records for a dataset from the cached run."""
+
+    extractor = _DATASET_EXTRACTORS.get(identifier)
+    if not extractor:
+        return []
+    payload = extractor(run)
+    if isinstance(payload, list):
+        return payload
+    return list(payload)
+
+
+def _retail_dataset_catalog(run: RetailDemoRun) -> list[dict[str, Any]]:
+    """Summarise dataset metadata, lineage, and quick stats for the overview page."""
+
+    catalog: list[dict[str, Any]] = []
+    for dataset in RETAIL_DATASETS.values():
+        product = RETAIL_DATA_PRODUCTS.get(dataset.data_product_id or "")
+        payload = _dataset_payload(run, dataset.identifier)
+        dependencies = [
+            {
+                "identifier": dep,
+                "anchor": f"dataset-{dep}",
+            }
+            for dep in dataset.dependencies
+        ]
+        catalog.append(
+            {
+                "identifier": dataset.identifier,
+                "anchor": f"dataset-{dataset.identifier}",
+                "kind": dataset.kind,
+                "description": dataset.description,
+                "data_product": (
+                    {
+                        "identifier": product.identifier,
+                        "name": product.name,
+                        "anchor": f"product-{product.identifier}",
+                    }
+                    if product
+                    else None
+                ),
+                "output_port": dataset.output_port,
+                "contract_id": dataset.contract_id,
+                "contract_anchor": f"contract-{dataset.contract_id}",
+                "dependencies": dependencies,
+                "internal": dataset.internal,
+                "row_count": len(payload),
+            }
+        )
+    catalog.sort(key=lambda item: (item.get("data_product", {}).get("name", ""), item["identifier"]))
+    return catalog
+
+
+def _retail_contract_cards() -> list[dict[str, Any]]:
+    """Aggregate contracts touched by the retail demo with dataset references."""
+
+    grouped: defaultdict[str, list[str]] = defaultdict(list)
+    for dataset in RETAIL_DATASETS.values():
+        grouped[dataset.contract_id].append(dataset.identifier)
+    cards: list[dict[str, Any]] = []
+    for contract_id, dataset_ids in grouped.items():
+        product_ids = sorted(
+            {
+                RETAIL_DATASETS[dataset_id].data_product_id
+                for dataset_id in dataset_ids
+                if RETAIL_DATASETS[dataset_id].data_product_id
+            }
+        )
+        cards.append(
+            {
+                "contract_id": contract_id,
+                "anchor": f"contract-{contract_id}",
+                "dataset_ids": sorted(dataset_ids),
+                "dataset_count": len(dataset_ids),
+                "kinds": sorted(
+                    {RETAIL_DATASETS[dataset_id].kind for dataset_id in dataset_ids}
+                ),
+                "product_refs": [
+                    {
+                        "identifier": pid,
+                        "name": RETAIL_DATA_PRODUCTS.get(pid).name
+                        if pid and RETAIL_DATA_PRODUCTS.get(pid)
+                        else pid,
+                        "anchor": f"product-{pid}" if pid else None,
+                    }
+                    for pid in product_ids
+                ],
+            }
+        )
+    cards.sort(key=lambda item: item["contract_id"])
     return cards
 
 
@@ -293,14 +407,26 @@ async def redirect_data_products() -> RedirectResponse:
 async def retail_demo_overview(request: Request) -> HTMLResponse:
     run = _retail_demo_run_cached()
     metrics = [_format_metric_card(metric) for metric in run.kpis[:3]]
+    message = request.query_params.get("msg")
     context = {
         "request": request,
         "products": _product_cards(),
         "store_cards": _store_offer_cards(run),
         "kpi_preview": metrics,
         "business_date": _retail_business_date(run),
+        "dataset_catalog": _retail_dataset_catalog(run),
+        "contract_cards": _retail_contract_cards(),
+        "message": message,
     }
     return templates.TemplateResponse("retail_overview.html", context)
+
+
+@app.post("/retail-demo/run", response_class=HTMLResponse)
+async def retail_demo_rerun() -> HTMLResponse:
+    global _RETAIL_RUN
+    _RETAIL_RUN = await asyncio.to_thread(run_retail_demo)
+    params = urlencode({"msg": "Retail demo pipeline refreshed."})
+    return RedirectResponse(url=f"/retail-demo?{params}", status_code=303)
 
 
 @app.get("/retail-demo/activation", response_class=HTMLResponse)

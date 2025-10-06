@@ -221,7 +221,7 @@ RETAIL_DATA_PRODUCTS: Mapping[str, RetailDataProduct] = {
             "retail_product_catalog",
         ),
         owner="store-operations",
-        tags=("bronze", "operational"),
+        tags=("source", "operational"),
     ),
     "dp.retail-insights": RetailDataProduct(
         identifier="dp.retail-insights",
@@ -239,7 +239,7 @@ RETAIL_DATA_PRODUCTS: Mapping[str, RetailDataProduct] = {
             "retail_date_dimension",
         ),
         owner="retail-intelligence",
-        tags=("silver", "analytics"),
+        tags=("modelled", "analytics"),
     ),
     "dp.retail-intelligence": RetailDataProduct(
         identifier="dp.retail-intelligence",
@@ -252,7 +252,7 @@ RETAIL_DATA_PRODUCTS: Mapping[str, RetailDataProduct] = {
         ),
         outputs=("retail_demand_features", "retail_demand_forecast"),
         owner="retail-ml",
-        tags=("ml", "prediction"),
+        tags=("ml", "features"),
     ),
     "dp.retail-experience": RetailDataProduct(
         identifier="dp.retail-experience",
@@ -265,7 +265,7 @@ RETAIL_DATA_PRODUCTS: Mapping[str, RetailDataProduct] = {
         ),
         outputs=("retail_personalized_offers",),
         owner="retail-marketing",
-        tags=("gold", "consumer"),
+        tags=("consumer", "activation"),
     ),
     "dp.retail-analytics": RetailDataProduct(
         identifier="dp.retail-analytics",
@@ -280,7 +280,7 @@ RETAIL_DATA_PRODUCTS: Mapping[str, RetailDataProduct] = {
         ),
         outputs=("retail_kpi_mart",),
         owner="finance-analytics",
-        tags=("platinum", "kpi"),
+        tags=("aggregated", "semantic"),
     ),
 }
 

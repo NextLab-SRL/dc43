@@ -10,6 +10,9 @@
   sample fixtures, a linear demand forecaster, documentation, and a UI scenario linking the assets.
 - Altair Retail UI pages that simulate a marketing activation planner and executive dashboard fed
   by the packaged datasets.
+- Altair Retail overview card that re-runs the demo pipeline, embeds a runnable Python snippet,
+  illustrates the end-to-end flow with Mermaid, and surfaces catalog crosslinks for products,
+  datasets, and contracts directly from the page.
 
 ### Changed
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
@@ -19,3 +22,5 @@
 - Altair Retail demo restructured into foundation, star schema, intelligence, experience, and
   analytics data products with internal feature stores, star-schema contracts, and updated UI
   guidance, now exposed via a dedicated navigation entry instead of a pipeline scenario.
+- Altair Retail data product tags now emphasise source, modelled, ML, consumer, and aggregated
+  personas instead of medallion labels to avoid confusion with the contracts medallion view.

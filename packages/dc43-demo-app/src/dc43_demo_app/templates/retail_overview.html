@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
+{% if message %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+  {{ message }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endif %}
 <div class="row align-items-center mb-4">
   <div class="col-lg-8">
     <h1 class="display-5 fw-semibold mb-3">Altair Retail data product suite</h1>
@@ -34,10 +40,64 @@
   </div>
 </div>
 
+<div class="row g-4 mb-5">
+  <div class="col-lg-5">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <h2 class="h5">Run the Altair Retail pipeline</h2>
+        <p class="mb-3">The fixtures on this page are cached from the latest demo run. Trigger a new
+          execution to reload the operational sources, rebuild the star schema, score the
+          demand model, and publish the downstream assets.</p>
+        <ol class="small ps-3 mb-3">
+          <li>Load operational sources (`retail_pos_transactions`, `retail_inventory_snapshot`, `retail_product_catalog`).</li>
+          <li>Assemble the modelled snowflake schema (`retail_sales_fact` plus dimensions).</li>
+          <li>Engineer ML features and forecast demand.</li>
+          <li>Publish marketing offers and aggregate the KPI mart.</li>
+        </ol>
+        <form method="post" action="/retail-demo/run" class="d-flex align-items-center gap-3 flex-wrap">
+          <button type="submit" class="btn btn-success">Re-run demo pipeline</button>
+          <span class="small text-muted">Caches refresh instantly with the packaged sample data.</span>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card h-100 shadow-sm border-0">
+      <div class="card-body">
+        <h2 class="h5">Sample code</h2>
+        <p class="small text-muted">Recreate the walkthrough in notebooks or scripts with the bundled helpers.</p>
+        <pre class="mb-0"><code class="language-python">from dc43_demo_app.retail_demo import run_retail_demo
+
+run = run_retail_demo()
+print(f"Business date: {run.kpis[0]['business_date']}")
+print(f"Sales fact rows: {len(run.star_schema.sales_fact)}")
+print(f"Forecast outputs: {len(run.forecasts)}")
+for metric in run.kpis:
+    print(metric["metric_id"], metric["value"])</code></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-5">
+  <div class="card-body">
+    <h2 class="h5">Flow at a glance</h2>
+    <p class="small text-muted">Each block represents a data product boundary. Internal datasets stay inside the
+      product while exposed ports are surfaced downstream.</p>
+    <div class="mermaid">
+graph LR
+  A["Retail operational foundation<br/>Source feeds"] --> B["Retail star schema<br/>Modelled data"]
+  B --> C["Retail demand intelligence<br/>ML features &amp; forecasts"]
+  C --> D["Customer experience<br/>Marketing activation"]
+  B --> E["Executive KPI mart<br/>Aggregated analytics"]
+    </div>
+  </div>
+</div>
+
 <h2 class="h4 mb-3">Data products in the walkthrough</h2>
 <div class="row row-cols-1 row-cols-lg-2 g-4">
   {% for product in products %}
-  <div class="col">
+  <div class="col" id="{{ product.anchor }}">
     <div class="card h-100 shadow-sm border-0">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start mb-2">
@@ -52,6 +112,7 @@
           </div>
         </div>
         <p class="mb-3">{{ product.summary }}</p>
+        <div class="mb-2 small text-muted">Owner: {{ product.owner.replace('-', ' ') | title }}</div>
         {% if product.inputs %}
         <div class="mb-2">
           <div class="text-muted small text-uppercase">Inputs</div>
@@ -66,6 +127,149 @@
     </div>
   </div>
   {% endfor %}
+</div>
+
+<h2 class="h4 mt-5 mb-3">Catalog crosslinks</h2>
+<p class="text-muted">Jump between data products, datasets, and contracts without leaving the walkthrough.</p>
+<ul class="nav nav-tabs" id="catalogTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="catalog-products-tab" data-bs-toggle="tab" data-bs-target="#catalog-products" type="button" role="tab" aria-controls="catalog-products" aria-selected="true">Data products</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="catalog-datasets-tab" data-bs-toggle="tab" data-bs-target="#catalog-datasets" type="button" role="tab" aria-controls="catalog-datasets" aria-selected="false">Datasets</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="catalog-contracts-tab" data-bs-toggle="tab" data-bs-target="#catalog-contracts" type="button" role="tab" aria-controls="catalog-contracts" aria-selected="false">Contracts</button>
+  </li>
+</ul>
+<div class="tab-content pt-3" id="catalogTabsContent">
+  <div class="tab-pane fade show active" id="catalog-products" role="tabpanel" aria-labelledby="catalog-products-tab">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th scope="col">Product</th>
+            <th scope="col">Owner</th>
+            <th scope="col">Tags</th>
+            <th scope="col">Ports</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for product in products %}
+          <tr>
+            <td>
+              <a class="fw-semibold" href="#{{ product.anchor }}">{{ product.name }}</a>
+              <div class="small text-muted">{{ product.identifier }}</div>
+            </td>
+            <td class="small">{{ product.owner.replace('-', ' ') | title }}</td>
+            <td>
+              {% for tag in product.tags %}
+              <span class="badge text-bg-light text-uppercase">{{ tag }}</span>
+              {% endfor %}
+            </td>
+            <td class="small">
+              <div><span class="text-muted text-uppercase">Inputs</span>: {{ product.inputs | join(', ') if product.inputs else 'None' }}</div>
+              <div><span class="text-muted text-uppercase">Outputs</span>: {{ product.outputs | join(', ') }}</div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tab-pane fade" id="catalog-datasets" role="tabpanel" aria-labelledby="catalog-datasets-tab">
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th scope="col">Dataset</th>
+            <th scope="col">Type</th>
+            <th scope="col">Data product</th>
+            <th scope="col">Contract</th>
+            <th scope="col">Port</th>
+            <th scope="col">Rows</th>
+            <th scope="col">Dependencies</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for dataset in dataset_catalog %}
+          <tr id="{{ dataset.anchor }}">
+            <td>
+              <span class="fw-semibold">{{ dataset.identifier }}</span>
+              <div class="small text-muted">{{ dataset.description }}</div>
+              {% if dataset.internal %}
+              <span class="badge text-bg-warning text-uppercase mt-1">Internal only</span>
+              {% endif %}
+            </td>
+            <td class="small text-uppercase">{{ dataset.kind }}</td>
+            <td class="small">
+              {% if dataset.data_product %}
+              <a href="#{{ dataset.data_product.anchor }}">{{ dataset.data_product.name }}</a>
+              <div class="text-muted">{{ dataset.data_product.identifier }}</div>
+              {% else %}
+              —
+              {% endif %}
+            </td>
+            <td class="small">
+              <a href="#{{ dataset.contract_anchor }}">{{ dataset.contract_id }}</a>
+            </td>
+            <td class="small">{{ dataset.output_port or '—' }}</td>
+            <td class="small">{{ dataset.row_count }}</td>
+            <td class="small">
+              {% if dataset.dependencies %}
+              {% for dep in dataset.dependencies %}
+              <a href="#{{ dep.anchor }}" class="d-inline-block">{{ dep.identifier }}</a>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+              {% else %}
+              None
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="tab-pane fade" id="catalog-contracts" role="tabpanel" aria-labelledby="catalog-contracts-tab">
+    <div class="row row-cols-1 row-cols-md-2 g-4">
+      {% for contract in contract_cards %}
+      <div class="col" id="{{ contract.anchor }}">
+        <div class="card h-100 shadow-sm border-0">
+          <div class="card-body">
+            <h3 class="h6 fw-semibold mb-1">{{ contract.contract_id }}</h3>
+            <div class="small text-muted mb-3">{{ contract.dataset_count }} dataset{{ 's' if contract.dataset_count != 1 else '' }} ·
+              {% for kind in contract.kinds %}<span class="badge text-bg-light text-uppercase me-1">{{ kind }}</span>{% endfor %}</div>
+            <div class="mb-3">
+              <div class="small text-muted text-uppercase mb-1">Datasets</div>
+              <ul class="list-unstyled mb-0">
+                {% for dataset_id in contract.dataset_ids %}
+                <li><a href="#dataset-{{ dataset_id }}">{{ dataset_id }}</a></li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% if contract.product_refs %}
+            <div>
+              <div class="small text-muted text-uppercase mb-1">Data products</div>
+              <ul class="list-unstyled mb-0">
+                {% for ref in contract.product_refs %}
+                <li>
+                  {% if ref.anchor %}
+                  <a href="#{{ ref.anchor }}">{{ ref.name }}</a>
+                  {% else %}
+                  {{ ref.name or ref.identifier }}
+                  {% endif %}
+                  <span class="text-muted small">({{ ref.identifier }})</span>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
 <h2 class="h4 mt-5 mb-3">Offer highlights</h2>
