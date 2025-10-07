@@ -311,6 +311,28 @@ class StreamingObservationWriter:
             expectations=self.expectation_plan,
             collect_metrics=True,
         )
+        row_count = metrics.get("row_count")
+        if isinstance(row_count, (int, float)) and row_count <= 0:
+            logger.debug(
+                "Skipping empty streaming batch %s for %s@%s",
+                batch_id,
+                self.dataset_id,
+                self.dataset_version,
+            )
+            self._latest_batch_id = batch_id
+            validation = self._validation
+            if validation is None:
+                validation = ValidationResult(ok=True, errors=[], warnings=[])
+            validation.merge_details(
+                {
+                    "dataset_id": self.dataset_id,
+                    "dataset_version": self.dataset_version,
+                    "streaming_batch_id": batch_id,
+                }
+            )
+            self._validation = validation
+            return validation
+
         result = _evaluate_with_service(
             contract=self.contract,
             service=self.data_quality_service,

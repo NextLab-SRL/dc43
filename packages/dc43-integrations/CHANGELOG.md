@@ -48,3 +48,6 @@
   before executing so contract-enforced data product registrations succeed without
   triggering spurious "file not found" failures, and `write_to_data_product`
   accepts explicit contract identifiers for the final stage of DP pipelines.
+- Streaming observation writers skip empty micro-batches instead of overwriting
+  the previous validation payload, so governance metrics (e.g., `row_count`) and
+  intervention reasons remain visible after queries drain or stop.
