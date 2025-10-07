@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
 
 try:  # pragma: no cover - optional dependency at runtime
     from pyspark.sql import DataFrame
@@ -13,6 +13,10 @@ except Exception:  # pragma: no cover
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43_service_clients.data_quality import ValidationResult
+
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .io import StreamingObservationWriter
 
 
 def _merge_pipeline_context(
@@ -29,6 +33,21 @@ def _merge_pipeline_context(
     return combined or None
 
 
+def _clone_validation_result(result: ValidationResult) -> ValidationResult:
+    """Return a shallow copy of ``result`` suitable for reuse."""
+
+    return ValidationResult(
+        ok=result.ok,
+        errors=list(result.errors),
+        warnings=list(result.warnings),
+        metrics=dict(result.metrics),
+        schema=dict(result.schema),
+        status=result.status,
+        reason=result.reason,
+        details=result.details,
+    )
+
+
 @dataclass
 class WriteRequest:
     """Description of a single write operation produced by a strategy."""
@@ -42,9 +61,11 @@ class WriteRequest:
     contract: Optional[OpenDataContractStandard]
     dataset_id: Optional[str]
     dataset_version: Optional[str]
+    streaming: bool = False
     validation_factory: Optional[Callable[[], ValidationResult]] = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
     pipeline_context: Optional[Mapping[str, Any]] = None
+    streaming_observation_writer: Optional["StreamingObservationWriter"] = None
 
 
 @dataclass
@@ -74,6 +95,8 @@ class WriteStrategyContext:
     revalidate: Callable[[DataFrame], ValidationResult]
     expectation_predicates: Mapping[str, str]
     pipeline_context: Optional[Mapping[str, Any]] = None
+    streaming: bool = False
+    streaming_observation_writer: Optional["StreamingObservationWriter"] = None
 
     def base_request(
         self,
@@ -86,7 +109,13 @@ class WriteStrategyContext:
 
         factory = validation_factory
         if factory is None:
-            factory = lambda: self.revalidate(self.aligned_df)
+            if self.streaming:
+                if self.streaming_observation_writer is not None:
+                    factory = lambda: self.validation
+                else:
+                    factory = lambda: _clone_validation_result(self.validation)
+            else:
+                factory = lambda: self.revalidate(self.aligned_df)
 
         return WriteRequest(
             df=self.aligned_df,
@@ -98,12 +127,14 @@ class WriteStrategyContext:
             contract=self.contract,
             dataset_id=self.dataset_id,
             dataset_version=self.dataset_version,
+            streaming=self.streaming,
             validation_factory=factory,
             warnings=tuple(warnings) if warnings is not None else tuple(self.validation.warnings),
             pipeline_context=_merge_pipeline_context(
                 self.pipeline_context,
                 pipeline_context,
             ),
+            streaming_observation_writer=self.streaming_observation_writer,
         )
 
 
@@ -186,6 +217,12 @@ class SplitWriteViolationStrategy:
         if not has_violations:
             return WritePlan(primary=context.base_request())
 
+        if context.streaming:
+            # Structured streaming pipelines do not support the synchronous
+            # dataframe actions required to materialise split subsets.  Fallback
+            # to the default behaviour so the write can proceed.
+            return WritePlan(primary=context.base_request())
+
         predicates = list(context.expectation_predicates.values())
         if not predicates:
             # Nothing to split on – fall back to the default behaviour.
@@ -226,6 +263,7 @@ class SplitWriteViolationStrategy:
                         context.pipeline_context,
                         {"subset": self.valid_suffix},
                     ),
+                    streaming_observation_writer=context.streaming_observation_writer,
                 )
 
         if self.include_reject:
@@ -252,6 +290,7 @@ class SplitWriteViolationStrategy:
                         context.pipeline_context,
                         {"subset": self.reject_suffix},
                     ),
+                    streaming_observation_writer=context.streaming_observation_writer,
                 )
 
         for message in warnings:

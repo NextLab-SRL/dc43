@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 ### Added
+- Added explicit streaming read/write helpers (``read_stream_with_contract``,
+  ``read_stream_from_contract``, ``read_stream_from_data_product``,
+  ``write_stream_with_contract``, and ``write_stream_to_data_product``) so
+  Structured Streaming jobs can enforce contracts via
+  ``readStream``/``writeStream`` while still invoking the data-quality service
+  and governance catalogue (metrics are deferred but schema observations
+  continue to flow). Documentation now demonstrates capturing the resulting
+  ``StreamingQuery`` handles and the integration tests cover both read and
+  write pipelines.
+- Streaming validations now surface the ``dataset_id`` and ``dataset_version``
+  submitted to governance so micro-batch monitors can inspect the active
+  snapshot and request asynchronous metric computation when necessary.
+- Streaming writes launch an auxiliary ``foreachBatch`` metrics collector so
+  contract expectations compute Spark metrics per micro-batch, feed the
+  data-quality service, and update the returned validation payloads while the
+  primary sink continues to run.
+- Streaming writes now rely on a dedicated ``StreamingObservationWriter`` that
+  avoids shared-state locking, exposes optional ``StreamingInterventionStrategy``
+  hooks to block or reroute pipelines after repeated issues, and ships
+  convenience wrappers (``read_stream_with_contract`` /
+  ``write_stream_with_contract``) to separate batch and streaming flows in
+  caller code.
 - Enforced Open Data Contract status guardrails in the Spark read/write helpers with
   configurable policies that default to rejecting non-active contracts and expose
   overrides through the existing read and write strategies.
