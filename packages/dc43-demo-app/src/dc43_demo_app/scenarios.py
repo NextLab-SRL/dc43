@@ -2377,13 +2377,18 @@ def run_split_invalid_rows(
         "label": "Streaming: healthy pipeline",
         "category": "streaming",
         "description": (
-            "<p>Drive the Structured Streaming helpers through a positive run "
-            "where every micro-batch passes contract validation and the "
-            "dataset registry records continuous versions.</p>"
+            "<p>Run a continuous integration-style job that keeps <code>demo.streaming.events_processed</code>"
+            " in sync with the synthetic <code>demo.streaming.events</code> feed.</p>"
+            "<ul>"
+            "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) emits 6 timestamp/value rows per second</li>"
+            "<li><strong>Processing:</strong> adds a constant <code>quality_flag='valid'</code> and validates every micro-batch</li>"
+            "<li><strong>Output:</strong> <code>demo.streaming.events_processed</code> (0.1.0) records a fresh dataset version with metrics</li>"
+            "<li><strong>Run length:</strong> roughly eight seconds so at least one non-empty batch is observed</li>"
+            "</ul>"
         ),
         "params": {
             "mode": "streaming",
-            "seconds": 5,
+            "seconds": 8,
             "dataset_name": "demo.streaming.events_processed",
             "contract_id": "demo.streaming.events_processed",
             "contract_version": "0.1.0",
@@ -2412,6 +2417,8 @@ def run_split_invalid_rows(
                       without blocking the sink.</li>
                   <li>Dataset versions surfaced in the governance response so
                       downstream systems can poll status for each batch.</li>
+                  <li>Timeline visualisation summarising the streaming source,
+                      validation heartbeat, and captured metrics.</li>
                 </ul>
                 """,
             ),
@@ -2422,7 +2429,7 @@ from dc43_demo_app.streaming import run_streaming_scenario
 
 dataset, version = run_streaming_scenario(
     "streaming-valid",
-    seconds=5,
+    seconds=8,
     run_type="observe",
 )
 print(f"published {dataset}@{version}")
@@ -2434,13 +2441,18 @@ print(f"published {dataset}@{version}")
         "label": "Streaming: rejects without blocking",
         "category": "streaming",
         "description": (
-            "<p>Introduce negative values so the validation reports contract "
-            "violations while the run continues and quarantines rejects in a "
-            "separate sink.</p>"
+            "<p>Stress the validators by flipping every fourth row negative so governance tracks warnings while the "
+            "pipeline keeps publishing.</p>"
+            "<ul>"
+            "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) keeps emitting 6 rows per second</li>"
+            "<li><strong>Processing:</strong> negative values are labelled <code>quality_flag='warning'</code> and routed to rejects</li>"
+            "<li><strong>Outputs:</strong> <code>demo.streaming.events_processed</code> (warn) plus <code>demo.streaming.events_rejects</code> with reasons</li>"
+            "<li><strong>Run length:</strong> around eight seconds to capture at least one violating batch</li>"
+            "</ul>"
         ),
         "params": {
             "mode": "streaming",
-            "seconds": 5,
+            "seconds": 8,
             "dataset_name": "demo.streaming.events_processed",
             "contract_id": "demo.streaming.events_processed",
             "contract_version": "0.1.0",
@@ -2469,6 +2481,8 @@ print(f"published {dataset}@{version}")
                       column.</li>
                   <li>The validation payload summarises both sinks so operators
                       see where the rows went.</li>
+                  <li>The scenario timeline highlights when the rejects kicked
+                      in and how many rows were quarantined.</li>
                 </ul>
                 """,
             ),
@@ -2479,7 +2493,7 @@ from dc43_demo_app.streaming import run_streaming_scenario
 
 dataset, version = run_streaming_scenario(
     "streaming-dq-rejects",
-    seconds=5,
+    seconds=8,
     run_type="observe",
 )
 print(f"latest governed run: {dataset}@{version}")
@@ -2491,8 +2505,13 @@ print(f"latest governed run: {dataset}@{version}")
         "label": "Streaming: schema break blocks the run",
         "category": "streaming",
         "description": (
-            "<p>Drop a required column to show how schema drift causes an "
-            "immediate validation failure with no dataset version produced.</p>"
+            "<p>Simulate schema drift by removing the <code>value</code> column so the streaming helper blocks the publish.</p>"
+            "<ul>"
+            "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) still delivers timestamp/value pairs</li>"
+            "<li><strong>Processing:</strong> the transformation drops <code>value</code>, violating the processed contract</li>"
+            "<li><strong>Outcome:</strong> validation raises an error immediately and no dataset version is recorded</li>"
+            "<li><strong>Run length:</strong> a short three-second burst to showcase the failure</li>"
+            "</ul>"
         ),
         "params": {
             "mode": "streaming",

@@ -39,14 +39,14 @@ workshops.
 Select **Streaming: healthy pipeline** and run the scenario. The demo app uses
 `read_stream_with_contract` to attach governance to Spark’s `rate` source and
 `write_stream_with_contract` to persist the aligned stream under the
-`demo.streaming.events_processed` contract. Validation stays enabled for every
-micro-batch, the observation writer collects metrics such as `row_count`, and
-the dataset record highlights the governed version alongside the active
-`StreamingQuery` metadata.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L102-L156】【F:packages/dc43-demo-app/src/dc43_demo_app/scenarios.py†L2004-L2033】
+`demo.streaming.events_processed` contract. The synthetic source emits six
+rows per second across a single partition; after roughly eight seconds the
+timeline card shows the source heartbeat and the validation pass that captured
+metrics such as `row_count` and the latest streaming batch id.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L104-L178】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L36-L72】
 
 The dataset history panel now lists a fresh version with status `ok`. Expanding
-the DQ details reveals the metrics captured for the latest batch and the schema
-snapshot sent to governance.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L120-L154】
+the DQ details or the timeline reveals the schema snapshot sent to governance
+and confirms that no expectations recorded violations.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L146-L178】
 
 ## Scenario 2 – violations trigger reject routing
 
@@ -55,19 +55,20 @@ row. The main write keeps streaming even though validation records violations;
 `enforce=False` downgrades the status to `warn` while still publishing metrics
 and errors. A secondary streaming write filters the negative rows into the
 `demo.streaming.events_rejects` contract so remediation teams can triage them
-without losing the rest of the feed.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L158-L215】
+without losing the rest of the feed.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】
 
 After the run completes, the dataset record shows the warning status, the
 captured violations, and the reject sink metadata including the number of rows
-quarantined for that micro-batch.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L205-L215】
+quarantined for that micro-batch. The timeline panel highlights when the reject
+sink activated and how many rows were quarantined for the latest batch.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L244-L256】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L130-L162】
 
 ## Scenario 3 – schema breaks block the stream
 
 The **Streaming: schema break blocks the run** example drops a required column
 before writing. Validation fails immediately, no `StreamingQuery` is started,
 and the dataset record stores the failure reason without assigning a dataset
-version. This mirrors the production behaviour where enforcement keeps the
-catalogue consistent with the actual materialised data.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L217-L272】
+version. The timeline makes the failure easy to spot by calling out the schema
+violation alongside the captured error message.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L258-L333】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L130-L162】
 
 ## Driving scenarios from code
 
@@ -77,8 +78,8 @@ suites or demonstrations:
 ```python
 from dc43_demo_app.streaming import run_streaming_scenario
 
-run_streaming_scenario("streaming-valid", seconds=5, run_type="observe")
-run_streaming_scenario("streaming-dq-rejects", seconds=5, run_type="observe")
+run_streaming_scenario("streaming-valid", seconds=8, run_type="observe")
+run_streaming_scenario("streaming-dq-rejects", seconds=8, run_type="observe")
 run_streaming_scenario("streaming-schema-break", seconds=3, run_type="enforce")
 ```
 

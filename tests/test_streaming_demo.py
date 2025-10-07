@@ -20,12 +20,21 @@ def test_streaming_scenarios_record_dataset_runs():
     prepare_demo_workspace()
     original = load_records()
     try:
-        dataset, version = run_streaming_scenario("streaming-valid", seconds=1, run_type="observe")
+        dataset, version = run_streaming_scenario("streaming-valid", seconds=2, run_type="observe")
         assert dataset == "demo.streaming.events_processed"
         assert version
         records = [r for r in load_records() if r.scenario_key == "streaming-valid"]
         assert records
         assert records[-1].status == "ok"
+        timeline = records[-1].dq_details.get("timeline") if records[-1].dq_details else []
+        assert timeline, "expected streaming timeline entries"
+        validation_event = next(
+            (event for event in timeline if event.get("phase") == "Validation"),
+            None,
+        )
+        assert validation_event
+        metrics = validation_event.get("metrics") or {}
+        assert metrics.get("row_count", 0) > 0
 
         _, error_version = run_streaming_scenario("streaming-schema-break", seconds=0, run_type="enforce")
         error_records = [r for r in load_records() if r.scenario_key == "streaming-schema-break"]

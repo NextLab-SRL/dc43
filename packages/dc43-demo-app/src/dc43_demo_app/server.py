@@ -794,6 +794,13 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
                 if key == "output":
                     continue
                 input_payloads.append({"name": key, "payload": payload})
+        timeline: list[Mapping[str, Any]] = []
+        if isinstance(dq_details, Mapping):
+            candidate = dq_details.get("timeline")
+            if isinstance(candidate, list):
+                timeline = [
+                    item for item in candidate if isinstance(item, Mapping)
+                ]
 
         history_entries.append(
             {
@@ -803,11 +810,21 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
                 "schema_errors": schema_errors,
                 "dq_aux": dq_aux,
                 "input_payloads": input_payloads,
+                "timeline": timeline,
             }
         )
 
     params_cfg = scenario_cfg.get("params", {})
     latest_record = scenario_row.get("latest")
+    latest_timeline: list[Mapping[str, Any]] = []
+    if isinstance(latest_record, Mapping):
+        latest_dq = latest_record.get("dq_details")
+        if isinstance(latest_dq, Mapping):
+            candidate = latest_dq.get("timeline")
+            if isinstance(candidate, list):
+                latest_timeline = [
+                    item for item in candidate if isinstance(item, Mapping)
+                ]
     category_key = scenario_row.get("category", "contract")
     category_label = CATEGORY_LABELS.get(
         category_key, category_key.replace("-", " ").title()
@@ -822,6 +839,7 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         "history_entries": history_entries,
         "has_history": bool(history_entries),
         "dataset_name": dataset_name,
+        "latest_timeline": latest_timeline,
         "category_label": category_label,
         "guide_sections": scenario_cfg.get("guide", []),
         "scenario_params": params_cfg,
