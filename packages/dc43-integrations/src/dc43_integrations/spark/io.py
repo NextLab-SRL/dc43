@@ -3026,6 +3026,7 @@ def write_to_data_product(
     df: DataFrame,
     data_product_service: DataProductServiceClient,
     data_product_output: DataProductOutputBinding | Mapping[str, object],
+    contract_id: Optional[str] = None,
     contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
@@ -3046,6 +3047,7 @@ def write_to_data_product(
 
     return write_with_contract(
         df=df,
+        contract_id=contract_id,
         contract_service=contract_service,
         expected_contract_version=expected_contract_version,
         data_product_service=data_product_service,
@@ -3071,6 +3073,7 @@ def write_stream_to_data_product(
     df: DataFrame,
     data_product_service: DataProductServiceClient,
     data_product_output: DataProductOutputBinding | Mapping[str, object],
+    contract_id: Optional[str] = None,
     contract_service: Optional[ContractServiceClient] = None,
     expected_contract_version: Optional[str] = None,
     path: Optional[str] = None,
@@ -3092,6 +3095,7 @@ def write_stream_to_data_product(
 
     return write_stream_with_contract(
         df=df,
+        contract_id=contract_id,
         contract_service=contract_service,
         expected_contract_version=expected_contract_version,
         data_product_service=data_product_service,
@@ -3139,6 +3143,14 @@ def _execute_write_request(
         observation_writer.attach_validation(validation)
 
     if request.streaming:
+        metrics_query = None
+        if observation_writer is not None and not observation_writer.active:
+            metrics_mode = request.mode or "append"
+            metrics_query = observation_writer.start(
+                df_to_write,
+                output_mode=metrics_mode,
+            )
+
         writer = df_to_write.writeStream
         if request.format:
             writer = writer.format(request.format)
@@ -3161,12 +3173,7 @@ def _execute_write_request(
                 streaming_query = writer.start()
                 streaming_handles.append(streaming_query)
 
-        if observation_writer is not None and not observation_writer.active:
-            metrics_mode = request.mode or "append"
-            metrics_query = observation_writer.start(
-                df_to_write,
-                output_mode=metrics_mode,
-            )
+        if metrics_query is not None:
             streaming_handles.append(metrics_query)
     else:
         writer = df_to_write.write
