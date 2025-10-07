@@ -246,13 +246,23 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
     assert len(dq.payloads) >= 1
     queries = result.details.get("streaming_queries") or []
     assert len(queries) == 2
-    for handle in queries:
-        handle.processAllAvailable()
+    deadline = time.time() + 10
+    batch_payload: ObservationPayload | None = None
+    while time.time() < deadline:
+        for handle in queries:
+            handle.processAllAvailable()
+        if len(dq.payloads) >= 2:
+            candidate = dq.payloads[-1]
+            if candidate.metrics.get("row_count", 0) > 0:
+                batch_payload = candidate
+                break
+        time.sleep(0.2)
+
     for handle in queries:
         handle.stop()
 
     assert len(dq.payloads) >= 2
-    batch_payload = dq.payloads[-1]
+    assert batch_payload is not None
     assert batch_payload.metrics
     assert batch_payload.metrics.get("row_count", 0) > 0
 
@@ -323,9 +333,10 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
     metrics_query = next(q for q in queries if "dc43_metrics" in (q.name or ""))
     sink_query = next(q for q in queries if q is not metrics_query)
 
-    sink_query.processAllAvailable()
+    deadline = time.time() + 10
     reason: str | None = None
-    for _ in range(5):
+    while time.time() < deadline and reason is None:
+        sink_query.processAllAvailable()
         try:
             metrics_query.processAllAvailable()
         except StreamingQueryException:
