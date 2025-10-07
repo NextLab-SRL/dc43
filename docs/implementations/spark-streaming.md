@@ -29,6 +29,10 @@ the pipeline, surface warnings, or trigger alternative routing (for example by
 switching over to a rejection sink).  The default implementation never blocks,
 preserving the previous behaviour when no strategy is supplied.
 
+See [the streaming contract scenarios walkthrough](../tutorials/spark-streaming-scenarios.md)
+for end-to-end examples that drive the helpers through healthy runs, rejecting
+bad records, and halting on schema drift.
+
 ```python
 from pyspark.sql import SparkSession
 from dc43_service_backends.contracts.backend.stores import FSContractStore

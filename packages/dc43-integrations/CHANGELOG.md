@@ -18,6 +18,9 @@
   contract expectations compute Spark metrics per micro-batch, feed the
   data-quality service, and update the returned validation payloads while the
   primary sink continues to run.
+- Added a streaming scenarios walkthrough and executable example script that
+  demonstrate continuous validation, reject routing, and schema break handling
+  for Structured Streaming pipelines.
 - Streaming writes now rely on a dedicated ``StreamingObservationWriter`` that
   avoids shared-state locking, exposes optional ``StreamingInterventionStrategy``
   hooks to block or reroute pipelines after repeated issues, and ships
