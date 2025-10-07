@@ -2575,9 +2575,22 @@ class BaseWriteExecutor:
                             )
                     if override_note:
                         primary_details.setdefault("warnings", []).append(override_note)
+                        primary_details.setdefault("overrides", []).append(override_note)
                         primary_status.warnings.append(override_note)
+                        primary_details.setdefault(
+                            "status_before_override",
+                            original_status,
+                        )
                         primary_status.status = "warn"
+                        primary_details["status"] = "warn"
                     if primary_entry is not None:
+                        primary_entry["status"] = primary_status.status
+                        entry_details = dict(primary_entry.get("details") or {})
+                        for key, value in primary_details.items():
+                            if key == "auxiliary_statuses":
+                                continue
+                            entry_details[key] = value
+                        primary_entry["details"] = entry_details
                         primary_details.setdefault("dataset_id", primary_entry.get("dataset_id"))
                         primary_details.setdefault("dataset_version", primary_entry.get("dataset_version"))
                     primary_status.details = primary_details
