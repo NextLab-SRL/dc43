@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 ### Added
+- Structured Streaming scenarios that demonstrate contract-enforced reads and
+  writes directly inside the pipeline demo, plus a `dc43_demo_app.streaming`
+  helper for triggering the healthy, reject-routing, and schema-drift flows
+  from code.
 - Draft `orders_enriched:3.0.0` contract and curated demo scenario that boosts low amounts,
   stamps placeholder customer segments, and logs contract-status overrides when drafts are allowed.
 - Contract status enforcement hooks in the demo pipeline with metadata describing the active policy

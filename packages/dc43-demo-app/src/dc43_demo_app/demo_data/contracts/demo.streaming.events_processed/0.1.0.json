@@ -1,0 +1,52 @@
+{
+  "version": "0.1.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "demo.streaming.events_processed",
+  "name": "Streaming events (processed)",
+  "description": {"usage": "Validated stream output stored by the demo scenarios."},
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/demo.streaming.events_processed",
+      "format": "parquet",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "append",
+            "includePriorVersions": true,
+            "subfolder": "{version}",
+            "filePattern": "part-*.parquet"
+          }
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "events",
+      "properties": [
+        {"name": "timestamp", "physicalType": "timestamp", "required": true},
+        {
+          "name": "value",
+          "physicalType": "bigint",
+          "required": true,
+          "quality": [
+            {"mustBeGreaterOrEqualTo": 0}
+          ]
+        },
+        {
+          "name": "quality_flag",
+          "physicalType": "string",
+          "required": true,
+          "quality": [
+            {"rule": "enum", "mustBe": ["valid", "warning"]}
+          ]
+        }
+      ]
+    }
+  ]
+}

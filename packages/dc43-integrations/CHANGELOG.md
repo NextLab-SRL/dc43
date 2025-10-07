@@ -18,7 +18,7 @@
   contract expectations compute Spark metrics per micro-batch, feed the
   data-quality service, and update the returned validation payloads while the
   primary sink continues to run.
-- Added a streaming scenarios walkthrough and executable example script that
+- Added a streaming scenarios walkthrough and linked demo-application flows that
   demonstrate continuous validation, reject routing, and schema break handling
   for Structured Streaming pipelines.
 - Streaming writes now rely on a dedicated ``StreamingObservationWriter`` that
@@ -43,6 +43,8 @@
 ### Removed
 - Removed the Databricks `UnityCatalogPublisher` wrapper now that Unity Catalog
   tagging is handled transparently by the governance backend configuration.
+- Removed the standalone `streaming_contract_scenarios.py` example script; the
+  demo application now hosts the streaming walkthrough.
 
 ### Fixed
 - `StrictWriteViolationStrategy` now reuses the wrapped strategy's contract status

@@ -2373,6 +2373,166 @@ def run_split_invalid_rows(
             ),
         ],
     },
+    "streaming-valid": {
+        "label": "Streaming: healthy pipeline",
+        "category": "streaming",
+        "description": (
+            "<p>Drive the Structured Streaming helpers through a positive run "
+            "where every micro-batch passes contract validation and the "
+            "dataset registry records continuous versions.</p>"
+        ),
+        "params": {
+            "mode": "streaming",
+            "seconds": 5,
+            "dataset_name": "demo.streaming.events_processed",
+            "contract_id": "demo.streaming.events_processed",
+            "contract_version": "0.1.0",
+            "run_type": "observe",
+        },
+        "guide": [
+            _section(
+                "What this example shows",
+                """
+                <p>
+                  The scenario reads from <code>demo.streaming.events</code>,
+                  writes to the processed contract, and lets the observation
+                  writer collect contract metrics for every micro-batch. The
+                  returned validation exposes the dataset version and the
+                  <code>StreamingQuery</code> handles that produced it.
+                </p>
+                """,
+            ),
+            _section(
+                "Feature focus",
+                """
+                <ul>
+                  <li>Contract-aware <code>readStream</code> with schema checks
+                      and governance registration.</li>
+                  <li>Streaming observation writer feeding contract metrics
+                      without blocking the sink.</li>
+                  <li>Dataset versions surfaced in the governance response so
+                      downstream systems can poll status for each batch.</li>
+                </ul>
+                """,
+            ),
+            _code_section(
+                "Run it programmatically",
+                """
+from dc43_demo_app.streaming import run_streaming_scenario
+
+dataset, version = run_streaming_scenario(
+    "streaming-valid",
+    seconds=5,
+    run_type="observe",
+)
+print(f"published {dataset}@{version}")
+                """,
+            ),
+        ],
+    },
+    "streaming-dq-rejects": {
+        "label": "Streaming: rejects without blocking",
+        "category": "streaming",
+        "description": (
+            "<p>Introduce negative values so the validation reports contract "
+            "violations while the run continues and quarantines rejects in a "
+            "separate sink.</p>"
+        ),
+        "params": {
+            "mode": "streaming",
+            "seconds": 5,
+            "dataset_name": "demo.streaming.events_processed",
+            "contract_id": "demo.streaming.events_processed",
+            "contract_version": "0.1.0",
+            "run_type": "observe",
+        },
+        "guide": [
+            _section(
+                "Why it matters",
+                """
+                <p>
+                  Even when enforcement is relaxed, the helpers keep posting
+                  observations so governance can highlight the broken batches.
+                  Meanwhile the reject sink captures the failed rows for
+                  remediation.
+                </p>
+                """,
+            ),
+            _section(
+                "What to look at",
+                """
+                <ul>
+                  <li>The processed dataset carries a <code>warn</code> status
+                      with violation metrics.</li>
+                  <li>The reject dataset lands under
+                      <code>demo.streaming.events_rejects</code> with a reason
+                      column.</li>
+                  <li>The validation payload summarises both sinks so operators
+                      see where the rows went.</li>
+                </ul>
+                """,
+            ),
+            _code_section(
+                "Route rejects programmatically",
+                """
+from dc43_demo_app.streaming import run_streaming_scenario
+
+dataset, version = run_streaming_scenario(
+    "streaming-dq-rejects",
+    seconds=5,
+    run_type="observe",
+)
+print(f"latest governed run: {dataset}@{version}")
+                """,
+            ),
+        ],
+    },
+    "streaming-schema-break": {
+        "label": "Streaming: schema break blocks the run",
+        "category": "streaming",
+        "description": (
+            "<p>Drop a required column to show how schema drift causes an "
+            "immediate validation failure with no dataset version produced.</p>"
+        ),
+        "params": {
+            "mode": "streaming",
+            "seconds": 3,
+            "dataset_name": "demo.streaming.events_processed",
+            "contract_id": "demo.streaming.events_processed",
+            "contract_version": "0.1.0",
+            "run_type": "enforce",
+        },
+        "guide": [
+            _section(
+                "Key takeaways",
+                """
+                <ul>
+                  <li>Contract alignment happens before the query starts, so the
+                      failure surfaces instantly.</li>
+                  <li>No dataset version is recorded, keeping the catalogue in
+                      sync with the actual materialised data.</li>
+                  <li>The dataset record captures the failure reason so the UI
+                      can highlight the drift.</li>
+                </ul>
+                """,
+            ),
+            _code_section(
+                "Expect a failure",
+                """
+from dc43_demo_app.streaming import run_streaming_scenario
+
+dataset, version = run_streaming_scenario(
+    "streaming-schema-break",
+    seconds=3,
+    run_type="enforce",
+)
+print(f"stream blocked: {dataset}@{version or '<no version>'}")
+                """,
+                "<p>The demo app records the error in the dataset registry so the "
+                "details page explains why nothing new was published.</p>",
+            ),
+        ],
+    },
 }
 
 __all__ = ["SCENARIOS", "_DEFAULT_SLICE", "_INVALID_SLICE"]

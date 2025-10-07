@@ -29,111 +29,26 @@ the pipeline, surface warnings, or trigger alternative routing (for example by
 switching over to a rejection sink).  The default implementation never blocks,
 preserving the previous behaviour when no strategy is supplied.
 
-See [the streaming contract scenarios walkthrough](../tutorials/spark-streaming-scenarios.md)
-for end-to-end examples that drive the helpers through healthy runs, rejecting
-bad records, and halting on schema drift.
+Explore the functionality inside the demo application: the pipeline UI exposes
+three pre-wired streaming scenarios that reuse the same helpers to showcase
+healthy runs, reject routing, and schema drift. See
+[the streaming scenarios walkthrough](../tutorials/spark-streaming-scenarios.md)
+for screenshots and an operator-focused tour.
+
+Programmatic access is exposed through ``dc43_demo_app.streaming`` so the demo
+can be exercised from unit tests or local REPL sessions:
 
 ```python
-from pyspark.sql import SparkSession
-from dc43_service_backends.contracts.backend.stores import FSContractStore
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
-from dc43_integrations.spark.io import (
-    StaticDatasetLocator,
-    StreamingInterventionContext,
-    StreamingInterventionStrategy,
-    read_stream_with_contract,
-    write_stream_with_contract,
-)
-from open_data_contract_standard.model import (
-    Description,
-    OpenDataContractStandard,
-    SchemaObject,
-    SchemaProperty,
-    Server,
-)
+from dc43_demo_app.streaming import run_streaming_scenario
 
+# Healthy pipeline that records governed dataset versions for every batch.
+run_streaming_scenario("streaming-valid", seconds=5, run_type="observe")
 
-class NoOpDQService:
-    def describe_expectations(self, *, contract):
-        return []
+# Route rejects without halting the main sink.
+run_streaming_scenario("streaming-dq-rejects", seconds=5, run_type="observe")
 
-    def evaluate(self, *, contract, payload: ObservationPayload) -> ValidationResult:
-        return ValidationResult(ok=True, metrics=payload.metrics, schema=payload.schema)
-
-
-class BlockAfterFailures(StreamingInterventionStrategy):
-    def __init__(self, *, max_failures: int = 3) -> None:
-        self._failures = 0
-        self._max_failures = max_failures
-
-    def decide(self, context: StreamingInterventionContext):
-        if not context.validation.ok:
-            self._failures += 1
-            if self._failures >= self._max_failures:
-                return (
-                    f"halt after {self._failures} failed batches for "
-                    f"{context.dataset_id}@{context.dataset_version}"
-                )
-        return None
-
-
-spark = (
-    SparkSession.builder.master("local[2]")
-    .appName("dc43-stream-demo")
-    .config("spark.ui.enabled", "false")
-    .getOrCreate()
-)
-
-contract = OpenDataContractStandard(
-    version="0.1.0",
-    kind="DataContract",
-    apiVersion="3.0.2",
-    id="demo.rate_stream",
-    name="Rate stream",
-    description=Description(usage="Streaming rate source"),
-    schema=[
-        SchemaObject(
-            name="rate",
-            properties=[
-                SchemaProperty(name="timestamp", physicalType="timestamp", required=True),
-                SchemaProperty(name="value", physicalType="bigint", required=True),
-            ],
-        )
-    ],
-    servers=[Server(server="local", type="stream", format="rate")],
-)
-
-store = FSContractStore("/tmp/contracts")
-store.put(contract)
-contract_service = LocalContractServiceClient(store)
-dq_service = NoOpDQService()
-
-stream_df, read_status = read_stream_with_contract(
-    spark=spark,
-    contract_id=contract.id,
-    contract_service=contract_service,
-    expected_contract_version=f"=={contract.version}",
-    data_quality_service=dq_service,
-    dataset_locator=StaticDatasetLocator(format="rate"),
-    options={"rowsPerSecond": "5"},
-)
-
-write_result = write_stream_with_contract(
-    df=stream_df,
-    contract_id=contract.id,
-    contract_service=contract_service,
-    expected_contract_version=f"=={contract.version}",
-    data_quality_service=dq_service,
-    dataset_locator=StaticDatasetLocator(format="memory"),
-    format="memory",
-    options={"queryName": "rate_events"},
-    streaming_intervention_strategy=BlockAfterFailures(max_failures=2),
-)
-
-for query in write_result.details["streaming_queries"]:
-    query.processAllAvailable()
-    query.stop()
+# Drop a required column to observe the schema drift failure.
+run_streaming_scenario("streaming-schema-break", seconds=3, run_type="enforce")
 ```
 
 Data-product bindings participate in the same streaming workflow: registering a

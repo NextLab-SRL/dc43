@@ -1,84 +1,86 @@
-# Spark streaming contract scenarios
+# Spark streaming scenarios in the demo app
 
-The streaming helpers introduced in `dc43_integrations.spark.io` make it possible to
-validate incoming micro-batches, forward observations to governance, and keep
-running even when a pipeline has to quarantine bad records.  The examples in
-`packages/dc43-integrations/examples/streaming_contract_scenarios.py` wire those
-pieces together and showcase three common situations for contract-first
-pipelines.
+The dc43 demo application now bundles a trio of Structured Streaming examples
+that exercise the contract-aware read/write helpers. Each scenario aligns with a
+common operations story:
+
+* **Healthy ingestion** – all micro-batches pass validation and the registry
+  records a governed dataset version for every slice.
+* **Reject routing** – contract violations are surfaced but the pipeline keeps
+  running while a secondary sink quarantines the failing rows.
+* **Schema drift** – a breaking change is detected before materialisation so no
+  dataset version is published.
+
+The walkthrough below explains how to explore the scenarios from the UI and how
+engineers can drive them programmatically when writing tests or running live
+workshops.
 
 ## Prerequisites
 
-1. Install the runtime dependencies:
+1. Install the demo application and its streaming dependencies:
 
    ```bash
    pip install pyspark==3.5.1 httpx
    pip install -e .
    ```
 
-2. Launch any of the scenarios from the repository root.  Each run builds a
-   local Spark session, writes the contract to a temporary filesystem store, and
-   prints the validation outcome together with sample records.
+2. Launch the demo stack. This starts the contracts backend, the contracts UI,
+   and the pipeline demo server in a single process:
 
    ```bash
-   python packages/dc43-integrations/examples/streaming_contract_scenarios.py <scenario>
+   python -m dc43_demo_app.runner
    ```
 
-   Replace `<scenario>` with one of the options described below (`valid`,
-   `dq-rejects`, `schema-break`, or `all`).  Use `--seconds` to control how long
-   the helper drives micro-batches for each scenario.
+3. Open the pipeline demo (defaults to http://127.0.0.1:8000) and navigate to
+   the **Streaming pipelines** section on the “Pipeline scenarios” page.
 
-## Scenario 1 – continuous validation of healthy batches
+## Scenario 1 – healthy batches remain governed
 
-The `valid` scenario connects to Spark's `rate` source through
-`read_stream_with_contract` and writes the aligned stream to the in-memory sink
-with `write_stream_with_contract`.  Every micro-batch is checked against the
-contract's expectation plan (positive, non-null values) and the observation
-writer forwards metrics such as `row_count` and `violations.non_negative_value`
-back to the data-quality client.【F:packages/dc43-integrations/examples/streaming_contract_scenarios.py†L261-L307】【5282a1†L1-L31】
+Select **Streaming: healthy pipeline** and run the scenario. The demo app uses
+`read_stream_with_contract` to attach governance to Spark’s `rate` source and
+`write_stream_with_contract` to persist the aligned stream under the
+`demo.streaming.events_processed` contract. Validation stays enabled for every
+micro-batch, the observation writer collects metrics such as `row_count`, and
+the dataset record highlights the governed version alongside the active
+`StreamingQuery` metadata.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L102-L156】【F:packages/dc43-demo-app/src/dc43_demo_app/scenarios.py†L2004-L2033】
 
-Sample output (truncated) shows the dataset version captured during the read, a
-series of metric snapshots, and the latest validation details:
+The dataset history panel now lists a fresh version with status `ok`. Expanding
+the DQ details reveals the metrics captured for the latest batch and the schema
+snapshot sent to governance.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L120-L154】
 
+## Scenario 2 – violations trigger reject routing
+
+Running **Streaming: rejects without blocking** flips the sign of every fourth
+row. The main write keeps streaming even though validation records violations;
+`enforce=False` downgrades the status to `warn` while still publishing metrics
+and errors. A secondary streaming write filters the negative rows into the
+`demo.streaming.events_rejects` contract so remediation teams can triage them
+without losing the rest of the feed.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L158-L215】
+
+After the run completes, the dataset record shows the warning status, the
+captured violations, and the reject sink metadata including the number of rows
+quarantined for that micro-batch.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L205-L215】
+
+## Scenario 3 – schema breaks block the stream
+
+The **Streaming: schema break blocks the run** example drops a required column
+before writing. Validation fails immediately, no `StreamingQuery` is started,
+and the dataset record stores the failure reason without assigning a dataset
+version. This mirrors the production behaviour where enforcement keeps the
+catalogue consistent with the actual materialised data.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L217-L272】
+
+## Driving scenarios from code
+
+The same scenarios are exposed as helpers so you can include them in regression
+suites or demonstrations:
+
+```python
+from dc43_demo_app.streaming import run_streaming_scenario
+
+run_streaming_scenario("streaming-valid", seconds=5, run_type="observe")
+run_streaming_scenario("streaming-dq-rejects", seconds=5, run_type="observe")
+run_streaming_scenario("streaming-schema-break", seconds=3, run_type="enforce")
 ```
-=== Valid streaming pipeline ===
-read dataset version: demo.rate_stream@2025-10-07T11:37:18.762882Z
-recorded micro-batches:
-  batch 3: metrics={'row_count': 24, 'violations.non_negative_value': 0, ...}
-...
-latest validation: {'ok': True, 'dataset_version': '2025-10-07T11:37:19.078593Z',
-                    'streaming_metrics': {'row_count': 4, ...}}
-```
 
-After the queries drain, the helper prints the head of the in-memory sink so you
-can confirm that the job continues to process events while staying compliant
-with the contract schema.【5282a1†L1-L33】
-
-## Scenario 2 – continue processing while routing rejects
-
-The `dq-rejects` scenario applies a transformation that inverts every fourth
-value before writing the stream.  Contract validation keeps running in
-streaming mode, but the write helper is invoked with `enforce=False` so
-violations turn into observable errors instead of stopping the pipeline.  A
-second streaming query filters negative values into a dedicated reject sink
-while the primary sink continues to receive the full dataset.【F:packages/dc43-integrations/examples/streaming_contract_scenarios.py†L309-L372】
-
-As the observation writer evaluates each micro-batch, the data-quality stub logs
-metrics such as `violations.non_negative_value` and retains the latest
-validation payload.  The printed summary highlights the accumulated errors and
-reports how many rows were captured in the reject table alongside an excerpt of
-those rejected records.【F:packages/dc43-integrations/examples/streaming_contract_scenarios.py†L352-L372】
-
-## Scenario 3 – halt on schema break
-
-The `schema-break` scenario drops the `value` column before calling
-`write_stream_with_contract`.  Because the expectation plan requires non-null
-values, the first micro-batch triggers a validation failure.  With the default
-`enforce=True`, the observation writer raises the validation error, the
-streaming query terminates, and the summary prints the failing metrics so the
-pipeline can be paused or rerouted.【F:packages/dc43-integrations/examples/streaming_contract_scenarios.py†L374-L434】
-
-Running all three scenarios (`--seconds` can be reduced for quicker demos)
-provides a reproducible walkthrough of how contract-aware streaming reads and
-writes behave when everything is healthy, when quality issues should be routed
-elsewhere, and when the schema drifts in a breaking way.
+Each invocation records a dataset run in the demo workspace, mirroring what the
+UI shows after triggering the scenario manually.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L274-L291】

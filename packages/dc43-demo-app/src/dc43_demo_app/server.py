@@ -40,6 +40,7 @@ from .retail_demo import (
 CATEGORY_LABELS = {
     "contract": "Contract-focused pipelines",
     "data-product": "Data product pipelines",
+    "streaming": "Streaming pipelines",
 }
 
 STATUS_BADGES = {
@@ -845,22 +846,38 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         except FileNotFoundError:
             continue
     try:
-        dataset_name, new_version = await asyncio.to_thread(
-            run_pipeline,
-            params_cfg.get("contract_id"),
-            params_cfg.get("contract_version"),
-            params_cfg.get("dataset_name"),
-            params_cfg.get("dataset_version"),
-            params_cfg.get("run_type", "infer"),
-            collect_examples=params_cfg.get("collect_examples", False),
-            examples_limit=params_cfg.get("examples_limit", 5),
-            violation_strategy=params_cfg.get("violation_strategy"),
-            enforce_contract_status=params_cfg.get("enforce_contract_status"),
-            inputs=params_cfg.get("inputs"),
-            output_adjustment=params_cfg.get("output_adjustment"),
-            data_product_flow=params_cfg.get("data_product_flow"),
-            scenario_key=scenario,
-        )
+        mode = params_cfg.get("mode", "pipeline")
+        if mode == "streaming":
+            from .streaming import run_streaming_scenario
+
+            seconds = params_cfg.get("seconds", 5)
+            try:
+                seconds_int = int(seconds)
+            except (TypeError, ValueError):
+                seconds_int = 5
+            dataset_name, new_version = await asyncio.to_thread(
+                run_streaming_scenario,
+                scenario,
+                seconds=seconds_int,
+                run_type=params_cfg.get("run_type", "observe"),
+            )
+        else:
+            dataset_name, new_version = await asyncio.to_thread(
+                run_pipeline,
+                params_cfg.get("contract_id"),
+                params_cfg.get("contract_version"),
+                params_cfg.get("dataset_name"),
+                params_cfg.get("dataset_version"),
+                params_cfg.get("run_type", "infer"),
+                collect_examples=params_cfg.get("collect_examples", False),
+                examples_limit=params_cfg.get("examples_limit", 5),
+                violation_strategy=params_cfg.get("violation_strategy"),
+                enforce_contract_status=params_cfg.get("enforce_contract_status"),
+                inputs=params_cfg.get("inputs"),
+                output_adjustment=params_cfg.get("output_adjustment"),
+                data_product_flow=params_cfg.get("data_product_flow"),
+                scenario_key=scenario,
+            )
         label = (
             dataset_name
             or params_cfg.get("dataset_name")
