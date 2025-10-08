@@ -57,7 +57,10 @@ persisted.【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_d
 
 The dataset history panel now lists a fresh version with status `ok`. Expanding
 the DQ details or the timeline reveals the schema snapshot sent to governance
-and confirms that no expectations recorded violations.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L146-L178】
+and confirms that no expectations recorded violations. Each micro-batch also
+produces its own dataset history row, so the registry reflects the cadence of
+validated slices without surfacing the noisy “missing metric” warnings that
+appear when a streaming read skips Spark-side counts.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L104-L178】【F:packages/dc43-demo-app/src/dc43_demo_app/contracts_records.py†L130-L160】
 
 ## Scenario 2 – violations trigger reject routing
 
@@ -75,9 +78,13 @@ introduced the warning status while the stream is still running.【F:packages/dc
 
 After the run completes, the dataset record shows the warning status, the
 captured violations, and the reject sink metadata including the number of rows
-quarantined for that micro-batch. The timeline panel highlights when the reject
-sink activated while the micro-batch cards make it obvious which batches were
-rerouted and how many rows were quarantined.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L130-L162】
+quarantined for that micro-batch. Each batch contributes its own dataset
+version entry so you can drill into the specific slice that introduced the
+warning. The summary card now links directly to the governed input and reject
+datasets, making it easy to pivot into the catalog for deeper inspection. The
+timeline panel highlights when the reject sink activated while the micro-batch
+cards make it obvious which batches were rerouted and how many rows were
+quarantined.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L112-L170】
 
 ## Scenario 3 – schema breaks block the stream
 

@@ -25,8 +25,11 @@ def test_streaming_scenarios_record_dataset_runs():
         assert version
         records = [r for r in load_records() if r.scenario_key == "streaming-valid"]
         assert records
-        assert records[-1].status == "ok"
-        timeline = records[-1].dq_details.get("timeline") if records[-1].dq_details else []
+        primary = [r for r in records if r.run_type == "observe"]
+        assert primary, "expected primary streaming record"
+        latest_record = primary[-1]
+        assert latest_record.status == "ok"
+        timeline = latest_record.dq_details.get("timeline") if latest_record.dq_details else []
         assert timeline, "expected streaming timeline entries"
         validation_event = next(
             (event for event in timeline if event.get("phase") == "Validation"),
@@ -35,9 +38,11 @@ def test_streaming_scenarios_record_dataset_runs():
         assert validation_event
         metrics = validation_event.get("metrics") or {}
         assert metrics.get("row_count", 0) > 0
-        batches = records[-1].dq_details.get("output", {}).get("streaming_batches")
+        batches = latest_record.dq_details.get("output", {}).get("streaming_batches")
         assert batches
         assert any((batch.get("row_count", 0) or 0) > 0 for batch in batches)
+        batch_entries = [r for r in records if r.run_type.endswith("-batch")]
+        assert batch_entries, "expected micro-batch records"
 
         _, error_version = run_streaming_scenario("streaming-schema-break", seconds=0, run_type="enforce")
         error_records = [r for r in load_records() if r.scenario_key == "streaming-schema-break"]

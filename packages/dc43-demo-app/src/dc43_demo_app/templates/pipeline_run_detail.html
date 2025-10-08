@@ -281,6 +281,31 @@
           <dt class="col-sm-4">Violations</dt>
           <dd class="col-sm-8">{{ record.violations }}</dd>
           {% endif %}
+          {% if entry.input_refs %}
+          {% for ref in entry.input_refs %}
+          <dt class="col-sm-4">Input dataset</dt>
+          <dd class="col-sm-8">
+            <a href="/datasets/{{ ref.dataset }}">{{ ref.dataset }}</a>
+            {% if ref.version %}
+              <span class="text-muted ms-1">({{ ref.version }})</span>
+            {% endif %}
+          </dd>
+          {% endfor %}
+          {% endif %}
+          {% if entry.reject_refs %}
+          {% for ref in entry.reject_refs %}
+          <dt class="col-sm-4">Reject dataset</dt>
+          <dd class="col-sm-8">
+            <a href="/datasets/{{ ref.dataset }}">{{ ref.dataset }}</a>
+            {% if ref.version %}
+              <span class="text-muted ms-1">({{ ref.version }})</span>
+            {% endif %}
+            {% if ref.row_count is not none %}
+              <span class="text-muted ms-1">– {{ ref.row_count }} rows</span>
+            {% endif %}
+          </dd>
+          {% endfor %}
+          {% endif %}
         </dl>
         {% if entry.streaming_batches %}
         {% set history_rows = entry.streaming_batches | sum(attribute='row_count') %}

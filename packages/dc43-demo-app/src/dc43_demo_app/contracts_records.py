@@ -179,7 +179,17 @@ def scenario_run_rows(
 
         dataset_records = list(dataset_records)
         dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
-        latest_record = dataset_records[-1] if dataset_records else None
+        primary_run_type = params.get("run_type", "infer")
+        primary_records = [
+            record
+            for record in dataset_records
+            if (record.run_type or primary_run_type) == primary_run_type
+        ]
+        if primary_run_type == "infer" and not primary_records:
+            primary_records = dataset_records
+        latest_candidates = primary_records or dataset_records
+        latest_record = latest_candidates[-1] if latest_candidates else None
+        run_count = len(primary_records) if primary_records else len(dataset_records)
 
         rows.append(
             {
@@ -192,7 +202,7 @@ def scenario_run_rows(
                 "contract_id": params.get("contract_id"),
                 "contract_version": params.get("contract_version"),
                 "run_type": params.get("run_type", "infer"),
-                "run_count": len(dataset_records),
+                "run_count": run_count,
                 "latest": latest_record.__dict__.copy() if latest_record else None,
             }
         )

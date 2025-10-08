@@ -216,6 +216,40 @@ def _serialise_streaming_details(
     return payload
 
 
+def _is_metric_warning(message: Any) -> bool:
+    """Return ``True`` when ``message`` represents a missing metric warning."""
+
+    if not isinstance(message, str):
+        return False
+    lowered = message.lower()
+    return "violation counts were not provided" in lowered or lowered.startswith(
+        "missing metric for expectation"
+    )
+
+
+def _sanitize_validation_details(
+    details: Mapping[str, Any] | None,
+) -> Dict[str, Any]:
+    """Return a copy of ``details`` without noisy metric warnings."""
+
+    payload: Dict[str, Any] = dict(details or {})
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list):
+        filtered = [w for w in warnings if not _is_metric_warning(w)]
+        if len(filtered) != len(warnings):
+            payload["warnings"] = filtered
+    inner_details = payload.get("details")
+    if isinstance(inner_details, Mapping):
+        cleaned_inner = dict(inner_details)
+        inner_warnings = cleaned_inner.get("warnings")
+        if isinstance(inner_warnings, list):
+            filtered_inner = [w for w in inner_warnings if not _is_metric_warning(w)]
+            if len(filtered_inner) != len(inner_warnings):
+                cleaned_inner["warnings"] = filtered_inner
+                payload["details"] = cleaned_inner
+    return payload
+
+
 def _normalise_status(validation: Optional[ValidationResult]) -> str:
     if validation is None:
         return "error"
@@ -360,6 +394,26 @@ def _timeline_from_batches(
     return events
 
 
+def _batch_dataset_version(
+    base_version: str,
+    batch: Mapping[str, Any],
+    index: int,
+) -> str:
+    """Return a dataset version identifier for a micro-batch."""
+
+    timestamp = batch.get("timestamp")
+    if isinstance(timestamp, str) and timestamp:
+        return timestamp
+    if base_version:
+        return f"{base_version}#batch-{index}"
+    return f"batch-{index}"
+
+
+def _batch_status_to_dataset_status(status: str) -> str:
+    mapping = {"success": "ok", "info": "ok", "warning": "warning", "danger": "error"}
+    return mapping.get(status, "ok")
+
+
 def _record_result(
     result: _ScenarioResult,
     *,
@@ -377,6 +431,50 @@ def _record_result(
     if result.timeline:
         dq_details["timeline"] = list(result.timeline)
     violations = _extract_violation_count(dq_details.get("output"))
+    output_details = dq_details.get("output") if isinstance(dq_details, Mapping) else {}
+    streaming_batches: List[Mapping[str, Any]] = []
+    if isinstance(output_details, Mapping):
+        batches_payload = output_details.get("streaming_batches")
+        if isinstance(batches_payload, list):
+            streaming_batches = [
+                item for item in batches_payload if isinstance(item, Mapping)
+            ]
+
+    seen_versions = {dataset_version} if dataset_version else set()
+    extra_records: List[DatasetRecord] = []
+    for index, batch in enumerate(streaming_batches):
+        row_count = int(batch.get("row_count", 0) or 0)
+        errors = batch.get("errors")
+        warnings = batch.get("warnings")
+        if row_count <= 0 and not errors and not warnings:
+            continue
+        batch_status = _batch_status_to_dataset_status(
+            _normalise_batch_status(batch.get("status"))
+        )
+        batch_version = _batch_dataset_version(dataset_version, batch, index)
+        if batch_version in seen_versions:
+            continue
+        seen_versions.add(batch_version)
+        batch_details = {
+            "output": {
+                "streaming_batch": dict(batch),
+                "streaming_batch_id": batch.get("batch_id"),
+            }
+        }
+        extra_records.append(
+            DatasetRecord(
+                contract_id=contract_id,
+                contract_version=contract_version,
+                dataset_name=dataset_name,
+                dataset_version=batch_version,
+                status=batch_status,
+                dq_details=batch_details,
+                run_type=f"{run_type}-batch" if run_type else "batch",
+                violations=int(batch.get("violations", 0) or 0),
+                scenario_key=scenario_key,
+            )
+        )
+
     record = DatasetRecord(
         contract_id=contract_id,
         contract_version=contract_version,
@@ -390,6 +488,8 @@ def _record_result(
     )
     if result.status_reason:
         record.reason = result.status_reason
+
+    records.extend(extra_records)
     records.append(record)
     save_records(records)
     if dataset_name and dataset_version:
@@ -434,6 +534,10 @@ def _scenario_valid(
         dataset_locator=StaticDatasetLocator(dataset_version=None),
         options={"rowsPerSecond": "6", "numPartitions": "1"},
     )
+    input_details = _sanitize_validation_details(
+        read_status.details if read_status else {}
+    )
+    input_details.setdefault("dataset_id", _INPUT_CONTRACT)
     _emit(
         {
             "type": "stage",
@@ -504,7 +608,7 @@ def _scenario_valid(
     if isinstance(candidate_batches, list):
         batches = [item for item in candidate_batches if isinstance(item, Mapping)]
     dq_details: MutableMapping[str, Any] = {
-        "input": read_status.details if read_status else {},
+        "input": input_details,
         "output": details,
     }
     metrics = dict(validation.metrics or {})
@@ -615,6 +719,10 @@ def _scenario_dq_rejects(
         dataset_locator=StaticDatasetLocator(dataset_version=None),
         options={"rowsPerSecond": "6", "numPartitions": "1"},
     )
+    input_details = _sanitize_validation_details(
+        read_status.details if read_status else {}
+    )
+    input_details.setdefault("dataset_id", _INPUT_CONTRACT)
     _emit(
         {
             "type": "stage",
@@ -728,6 +836,7 @@ def _scenario_dq_rejects(
     reject_details = _serialise_streaming_details(
         reject_result.details, queries=reject_queries
     )
+    reject_details.setdefault("dataset_id", _REJECT_CONTRACT)
     batches: List[Mapping[str, Any]] = []
     candidate_batches = details.get("streaming_batches")
     if isinstance(candidate_batches, list):
@@ -746,7 +855,7 @@ def _scenario_dq_rejects(
         except Exception:
             reject_count = 0
     dq_details: MutableMapping[str, Any] = {
-        "input": read_status.details if read_status else {},
+        "input": input_details,
         "output": details,
         "rejects": {
             **reject_details,
@@ -868,6 +977,10 @@ def _scenario_schema_break(
         dataset_locator=StaticDatasetLocator(dataset_version=None),
         options={"rowsPerSecond": "6", "numPartitions": "1"},
     )
+    input_details = _sanitize_validation_details(
+        read_status.details if read_status else {}
+    )
+    input_details.setdefault("dataset_id", _INPUT_CONTRACT)
     _emit(
         {
             "type": "stage",
@@ -956,7 +1069,7 @@ def _scenario_schema_break(
         )
     except Exception as exc:
         dq_details = {
-            "input": read_status.details if read_status else {},
+            "input": input_details,
             "output": {
                 "errors": [str(exc)],
                 "status": "block",

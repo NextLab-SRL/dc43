@@ -48,6 +48,9 @@
   rail, and removes the KPI preview so the flow, lineage, and timeline visuals remain the focus.
 - Altair Retail story tabs now render Mermaid diagrams inline and drop the catalog quick-link
   banners so the timeline, flow, and lineage visuals stay front and centre.
+- Streaming demo scenarios now record per-micro-batch dataset versions, filter noisy metric
+  warnings from streaming reads, and surface direct links to the input and reject datasets on the
+  pipeline detail page.
 
 ### Fixed
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware

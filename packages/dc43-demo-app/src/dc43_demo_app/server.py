@@ -877,6 +877,36 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
                 if key == "output":
                     continue
                 input_payloads.append({"name": key, "payload": payload})
+        input_refs: list[dict[str, Any]] = []
+        for payload in input_payloads:
+            payload_details = payload.get("payload")
+            if not isinstance(payload_details, Mapping):
+                continue
+            dataset_id = payload_details.get("dataset_id")
+            if not dataset_id:
+                continue
+            ref: dict[str, Any] = {
+                "name": payload.get("name"),
+                "dataset": dataset_id,
+            }
+            version = payload_details.get("dataset_version")
+            if isinstance(version, str) and version:
+                ref["version"] = version
+            input_refs.append(ref)
+        reject_refs: list[dict[str, Any]] = []
+        if isinstance(dq_details, Mapping):
+            reject_section = dq_details.get("rejects")
+            if isinstance(reject_section, Mapping):
+                dataset_id = reject_section.get("dataset_id")
+                if dataset_id:
+                    reject_ref: dict[str, Any] = {"dataset": dataset_id}
+                    version = reject_section.get("dataset_version")
+                    if isinstance(version, str) and version:
+                        reject_ref["version"] = version
+                    row_count = reject_section.get("row_count")
+                    if isinstance(row_count, (int, float)):
+                        reject_ref["row_count"] = int(row_count)
+                    reject_refs.append(reject_ref)
         timeline: list[Mapping[str, Any]] = []
         if isinstance(dq_details, Mapping):
             candidate = dq_details.get("timeline")
@@ -893,6 +923,8 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
                 "schema_errors": schema_errors,
                 "dq_aux": dq_aux,
                 "input_payloads": input_payloads,
+                "input_refs": input_refs,
+                "reject_refs": reject_refs,
                 "timeline": timeline,
                 "streaming_batches": streaming_batches,
             }

@@ -36,7 +36,10 @@ The observation writer populates a `streaming_batches` array on every
 violation totals, timestamps, and any intervention reason supplied by a
 `StreamingInterventionStrategy`. Governance submissions reuse the same dataset
 identifier/version metadata so operators can reconcile the timeline displayed in
-the demo application with the service-side records.
+the demo application with the service-side records. The demo also persists each
+micro-batch as an individual dataset history entry and links directly to the
+governed input/reject datasets so presenters can pivot from the streaming run to
+the catalog views in a single click.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L320-L386】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L96-L164】
 
 When you need to surface live progress in your own applications, pass an
 `on_streaming_batch` callback to `write_stream_with_contract` (and the data
