@@ -2440,14 +2440,54 @@ def run_split_invalid_rows(
             _code_section(
                 "Run it programmatically",
                 """
-from dc43_demo_app.streaming import run_streaming_scenario
+from datetime import datetime, timezone
 
-dataset, version = run_streaming_scenario(
-    "streaming-valid",
-    seconds=8,
-    run_type="observe",
+from pyspark.sql import SparkSession, functions as F
+
+from dc43_demo_app.contracts_api import (
+    contract_service,
+    dq_service,
+    governance_service,
 )
-print(f"published {dataset}@{version}")
+from dc43_integrations.spark.io import (
+    StaticDatasetLocator,
+    read_stream_with_contract,
+    write_stream_with_contract,
+)
+
+spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+dataset_version = datetime.now(timezone.utc).isoformat()
+
+source_df, _ = read_stream_with_contract(
+    spark=spark,
+    contract_id="demo.streaming.events",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=None),
+    options={"rowsPerSecond": "6", "numPartitions": "1"},
+)
+
+processed_df = source_df.withColumn("quality_flag", F.lit("valid"))
+
+validation = write_stream_with_contract(
+    df=processed_df,
+    contract_id="demo.streaming.events_processed",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
+    options={
+        "checkpointLocation": f"/tmp/dc43-demo/streaming-valid/{dataset_version}",
+        "queryName": f"demo_stream_valid_{dataset_version}",
+    },
+    on_streaming_batch=lambda event: print(event["metrics"]),
+)
+
+for query in validation.details.get("streaming_queries", []):
+    query.processAllAvailable()
                 """,
             ),
         ],
@@ -2519,14 +2559,84 @@ print(f"published {dataset}@{version}")
             _code_section(
                 "Route rejects programmatically",
                 """
-from dc43_demo_app.streaming import run_streaming_scenario
+from datetime import datetime, timezone
 
-dataset, version = run_streaming_scenario(
-    "streaming-dq-rejects",
-    seconds=8,
-    run_type="observe",
+from pyspark.sql import SparkSession, functions as F
+
+from dc43_demo_app.contracts_api import (
+    contract_service,
+    dq_service,
+    governance_service,
 )
-print(f"latest governed run: {dataset}@{version}")
+from dc43_integrations.spark.io import (
+    StaticDatasetLocator,
+    read_stream_with_contract,
+    write_stream_with_contract,
+)
+
+spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+dataset_version = datetime.now(timezone.utc).isoformat()
+
+source_df, _ = read_stream_with_contract(
+    spark=spark,
+    contract_id="demo.streaming.events",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=None),
+    options={"rowsPerSecond": "6", "numPartitions": "1"},
+)
+
+mutated_df = source_df.withColumn(
+    "value",
+    F.when(F.col("value") % 4 == 0, -F.col("value")).otherwise(F.col("value")),
+).withColumn(
+    "quality_flag",
+    F.when(F.col("value") < 0, F.lit("warning")).otherwise(F.lit("valid")),
+)
+
+processed = write_stream_with_contract(
+    df=mutated_df,
+    contract_id="demo.streaming.events_processed",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
+    options={
+        "checkpointLocation": f"/tmp/dc43-demo/streaming-rejects/{dataset_version}",
+        "queryName": f"demo_stream_rejects_{dataset_version}",
+    },
+    enforce=False,
+)
+
+reject_rows = mutated_df.filter(F.col("value") < 0).select(
+    "timestamp",
+    "value",
+    F.lit("value below zero").alias("reject_reason"),
+)
+
+rejects = write_stream_with_contract(
+    df=reject_rows,
+    contract_id="demo.streaming.events_rejects",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
+    options={
+        "checkpointLocation": f"/tmp/dc43-demo/streaming-reject-sink/{dataset_version}",
+        "queryName": f"demo_stream_reject_sink_{dataset_version}",
+    },
+)
+
+queries = [
+    *processed.details.get("streaming_queries", []),
+    *rejects.details.get("streaming_queries", []),
+]
+for query in queries:
+    query.processAllAvailable()
                 """,
             ),
         ],
@@ -2581,14 +2691,50 @@ print(f"latest governed run: {dataset}@{version}")
             _code_section(
                 "Expect a failure",
                 """
-from dc43_demo_app.streaming import run_streaming_scenario
+from datetime import datetime, timezone
 
-dataset, version = run_streaming_scenario(
-    "streaming-schema-break",
-    seconds=3,
-    run_type="enforce",
+from pyspark.sql import SparkSession
+
+from dc43_demo_app.contracts_api import (
+    contract_service,
+    dq_service,
+    governance_service,
 )
-print(f"stream blocked: {dataset}@{version or '<no version>'}")
+from dc43_integrations.spark.io import (
+    StaticDatasetLocator,
+    read_stream_with_contract,
+    write_stream_with_contract,
+)
+
+spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+dataset_version = datetime.now(timezone.utc).isoformat()
+
+source_df, _ = read_stream_with_contract(
+    spark=spark,
+    contract_id="demo.streaming.events",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=None),
+    options={"rowsPerSecond": "6", "numPartitions": "1"},
+)
+
+broken_df = source_df.drop("value")
+
+write_stream_with_contract(
+    df=broken_df,
+    contract_id="demo.streaming.events_processed",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
+    options={
+        "checkpointLocation": f"/tmp/dc43-demo/streaming-schema/{dataset_version}",
+        "queryName": f"demo_stream_schema_{dataset_version}",
+    },
+)
                 """,
                 "<p>The demo app records the error in the dataset registry so the "
                 "details page explains why nothing new was published.</p>",
