@@ -821,6 +821,11 @@ def _scenario_dq_rejects(
         read_status.details if read_status else {}
     )
     input_details.setdefault("dataset_id", _INPUT_CONTRACT)
+    input_version = input_details.get("dataset_version")
+    if not isinstance(input_version, str) or not input_version:
+        input_version = dataset_version
+        input_details["dataset_version"] = input_version
+    _ensure_streaming_version(_INPUT_CONTRACT, input_version)
     _emit(
         {
             "type": "stage",
