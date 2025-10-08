@@ -18,6 +18,12 @@
   contract expectations compute Spark metrics per micro-batch, feed the
   data-quality service, and update the returned validation payloads while the
   primary sink continues to run.
+- Streaming validation payloads now expose a ``streaming_batches`` timeline so
+  callers can inspect per-batch row counts, violation totals, timestamps, and
+  intervention reasons alongside the aggregated metrics.
+- Streaming write helpers accept an ``on_streaming_batch`` callback that emits
+  the same payloads recorded in ``streaming_batches`` so applications can stream
+  live progress updates or power custom dashboards while the pipeline runs.
 - Added a streaming scenarios walkthrough and linked demo-application flows that
   demonstrate continuous validation, reject routing, and schema break handling
   for Structured Streaming pipelines.
@@ -56,3 +62,5 @@
 - Streaming observation writers skip empty micro-batches instead of overwriting
   the previous validation payload, so governance metrics (e.g., `row_count`) and
   intervention reasons remain visible after queries drain or stop.
+- Filtered missing metric warnings for streaming reads when metrics collection
+  is deferred, keeping schema snapshots visible without spurious alerts.

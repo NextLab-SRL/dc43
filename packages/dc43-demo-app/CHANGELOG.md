@@ -6,9 +6,12 @@
   writes directly inside the pipeline demo, plus a `dc43_demo_app.streaming`
   helper for triggering the healthy, reject-routing, and schema-drift flows
   from code.
-- Streaming scenario timeline visualisation with live metric snapshots,
-  scenario descriptions that document source cadence and dataset roles, and a
-  tutorial walkthrough that references the new UI cues.
+- Streaming scenario timeline visualisation with micro-batch cards, live metric
+  snapshots, Mermaid diagrams, scenario copy that documents source cadence and
+  dataset roles, and a tutorial walkthrough that references the new UI cues.
+- Streaming live-run card that streams server-sent events, animates the
+  micro-batch badges while the pipeline runs, and exposes a streaming progress
+  API for embedding the contract-aware timeline in other presenters.
 - Draft `orders_enriched:3.0.0` contract and curated demo scenario that boosts low amounts,
   stamps placeholder customer segments, and logs contract-status overrides when drafts are allowed.
 - Contract status enforcement hooks in the demo pipeline with metadata describing the active policy

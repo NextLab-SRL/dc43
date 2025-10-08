@@ -2378,13 +2378,28 @@ def run_split_invalid_rows(
         "category": "streaming",
         "description": (
             "<p>Run a continuous integration-style job that keeps <code>demo.streaming.events_processed</code>"
-            " in sync with the synthetic <code>demo.streaming.events</code> feed.</p>"
+            " in sync with the synthetic <code>demo.streaming.events</code> feed."
+            " Each micro-batch carries six rows (one partition, one-second cadence) so the demo can"
+            " render a full validation timeline.</p>"
             "<ul>"
             "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) emits 6 timestamp/value rows per second</li>"
             "<li><strong>Processing:</strong> adds a constant <code>quality_flag='valid'</code> and validates every micro-batch</li>"
-            "<li><strong>Output:</strong> <code>demo.streaming.events_processed</code> (0.1.0) records a fresh dataset version with metrics</li>"
+            "<li><strong>Output:</strong> <code>demo.streaming.events_processed</code> (0.1.0) records a fresh dataset version with metrics and governance history</li>"
             "<li><strong>Run length:</strong> roughly eight seconds so at least one non-empty batch is observed</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart LR
+                    Source["demo.streaming.events\\nrate source (6 rows/sec)"] -->|readStream + contract| Validate
+                    Validate["Contract & DQ validation\\nper micro-batch"] --> Processed["demo.streaming.events_processed"]
+                    Validate --> Metrics["Observation writer\\nmetrics timeline"]
+                    Processed --> Governance["Governance status\\nversion history"]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "mode": "streaming",
@@ -2442,13 +2457,28 @@ print(f"published {dataset}@{version}")
         "category": "streaming",
         "description": (
             "<p>Stress the validators by flipping every fourth row negative so governance tracks warnings while the "
-            "pipeline keeps publishing.</p>"
+            "pipeline keeps publishing. The scenario shows both the warning status on the processed contract and the"
+            " reject stream filling its own dataset.</p>"
             "<ul>"
             "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) keeps emitting 6 rows per second</li>"
             "<li><strong>Processing:</strong> negative values are labelled <code>quality_flag='warning'</code> and routed to rejects</li>"
             "<li><strong>Outputs:</strong> <code>demo.streaming.events_processed</code> (warn) plus <code>demo.streaming.events_rejects</code> with reasons</li>"
             "<li><strong>Run length:</strong> around eight seconds to capture at least one violating batch</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart LR
+                    Source["demo.streaming.events\\n6 rows/sec"] -->|mutate| Validate
+                    Validate -->|valid batches| Processed["demo.streaming.events_processed\\nstatus warn"]
+                    Validate -->|violations| Rejects["demo.streaming.events_rejects\\nreason column"]
+                    Validate --> Metrics["Observation writer\\nper-batch metrics"]
+                    Processed --> Governance
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "mode": "streaming",
@@ -2505,13 +2535,26 @@ print(f"latest governed run: {dataset}@{version}")
         "label": "Streaming: schema break blocks the run",
         "category": "streaming",
         "description": (
-            "<p>Simulate schema drift by removing the <code>value</code> column so the streaming helper blocks the publish.</p>"
+            "<p>Simulate schema drift by removing the <code>value</code> column so the streaming helper blocks the publish."
+            " The timeline highlights the micro-batch that triggered the failure and shows that no dataset version was stored.</p>"
             "<ul>"
             "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) still delivers timestamp/value pairs</li>"
             "<li><strong>Processing:</strong> the transformation drops <code>value</code>, violating the processed contract</li>"
             "<li><strong>Outcome:</strong> validation raises an error immediately and no dataset version is recorded</li>"
             "<li><strong>Run length:</strong> a short three-second burst to showcase the failure</li>"
             "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart LR
+                    Source["demo.streaming.events"] -->|missing value column| Validate
+                    Validate -->|schema error| Block["Publish blocked\\nno dataset version"]
+                    Validate --> Governance["Governance records failure reason"]
+                """
+            ).strip()
+            + "</div>"
         ),
         "params": {
             "mode": "streaming",

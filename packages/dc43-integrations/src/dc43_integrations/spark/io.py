@@ -224,6 +224,7 @@ class StreamingObservationWriter:
         enforce: bool,
         checkpoint_location: Optional[str] = None,
         intervention: Optional[StreamingInterventionStrategy] = None,
+        progress_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
     ) -> None:
         self.contract = contract
         self.expectation_plan = list(expectation_plan)
@@ -242,6 +243,8 @@ class StreamingObservationWriter:
         default_name = f"dc43_metrics_{_safe_fs_name(self.dataset_id)}"
         self.query_name = f"{default_name}_{_safe_fs_name(self.dataset_version)}"
         self._intervention = intervention or NoOpStreamingInterventionStrategy()
+        self._batches: List[Dict[str, Any]] = []
+        self._progress_callback = progress_callback
 
     @property
     def checkpoint_location(self) -> str:
@@ -274,6 +277,55 @@ class StreamingObservationWriter:
 
         return self._validation
 
+    def streaming_batches(self) -> List[Mapping[str, Any]]:
+        """Return the recorded micro-batch timeline."""
+
+        return [dict(item) for item in self._batches]
+
+    def _record_batch(
+        self,
+        *,
+        batch_id: int,
+        metrics: Mapping[str, Any] | None,
+        row_count: int,
+        status: str,
+        timestamp: datetime,
+        errors: Optional[Sequence[str]] = None,
+        warnings: Optional[Sequence[str]] = None,
+        intervention: Optional[str] = None,
+    ) -> None:
+        metrics_map = dict(metrics or {})
+        violation_total = sum(
+            int(value)
+            for key, value in metrics_map.items()
+            if key.startswith("violations.") and isinstance(value, (int, float))
+        )
+        entry: Dict[str, Any] = {
+            "batch_id": batch_id,
+            "timestamp": timestamp.isoformat(),
+            "row_count": row_count,
+            "violations": violation_total,
+            "status": status,
+        }
+        if metrics_map:
+            entry["metrics"] = metrics_map
+        if errors:
+            entry["errors"] = list(errors)
+        if warnings:
+            entry["warnings"] = list(warnings)
+        if intervention:
+            entry["intervention"] = intervention
+        self._batches.append(entry)
+        self._notify_progress({"type": "batch", **entry})
+
+    def _notify_progress(self, event: Mapping[str, Any]) -> None:
+        if self._progress_callback is None:
+            return
+        try:
+            self._progress_callback(dict(event))
+        except Exception:  # pragma: no cover - best effort progress hook
+            logger.exception("Streaming progress callback failed")
+
     def _merge_batch_details(
         self,
         result: ValidationResult,
@@ -287,6 +339,8 @@ class StreamingObservationWriter:
         }
         if result.metrics:
             details["streaming_metrics"] = dict(result.metrics)
+        if self._batches:
+            details["streaming_batches"] = [dict(item) for item in self._batches]
         result.merge_details(details)
         if self._validation is not None:
             validation = self._validation
@@ -305,6 +359,7 @@ class StreamingObservationWriter:
     def process_batch(self, batch_df: DataFrame, batch_id: int) -> ValidationResult:
         """Validate a micro-batch and update the attached validation."""
 
+        timestamp = datetime.now(timezone.utc)
         schema, metrics = collect_observations(
             batch_df,
             self.contract,
@@ -331,6 +386,13 @@ class StreamingObservationWriter:
                 }
             )
             self._validation = validation
+            self._record_batch(
+                batch_id=batch_id,
+                metrics={},
+                row_count=0,
+                status="idle",
+                timestamp=timestamp,
+            )
             return validation
 
         result = _evaluate_with_service(
@@ -341,6 +403,20 @@ class StreamingObservationWriter:
             reused=False,
         )
         self._latest_batch_id = batch_id
+        status = "ok"
+        if result.errors:
+            status = "error"
+        elif result.warnings:
+            status = "warning"
+        self._record_batch(
+            batch_id=batch_id,
+            metrics=result.metrics or metrics,
+            row_count=int(metrics.get("row_count", 0) or 0),
+            status=status,
+            timestamp=timestamp,
+            errors=result.errors if result.errors else None,
+            warnings=result.warnings if result.warnings else None,
+        )
         self._merge_batch_details(result, batch_id=batch_id)
 
         if self.enforce and not result.ok:
@@ -358,10 +434,23 @@ class StreamingObservationWriter:
             )
         )
         if decision:
+            if self._batches:
+                self._batches[-1]["intervention"] = decision
+            batches_payload = [dict(item) for item in self._batches]
+            if self._validation is not None:
+                self._validation.merge_details({"streaming_batches": batches_payload})
+            result.merge_details({"streaming_batches": batches_payload})
             reason_details = {"streaming_intervention_reason": decision}
             if self._validation is not None:
                 self._validation.merge_details(reason_details)
             result.merge_details(reason_details)
+            self._notify_progress(
+                {
+                    "type": "intervention",
+                    "batch_id": batch_id,
+                    "reason": decision,
+                }
+            )
             raise StreamingInterventionError(decision)
 
         return result
@@ -380,7 +469,15 @@ class StreamingObservationWriter:
         writer = writer.option("checkpointLocation", self.checkpoint_location)
         if self.query_name:
             writer = writer.queryName(self.query_name)
-        return writer.start()
+        query = writer.start()
+        self._notify_progress(
+            {
+                "type": "observer-started",
+                "query_name": getattr(query, "name", self.query_name),
+                "id": getattr(query, "id", ""),
+            }
+        )
+        return query
 
 logger = logging.getLogger(__name__)
 
@@ -1444,6 +1541,27 @@ class BaseReadExecutor:
     def _should_collect_metrics(self, streaming_active: bool) -> bool:
         return not streaming_active
 
+    def _normalise_streaming_validation(
+        self, validation: ValidationResult, *, streaming_active: bool
+    ) -> None:
+        if not streaming_active:
+            return
+        warnings = list(validation.warnings or [])
+        if not warnings:
+            validation.merge_details({"streaming_metrics_deferred": True})
+            return
+        filtered = [
+            warning
+            for warning in warnings
+            if "violation counts were not provided" not in warning
+            and not warning.startswith("missing metric for expectation")
+        ]
+        if len(filtered) != len(warnings):
+            validation.warnings = filtered
+            if not filtered:
+                validation.reason = None
+        validation.merge_details({"streaming_metrics_deferred": True})
+
     def _apply_contract(
         self,
         dataframe: DataFrame,
@@ -1488,6 +1606,7 @@ class BaseReadExecutor:
             schema=observed_schema,
             metrics=observed_metrics,
         )
+        self._normalise_streaming_validation(validation, streaming_active=streaming_active)
         validation.merge_details({
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
@@ -2129,6 +2248,7 @@ class BaseWriteExecutor:
         pipeline_context: Optional[PipelineContextLike],
         violation_strategy: Optional[WriteViolationStrategy],
         streaming_intervention_strategy: Optional[StreamingInterventionStrategy],
+        streaming_batch_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
     ) -> None:
         self.df = df
         self.contract_id = contract_id
@@ -2149,6 +2269,7 @@ class BaseWriteExecutor:
         self.pipeline_context = pipeline_context
         self.strategy = violation_strategy or NoOpWriteViolationStrategy()
         self.streaming_intervention_strategy = streaming_intervention_strategy
+        self.streaming_batch_callback = streaming_batch_callback
 
     def execute(self) -> WriteExecutionResult:
         df = self.df
@@ -2436,6 +2557,7 @@ class BaseWriteExecutor:
                 enforce=enforce,
                 checkpoint_location=checkpoint_option,
                 intervention=streaming_intervention_strategy,
+                progress_callback=self.streaming_batch_callback,
             )
             observation_writer.attach_validation(result)
 
@@ -2667,6 +2789,7 @@ def _execute_write(
     return_status: bool,
     violation_strategy: Optional[WriteViolationStrategy],
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy],
+    streaming_batch_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
     executor = executor_cls(
         df=df,
@@ -2688,6 +2811,7 @@ def _execute_write(
         pipeline_context=pipeline_context,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=streaming_intervention_strategy,
+        streaming_batch_callback=streaming_batch_callback,
     )
     execution = executor.execute()
     result = execution.result
@@ -2847,6 +2971,7 @@ def write_stream_with_contract(
     return_status: Literal[True],
     violation_strategy: Optional[WriteViolationStrategy] = None,
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
+    on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> tuple[ValidationResult, Optional[ValidationResult]]:
     ...
 
@@ -2874,6 +2999,7 @@ def write_stream_with_contract(
     return_status: Literal[False] = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
+    on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult:
     ...
 
@@ -2901,6 +3027,7 @@ def write_stream_with_contract(
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
+    on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
     ...
 
@@ -2927,6 +3054,7 @@ def write_stream_with_contract(
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
+    on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
     """Write a streaming ``DataFrame`` with contract enforcement."""
 
@@ -2952,6 +3080,7 @@ def write_stream_with_contract(
         return_status=return_status,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=streaming_intervention_strategy,
+        streaming_batch_callback=on_streaming_batch,
     )
 
 
@@ -3018,6 +3147,7 @@ def write_stream_with_contract_id(
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
+    on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
     """Streaming counterpart to :func:`write_with_contract_id`."""
 
@@ -3040,6 +3170,7 @@ def write_stream_with_contract_id(
         return_status=return_status,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=streaming_intervention_strategy,
+        on_streaming_batch=on_streaming_batch,
     )
 
 
@@ -3112,6 +3243,7 @@ def write_stream_to_data_product(
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
+    on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
     """Streaming counterpart to :func:`write_to_data_product`."""
 
@@ -3136,6 +3268,7 @@ def write_stream_to_data_product(
         return_status=return_status,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=streaming_intervention_strategy,
+        on_streaming_batch=on_streaming_batch,
     )
 def _execute_write_request(
     request: WriteRequest,

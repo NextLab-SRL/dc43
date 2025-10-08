@@ -22,6 +22,28 @@ monitors can query the data-quality service for the latest verdict or trigger
 asynchronous metric computation when a streaming snapshot needs to be
 inspected.
 
+```mermaid
+flowchart LR
+    Source["readStream\\ncontract enforcement"] --> Validate["Validation & observation writer"]
+    Validate --> Metrics["Streaming metrics\\nper micro-batch"]
+    Validate --> Processed["Contract-aligned sink"]
+    Validate --> Rejects["Optional reject sink"]
+    Processed --> Governance["Governance catalogue\\nstatus + versions"]
+```
+
+The observation writer populates a `streaming_batches` array on every
+`ValidationResult`. Each entry records the batch identifier, row count,
+violation totals, timestamps, and any intervention reason supplied by a
+`StreamingInterventionStrategy`. Governance submissions reuse the same dataset
+identifier/version metadata so operators can reconcile the timeline displayed in
+the demo application with the service-side records.
+
+When you need to surface live progress in your own applications, pass an
+`on_streaming_batch` callback to `write_stream_with_contract` (and the data
+product variants). The callback receives the same batch payloads that populate
+`streaming_batches`, enabling UI layers to animate micro-batch throughput or
+intervention status without waiting for the run to complete.
+
 Observation writers are single-use helpers and can be paired with a
 `StreamingInterventionStrategy` to take action after repeated issues: the
 strategy receives the validation result for every batch and can decide to block

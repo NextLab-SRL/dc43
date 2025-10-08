@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import time
 
+from typing import Mapping
+
 import pytest
 from pyspark.sql.utils import StreamingQueryException
 
@@ -229,6 +231,11 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
         .load()
     )
 
+    events: list[dict[str, object]] = []
+
+    def _record(event: Mapping[str, object]) -> None:
+        events.append(dict(event))
+
     result = write_stream_with_contract(
         df=df,
         contract_id=contract.id,
@@ -239,6 +246,7 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
         format="memory",
         options={"queryName": "stream_sink"},
         governance_service=governance,
+        on_streaming_batch=_record,
     )
 
     assert result.ok
@@ -271,9 +279,15 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
     assert result.details.get("dataset_version") != "unknown"
     streaming_metrics = result.details.get("streaming_metrics") or {}
     assert streaming_metrics.get("row_count", 0) > 0
+    batches = result.details.get("streaming_batches") or []
+    assert batches
+    assert any((batch.get("row_count", 0) or 0) > 0 for batch in batches)
     assert governance.evaluate_calls
     write_call = governance.evaluate_calls[0]
     assert write_call["dataset_version"] == result.details["dataset_version"]
+    assert events, "expected streaming callback events"
+    assert any(event.get("type") == "batch" for event in events)
+    assert any((event.get("row_count", 0) or 0) > 0 for event in events if event.get("type") == "batch")
 
 
 def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> None:
@@ -357,3 +371,6 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
 
     assert len(dq.payloads) >= 3
     assert result.details.get("streaming_metrics")
+    batches = result.details.get("streaming_batches") or []
+    assert batches
+    assert any(batch.get("intervention") for batch in batches)

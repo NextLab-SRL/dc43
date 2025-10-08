@@ -14,10 +14,21 @@
   {% endif %}
 </div>
 
-<form id="scenario-run-form" class="mb-4" method="post" action="/pipeline/run">
+<form id="scenario-run-form" class="mb-4" method="post" action="/pipeline/run" data-scenario-category="{{ scenario_row.category }}">
   <input type="hidden" name="scenario" value="{{ scenario_key }}"/>
   <button class="btn btn-primary" type="submit">Run this scenario</button>
 </form>
+
+{% if scenario_row.category == 'streaming' %}
+<div id="live-streaming-card" class="card mb-4 d-none">
+  <div class="card-body">
+    <h2 class="h5">Live streaming run</h2>
+    <p id="live-streaming-status" class="small text-muted mb-3">Awaiting updates…</p>
+    <div id="live-streaming-batches" class="d-flex flex-wrap gap-2 mb-3"></div>
+    <ol id="live-streaming-timeline" class="list-unstyled mb-0"></ol>
+  </div>
+</div>
+{% endif %}
 
 {% set timeline_badges = {
   'success': 'bg-success',
@@ -26,6 +37,14 @@
   'warning': 'bg-warning text-dark',
   'danger': 'bg-danger',
   'error': 'bg-danger'
+} %}
+{% set stream_badges = {
+  'success': 'border-success text-success',
+  'ok': 'border-success text-success',
+  'info': 'border-info text-info',
+  'warning': 'border-warning text-warning',
+  'danger': 'border-danger text-danger',
+  'error': 'border-danger text-danger'
 } %}
 
 <div class="card mb-4">
@@ -153,6 +172,26 @@
 <div class="card mb-4">
   <div class="card-body">
     <h2 class="h5">Streaming timeline</h2>
+    {% if latest_batches %}
+    {% set total_rows = latest_batches | sum(attribute='row_count') %}
+    {% set total_violations = latest_batches | sum(attribute='violations') %}
+    <p class="small text-muted">Processed {{ total_rows }} rows across {{ latest_batches|length }} micro-batches with {{ total_violations }} recorded violations.</p>
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      {% for batch in latest_batches %}
+      {% set status = batch.status if batch.status else 'info' %}
+      {% set badge = stream_badges.get(status, 'border-secondary text-muted') %}
+      <div class="border rounded px-3 py-2 small bg-light-subtle {{ badge }}">
+        <div class="fw-semibold">Batch {{ batch.batch_id if batch.batch_id is not none else loop.index }}</div>
+        {% if batch.time %}<div>at {{ batch.time }}</div>{% endif %}
+        <div>Rows: {{ batch.row_count }}</div>
+        <div>Violations: {{ batch.violations }}</div>
+        {% if batch.intervention %}<div class="text-danger">Intervention: {{ batch.intervention }}</div>{% endif %}
+        {% if batch.errors %}<div class="text-danger">{{ batch.errors|join(', ') }}</div>{% endif %}
+        {% if batch.warnings %}<div class="text-warning">{{ batch.warnings|join(', ') }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     <ol class="list-unstyled mb-0">
       {% for event in latest_timeline %}
       {% set badge_key = event.status|lower if event.status else 'info' %}
@@ -243,6 +282,19 @@
           <dd class="col-sm-8">{{ record.violations }}</dd>
           {% endif %}
         </dl>
+        {% if entry.streaming_batches %}
+        {% set history_rows = entry.streaming_batches | sum(attribute='row_count') %}
+        <p class="small text-muted mb-2">Micro-batches: {{ entry.streaming_batches|length }}, rows processed: {{ history_rows }}.</p>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          {% for batch in entry.streaming_batches %}
+          {% set status = batch.status if batch.status else 'info' %}
+          {% set badge = stream_badges.get(status, 'border-secondary text-muted') %}
+          <div class="border rounded px-2 py-1 small {{ badge }}">
+            Batch {{ batch.batch_id if batch.batch_id is not none else loop.index }} · {{ batch.row_count }} rows{% if batch.violations %} · {{ batch.violations }} violations{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
         {% if entry.failed_expectations or entry.schema_errors or entry.dq_aux or entry.input_payloads or entry.output_details.get('warnings') %}
         <details class="mt-3">
           <summary class="small">Validation payload</summary>
@@ -374,22 +426,285 @@
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById('scenario-run-form');
-    if (form) {
-      form.addEventListener('submit', function () {
-        const button = form.querySelector('button[type="submit"]');
-        if (!button || button.disabled) {
-          return;
+    const scenarioCategory = form ? form.dataset.scenarioCategory : null;
+    const isStreamingScenario = scenarioCategory === 'streaming';
+    const liveCard = document.getElementById('live-streaming-card');
+    const statusEl = document.getElementById('live-streaming-status');
+    const batchesContainer = document.getElementById('live-streaming-batches');
+    const timelineContainer = document.getElementById('live-streaming-timeline');
+    const batchCards = new Map();
+    let eventSource = null;
+
+    const timelineBadges = {
+      success: 'bg-success',
+      ok: 'bg-success',
+      info: 'bg-primary',
+      warning: 'bg-warning text-dark',
+      danger: 'bg-danger',
+      error: 'bg-danger'
+    };
+    const streamBadges = {
+      success: 'border-success text-success',
+      ok: 'border-success text-success',
+      info: 'border-info text-info',
+      warning: 'border-warning text-warning',
+      danger: 'border-danger text-danger',
+      error: 'border-danger text-danger'
+    };
+
+    function disableButton() {
+      if (!form) { return; }
+      const button = form.querySelector('button[type="submit"]');
+      if (!button || button.disabled) { return; }
+      button.disabled = true;
+      button.innerHTML = '';
+      const spinner = document.createElement('span');
+      spinner.className = 'spinner-border spinner-border-sm me-2';
+      spinner.setAttribute('role', 'status');
+      spinner.setAttribute('aria-hidden', 'true');
+      button.appendChild(spinner);
+      const label = document.createElement('span');
+      label.textContent = 'Running…';
+      button.appendChild(label);
+    }
+
+    function enableButton() {
+      if (!form) { return; }
+      const button = form.querySelector('button[type="submit"]');
+      if (!button) { return; }
+      button.disabled = false;
+      button.textContent = 'Run this scenario';
+    }
+
+    function formatTime(value) {
+      if (!value) { return null; }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) { return null; }
+      return date.toLocaleTimeString();
+    }
+
+    function renderStage(event) {
+      if (!timelineContainer) { return; }
+      const statusKey = String(event.status || 'info').toLowerCase();
+      const item = document.createElement('li');
+      item.className = 'mb-3 border-start ps-3';
+
+      const header = document.createElement('div');
+      header.className = 'd-flex justify-content-between align-items-center mb-1';
+      const phase = document.createElement('span');
+      phase.className = 'small text-uppercase text-muted';
+      phase.textContent = event.phase || 'Update';
+      header.appendChild(phase);
+      const badge = document.createElement('span');
+      badge.className = 'badge ' + (timelineBadges[statusKey] || 'bg-secondary');
+      badge.textContent = statusKey;
+      header.appendChild(badge);
+      item.appendChild(header);
+
+      const title = document.createElement('div');
+      title.className = 'fw-semibold';
+      title.textContent = event.title || 'Streaming update';
+      item.appendChild(title);
+
+      const desc = document.createElement('div');
+      desc.className = 'small text-muted mb-1';
+      const timeLabel = event.time || formatTime(event.timestamp);
+      const description = event.description || '';
+      desc.textContent = timeLabel ? timeLabel + ' ' + description : description;
+      item.appendChild(desc);
+
+      if (event.metrics && typeof event.metrics === 'object') {
+        const metricsList = document.createElement('dl');
+        metricsList.className = 'row row-cols-1 row-cols-md-2 small mb-0';
+        Object.entries(event.metrics).forEach(([key, value]) => {
+          const dt = document.createElement('dt');
+          dt.className = 'col';
+          dt.textContent = key;
+          const dd = document.createElement('dd');
+          dd.className = 'col';
+          dd.textContent = value;
+          metricsList.appendChild(dt);
+          metricsList.appendChild(dd);
+        });
+        item.appendChild(metricsList);
+      }
+
+      timelineContainer.appendChild(item);
+    }
+
+    function renderBatch(event) {
+      if (!batchesContainer) { return; }
+      const statusKey = String(event.status || 'info').toLowerCase();
+      const streamName = event.stream === 'reject' ? 'Reject batch' : 'Batch';
+      const batchId = event.batch_id != null ? event.batch_id : batchCards.size + 1;
+      const key = (event.stream || 'primary') + ':' + batchId;
+      let card = batchCards.get(key);
+      if (!card) {
+        card = document.createElement('div');
+        batchesContainer.appendChild(card);
+        batchCards.set(key, card);
+      }
+      card.className = 'border rounded px-3 py-2 small bg-light-subtle ' + (streamBadges[statusKey] || 'border-secondary text-muted');
+      const timeLabel = event.time || formatTime(event.timestamp);
+      const rows = event.row_count != null ? event.row_count : 0;
+      const violations = event.violations != null ? event.violations : 0;
+      const parts = [
+        `<div class="fw-semibold">${streamName} ${batchId}</div>`,
+      ];
+      if (timeLabel) {
+        parts.push(`<div>at ${timeLabel}</div>`);
+      }
+      parts.push(`<div>Rows: ${rows}</div>`);
+      parts.push(`<div>Violations: ${violations}</div>`);
+      if (event.intervention) {
+        parts.push(`<div class="text-danger">Intervention: ${event.intervention}</div>`);
+      }
+      if (Array.isArray(event.errors) && event.errors.length) {
+        parts.push(`<div class="text-danger">${event.errors.join(', ')}</div>`);
+      }
+      if (Array.isArray(event.warnings) && event.warnings.length) {
+        parts.push(`<div class="text-warning">${event.warnings.join(', ')}</div>`);
+      }
+      card.innerHTML = parts.join('');
+    }
+
+    function handleComplete(event) {
+      if (statusEl) {
+        statusEl.classList.remove('text-muted', 'text-warning');
+        statusEl.classList.add(event.status === 'ok' ? 'text-success' : 'text-warning');
+        const dataset = event.dataset_name || 'dataset';
+        const version = event.dataset_version || 'unknown';
+        statusEl.textContent = `Run completed for ${dataset}@${version}`;
+      }
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      window.setTimeout(function () {
+        window.location.reload();
+      }, 1500);
+    }
+
+    function handleError(message) {
+      if (statusEl) {
+        statusEl.classList.remove('text-muted');
+        statusEl.classList.add('text-danger');
+        statusEl.textContent = `Streaming run failed: ${message}`;
+      }
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      enableButton();
+    }
+
+    function handleEvent(event) {
+      if (!event || typeof event !== 'object') { return; }
+      const type = String(event.type || '').toLowerCase();
+      if (type === 'stage') {
+        renderStage(event);
+      } else if (type === 'batch') {
+        renderBatch(event);
+      } else if (type === 'observer-started') {
+        renderStage({
+          phase: 'Observation',
+          title: 'Observation writer active',
+          description: 'Streaming metrics query started.',
+          status: 'info',
+          timestamp: event.timestamp,
+        });
+      } else if (type === 'intervention') {
+        renderStage({
+          phase: 'Intervention',
+          title: 'Streaming intervention triggered',
+          description: event.reason || 'Intervention raised by strategy.',
+          status: 'danger',
+          timestamp: event.timestamp,
+        });
+      } else if (type === 'complete') {
+        handleComplete(event);
+      } else if (type === 'error') {
+        handleError(event.message || 'Unknown error');
+      } else if (type === 'started') {
+        if (statusEl) {
+          statusEl.classList.remove('text-danger', 'text-warning');
+          statusEl.classList.add('text-muted');
+          statusEl.textContent = 'Streaming run started…';
         }
-        button.disabled = true;
-        button.innerHTML = '';
-        const spinner = document.createElement('span');
-        spinner.className = 'spinner-border spinner-border-sm me-2';
-        spinner.setAttribute('role', 'status');
-        spinner.setAttribute('aria-hidden', 'true');
-        button.appendChild(spinner);
-        const label = document.createElement('span');
-        label.textContent = 'Running…';
-        button.appendChild(label);
+      }
+    }
+
+    function listenToProgress(runId) {
+      if (!window.EventSource) {
+        handleError('This browser does not support live updates (EventSource).');
+        return;
+      }
+      if (!liveCard) { return; }
+      liveCard.classList.remove('d-none');
+      if (statusEl) {
+        statusEl.classList.remove('text-danger');
+        statusEl.classList.add('text-muted');
+        statusEl.textContent = 'Streaming run launched…';
+      }
+      eventSource = new EventSource(`/pipeline/streaming-progress/${runId}`);
+      eventSource.onmessage = function (event) {
+        try {
+          const payload = JSON.parse(event.data);
+          handleEvent(payload);
+        } catch (err) {
+          console.error('Failed to parse streaming event', err);
+        }
+      };
+      eventSource.onerror = function () {
+        if (statusEl && (!eventSource || statusEl.classList.contains('text-muted'))) {
+          statusEl.classList.remove('text-danger');
+          statusEl.classList.add('text-warning');
+          statusEl.textContent = 'Connection interrupted, waiting for next update…';
+        }
+      };
+    }
+
+    function startStreamingRun() {
+      if (!form) { return; }
+      disableButton();
+      if (liveCard) {
+        liveCard.classList.remove('d-none');
+      }
+      if (statusEl) {
+        statusEl.classList.remove('text-danger');
+        statusEl.classList.add('text-muted');
+        statusEl.textContent = 'Starting streaming run…';
+      }
+      const formData = new FormData(form);
+      fetch('/pipeline/run/streaming', {
+        method: 'POST',
+        body: formData,
+      })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+          }
+          return response.json();
+        })
+        .then(function (payload) {
+          if (!payload || !payload.run_id) {
+            throw new Error('Missing run identifier');
+          }
+          listenToProgress(String(payload.run_id));
+        })
+        .catch(function (error) {
+          handleError(error.message || String(error));
+        });
+    }
+
+    if (form) {
+      form.addEventListener('submit', function (event) {
+        if (isStreamingScenario) {
+          event.preventDefault();
+          startStreamingRun();
+        } else {
+          disableButton();
+        }
       });
     }
 

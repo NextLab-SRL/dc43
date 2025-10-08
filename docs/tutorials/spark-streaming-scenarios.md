@@ -15,6 +15,11 @@ The walkthrough below explains how to explore the scenarios from the UI and how
 engineers can drive them programmatically when writing tests or running live
 workshops.
 
+As you trigger each run the demo page now opens a **Live streaming run** card
+that listens for server-sent events. The card highlights the active stage,
+renders micro-batch badges as they arrive, and appends timeline entries for
+validation milestones so observers can follow the pipeline in real time.
+
 ## Prerequisites
 
 1. Install the demo application and its streaming dependencies:
@@ -41,8 +46,14 @@ Select **Streaming: healthy pipeline** and run the scenario. The demo app uses
 `write_stream_with_contract` to persist the aligned stream under the
 `demo.streaming.events_processed` contract. The synthetic source emits six
 rows per second across a single partition; after roughly eight seconds the
-timeline card shows the source heartbeat and the validation pass that captured
-metrics such as `row_count` and the latest streaming batch id.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L104-L178】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L36-L72】
+timeline card shows the source heartbeat, the validation pass, and a row of
+micro-batch cards that surface the row count, violations, and timestamps for
+every processed batch.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L104-L178】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L36-L104】
+
+While the run is active the live card increments the batch list and timeline as
+soon as the streaming observation writer reports a new micro-batch, allowing
+you to narrate how the contract holds even before the final dataset record is
+persisted.【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L1-L162】
 
 The dataset history panel now lists a fresh version with status `ok`. Expanding
 the DQ details or the timeline reveals the schema snapshot sent to governance
@@ -57,18 +68,24 @@ and errors. A secondary streaming write filters the negative rows into the
 `demo.streaming.events_rejects` contract so remediation teams can triage them
 without losing the rest of the feed.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】
 
+The live progress card differentiates the reject batches, colouring their
+badges with the warning palette and calling out the intervention once the
+reject sink activates. This makes it easy to point to the exact batch that
+introduced the warning status while the stream is still running.【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L1-L162】
+
 After the run completes, the dataset record shows the warning status, the
 captured violations, and the reject sink metadata including the number of rows
 quarantined for that micro-batch. The timeline panel highlights when the reject
-sink activated and how many rows were quarantined for the latest batch.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L244-L256】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L130-L162】
+sink activated while the micro-batch cards make it obvious which batches were
+rerouted and how many rows were quarantined.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L130-L162】
 
 ## Scenario 3 – schema breaks block the stream
 
 The **Streaming: schema break blocks the run** example drops a required column
 before writing. Validation fails immediately, no `StreamingQuery` is started,
 and the dataset record stores the failure reason without assigning a dataset
-version. The timeline makes the failure easy to spot by calling out the schema
-violation alongside the captured error message.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L258-L333】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L130-L162】
+version. The timeline and batch list make the failure easy to spot by calling
+out the schema violation alongside the captured error message.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L258-L333】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L130-L162】
 
 ## Driving scenarios from code
 
