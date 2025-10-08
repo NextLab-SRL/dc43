@@ -31,7 +31,7 @@ def test_streaming_scenarios_record_dataset_runs():
     workspace, _ = prepare_demo_workspace()
     original = load_records()
     try:
-        dataset, version = run_streaming_scenario("streaming-valid", seconds=2, run_type="observe")
+        dataset, version = run_streaming_scenario("streaming-valid", seconds=0, run_type="observe")
         assert dataset == "demo.streaming.events_processed"
         assert version
         records = [r for r in load_records() if r.scenario_key == "streaming-valid"]
@@ -67,8 +67,38 @@ def test_streaming_scenarios_record_dataset_runs():
         assert input_dir.exists()
         input_marker = (input_dir / ".dc43_version").read_text(encoding="utf-8").strip()
         assert input_marker == input_version
+        input_records = [
+            r
+            for r in records
+            if r.dataset_name == "demo.streaming.events" and r.dataset_version == input_version
+        ]
+        assert input_records, "expected input dataset run to be recorded"
+        assert input_records[-1].run_type.endswith("input")
 
-        _, error_version = run_streaming_scenario("streaming-schema-break", seconds=0, run_type="enforce")
+        _, warning_version = run_streaming_scenario(
+            "streaming-dq-rejects", seconds=0, run_type="observe"
+        )
+        assert warning_version
+        reject_records = [
+            r
+            for r in load_records()
+            if r.scenario_key == "streaming-dq-rejects"
+            and r.dataset_name == "demo.streaming.events_rejects"
+        ]
+        assert reject_records, "expected reject dataset run"
+        latest_reject = reject_records[-1]
+        assert latest_reject.dataset_version
+        assert latest_reject.run_type.endswith("rejects")
+        reject_dir = _version_dir(
+            workspace, "demo.streaming.events_rejects", latest_reject.dataset_version
+        )
+        assert reject_dir.exists()
+        reject_marker = (reject_dir / ".dc43_version").read_text(encoding="utf-8").strip()
+        assert reject_marker == latest_reject.dataset_version
+
+        _, error_version = run_streaming_scenario(
+            "streaming-schema-break", seconds=0, run_type="enforce"
+        )
         error_records = [r for r in load_records() if r.scenario_key == "streaming-schema-break"]
         assert error_records
         assert error_records[-1].status == "error"

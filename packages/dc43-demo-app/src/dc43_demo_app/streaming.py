@@ -54,6 +54,21 @@ class StreamingProgressReporter(Protocol):
 
 
 @dataclass(slots=True)
+class _RelatedDataset:
+    """Supplementary dataset captured alongside the primary scenario result."""
+
+    contract_id: str
+    contract_version: str
+    dataset_name: str
+    dataset_version: Optional[str]
+    status: str
+    dq_details: Mapping[str, Any]
+    run_type: str
+    violations: int = 0
+    reason: Optional[str] = None
+
+
+@dataclass(slots=True)
 class _ScenarioResult:
     """Container describing the outcome of a streaming scenario."""
 
@@ -64,6 +79,7 @@ class _ScenarioResult:
     dq_details: Mapping[str, Any]
     timeline: List[Mapping[str, Any]]
     status_reason: Optional[str] = None
+    related: List[_RelatedDataset] | None = None
 
 
 def _spark_session() -> SparkSession:
@@ -143,13 +159,23 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
         return
     # Ensure at least one micro-batch is processed even for short runs so that
     # metrics and validation details have a chance to update.
+    remaining: List[StreamingQuery] = []
     for query in active_queries:
         try:
             query.processAllAvailable()
         except StreamingQueryException:
             raise
+        except Exception:  # pragma: no cover - streaming engines can close abruptly
+            logger.exception("Streaming query failed while draining batches")
+            continue
+        remaining.append(query)
+    active_queries = remaining
+    if not active_queries:
+        return
+
     deadline = time.time() + max(seconds, 0)
-    while time.time() < deadline:
+    while time.time() < deadline and active_queries:
+        current: List[StreamingQuery] = []
         for query in active_queries:
             try:
                 query.processAllAvailable()
@@ -157,6 +183,13 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
                 # Propagate failures to the caller after stopping all queries so the
                 # dataset record can capture the reason from the validation payload.
                 raise
+            except Exception:  # pragma: no cover - tolerate interrupted queries
+                logger.exception("Streaming query interrupted during drain")
+                continue
+            current.append(query)
+        active_queries = current
+        if not active_queries:
+            break
         time.sleep(0.2)
 
 
@@ -510,6 +543,25 @@ def _record_result(
         record.reason = result.status_reason
 
     records.extend(extra_records)
+
+    for side in result.related or []:
+        side_version = side.dataset_version or ""
+        side_record = DatasetRecord(
+            contract_id=side.contract_id,
+            contract_version=side.contract_version,
+            dataset_name=side.dataset_name,
+            dataset_version=side_version,
+            status=side.status,
+            dq_details=dict(side.dq_details),
+            run_type=side.run_type,
+            violations=side.violations,
+            scenario_key=scenario_key,
+        )
+        if side.reason:
+            side_record.reason = side.reason
+        records.append(side_record)
+        _ensure_streaming_version(side.dataset_name, side.dataset_version)
+
     records.append(record)
     save_records(records)
     _ensure_streaming_version(dataset_name, result.dataset_version)
@@ -650,6 +702,12 @@ def _scenario_valid(
             status="info",
             metrics={"rows_per_second": 6, "partitions": 1},
         ),
+        _timeline_event(
+            phase="Processing",
+            title="Events enriched before validation",
+            description="Incoming rows gain a quality_flag column prior to contract checks.",
+            status="success",
+        ),
         *_timeline_from_batches(batches, phase="Micro-batch"),
         _timeline_event(
             phase="Validation",
@@ -696,6 +754,21 @@ def _scenario_valid(
         }
     )
 
+    input_record = _RelatedDataset(
+        contract_id=_INPUT_CONTRACT,
+        contract_version=_CONTRACT_VERSIONS[_INPUT_CONTRACT],
+        dataset_name=_INPUT_CONTRACT,
+        dataset_version=input_version,
+        status=_normalise_status(read_status),
+        dq_details={
+            "stream": "input",
+            "details": input_details,
+            "metrics": dict(read_status.metrics or {}),
+        },
+        run_type=f"{run_type}-input" if run_type else "input",
+        violations=_extract_violation_count(input_details),
+    )
+
     return _ScenarioResult(
         dataset_name=_OUTPUT_CONTRACT,
         dataset_version=details.get("dataset_version") or dataset_version,
@@ -703,6 +776,7 @@ def _scenario_valid(
         queries=queries,
         dq_details=dq_details,
         timeline=timeline,
+        related=[input_record],
     )
 
 
@@ -875,13 +949,9 @@ def _scenario_dq_rejects(
         reject_batches = [
             item for item in candidate_reject_batches if isinstance(item, Mapping)
         ]
-    reject_path = _dataset_version_path(_REJECT_CONTRACT, dataset_version)
-    reject_count = 0
-    if reject_path.exists():
-        try:
-            reject_count = spark.read.format("parquet").load(str(reject_path)).count()
-        except Exception:
-            reject_count = 0
+    reject_count = int(reject_details.get("row_count") or 0)
+    if not reject_count and reject_batches:
+        reject_count = sum(int(item.get("row_count", 0) or 0) for item in reject_batches)
     dq_details: MutableMapping[str, Any] = {
         "input": input_details,
         "output": details,
@@ -905,6 +975,12 @@ def _scenario_dq_rejects(
             time_label=started_at.strftime("%H:%M:%S"),
             status="info",
             metrics={"rows_per_second": 6, "partitions": 1},
+        ),
+        _timeline_event(
+            phase="Processing",
+            title="Quality flags applied to streaming rows",
+            description="Negative values are tagged and routed toward the reject sink before validation runs.",
+            status="warning",
         ),
         *_timeline_from_batches(batches, phase="Micro-batch"),
         _timeline_event(
@@ -960,6 +1036,35 @@ def _scenario_dq_rejects(
         }
     )
 
+    input_record = _RelatedDataset(
+        contract_id=_INPUT_CONTRACT,
+        contract_version=_CONTRACT_VERSIONS[_INPUT_CONTRACT],
+        dataset_name=_INPUT_CONTRACT,
+        dataset_version=input_version,
+        status=_normalise_status(read_status),
+        dq_details={
+            "stream": "input",
+            "details": input_details,
+            "metrics": dict(read_status.metrics or {}),
+        },
+        run_type=f"{run_type}-input" if run_type else "input",
+        violations=_extract_violation_count(input_details),
+    )
+    reject_record = _RelatedDataset(
+        contract_id=_REJECT_CONTRACT,
+        contract_version=_CONTRACT_VERSIONS[_REJECT_CONTRACT],
+        dataset_name=_REJECT_CONTRACT,
+        dataset_version=reject_version,
+        status=_normalise_status(reject_result),
+        dq_details={
+            "stream": "reject",
+            "details": reject_details,
+            "row_count": reject_count,
+        },
+        run_type=f"{run_type}-rejects" if run_type else "rejects",
+        violations=max(reject_count, _extract_violation_count(reject_details)),
+    )
+
     return _ScenarioResult(
         dataset_name=_OUTPUT_CONTRACT,
         dataset_version=details.get("dataset_version") or dataset_version,
@@ -967,6 +1072,7 @@ def _scenario_dq_rejects(
         queries=queries,
         dq_details=dq_details,
         timeline=timeline,
+        related=[input_record, reject_record],
     )
 
 
@@ -1025,6 +1131,21 @@ def _scenario_schema_break(
         }
     )
 
+    input_record = _RelatedDataset(
+        contract_id=_INPUT_CONTRACT,
+        contract_version=_CONTRACT_VERSIONS[_INPUT_CONTRACT],
+        dataset_name=_INPUT_CONTRACT,
+        dataset_version=input_version,
+        status=_normalise_status(read_status),
+        dq_details={
+            "stream": "input",
+            "details": input_details,
+            "metrics": dict(read_status.metrics or {}),
+        },
+        run_type=f"{run_type}-input" if run_type else "input",
+        violations=_extract_violation_count(input_details),
+    )
+
     broken_df = df.drop("value")
     checkpoint = _checkpoint_dir("schema_break", version=dataset_version)
     try:
@@ -1066,6 +1187,12 @@ def _scenario_schema_break(
                 status="info",
                 metrics={"rows_per_second": 6, "partitions": 1},
             ),
+            _timeline_event(
+                phase="Processing",
+                title="Required column dropped upstream of validation",
+                description="A faulty transformation removes the value column before the dataset hits the contract boundary.",
+                status="danger",
+            ),
             *_timeline_from_batches(batches, phase="Micro-batch"),
             _timeline_event(
                 phase="Validation",
@@ -1100,6 +1227,7 @@ def _scenario_schema_break(
             dq_details=dq_details,
             timeline=timeline,
             status_reason=status_reason,
+            related=[input_record],
         )
     except Exception as exc:
         dq_details = {
@@ -1116,6 +1244,12 @@ def _scenario_schema_break(
                 description="Events attempted to flow into the processing job, but the downstream schema breaks immediately.",
                 time_label=started_at.strftime("%H:%M:%S"),
                 status="info",
+            ),
+            _timeline_event(
+                phase="Processing",
+                title="Processing step dropped required column",
+                description="The faulty transformation removes value so validation cannot proceed.",
+                status="danger",
             ),
             _timeline_event(
                 phase="Validation",
@@ -1138,6 +1272,7 @@ def _scenario_schema_break(
             dq_details=dq_details,
             timeline=timeline,
             status_reason=str(exc),
+            related=[input_record],
         )
 
 
