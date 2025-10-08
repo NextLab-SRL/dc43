@@ -39,7 +39,7 @@ from .retail_demo import (
     run_retail_demo,
     simulate_retail_timeline,
 )
-from .streaming import run_streaming_scenario
+from . import streaming as streaming_demo
 
 CATEGORY_LABELS = {
     "contract": "Contract-focused pipelines",
@@ -995,7 +995,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             except (TypeError, ValueError):
                 seconds_int = 5
             dataset_name, new_version = await asyncio.to_thread(
-                run_streaming_scenario,
+                streaming_demo.run_streaming_scenario,
                 scenario,
                 seconds=seconds_int,
                 run_type=params_cfg.get("run_type", "observe"),
@@ -1075,7 +1075,7 @@ async def run_streaming_endpoint(scenario: str = Form(...)) -> JSONResponse:
     async def _runner() -> None:
         try:
             dataset_name, dataset_version = await asyncio.to_thread(
-                run_streaming_scenario,
+                streaming_demo.run_streaming_scenario,
                 scenario,
                 seconds=seconds,
                 run_type=params_cfg.get("run_type", "observe"),

@@ -837,6 +837,7 @@ def _scenario_dq_rejects(
         reject_result.details, queries=reject_queries
     )
     reject_details.setdefault("dataset_id", _REJECT_CONTRACT)
+    reject_details.setdefault("dataset_version", dataset_version)
     batches: List[Mapping[str, Any]] = []
     candidate_batches = details.get("streaming_batches")
     if isinstance(candidate_batches, list):
