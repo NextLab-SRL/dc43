@@ -54,3 +54,5 @@
   inventory snapshots with the freshness reference checkpoint.
 - Ensure the Altair Retail flow and dataset lineage tabs render their Mermaid diagrams reliably
   inside the story tabs instead of leaving the graph source text visible.
+- Avoid serialising active `StreamingQuery` handles when recording streaming scenario results so
+  the reject-routing walkthrough can persist dataset history without errors.

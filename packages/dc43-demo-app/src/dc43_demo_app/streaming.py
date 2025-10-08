@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable as IterableABC
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -167,6 +168,52 @@ def _query_metadata(queries: Iterable[StreamingQuery]) -> List[Mapping[str, Any]
             }
         )
     return info
+
+
+def _extract_query_handles(details: Mapping[str, Any] | None) -> List[StreamingQuery]:
+    """Return any :class:`~pyspark.sql.streaming.StreamingQuery` handles in ``details``."""
+
+    if not isinstance(details, Mapping):
+        return []
+    handles: List[StreamingQuery] = []
+    raw = details.get("streaming_queries")
+    if isinstance(raw, StreamingQuery):
+        handles.append(raw)
+        return handles
+    if isinstance(raw, IterableABC) and not isinstance(raw, (str, bytes)):
+        for item in raw:
+            if isinstance(item, StreamingQuery):
+                handles.append(item)
+    return handles
+
+
+def _serialise_streaming_details(
+    details: Mapping[str, Any] | None,
+    *,
+    queries: Iterable[StreamingQuery] | None = None,
+) -> Dict[str, Any]:
+    """Return a shallow copy of ``details`` with serialisable streaming metadata."""
+
+    payload: Dict[str, Any] = dict(details or {})
+    metadata: List[Mapping[str, Any]] = []
+    handles = list(queries or [])
+    if not handles:
+        raw = payload.get("streaming_queries")
+        if isinstance(raw, StreamingQuery):
+            handles.append(raw)
+        elif isinstance(raw, IterableABC) and not isinstance(raw, (str, bytes)):
+            for item in raw:
+                if isinstance(item, StreamingQuery):
+                    handles.append(item)
+                elif isinstance(item, Mapping):
+                    metadata.append(dict(item))
+        elif isinstance(raw, Mapping):
+            metadata.append(dict(raw))
+    if handles:
+        metadata.extend(_query_metadata(handles))
+    if metadata or "streaming_queries" in payload:
+        payload["streaming_queries"] = metadata
+    return payload
 
 
 def _normalise_status(validation: Optional[ValidationResult]) -> str:
@@ -417,7 +464,7 @@ def _scenario_valid(
         },
         on_streaming_batch=_forward,
     )
-    queries = list(validation.details.get("streaming_queries", []) or [])
+    queries = _extract_query_handles(validation.details)
     if queries:
         _emit(
             {
@@ -451,8 +498,7 @@ def _scenario_valid(
         }
     )
 
-    details = dict(validation.details)
-    details["streaming_queries"] = _query_metadata(queries)
+    details = _serialise_streaming_details(validation.details, queries=queries)
     batches: List[Mapping[str, Any]] = []
     candidate_batches = details.get("streaming_batches")
     if isinstance(candidate_batches, list):
@@ -652,9 +698,9 @@ def _scenario_dq_rejects(
         }
     )
 
-    queries: List[StreamingQuery] = []
-    queries.extend(validation.details.get("streaming_queries", []) or [])
-    queries.extend(reject_result.details.get("streaming_queries", []) or [])
+    main_queries = _extract_query_handles(validation.details)
+    reject_queries = _extract_query_handles(reject_result.details)
+    queries: List[StreamingQuery] = [*main_queries, *reject_queries]
     try:
         _emit(
             {
@@ -678,9 +724,10 @@ def _scenario_dq_rejects(
         }
     )
 
-    details = dict(validation.details)
-    reject_details = dict(reject_result.details)
-    details["streaming_queries"] = _query_metadata(queries)
+    details = _serialise_streaming_details(validation.details, queries=main_queries)
+    reject_details = _serialise_streaming_details(
+        reject_result.details, queries=reject_queries
+    )
     batches: List[Mapping[str, Any]] = []
     candidate_batches = details.get("streaming_batches")
     if isinstance(candidate_batches, list):
@@ -847,13 +894,12 @@ def _scenario_schema_break(
                 "queryName": f"demo_stream_schema_{dataset_version}",
             },
         )
-        queries = list(validation.details.get("streaming_queries", []) or [])
+        queries = _extract_query_handles(validation.details)
         try:
             _drive_queries(queries, seconds=seconds)
         finally:
             _stop_queries(queries)
-        details = dict(validation.details)
-        details["streaming_queries"] = _query_metadata(queries)
+        details = _serialise_streaming_details(validation.details, queries=queries)
         batches: List[Mapping[str, Any]] = []
         candidate_batches = details.get("streaming_batches")
         if isinstance(candidate_batches, list):
