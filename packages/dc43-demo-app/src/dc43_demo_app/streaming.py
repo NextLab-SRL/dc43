@@ -27,6 +27,7 @@ from .contracts_api import (
     governance_service,
     load_records,
     refresh_dataset_aliases,
+    register_dataset_version,
     save_records,
 )
 from .contracts_workspace import current_workspace
@@ -101,6 +102,25 @@ def _dataset_version_path(dataset: str, version: str) -> Path:
         ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in version
     )
     return root / safe
+
+
+def _ensure_streaming_version(dataset: str | None, version: Optional[str]) -> None:
+    """Register ``version`` for ``dataset`` if possible."""
+
+    if not dataset or not version:
+        return
+    try:
+        target = _dataset_version_path(dataset, version)
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception:  # pragma: no cover - defensive directory creation
+        logger.exception("Failed to prepare dataset directory for %s %s", dataset, version)
+        return
+    try:
+        register_dataset_version(dataset, version, target)
+    except Exception:  # pragma: no cover - registration is best-effort for demo data
+        logger.exception("Failed to register dataset version for %s %s", dataset, version)
+        return
+    refresh_dataset_aliases(dataset)
 
 
 def _progress_emit(
@@ -492,8 +512,7 @@ def _record_result(
     records.extend(extra_records)
     records.append(record)
     save_records(records)
-    if dataset_name and dataset_version:
-        refresh_dataset_aliases(dataset_name)
+    _ensure_streaming_version(dataset_name, result.dataset_version)
     return dataset_name, dataset_version
 
 
@@ -538,6 +557,11 @@ def _scenario_valid(
         read_status.details if read_status else {}
     )
     input_details.setdefault("dataset_id", _INPUT_CONTRACT)
+    input_version = input_details.get("dataset_version")
+    if not isinstance(input_version, str) or not input_version:
+        input_version = dataset_version
+        input_details["dataset_version"] = input_version
+    _ensure_streaming_version(_INPUT_CONTRACT, input_version)
     _emit(
         {
             "type": "stage",
@@ -837,7 +861,10 @@ def _scenario_dq_rejects(
         reject_result.details, queries=reject_queries
     )
     reject_details.setdefault("dataset_id", _REJECT_CONTRACT)
-    reject_details.setdefault("dataset_version", dataset_version)
+    reject_version = reject_details.get("dataset_version")
+    if not isinstance(reject_version, str) or not reject_version:
+        reject_version = dataset_version
+        reject_details["dataset_version"] = reject_version
     batches: List[Mapping[str, Any]] = []
     candidate_batches = details.get("streaming_batches")
     if isinstance(candidate_batches, list):
@@ -863,6 +890,7 @@ def _scenario_dq_rejects(
             "row_count": reject_count,
         },
     }
+    _ensure_streaming_version(_REJECT_CONTRACT, reject_version)
     metrics = dict(validation.metrics or {})
     violations_total = sum(
         int(value)
@@ -982,6 +1010,11 @@ def _scenario_schema_break(
         read_status.details if read_status else {}
     )
     input_details.setdefault("dataset_id", _INPUT_CONTRACT)
+    input_version = input_details.get("dataset_version")
+    if not isinstance(input_version, str) or not input_version:
+        input_version = dataset_version
+        input_details["dataset_version"] = input_version
+    _ensure_streaming_version(_INPUT_CONTRACT, input_version)
     _emit(
         {
             "type": "stage",

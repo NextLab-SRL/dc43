@@ -16,8 +16,19 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when pyspark missing
 pytestmark = pytest.mark.skipif(not _PYSPARK_AVAILABLE, reason="pyspark required")
 
 
+def _version_dir(workspace, dataset: str, version: str):
+    root = workspace.data_dir / dataset
+    candidate = root / version
+    if candidate.exists():
+        return candidate
+    safe = "".join(
+        ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in version
+    )
+    return root / safe
+
+
 def test_streaming_scenarios_record_dataset_runs():
-    prepare_demo_workspace()
+    workspace, _ = prepare_demo_workspace()
     original = load_records()
     try:
         dataset, version = run_streaming_scenario("streaming-valid", seconds=2, run_type="observe")
@@ -43,6 +54,19 @@ def test_streaming_scenarios_record_dataset_runs():
         assert any((batch.get("row_count", 0) or 0) > 0 for batch in batches)
         batch_entries = [r for r in records if r.run_type.endswith("-batch")]
         assert batch_entries, "expected micro-batch records"
+
+        processed_dir = _version_dir(workspace, dataset, version)
+        assert processed_dir.exists()
+        marker = (processed_dir / ".dc43_version").read_text(encoding="utf-8").strip()
+        assert marker == version
+
+        input_details = latest_record.dq_details.get("input", {}) if latest_record.dq_details else {}
+        input_version = input_details.get("dataset_version")
+        assert input_version
+        input_dir = _version_dir(workspace, "demo.streaming.events", input_version)
+        assert input_dir.exists()
+        input_marker = (input_dir / ".dc43_version").read_text(encoding="utf-8").strip()
+        assert input_marker == input_version
 
         _, error_version = run_streaming_scenario("streaming-schema-break", seconds=0, run_type="enforce")
         error_records = [r for r in load_records() if r.scenario_key == "streaming-schema-break"]
