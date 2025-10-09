@@ -2511,9 +2511,10 @@ for query in validation.details.get("streaming_queries", []):
             + dedent(
                 """
                 flowchart LR
-                    Source["demo.streaming.events\\n6 rows/sec"] -->|mutate| Validate
+                    Source["demo.streaming.events\\n6 rows/sec"] --> Transform["Streaming transform\\nquality flags + reject reason"]
+                    Transform -->|publish| Validate
+                    Transform -->|negative rows| Rejects["demo.streaming.events_rejects\\nreason column"]
                     Validate -->|valid batches| Processed["demo.streaming.events_processed\\nstatus warn"]
-                    Validate -->|violations| Rejects["demo.streaming.events_rejects\\nreason column"]
                     Validate --> Metrics["Observation writer\\nper-batch metrics"]
                     Processed --> Governance
                 """

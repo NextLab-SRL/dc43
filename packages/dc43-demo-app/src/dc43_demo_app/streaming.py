@@ -95,6 +95,7 @@ def _spark_session() -> SparkSession:
         .appName("dc43-demo-streaming")
         .config("spark.ui.enabled", "false")
         .config("spark.sql.shuffle.partitions", "1")
+        .config("spark.sql.adaptive.enabled", "false")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
@@ -126,6 +127,9 @@ def _dataset_version_paths(dataset: str, version: str) -> tuple[Path, Path]:
 def _alias_dataset_version(preferred: Path, target: Path) -> None:
     """Create a symlink at ``preferred`` pointing to ``target`` if possible."""
 
+    invalid = {":", "<", ">", "\"", "|", "?", "*"}
+    if any(ch in preferred.name for ch in invalid):
+        return
     try:
         preferred.parent.mkdir(parents=True, exist_ok=True)
         if preferred.is_symlink():

@@ -874,7 +874,7 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         input_payloads = []
         if isinstance(dq_details, Mapping):
             for key, payload in dq_details.items():
-                if key == "output":
+                if key in {"output", "rejects"}:
                     continue
                 input_payloads.append({"name": key, "payload": payload})
         input_refs: list[dict[str, Any]] = []
