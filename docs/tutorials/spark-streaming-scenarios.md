@@ -64,12 +64,12 @@ appear when a streaming read skips Spark-side counts.【F:packages/dc43-demo-app
 
 ## Scenario 2 – violations trigger reject routing
 
-Running **Streaming: rejects without blocking** flips the sign of every fourth
-row. The main write keeps streaming even though validation records violations;
-`enforce=False` downgrades the status to `warn` while still publishing metrics
-and errors. A secondary streaming write filters the negative rows into the
-`demo.streaming.events_rejects` contract so remediation teams can triage them
-without losing the rest of the feed.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】
+Running **Streaming: rejects without blocking** flips the sign of alternating
+pairs of micro-batches. The main write keeps streaming even though validation
+records warnings; `enforce=False` downgrades the status to `warn` while still
+publishing metrics and errors. A secondary streaming write filters the negative
+rows into an ungoverned `demo.streaming.events_rejects` folder so remediation
+teams can triage them without losing the rest of the feed.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】
 
 The live progress card differentiates the reject batches, colouring their
 badges with the warning palette and calling out the intervention once the
@@ -80,10 +80,11 @@ After the run completes, the dataset record shows the warning status, the
 captured violations, and the reject sink metadata including the number of rows
 quarantined for that micro-batch. Each batch contributes its own dataset
 version entry so you can drill into the specific slice that introduced the
-warning. The summary card now links directly to the governed input and reject
-datasets, making it easy to pivot into the catalog for deeper inspection. The
-timeline panel highlights when the reject sink activated while the micro-batch
-cards make it obvious which batches were rerouted and how many rows were
+warning. The summary card now links directly to the governed input dataset
+while exposing the reject folder as a related slice so operators can review the
+raw files when they need to remediate the failing rows. The timeline panel
+highlights when the reject sink activated while the micro-batch cards make it
+obvious which batches were rerouted and how many rows were
 quarantined.【F:packages/dc43-demo-app/src/dc43_demo_app/streaming.py†L180-L256】【F:packages/dc43-demo-app/src/dc43_demo_app/templates/pipeline_run_detail.html†L112-L170】
 
 ## Scenario 3 – schema breaks block the stream

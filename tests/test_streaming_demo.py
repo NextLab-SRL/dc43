@@ -89,12 +89,25 @@ def test_streaming_scenarios_record_dataset_runs():
         latest_reject = reject_records[-1]
         assert latest_reject.dataset_version
         assert latest_reject.run_type.endswith("rejects")
+        assert latest_reject.contract_id == ""
+        assert latest_reject.status in {"info", "warning"}
         reject_dir = _version_dir(
             workspace, "demo.streaming.events_rejects", latest_reject.dataset_version
         )
         assert reject_dir.exists()
         reject_marker = (reject_dir / ".dc43_version").read_text(encoding="utf-8").strip()
         assert reject_marker == latest_reject.dataset_version
+        reject_details = latest_reject.dq_details.get("details", {})
+        assert isinstance(reject_details, dict)
+        assert reject_details.get("dataset_id") == "demo.streaming.events_rejects"
+        if latest_reject.status == "warning":
+            assert latest_reject.violations > 0
+
+        processed_batches = latest_record.dq_details.get("output", {}).get(
+            "streaming_batches", []
+        )
+        assert any((batch.get("violations", 0) or 0) == 0 for batch in processed_batches)
+        assert any((batch.get("violations", 0) or 0) > 0 for batch in processed_batches)
 
         _, error_version = run_streaming_scenario(
             "streaming-schema-break", seconds=0, run_type="enforce"

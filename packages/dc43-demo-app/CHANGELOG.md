@@ -51,6 +51,9 @@
 - Streaming demo scenarios now record per-micro-batch dataset versions, filter noisy metric
   warnings from streaming reads, and surface direct links to the input and reject datasets on the
   pipeline detail page.
+- Streaming reject walkthrough now alternates healthy and warning batches, stores the reject sink
+  as an ungoverned dataset version, and updates the UI copy so the catalog stops creating
+  contracts or drafts for the quarantined rows while still exposing them for remediation.
 
 ### Fixed
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware

@@ -40,11 +40,10 @@ logger = logging.getLogger(__name__)
 
 _INPUT_CONTRACT = "demo.streaming.events"
 _OUTPUT_CONTRACT = "demo.streaming.events_processed"
-_REJECT_CONTRACT = "demo.streaming.events_rejects"
+_REJECT_DATASET = "demo.streaming.events_rejects"
 _CONTRACT_VERSIONS: Dict[str, str] = {
     _INPUT_CONTRACT: "0.1.0",
     _OUTPUT_CONTRACT: "0.1.0",
-    _REJECT_CONTRACT: "0.1.0",
 }
 
 
@@ -875,12 +874,17 @@ def _scenario_dq_rejects(
         }
     )
 
-    mutated_df = df.withColumn(
-        "value",
-        F.when(F.col("value") % 4 == 0, -F.col("value")).otherwise(F.col("value")),
-    ).withColumn(
-        "quality_flag",
-        F.when(F.col("value") < 0, F.lit("warning")).otherwise(F.lit("valid")),
+    mutated_df = (
+        df.withColumn("quality_cycle", F.floor(F.col("value") / F.lit(12)) % 2)
+        .withColumn(
+            "value",
+            F.when(F.col("quality_cycle") == 1, -F.col("value")).otherwise(F.col("value")),
+        )
+        .withColumn(
+            "quality_flag",
+            F.when(F.col("quality_cycle") == 1, F.lit("warning")).otherwise(F.lit("valid")),
+        )
+        .drop("quality_cycle")
     )
     checkpoint = _checkpoint_dir("dq", version=dataset_version)
 
@@ -918,25 +922,50 @@ def _scenario_dq_rejects(
         "value",
         F.lit("value below zero").alias("reject_reason"),
     )
+    _, reject_target = _dataset_version_paths(_REJECT_DATASET, dataset_version)
+    reject_target.mkdir(parents=True, exist_ok=True)
+    reject_batches: List[Dict[str, Any]] = []
+    reject_total_rows = 0
 
-    def _forward_reject(event: Mapping[str, Any]) -> None:
-        payload = dict(event)
-        payload.setdefault("stream", "reject")
-        _emit(payload)
+    def _write_reject_batch(batch_df, batch_id: int) -> None:
+        nonlocal reject_total_rows
+        materialised = batch_df.persist()
+        try:
+            row_count = materialised.count()
+            if row_count:
+                materialised.write.mode("append").parquet(str(reject_target))
+            reject_total_rows += row_count
+        finally:
+            materialised.unpersist()
 
-    reject_result = write_stream_with_contract(
-        df=reject_df,
-        contract_id=_REJECT_CONTRACT,
-        contract_service=contract_service,
-        expected_contract_version=f"=={_CONTRACT_VERSIONS[_REJECT_CONTRACT]}",
-        data_quality_service=dq_service,
-        governance_service=governance_service,
-        dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
-        options={
-            "checkpointLocation": str(reject_checkpoint),
-            "queryName": f"demo_stream_dq_rejects_{dataset_version}",
-        },
-        on_streaming_batch=_forward_reject,
+        status = "success" if row_count else "info"
+        batch_event = {
+            "batch_id": batch_id,
+            "row_count": row_count,
+            "violations": row_count,
+            "status": status,
+        }
+        reject_batches.append(batch_event)
+        _emit(
+            {
+                "type": "batch",
+                "phase": "Rejects",
+                "status": status,
+                "stream": "reject",
+                "metrics": {
+                    "batch_id": batch_id,
+                    "row_count": row_count,
+                    "dataset_version": dataset_version,
+                },
+            }
+        )
+
+    reject_query = (
+        reject_df.writeStream.foreachBatch(_write_reject_batch)
+        .outputMode("append")
+        .queryName(f"demo_stream_dq_rejects_{dataset_version}")
+        .option("checkpointLocation", str(reject_checkpoint))
+        .start()
     )
     _emit(
         {
@@ -949,8 +978,7 @@ def _scenario_dq_rejects(
     )
 
     main_queries = _extract_query_handles(validation.details)
-    reject_queries = _extract_query_handles(reject_result.details)
-    queries: List[StreamingQuery] = [*main_queries, *reject_queries]
+    queries: List[StreamingQuery] = [*main_queries, reject_query]
     try:
         _emit(
             {
@@ -975,36 +1003,31 @@ def _scenario_dq_rejects(
     )
 
     details = _serialise_streaming_details(validation.details, queries=main_queries)
-    reject_details = _serialise_streaming_details(
-        reject_result.details, queries=reject_queries
-    )
-    reject_details.setdefault("dataset_id", _REJECT_CONTRACT)
-    reject_version = reject_details.get("dataset_version")
-    if not isinstance(reject_version, str) or not reject_version:
-        reject_version = dataset_version
-        reject_details["dataset_version"] = reject_version
+    reject_details: Dict[str, Any] = {
+        "dataset_id": _REJECT_DATASET,
+        "dataset_version": dataset_version,
+        "row_count": reject_total_rows,
+        "streaming_batches": reject_batches,
+    }
+    reject_version = dataset_version
     batches: List[Mapping[str, Any]] = []
     candidate_batches = details.get("streaming_batches")
     if isinstance(candidate_batches, list):
         batches = [item for item in candidate_batches if isinstance(item, Mapping)]
-    reject_batches: List[Mapping[str, Any]] = []
-    candidate_reject_batches = reject_details.get("streaming_batches")
-    if isinstance(candidate_reject_batches, list):
-        reject_batches = [
-            item for item in candidate_reject_batches if isinstance(item, Mapping)
-        ]
-    reject_count = int(reject_details.get("row_count") or 0)
-    if not reject_count and reject_batches:
-        reject_count = sum(int(item.get("row_count", 0) or 0) for item in reject_batches)
+    reject_batches_serialised: List[Mapping[str, Any]] = [
+        item for item in reject_batches if isinstance(item, Mapping)
+    ]
+    reject_count = reject_total_rows
     dq_details: MutableMapping[str, Any] = {
         "input": input_details,
         "output": details,
         "rejects": {
             **reject_details,
+            "streaming_batches": reject_batches_serialised,
             "row_count": reject_count,
         },
     }
-    _ensure_streaming_version(_REJECT_CONTRACT, reject_version)
+    _ensure_streaming_version(_REJECT_DATASET, reject_version)
     metrics = dict(validation.metrics or {})
     violations_total = sum(
         int(value)
@@ -1023,7 +1046,7 @@ def _scenario_dq_rejects(
         _timeline_event(
             phase="Processing",
             title="Quality flags applied to streaming rows",
-            description="Negative values are tagged and routed toward the reject sink before validation runs.",
+            description="Alternating micro-batch cycles flip values negative so rejects accumulate without stopping the stream.",
             status="warning",
         ),
         *_timeline_from_batches(batches, phase="Micro-batch"),
@@ -1038,7 +1061,7 @@ def _scenario_dq_rejects(
                 "last_batch_id": details.get("streaming_batch_id"),
             },
         ),
-        *_timeline_from_batches(reject_batches, phase="Rejects"),
+        *_timeline_from_batches(reject_batches_serialised, phase="Rejects"),
         _timeline_event(
             phase="Rejects",
             title="Rejected rows copied to demo.streaming.events_rejects",
@@ -1094,19 +1117,20 @@ def _scenario_dq_rejects(
         run_type=f"{run_type}-input" if run_type else "input",
         violations=_extract_violation_count(input_details),
     )
+    reject_status = "warning" if reject_count else "info"
     reject_record = _RelatedDataset(
-        contract_id=_REJECT_CONTRACT,
-        contract_version=_CONTRACT_VERSIONS[_REJECT_CONTRACT],
-        dataset_name=_REJECT_CONTRACT,
+        contract_id="",
+        contract_version="",
+        dataset_name=_REJECT_DATASET,
         dataset_version=reject_version,
-        status=_normalise_status(reject_result),
+        status=reject_status,
         dq_details={
             "stream": "reject",
             "details": reject_details,
             "row_count": reject_count,
         },
         run_type=f"{run_type}-rejects" if run_type else "rejects",
-        violations=max(reject_count, _extract_violation_count(reject_details)),
+        violations=reject_count,
     )
 
     return _ScenarioResult(
