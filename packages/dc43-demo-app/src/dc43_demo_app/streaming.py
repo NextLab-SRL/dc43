@@ -619,67 +619,42 @@ def _prepare_demo_streaming_batches(
         entry["status"] = _normalise_batch_status(entry.get("status"))
         normalised.append(entry)
 
-    has_warning = any(entry.get("status") == "warning" for entry in normalised)
-
-    if not any(entry.get("status") == "success" for entry in normalised):
+    success_indices = [
+        index for index, entry in enumerate(normalised) if entry.get("status") == "success"
+    ]
+    if not success_indices:
         for index, entry in enumerate(normalised):
             if entry.get("status") in {"info", "success"}:
                 updated = dict(entry)
                 updated["status"] = "success"
                 normalised[index] = updated
+                success_indices.append(index)
                 break
+        else:
+            if normalised:
+                success_entry = dict(normalised[0])
+                success_entry["status"] = "success"
+                normalised.insert(0, success_entry)
+                success_indices = [0]
 
-    if not has_warning:
-        for index, entry in enumerate(normalised):
-            if entry.get("status") != "success":
-                continue
-            row_count = int(entry.get("row_count", 0) or 0)
-            if row_count <= 0:
-                continue
-            mutated = dict(entry)
-            mutated["status"] = "warning"
-            violations = int(mutated.get("violations", 0) or 0)
-            if violations <= 0:
-                violations = max(1, row_count // 6 or 1)
-                mutated["violations"] = violations
-            metrics = mutated.get("metrics")
-            if isinstance(metrics, Mapping):
-                metrics_map = dict(metrics)
-            else:
-                metrics_map = {}
-            metrics_map.setdefault("violations.synthetic_demo", mutated.get("violations", 0))
-            mutated["metrics"] = metrics_map
-            warnings = mutated.get("warnings")
-            if isinstance(warnings, list):
-                warning_list = list(warnings)
-            elif warnings:
-                warning_list = [str(warnings)]
-            else:
-                warning_list = []
-            warning_list.append(
-                "Synthetic demo warning: streaming batch included simulated expectation alerts."
-            )
-            mutated["warnings"] = warning_list
-            normalised[index] = mutated
-            has_warning = True
-            break
+    has_warning = any(entry.get("status") == "warning" for entry in normalised)
 
-    if not has_warning and normalised:
-        entry = dict(normalised[-1])
-        entry["status"] = "warning"
-        row_count = int(entry.get("row_count", 0) or 0)
-        violations = int(entry.get("violations", 0) or 0)
+    def _clone_with_warning(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+        mutated = dict(entry)
+        mutated["status"] = "warning"
+        row_count = int(mutated.get("row_count", 0) or 0)
+        violations = int(mutated.get("violations", 0) or 0)
         if violations <= 0:
-            violations = max(1, row_count or 1)
-            entry["violations"] = violations
-        metrics = entry.get("metrics")
+            violations = max(1, row_count // 6 or 1)
+            mutated["violations"] = violations
+        metrics = mutated.get("metrics")
         if isinstance(metrics, Mapping):
             metrics_map = dict(metrics)
         else:
             metrics_map = {}
-        metrics_map.setdefault("violations.synthetic_demo", entry.get("violations", 0))
-        entry["metrics"] = metrics_map
-        warnings = entry.get("warnings")
+        metrics_map.setdefault("violations.synthetic_demo", mutated.get("violations", 0))
+        mutated["metrics"] = metrics_map
+        warnings = mutated.get("warnings")
         if isinstance(warnings, list):
             warning_list = list(warnings)
         elif warnings:
@@ -689,8 +664,30 @@ def _prepare_demo_streaming_batches(
         warning_list.append(
             "Synthetic demo warning: streaming batch included simulated expectation alerts."
         )
-        entry["warnings"] = warning_list
-        normalised[-1] = entry
+        mutated["warnings"] = warning_list
+        return mutated
+
+    if not has_warning and normalised:
+        candidate_index: int | None = None
+        if success_indices:
+            for index in success_indices:
+                row_count = int(normalised[index].get("row_count", 0) or 0)
+                if row_count > 0:
+                    candidate_index = index
+                    break
+            if candidate_index is None:
+                candidate_index = success_indices[0]
+        else:
+            for index, entry in enumerate(normalised):
+                if entry.get("status") == "info":
+                    candidate_index = index
+                    break
+            if candidate_index is None:
+                candidate_index = len(normalised) - 1
+
+        base_entry = normalised[candidate_index]
+        warning_entry = _clone_with_warning(base_entry)
+        normalised.insert(candidate_index + 1, warning_entry)
 
     return normalised
 
