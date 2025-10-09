@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import time
 from collections.abc import Iterable as IterableABC
 from dataclasses import dataclass
@@ -106,18 +108,39 @@ def _checkpoint_dir(name: str, *, version: str) -> Path:
     return root
 
 
-def _dataset_version_path(dataset: str, version: str) -> Path:
-    """Return the expected filesystem location for ``dataset`` / ``version``."""
+def _dataset_version_paths(dataset: str, version: str) -> tuple[Path, Path]:
+    """Return ``(preferred, safe)`` paths for ``dataset`` and ``version``."""
 
     workspace = current_workspace()
     root = workspace.data_dir / dataset
-    candidate = root / version
-    if candidate.exists():
-        return candidate
-    safe = "".join(
+    preferred = root / version
+    safe_name = "".join(
         ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in version
     )
-    return root / safe
+    if not safe_name:
+        safe_name = "version"
+    safe = root / safe_name
+    return preferred, safe
+
+
+def _alias_dataset_version(preferred: Path, target: Path) -> None:
+    """Create a symlink at ``preferred`` pointing to ``target`` if possible."""
+
+    try:
+        preferred.parent.mkdir(parents=True, exist_ok=True)
+        if preferred.is_symlink():
+            preferred.unlink()
+        elif preferred.exists():
+            if preferred.is_dir():
+                shutil.rmtree(preferred, ignore_errors=True)
+            else:
+                preferred.unlink()
+        relative = os.path.relpath(target, preferred.parent)
+        preferred.symlink_to(relative, target_is_directory=target.is_dir())
+    except Exception:  # pragma: no cover - alias creation is best-effort
+        logger.exception(
+            "Failed to alias dataset version path %s -> %s", preferred, target
+        )
 
 
 def _ensure_streaming_version(dataset: str | None, version: Optional[str]) -> None:
@@ -126,8 +149,11 @@ def _ensure_streaming_version(dataset: str | None, version: Optional[str]) -> No
     if not dataset or not version:
         return
     try:
-        target = _dataset_version_path(dataset, version)
+        preferred, safe = _dataset_version_paths(dataset, version)
+        target = preferred if preferred.exists() else safe
         target.mkdir(parents=True, exist_ok=True)
+        if target == safe and preferred != safe and not preferred.exists():
+            _alias_dataset_version(preferred, safe)
     except Exception:  # pragma: no cover - defensive directory creation
         logger.exception("Failed to prepare dataset directory for %s %s", dataset, version)
         return
