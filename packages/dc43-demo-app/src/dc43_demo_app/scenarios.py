@@ -2373,6 +2373,385 @@ def run_split_invalid_rows(
             ),
         ],
     },
+    "streaming-valid": {
+        "label": "Streaming: healthy pipeline",
+        "category": "streaming",
+        "description": (
+            "<p>Run a continuous integration-style job that keeps <code>demo.streaming.events_processed</code>"
+            " in sync with the synthetic <code>demo.streaming.events</code> feed."
+            " Each micro-batch carries six rows (one partition, one-second cadence) so the demo can"
+            " render a full validation timeline.</p>"
+            "<ul>"
+            "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) emits 6 timestamp/value rows per second</li>"
+            "<li><strong>Processing:</strong> adds a constant <code>quality_flag='valid'</code> and validates every micro-batch</li>"
+            "<li><strong>Output:</strong> <code>demo.streaming.events_processed</code> (0.1.0) records a fresh dataset version with metrics and governance history</li>"
+            "<li><strong>Run length:</strong> roughly eight seconds so at least one non-empty batch is observed</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart LR
+                    Source["demo.streaming.events\\nrate source (6 rows/sec)"] -->|readStream + contract| Validate
+                    Validate["Contract & DQ validation\\nper micro-batch"] --> Processed["demo.streaming.events_processed"]
+                    Validate --> Metrics["Observation writer\\nmetrics timeline"]
+                    Processed --> Governance["Governance status\\nversion history"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "params": {
+            "mode": "streaming",
+            "seconds": 8,
+            "dataset_name": "demo.streaming.events_processed",
+            "contract_id": "demo.streaming.events_processed",
+            "contract_version": "0.1.0",
+            "run_type": "observe",
+        },
+        "guide": [
+            _section(
+                "What this example shows",
+                """
+                <p>
+                  The scenario reads from <code>demo.streaming.events</code>,
+                  writes to the processed contract, and lets the observation
+                  writer collect contract metrics for every micro-batch. The
+                  returned validation exposes the dataset version and the
+                  <code>StreamingQuery</code> handles that produced it.
+                </p>
+                """,
+            ),
+            _section(
+                "Feature focus",
+                """
+                <ul>
+                  <li>Contract-aware <code>readStream</code> with schema checks
+                      and governance registration.</li>
+                  <li>Streaming observation writer feeding contract metrics
+                      without blocking the sink.</li>
+                  <li>Dataset versions surfaced in the governance response so
+                      downstream systems can poll status for each batch.</li>
+                  <li>Timeline visualisation summarising the streaming source,
+                      validation heartbeat, and captured metrics.</li>
+                </ul>
+                """,
+            ),
+            _code_section(
+                "Run it programmatically",
+                """
+from datetime import datetime, timezone
+
+from pyspark.sql import SparkSession, functions as F
+
+from dc43_demo_app.contracts_api import (
+    contract_service,
+    dq_service,
+    governance_service,
+)
+from dc43_integrations.spark.io import (
+    StaticDatasetLocator,
+    read_stream_with_contract,
+    write_stream_with_contract,
+)
+
+spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+dataset_version = datetime.now(timezone.utc).isoformat()
+
+source_df, _ = read_stream_with_contract(
+    spark=spark,
+    contract_id="demo.streaming.events",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=None),
+    options={"rowsPerSecond": "6", "numPartitions": "1"},
+)
+
+processed_df = source_df.withColumn("quality_flag", F.lit("valid"))
+
+validation = write_stream_with_contract(
+    df=processed_df,
+    contract_id="demo.streaming.events_processed",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
+    options={
+        "checkpointLocation": f"/tmp/dc43-demo/streaming-valid/{dataset_version}",
+        "queryName": f"demo_stream_valid_{dataset_version}",
+    },
+    on_streaming_batch=lambda event: print(event["metrics"]),
+)
+
+for query in validation.details.get("streaming_queries", []):
+    query.processAllAvailable()
+                """,
+            ),
+        ],
+    },
+    "streaming-dq-rejects": {
+        "label": "Streaming: rejects without blocking",
+        "category": "streaming",
+        "description": (
+            "<p>Stress the validators by flipping every fourth row negative so governance tracks warnings while the "
+            "pipeline keeps publishing. The scenario shows both the warning status on the processed contract and the"
+            " reject stream filling its own dataset.</p>"
+            "<ul>"
+            "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) keeps emitting 6 rows per second</li>"
+            "<li><strong>Processing:</strong> negative values are labelled <code>quality_flag='warning'</code> and routed to rejects</li>"
+            "<li><strong>Outputs:</strong> <code>demo.streaming.events_processed</code> (warn) plus an ungoverned <code>demo.streaming.events_rejects</code> folder with reasons</li>"
+            "<li><strong>Run length:</strong> around eight seconds to capture at least one violating batch</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart LR
+                    Source["demo.streaming.events\\n6 rows/sec"] --> Transform["Streaming transform\\nquality flag + reasons"]
+                    Transform --> Processed["demo.streaming.events_processed\\ncontract-aligned"]
+                    Transform --> Rejects["demo.streaming.events_rejects\\nraw files + reason\\n(no contract)"]
+                    Processed --> Validate["Contract validation\\nwarn on negative cycles"]
+                    Validate --> GovStatus["Governance status\\ncontract-backed warn"]
+                    GovStatus --> Metrics["Observation writer\\nper-batch metrics"]
+                    Rejects --> Filesystem["Filesystem archive\\nungoverned path"]
+            """
+        ).strip()
+        + "</div>"
+    ),
+        "params": {
+            "mode": "streaming",
+            "seconds": 8,
+            "dataset_name": "demo.streaming.events_processed",
+            "contract_id": "demo.streaming.events_processed",
+            "contract_version": "0.1.0",
+            "run_type": "observe",
+        },
+        "guide": [
+            _section(
+                "Why it matters",
+                """
+                <p>
+                  Even when enforcement is relaxed, the helpers keep posting
+                  observations so governance can highlight the broken batches.
+                  Meanwhile the reject sink captures the failed rows for
+                  remediation.
+                </p>
+                """,
+            ),
+            _section(
+                "What to look at",
+                """
+                <ul>
+                  <li>The processed dataset carries a <code>warn</code> status
+                      with violation metrics.</li>
+                  <li>The reject folder lands under
+                      <code>demo.streaming.events_rejects</code> with a reason
+                      column even though it has no contract, and the run
+                      history surfaces the filesystem path for quick
+                      inspection.</li>
+                  <li>The validation payload summarises both sinks so operators
+                      see where the rows went.</li>
+                  <li>The scenario timeline highlights when the rejects kicked
+                      in and how many rows were quarantined.</li>
+                </ul>
+                """,
+            ),
+            _code_section(
+                "Route rejects programmatically",
+                """
+from datetime import datetime, timezone
+
+from pathlib import Path
+
+from pyspark.sql import SparkSession, functions as F
+
+from dc43_demo_app.contracts_api import (
+    contract_service,
+    dq_service,
+    governance_service,
+)
+from dc43_integrations.spark.io import (
+    StaticDatasetLocator,
+    read_stream_with_contract,
+    write_stream_with_contract,
+)
+
+spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+dataset_version = datetime.now(timezone.utc).isoformat()
+
+source_df, _ = read_stream_with_contract(
+    spark=spark,
+    contract_id="demo.streaming.events",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=None),
+    options={"rowsPerSecond": "6", "numPartitions": "1"},
+)
+
+mutated_df = (
+    source_df.withColumn("cycle", F.floor(F.col("value") / F.lit(12)) % 2)
+    .withColumn(
+        "value",
+        F.when(F.col("cycle") == 1, -F.col("value")).otherwise(F.col("value")),
+    )
+    .withColumn(
+        "quality_flag",
+        F.when(F.col("cycle") == 1, F.lit("warning")).otherwise(F.lit("valid")),
+    )
+    .drop("cycle")
+)
+
+processed = write_stream_with_contract(
+    df=mutated_df,
+    contract_id="demo.streaming.events_processed",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
+    options={
+        "checkpointLocation": f"/tmp/dc43-demo/streaming-rejects/{dataset_version}",
+        "queryName": f"demo_stream_rejects_{dataset_version}",
+    },
+    enforce=False,
+)
+
+reject_path = Path(f"/tmp/dc43-demo/streaming-reject-sink/{dataset_version}")
+reject_path.mkdir(parents=True, exist_ok=True)
+
+def _write_reject_batch(batch_df, batch_id):
+    materialised = batch_df.persist()
+    try:
+        count = materialised.count()
+        if count:
+            materialised.write.mode("append").parquet(str(reject_path))
+    finally:
+        materialised.unpersist()
+    print({"reject_batch": batch_id, "rows": count})
+
+reject_query = (
+    mutated_df.filter(F.col("value") < 0)
+    .select("timestamp", "value", F.lit("value below zero").alias("reject_reason"))
+    .writeStream.foreachBatch(_write_reject_batch)
+    .outputMode("append")
+    .option("checkpointLocation", str(reject_path / "checkpoint"))
+    .queryName(f"demo_stream_reject_sink_{dataset_version}")
+    .start()
+)
+
+for query in [*processed.details.get("streaming_queries", []), reject_query]:
+    query.processAllAvailable()
+    query.stop()
+                """,
+            ),
+        ],
+    },
+    "streaming-schema-break": {
+        "label": "Streaming: schema break blocks the run",
+        "category": "streaming",
+        "description": (
+            "<p>Simulate schema drift by removing the <code>value</code> column so the streaming helper blocks the publish."
+            " The timeline highlights the micro-batch that triggered the failure and shows that no dataset version was stored.</p>"
+            "<ul>"
+            "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) still delivers timestamp/value pairs</li>"
+            "<li><strong>Processing:</strong> the transformation drops <code>value</code>, violating the processed contract</li>"
+            "<li><strong>Outcome:</strong> validation raises an error immediately and no dataset version is recorded</li>"
+            "<li><strong>Run length:</strong> a short three-second burst to showcase the failure</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart LR
+                    Source["demo.streaming.events"] -->|missing value column| Validate
+                    Validate -->|schema error| Block["Publish blocked\\nno dataset version"]
+                    Validate --> Governance["Governance records failure reason"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "params": {
+            "mode": "streaming",
+            "seconds": 3,
+            "dataset_name": "demo.streaming.events_processed",
+            "contract_id": "demo.streaming.events_processed",
+            "contract_version": "0.1.0",
+            "run_type": "enforce",
+        },
+        "guide": [
+            _section(
+                "Key takeaways",
+                """
+                <ul>
+                  <li>Contract alignment happens before the query starts, so the
+                      failure surfaces instantly.</li>
+                  <li>No dataset version is recorded, keeping the catalogue in
+                      sync with the actual materialised data.</li>
+                  <li>The dataset record captures the failure reason so the UI
+                      can highlight the drift.</li>
+                </ul>
+                """,
+            ),
+            _code_section(
+                "Expect a failure",
+                """
+from datetime import datetime, timezone
+
+from pyspark.sql import SparkSession
+
+from dc43_demo_app.contracts_api import (
+    contract_service,
+    dq_service,
+    governance_service,
+)
+from dc43_integrations.spark.io import (
+    StaticDatasetLocator,
+    read_stream_with_contract,
+    write_stream_with_contract,
+)
+
+spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+dataset_version = datetime.now(timezone.utc).isoformat()
+
+source_df, _ = read_stream_with_contract(
+    spark=spark,
+    contract_id="demo.streaming.events",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=None),
+    options={"rowsPerSecond": "6", "numPartitions": "1"},
+)
+
+broken_df = source_df.drop("value")
+
+write_stream_with_contract(
+    df=broken_df,
+    contract_id="demo.streaming.events_processed",
+    contract_service=contract_service,
+    expected_contract_version="==0.1.0",
+    data_quality_service=dq_service,
+    governance_service=governance_service,
+    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
+    options={
+        "checkpointLocation": f"/tmp/dc43-demo/streaming-schema/{dataset_version}",
+        "queryName": f"demo_stream_schema_{dataset_version}",
+    },
+)
+                """,
+                "<p>The demo app records the error in the dataset registry so the "
+                "details page explains why nothing new was published.</p>",
+            ),
+        ],
+    },
 }
 
 __all__ = ["SCENARIOS", "_DEFAULT_SLICE", "_INVALID_SLICE"]

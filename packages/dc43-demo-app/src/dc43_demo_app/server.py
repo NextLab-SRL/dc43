@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from collections import Counter, defaultdict
 from dataclasses import asdict
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from importlib import resources
 
@@ -36,10 +39,12 @@ from .retail_demo import (
     run_retail_demo,
     simulate_retail_timeline,
 )
+from . import streaming as streaming_demo
 
 CATEGORY_LABELS = {
     "contract": "Contract-focused pipelines",
     "data-product": "Data product pipelines",
+    "streaming": "Streaming pipelines",
 }
 
 STATUS_BADGES = {
@@ -57,6 +62,37 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 CONTRACTS_TEMPLATE_DIR = resources.files("dc43_contracts_app") / "templates"
+
+
+def _normalise_streaming_batches(
+    batches: Iterable[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(batches, Iterable):
+        return []
+    normalised: list[dict[str, Any]] = []
+    for batch in batches:
+        if not isinstance(batch, Mapping):
+            continue
+        entry = dict(batch)
+        timestamp = entry.get("timestamp")
+        if isinstance(timestamp, str):
+            try:
+                stamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+            else:
+                entry.setdefault("time", stamp.strftime("%H:%M:%S"))
+        status = entry.get("status")
+        if isinstance(status, str):
+            entry["status"] = status.lower()
+        row_count = entry.get("row_count")
+        if isinstance(row_count, (int, float)):
+            entry["row_count"] = int(row_count)
+        violations = entry.get("violations")
+        if isinstance(violations, (int, float)):
+            entry["violations"] = int(violations)
+        normalised.append(entry)
+    return normalised
 PIPELINE_TEMPLATE_DIR = BASE_DIR / "templates"
 
 _RETAIL_RUN: RetailDemoRun | None = None
@@ -103,6 +139,49 @@ _env_loader = ChoiceLoader(
 
 template_env = Environment(loader=_env_loader, autoescape=select_autoescape(["html", "xml"]))
 templates = Jinja2Templates(env=template_env)
+
+
+class StreamingRunState:
+    """Track live progress for asynchronous streaming runs."""
+
+    def __init__(
+        self,
+        *,
+        scenario_key: str,
+        seconds: int,
+        run_type: str,
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
+        self.run_id = uuid4().hex
+        self.scenario_key = scenario_key
+        self.seconds = seconds
+        self.run_type = run_type
+        self.loop = loop
+        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self.finished = False
+        self.dataset_name: str | None = None
+        self.dataset_version: str | None = None
+
+    def publish(self, event: Mapping[str, Any]) -> None:
+        payload = dict(event)
+        payload.setdefault("run_id", self.run_id)
+        self.loop.call_soon_threadsafe(self.queue.put_nowait, payload)
+
+    def finish(self) -> None:
+        self.finished = True
+
+
+class StreamingRunProgress:
+    """Adapter that exposes the streaming progress protocol to scenarios."""
+
+    def __init__(self, state: StreamingRunState) -> None:
+        self.state = state
+
+    def emit(self, event: Mapping[str, Any]) -> None:
+        self.state.publish(event)
+
+
+_STREAMING_RUNS: dict[str, StreamingRunState] = {}
 
 
 def _retail_demo_run_cached() -> RetailDemoRun:
@@ -775,9 +854,14 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         dq_details = record_payload.get("dq_details")
         if not isinstance(dq_details, Mapping):
             dq_details = {}
-        output_details = dq_details.get("output", {}) if isinstance(dq_details, Mapping) else {}
+        output_details = (
+            dq_details.get("output", {}) if isinstance(dq_details, Mapping) else {}
+        )
         if not isinstance(output_details, Mapping):
             output_details = {}
+        streaming_batches = _normalise_streaming_batches(
+            output_details.get("streaming_batches")
+        )
         failed_expectations = output_details.get("failed_expectations", {})
         if not isinstance(failed_expectations, Mapping):
             failed_expectations = {}
@@ -790,9 +874,52 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         input_payloads = []
         if isinstance(dq_details, Mapping):
             for key, payload in dq_details.items():
-                if key == "output":
+                if key in {"output", "rejects"}:
                     continue
                 input_payloads.append({"name": key, "payload": payload})
+        input_refs: list[dict[str, Any]] = []
+        for payload in input_payloads:
+            payload_details = payload.get("payload")
+            if not isinstance(payload_details, Mapping):
+                continue
+            dataset_id = payload_details.get("dataset_id")
+            if not dataset_id:
+                continue
+            ref: dict[str, Any] = {
+                "name": payload.get("name"),
+                "dataset": dataset_id,
+            }
+            version = payload_details.get("dataset_version")
+            if isinstance(version, str) and version:
+                ref["version"] = version
+            input_refs.append(ref)
+        reject_refs: list[dict[str, Any]] = []
+        if isinstance(dq_details, Mapping):
+            reject_section = dq_details.get("rejects")
+            if isinstance(reject_section, Mapping):
+                dataset_id = reject_section.get("dataset_id")
+                if dataset_id:
+                    reject_ref: dict[str, Any] = {
+                        "dataset": dataset_id,
+                        "governed": bool(reject_section.get("governed", True)),
+                    }
+                    version = reject_section.get("dataset_version")
+                    if isinstance(version, str) and version:
+                        reject_ref["version"] = version
+                    row_count = reject_section.get("row_count")
+                    if isinstance(row_count, (int, float)):
+                        reject_ref["row_count"] = int(row_count)
+                    path = reject_section.get("path")
+                    if isinstance(path, str) and path:
+                        reject_ref["path"] = path
+                    reject_refs.append(reject_ref)
+        timeline: list[Mapping[str, Any]] = []
+        if isinstance(dq_details, Mapping):
+            candidate = dq_details.get("timeline")
+            if isinstance(candidate, list):
+                timeline = [
+                    item for item in candidate if isinstance(item, Mapping)
+                ]
 
         history_entries.append(
             {
@@ -802,11 +929,30 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
                 "schema_errors": schema_errors,
                 "dq_aux": dq_aux,
                 "input_payloads": input_payloads,
+                "input_refs": input_refs,
+                "reject_refs": reject_refs,
+                "timeline": timeline,
+                "streaming_batches": streaming_batches,
             }
         )
 
     params_cfg = scenario_cfg.get("params", {})
     latest_record = scenario_row.get("latest")
+    latest_timeline: list[Mapping[str, Any]] = []
+    latest_batches: list[dict[str, Any]] = []
+    if isinstance(latest_record, Mapping):
+        latest_dq = latest_record.get("dq_details")
+        if isinstance(latest_dq, Mapping):
+            candidate = latest_dq.get("timeline")
+            if isinstance(candidate, list):
+                latest_timeline = [
+                    item for item in candidate if isinstance(item, Mapping)
+                ]
+            output_details = latest_dq.get("output")
+            if isinstance(output_details, Mapping):
+                latest_batches = _normalise_streaming_batches(
+                    output_details.get("streaming_batches")
+                )
     category_key = scenario_row.get("category", "contract")
     category_label = CATEGORY_LABELS.get(
         category_key, category_key.replace("-", " ").title()
@@ -821,6 +967,8 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         "history_entries": history_entries,
         "has_history": bool(history_entries),
         "dataset_name": dataset_name,
+        "latest_timeline": latest_timeline,
+        "latest_batches": latest_batches,
         "category_label": category_label,
         "guide_sections": scenario_cfg.get("guide", []),
         "scenario_params": params_cfg,
@@ -845,22 +993,37 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         except FileNotFoundError:
             continue
     try:
-        dataset_name, new_version = await asyncio.to_thread(
-            run_pipeline,
-            params_cfg.get("contract_id"),
-            params_cfg.get("contract_version"),
-            params_cfg.get("dataset_name"),
-            params_cfg.get("dataset_version"),
-            params_cfg.get("run_type", "infer"),
-            collect_examples=params_cfg.get("collect_examples", False),
-            examples_limit=params_cfg.get("examples_limit", 5),
-            violation_strategy=params_cfg.get("violation_strategy"),
-            enforce_contract_status=params_cfg.get("enforce_contract_status"),
-            inputs=params_cfg.get("inputs"),
-            output_adjustment=params_cfg.get("output_adjustment"),
-            data_product_flow=params_cfg.get("data_product_flow"),
-            scenario_key=scenario,
-        )
+        mode = params_cfg.get("mode", "pipeline")
+        if mode == "streaming":
+            seconds = params_cfg.get("seconds", 5)
+            try:
+                seconds_int = int(seconds)
+            except (TypeError, ValueError):
+                seconds_int = 5
+            dataset_name, new_version = await asyncio.to_thread(
+                streaming_demo.run_streaming_scenario,
+                scenario,
+                seconds=seconds_int,
+                run_type=params_cfg.get("run_type", "observe"),
+                progress=None,
+            )
+        else:
+            dataset_name, new_version = await asyncio.to_thread(
+                run_pipeline,
+                params_cfg.get("contract_id"),
+                params_cfg.get("contract_version"),
+                params_cfg.get("dataset_name"),
+                params_cfg.get("dataset_version"),
+                params_cfg.get("run_type", "infer"),
+                collect_examples=params_cfg.get("collect_examples", False),
+                examples_limit=params_cfg.get("examples_limit", 5),
+                violation_strategy=params_cfg.get("violation_strategy"),
+                enforce_contract_status=params_cfg.get("enforce_contract_status"),
+                inputs=params_cfg.get("inputs"),
+                output_adjustment=params_cfg.get("output_adjustment"),
+                data_product_flow=params_cfg.get("data_product_flow"),
+                scenario_key=scenario,
+            )
         label = (
             dataset_name
             or params_cfg.get("dataset_name")
@@ -874,6 +1037,91 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
         token = queue_flash(error=str(exc))
         params_qs = urlencode({"flash": token})
     return RedirectResponse(url=f"/pipeline-runs?{params_qs}", status_code=303)
+
+
+@app.post("/pipeline/run/streaming", response_class=JSONResponse)
+async def run_streaming_endpoint(scenario: str = Form(...)) -> JSONResponse:
+    cfg = SCENARIOS.get(scenario)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Unknown scenario: {scenario}")
+    params_cfg = cfg.get("params", {})
+    if params_cfg.get("mode") != "streaming":
+        raise HTTPException(status_code=400, detail="Scenario is not configured for streaming")
+
+    for dataset, version in cfg.get("activate_versions", {}).items():
+        try:
+            set_active_version(dataset, version)
+        except FileNotFoundError:
+            continue
+
+    try:
+        seconds = int(params_cfg.get("seconds", 5))
+    except (TypeError, ValueError):
+        seconds = 5
+
+    loop = asyncio.get_running_loop()
+    state = StreamingRunState(
+        scenario_key=scenario,
+        seconds=seconds,
+        run_type=params_cfg.get("run_type", "observe"),
+        loop=loop,
+    )
+    _STREAMING_RUNS[state.run_id] = state
+
+    progress = StreamingRunProgress(state)
+    state.publish(
+        {
+            "type": "started",
+            "scenario": scenario,
+            "seconds": seconds,
+            "run_type": params_cfg.get("run_type", "observe"),
+        }
+    )
+
+    async def _runner() -> None:
+        try:
+            dataset_name, dataset_version = await asyncio.to_thread(
+                streaming_demo.run_streaming_scenario,
+                scenario,
+                seconds=seconds,
+                run_type=params_cfg.get("run_type", "observe"),
+                progress=progress,
+            )
+            state.dataset_name = dataset_name
+            state.dataset_version = dataset_version
+        except Exception as exc:  # pragma: no cover - surfaced to client via progress
+            logger.exception("Streaming scenario failed for %s", scenario)
+            state.publish(
+                {
+                    "type": "error",
+                    "scenario": scenario,
+                    "message": str(exc),
+                }
+            )
+        finally:
+            state.finish()
+
+    asyncio.create_task(_runner())
+    return JSONResponse({"run_id": state.run_id})
+
+
+@app.get("/pipeline/streaming-progress/{run_id}", response_class=StreamingResponse)
+async def streaming_progress_endpoint(run_id: str) -> StreamingResponse:
+    state = _STREAMING_RUNS.get(run_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Unknown streaming run")
+
+    async def _event_stream() -> Iterable[str]:
+        try:
+            while True:
+                event = await state.queue.get()
+                yield f"data: {json.dumps(event)}\n\n"
+                if event.get("type") in {"complete", "error"}:
+                    break
+        finally:
+            _STREAMING_RUNS.pop(run_id, None)
+
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
 
 def run() -> None:  # pragma: no cover - convenience runner

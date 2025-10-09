@@ -7,7 +7,9 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
 2. **Validate and coerce data** using helpers from `dc43_integrations.spark.data_quality` while respecting enforcement flags.
 3. **Bridge runtime metrics** to the governance service so it can evaluate observations, record activity, and propose drafts when mismatches occur.
-4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`).
+4. **Expose ergonomic APIs** for pipelines (batch: `read_with_contract`,
+   `write_with_contract`; streaming: `read_stream_with_contract`,
+   `write_stream_with_contract`).
 
 ```mermaid
 flowchart TD
@@ -25,7 +27,9 @@ flowchart TD
 
 The canonical implementation lives in [`src/dc43_integrations/spark`](../../packages/dc43-integrations/src/dc43_integrations/spark):
 
-* `io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
+* `io.py` — High-level batch (`read_with_contract`, `write_with_contract`) and
+  streaming (`read_stream_with_contract`, `write_stream_with_contract`)
+  wrappers for Spark DataFrames along with dataset resolution helpers.
 * `dlt.py` — Helpers to apply expectation predicates inside Delta Live Tables pipelines. Expectation SQL is supplied by the
   data-quality service via validation results so that Delta expectations mirror backend verdicts.
 * [`dc43_integrations.spark.data_quality`](../../packages/dc43-integrations/src/dc43_integrations/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.

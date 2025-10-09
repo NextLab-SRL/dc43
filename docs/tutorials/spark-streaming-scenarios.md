@@ -1,0 +1,113 @@
+# Spark streaming scenarios in the demo app
+
+The dc43 demo application now bundles a trio of Structured Streaming examples
+that exercise the contract-aware read/write helpers. Each scenario aligns with a
+common operations story:
+
+* **Healthy ingestion** – all micro-batches pass validation and the registry
+  records a governed dataset version for every slice.
+* **Reject routing** – contract violations are surfaced but the pipeline keeps
+  running while a secondary sink quarantines the failing rows.
+* **Schema drift** – a breaking change is detected before materialisation so no
+  dataset version is published.
+
+The walkthrough below explains how to explore the scenarios from the UI and how
+engineers can drive them programmatically when writing tests or running live
+workshops.
+
+As you trigger each run the demo page now opens a **Live streaming run** card
+that listens for server-sent events. The card highlights the active stage,
+renders micro-batch badges as they arrive, and appends timeline entries for
+validation milestones so observers can follow the pipeline in real time.
+
+## Prerequisites
+
+1. Install the demo application and its streaming dependencies:
+
+   ```bash
+   pip install pyspark==3.5.1 httpx
+   pip install -e .
+   ```
+
+2. Launch the demo stack. This starts the contracts backend, the contracts UI,
+   and the pipeline demo server in a single process:
+
+   ```bash
+   python -m dc43_demo_app.runner
+   ```
+
+3. Open the pipeline demo (defaults to http://127.0.0.1:8000) and navigate to
+   the **Streaming pipelines** section on the “Pipeline scenarios” page.
+
+## Scenario 1 – healthy batches remain governed
+
+Select **Streaming: healthy pipeline** and run the scenario. The demo app uses
+`read_stream_with_contract` to attach governance to Spark’s `rate` source and
+`write_stream_with_contract` to persist the aligned stream under the
+`demo.streaming.events_processed` contract. The synthetic source emits six
+rows per second across a single partition; after roughly eight seconds the
+timeline card shows the source heartbeat, the validation pass, and a row of
+micro-batch cards that surface the row count, violations, and timestamps for
+every processed batch.
+
+While the run is active the live card increments the batch list and timeline as
+soon as the streaming observation writer reports a new micro-batch, allowing
+you to narrate how the contract holds even before the final dataset record is
+persisted.
+
+The dataset history panel now lists a fresh version with status `ok`. Expanding
+the DQ details or the timeline reveals the schema snapshot sent to governance
+and confirms that no expectations recorded violations. Each micro-batch also
+produces its own dataset history row, so the registry reflects the cadence of
+validated slices without surfacing the noisy “missing metric” warnings that
+appear when a streaming read skips Spark-side counts.
+
+## Scenario 2 – violations trigger reject routing
+
+Running **Streaming: rejects without blocking** flips the sign of alternating
+pairs of micro-batches. The main write keeps streaming even though validation
+records warnings; `enforce=False` downgrades the status to `warn` while still
+publishing metrics and errors. A secondary streaming write filters the negative
+rows into an ungoverned `demo.streaming.events_rejects` folder so remediation
+teams can triage them without losing the rest of the feed.
+
+The live progress card differentiates the reject batches, colouring their
+badges with the warning palette and calling out the intervention once the
+reject sink activates. This makes it easy to point to the exact batch that
+introduced the warning status while the stream is still running.
+
+After the run completes, the dataset record shows the warning status, the
+captured violations, and the reject sink metadata including the number of rows
+quarantined for that micro-batch. Each batch contributes its own dataset
+version entry so you can drill into the specific slice that introduced the
+warning, and the run history now mixes warning and success badges to reflect
+healthy micro-batches. The summary card links directly to the governed input
+dataset and surfaces the filesystem path of the ungoverned reject folder so
+operators can inspect the raw files without relying on a contract-backed
+catalog entry. The timeline panel highlights when the reject sink activated
+while the micro-batch cards make it obvious which batches were rerouted and how
+many rows were quarantined.
+
+## Scenario 3 – schema breaks block the stream
+
+The **Streaming: schema break blocks the run** example drops a required column
+before writing. Validation fails immediately, no `StreamingQuery` is started,
+and the dataset record stores the failure reason without assigning a dataset
+version. The timeline and batch list make the failure easy to spot by calling
+out the schema violation alongside the captured error message.
+
+## Driving scenarios from code
+
+The same scenarios are exposed as helpers so you can include them in regression
+suites or demonstrations:
+
+```python
+from dc43_demo_app.streaming import run_streaming_scenario
+
+run_streaming_scenario("streaming-valid", seconds=8, run_type="observe")
+run_streaming_scenario("streaming-dq-rejects", seconds=8, run_type="observe")
+run_streaming_scenario("streaming-schema-break", seconds=3, run_type="enforce")
+```
+
+Each invocation records a dataset run in the demo workspace, mirroring what the
+UI shows after triggering the scenario manually.

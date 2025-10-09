@@ -1,0 +1,33 @@
+{
+  "version": "0.1.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "demo.streaming.events",
+  "name": "Streaming events",
+  "description": {"usage": "Synthetic rate source used by the demo streaming scenarios."},
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "stream",
+      "format": "rate",
+      "customProperties": []
+    }
+  ],
+  "schema": [
+    {
+      "name": "events",
+      "properties": [
+        {"name": "timestamp", "physicalType": "timestamp", "required": true},
+        {
+          "name": "value",
+          "physicalType": "bigint",
+          "required": true,
+          "quality": [
+            {"mustBeGreaterOrEqualTo": 0}
+          ]
+        }
+      ]
+    }
+  ]
+}
