@@ -89,6 +89,11 @@ def _spark_session() -> SparkSession:
 
     spark = SparkSession.getActiveSession()
     if spark is not None:
+        try:
+            spark.conf.set("spark.sql.adaptive.enabled", "false")
+        except Exception:  # pragma: no cover - defensive configuration
+            logger.exception("Failed to disable adaptive execution on shared session")
+        spark.sparkContext.setLogLevel("WARN")
         return spark
     spark = (
         SparkSession.builder.master("local[2]")
@@ -98,6 +103,10 @@ def _spark_session() -> SparkSession:
         .config("spark.sql.adaptive.enabled", "false")
         .getOrCreate()
     )
+    try:
+        spark.conf.set("spark.sql.adaptive.enabled", "false")
+    except Exception:  # pragma: no cover - defensive configuration
+        logger.exception("Failed to disable adaptive execution on new session")
     spark.sparkContext.setLogLevel("WARN")
     return spark
 

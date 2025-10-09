@@ -18,7 +18,7 @@
           "value": {
             "mode": "append",
             "includePriorVersions": true,
-            "subfolder": "{version}",
+            "subfolder": "{safeVersion}",
             "filePattern": "part-*.parquet"
           }
         }
