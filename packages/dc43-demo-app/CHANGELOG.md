@@ -51,6 +51,12 @@
 - Streaming demo scenarios now record per-micro-batch dataset versions, filter noisy metric
   warnings from streaming reads, and surface direct links to the input and reject datasets on the
   pipeline detail page.
+- Streaming reject walkthrough now alternates healthy and warning batches, keeps the reject sink
+  ungoverned while recording its filesystem path, and updates the UI copy so the catalog stops
+  creating contracts or drafts for the quarantined rows while still exposing them for remediation.
+- Streaming run history now focuses on the primary contract slice, surfaces the ungoverned reject
+  path, orders the versions by recency, and refreshes the scenario diagram so the governance
+  hand-offs highlight which assets are contract-backed versus tracked without a contract.
 
 ### Fixed
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware
@@ -59,3 +65,5 @@
   inside the story tabs instead of leaving the graph source text visible.
 - Avoid serialising active `StreamingQuery` handles when recording streaming scenario results so
   the reject-routing walkthrough can persist dataset history without errors.
+- Restore filesystem aliases for timestamped streaming versions so dataset previews resolve the
+  governed slices on platforms that support colon-separated folder names.

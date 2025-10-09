@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import time
 from collections.abc import Iterable as IterableABC
 from dataclasses import dataclass
@@ -27,6 +29,7 @@ from .contracts_api import (
     governance_service,
     load_records,
     refresh_dataset_aliases,
+    register_dataset_version,
     save_records,
 )
 from .contracts_workspace import current_workspace
@@ -37,11 +40,10 @@ logger = logging.getLogger(__name__)
 
 _INPUT_CONTRACT = "demo.streaming.events"
 _OUTPUT_CONTRACT = "demo.streaming.events_processed"
-_REJECT_CONTRACT = "demo.streaming.events_rejects"
+_REJECT_DATASET = "demo.streaming.events_rejects"
 _CONTRACT_VERSIONS: Dict[str, str] = {
     _INPUT_CONTRACT: "0.1.0",
     _OUTPUT_CONTRACT: "0.1.0",
-    _REJECT_CONTRACT: "0.1.0",
 }
 
 
@@ -50,6 +52,21 @@ class StreamingProgressReporter(Protocol):
 
     def emit(self, event: Mapping[str, Any]) -> None:
         """Publish a progress ``event``."""
+
+
+@dataclass(slots=True)
+class _RelatedDataset:
+    """Supplementary dataset captured alongside the primary scenario result."""
+
+    contract_id: str
+    contract_version: str
+    dataset_name: str
+    dataset_version: Optional[str]
+    status: str
+    dq_details: Mapping[str, Any]
+    run_type: str
+    violations: int = 0
+    reason: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -63,6 +80,7 @@ class _ScenarioResult:
     dq_details: Mapping[str, Any]
     timeline: List[Mapping[str, Any]]
     status_reason: Optional[str] = None
+    related: List[_RelatedDataset] | None = None
 
 
 def _spark_session() -> SparkSession:
@@ -70,14 +88,24 @@ def _spark_session() -> SparkSession:
 
     spark = SparkSession.getActiveSession()
     if spark is not None:
+        try:
+            spark.conf.set("spark.sql.adaptive.enabled", "false")
+        except Exception:  # pragma: no cover - defensive configuration
+            logger.exception("Failed to disable adaptive execution on shared session")
+        spark.sparkContext.setLogLevel("WARN")
         return spark
     spark = (
         SparkSession.builder.master("local[2]")
         .appName("dc43-demo-streaming")
         .config("spark.ui.enabled", "false")
         .config("spark.sql.shuffle.partitions", "1")
+        .config("spark.sql.adaptive.enabled", "false")
         .getOrCreate()
     )
+    try:
+        spark.conf.set("spark.sql.adaptive.enabled", "false")
+    except Exception:  # pragma: no cover - defensive configuration
+        logger.exception("Failed to disable adaptive execution on new session")
     spark.sparkContext.setLogLevel("WARN")
     return spark
 
@@ -89,18 +117,75 @@ def _checkpoint_dir(name: str, *, version: str) -> Path:
     return root
 
 
-def _dataset_version_path(dataset: str, version: str) -> Path:
-    """Return the expected filesystem location for ``dataset`` / ``version``."""
+def _dataset_version_paths(dataset: str, version: str) -> tuple[Path, Path]:
+    """Return ``(preferred, safe)`` paths for ``dataset`` and ``version``."""
 
     workspace = current_workspace()
     root = workspace.data_dir / dataset
-    candidate = root / version
-    if candidate.exists():
-        return candidate
-    safe = "".join(
+    preferred = root / version
+    safe_name = "".join(
         ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in version
     )
-    return root / safe
+    if not safe_name:
+        safe_name = "version"
+    safe = root / safe_name
+    return preferred, safe
+
+
+def _write_version_marker(target: Path, version: str) -> None:
+    """Persist a ``.dc43_version`` marker in ``target`` when possible."""
+
+    marker = target / ".dc43_version"
+    try:
+        marker.write_text(version, encoding="utf-8")
+    except OSError:  # pragma: no cover - best-effort marker creation
+        logger.exception("Failed to record version marker for %s", target)
+
+
+def _alias_dataset_version(preferred: Path, target: Path) -> None:
+    """Create a symlink at ``preferred`` pointing to ``target`` if possible."""
+
+    if os.name == "nt":  # pragma: no cover - Windows lacks ``:`` support in paths
+        invalid = {":", "<", ">", "\"", "|", "?", "*"}
+        if any(ch in preferred.name for ch in invalid):
+            return
+    try:
+        preferred.parent.mkdir(parents=True, exist_ok=True)
+        if preferred.is_symlink():
+            preferred.unlink()
+        elif preferred.exists():
+            if preferred.is_dir():
+                shutil.rmtree(preferred, ignore_errors=True)
+            else:
+                preferred.unlink()
+        relative = os.path.relpath(target, preferred.parent)
+        preferred.symlink_to(relative, target_is_directory=target.is_dir())
+    except Exception:  # pragma: no cover - alias creation is best-effort
+        logger.exception(
+            "Failed to alias dataset version path %s -> %s", preferred, target
+        )
+
+
+def _ensure_streaming_version(dataset: str | None, version: Optional[str]) -> None:
+    """Register ``version`` for ``dataset`` if possible."""
+
+    if not dataset or not version:
+        return
+    try:
+        preferred, safe = _dataset_version_paths(dataset, version)
+        target = preferred if preferred.exists() else safe
+        target.mkdir(parents=True, exist_ok=True)
+        if target == safe and preferred != safe and not preferred.exists():
+            _alias_dataset_version(preferred, safe)
+    except Exception:  # pragma: no cover - defensive directory creation
+        logger.exception("Failed to prepare dataset directory for %s %s", dataset, version)
+        return
+    try:
+        register_dataset_version(dataset, version, target)
+    except Exception:  # pragma: no cover - registration is best-effort for demo data
+        logger.exception("Failed to register dataset version for %s %s", dataset, version)
+        return
+    refresh_dataset_aliases(dataset)
 
 
 def _progress_emit(
@@ -123,13 +208,23 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
         return
     # Ensure at least one micro-batch is processed even for short runs so that
     # metrics and validation details have a chance to update.
+    remaining: List[StreamingQuery] = []
     for query in active_queries:
         try:
             query.processAllAvailable()
         except StreamingQueryException:
             raise
+        except Exception:  # pragma: no cover - streaming engines can close abruptly
+            logger.exception("Streaming query failed while draining batches")
+            continue
+        remaining.append(query)
+    active_queries = remaining
+    if not active_queries:
+        return
+
     deadline = time.time() + max(seconds, 0)
-    while time.time() < deadline:
+    while time.time() < deadline and active_queries:
+        current: List[StreamingQuery] = []
         for query in active_queries:
             try:
                 query.processAllAvailable()
@@ -137,6 +232,13 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
                 # Propagate failures to the caller after stopping all queries so the
                 # dataset record can capture the reason from the validation payload.
                 raise
+            except Exception:  # pragma: no cover - tolerate interrupted queries
+                logger.exception("Streaming query interrupted during drain")
+                continue
+            current.append(query)
+        active_queries = current
+        if not active_queries:
+            break
         time.sleep(0.2)
 
 
@@ -258,6 +360,8 @@ def _normalise_status(validation: Optional[ValidationResult]) -> str:
         return "warning"
     if status in {"block", "error"}:
         return "error"
+    if validation.ok and _extract_violation_count(validation.details) > 0:
+        return "warning"
     if validation.errors:
         return "error"
     if validation.warnings:
@@ -414,6 +518,26 @@ def _batch_status_to_dataset_status(status: str) -> str:
     return mapping.get(status, "ok")
 
 
+def _downgrade_streaming_batches(
+    batches: Iterable[Mapping[str, Any]] | None,
+) -> List[Mapping[str, Any]]:
+    """Return a serialisable copy of ``batches`` with friendly status labels."""
+
+    normalised: List[Mapping[str, Any]] = []
+    if not batches:
+        return normalised
+    for item in batches:
+        if not isinstance(item, Mapping):
+            continue
+        entry = dict(item)
+        status = _normalise_batch_status(entry.get("status"))
+        if status == "danger":
+            status = "warning"
+        entry["status"] = status
+        normalised.append(entry)
+    return normalised
+
+
 def _record_result(
     result: _ScenarioResult,
     *,
@@ -490,10 +614,28 @@ def _record_result(
         record.reason = result.status_reason
 
     records.extend(extra_records)
+
+    for side in result.related or []:
+        side_version = side.dataset_version or ""
+        side_record = DatasetRecord(
+            contract_id=side.contract_id,
+            contract_version=side.contract_version,
+            dataset_name=side.dataset_name,
+            dataset_version=side_version,
+            status=side.status,
+            dq_details=dict(side.dq_details),
+            run_type=side.run_type,
+            violations=side.violations,
+            scenario_key=scenario_key,
+        )
+        if side.reason:
+            side_record.reason = side.reason
+        records.append(side_record)
+        _ensure_streaming_version(side.dataset_name, side.dataset_version)
+
     records.append(record)
     save_records(records)
-    if dataset_name and dataset_version:
-        refresh_dataset_aliases(dataset_name)
+    _ensure_streaming_version(dataset_name, result.dataset_version)
     return dataset_name, dataset_version
 
 
@@ -538,6 +680,11 @@ def _scenario_valid(
         read_status.details if read_status else {}
     )
     input_details.setdefault("dataset_id", _INPUT_CONTRACT)
+    input_version = input_details.get("dataset_version")
+    if not isinstance(input_version, str) or not input_version:
+        input_version = dataset_version
+        input_details["dataset_version"] = input_version
+    _ensure_streaming_version(_INPUT_CONTRACT, input_version)
     _emit(
         {
             "type": "stage",
@@ -626,6 +773,12 @@ def _scenario_valid(
             status="info",
             metrics={"rows_per_second": 6, "partitions": 1},
         ),
+        _timeline_event(
+            phase="Processing",
+            title="Events enriched before validation",
+            description="Incoming rows gain a quality_flag column prior to contract checks.",
+            status="success",
+        ),
         *_timeline_from_batches(batches, phase="Micro-batch"),
         _timeline_event(
             phase="Validation",
@@ -672,6 +825,21 @@ def _scenario_valid(
         }
     )
 
+    input_record = _RelatedDataset(
+        contract_id=_INPUT_CONTRACT,
+        contract_version=_CONTRACT_VERSIONS[_INPUT_CONTRACT],
+        dataset_name=_INPUT_CONTRACT,
+        dataset_version=input_version,
+        status=_normalise_status(read_status),
+        dq_details={
+            "stream": "input",
+            "details": input_details,
+            "metrics": dict(read_status.metrics or {}),
+        },
+        run_type=f"{run_type}-input" if run_type else "input",
+        violations=_extract_violation_count(input_details),
+    )
+
     return _ScenarioResult(
         dataset_name=_OUTPUT_CONTRACT,
         dataset_version=details.get("dataset_version") or dataset_version,
@@ -679,6 +847,7 @@ def _scenario_valid(
         queries=queries,
         dq_details=dq_details,
         timeline=timeline,
+        related=[input_record],
     )
 
 
@@ -723,6 +892,11 @@ def _scenario_dq_rejects(
         read_status.details if read_status else {}
     )
     input_details.setdefault("dataset_id", _INPUT_CONTRACT)
+    input_version = input_details.get("dataset_version")
+    if not isinstance(input_version, str) or not input_version:
+        input_version = dataset_version
+        input_details["dataset_version"] = input_version
+    _ensure_streaming_version(_INPUT_CONTRACT, input_version)
     _emit(
         {
             "type": "stage",
@@ -733,12 +907,17 @@ def _scenario_dq_rejects(
         }
     )
 
-    mutated_df = df.withColumn(
-        "value",
-        F.when(F.col("value") % 4 == 0, -F.col("value")).otherwise(F.col("value")),
-    ).withColumn(
-        "quality_flag",
-        F.when(F.col("value") < 0, F.lit("warning")).otherwise(F.lit("valid")),
+    mutated_df = (
+        df.withColumn("quality_cycle", F.floor(F.col("value") / F.lit(12)) % 2)
+        .withColumn(
+            "value",
+            F.when(F.col("quality_cycle") == 1, -F.col("value")).otherwise(F.col("value")),
+        )
+        .withColumn(
+            "quality_flag",
+            F.when(F.col("quality_cycle") == 1, F.lit("warning")).otherwise(F.lit("valid")),
+        )
+        .drop("quality_cycle")
     )
     checkpoint = _checkpoint_dir("dq", version=dataset_version)
 
@@ -776,39 +955,71 @@ def _scenario_dq_rejects(
         "value",
         F.lit("value below zero").alias("reject_reason"),
     )
+    _, reject_target = _dataset_version_paths(_REJECT_DATASET, dataset_version)
+    reject_target.mkdir(parents=True, exist_ok=True)
+    _write_version_marker(reject_target, dataset_version)
+    reject_batches: List[Dict[str, Any]] = []
+    reject_total_rows = 0
 
-    def _forward_reject(event: Mapping[str, Any]) -> None:
-        payload = dict(event)
-        payload.setdefault("stream", "reject")
-        _emit(payload)
+    def _write_reject_batch(batch_df, batch_id: int) -> None:
+        nonlocal reject_total_rows
+        materialised = batch_df.persist()
+        try:
+            try:
+                row_count = materialised.count()
+            except Exception:  # pragma: no cover - Spark can interrupt active jobs
+                logger.exception("Failed to count reject batch %s", batch_id)
+                row_count = 0
+            if row_count:
+                try:
+                    materialised.write.mode("append").parquet(str(reject_target))
+                except Exception:  # pragma: no cover - best-effort reject persistence
+                    logger.exception("Failed to persist reject batch %s", batch_id)
+            reject_total_rows += row_count
+        finally:
+            materialised.unpersist()
 
-    reject_result = write_stream_with_contract(
-        df=reject_df,
-        contract_id=_REJECT_CONTRACT,
-        contract_service=contract_service,
-        expected_contract_version=f"=={_CONTRACT_VERSIONS[_REJECT_CONTRACT]}",
-        data_quality_service=dq_service,
-        governance_service=governance_service,
-        dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
-        options={
-            "checkpointLocation": str(reject_checkpoint),
-            "queryName": f"demo_stream_dq_rejects_{dataset_version}",
-        },
-        on_streaming_batch=_forward_reject,
+        status = "warning" if row_count else "info"
+        batch_event = {
+            "batch_id": batch_id,
+            "row_count": row_count,
+            "violations": row_count,
+            "status": status,
+        }
+        reject_batches.append(batch_event)
+        _emit(
+            {
+                "type": "batch",
+                "phase": "Rejects",
+                "status": status,
+                "stream": "reject",
+                "metrics": {
+                    "batch_id": batch_id,
+                    "row_count": row_count,
+                    "dataset_version": dataset_version,
+                },
+            }
+        )
+
+    reject_query = (
+        reject_df.writeStream.foreachBatch(_write_reject_batch)
+        .outputMode("append")
+        .queryName(f"demo_stream_dq_rejects_{dataset_version}")
+        .option("checkpointLocation", str(reject_checkpoint))
+        .start()
     )
     _emit(
         {
             "type": "stage",
             "phase": "Rejects",
             "title": "Reject sink streaming",
-            "description": "Invalid rows copied into demo.streaming.events_rejects with reasons.",
+            "description": "Invalid rows copied into the ungoverned demo.streaming.events_rejects folder with reasons.",
             "status": "info",
         }
     )
 
     main_queries = _extract_query_handles(validation.details)
-    reject_queries = _extract_query_handles(reject_result.details)
-    queries: List[StreamingQuery] = [*main_queries, *reject_queries]
+    queries: List[StreamingQuery] = [*main_queries, reject_query]
     try:
         _emit(
             {
@@ -833,32 +1044,31 @@ def _scenario_dq_rejects(
     )
 
     details = _serialise_streaming_details(validation.details, queries=main_queries)
-    reject_details = _serialise_streaming_details(
-        reject_result.details, queries=reject_queries
-    )
-    reject_details.setdefault("dataset_id", _REJECT_CONTRACT)
+    streaming_batches = _downgrade_streaming_batches(details.get("streaming_batches"))
+    if streaming_batches:
+        details["streaming_batches"] = streaming_batches
+    validation.status = "warning"
+    validation.details = details
+    reject_details: Dict[str, Any] = {
+        "dataset_id": _REJECT_DATASET,
+        "dataset_version": dataset_version,
+        "row_count": reject_total_rows,
+        "streaming_batches": reject_batches,
+        "path": str(reject_target),
+        "governed": False,
+    }
     batches: List[Mapping[str, Any]] = []
-    candidate_batches = details.get("streaming_batches")
-    if isinstance(candidate_batches, list):
-        batches = [item for item in candidate_batches if isinstance(item, Mapping)]
-    reject_batches: List[Mapping[str, Any]] = []
-    candidate_reject_batches = reject_details.get("streaming_batches")
-    if isinstance(candidate_reject_batches, list):
-        reject_batches = [
-            item for item in candidate_reject_batches if isinstance(item, Mapping)
-        ]
-    reject_path = _dataset_version_path(_REJECT_CONTRACT, dataset_version)
-    reject_count = 0
-    if reject_path.exists():
-        try:
-            reject_count = spark.read.format("parquet").load(str(reject_path)).count()
-        except Exception:
-            reject_count = 0
+    batches = streaming_batches
+    reject_batches_serialised: List[Mapping[str, Any]] = [
+        item for item in reject_batches if isinstance(item, Mapping)
+    ]
+    reject_count = reject_total_rows
     dq_details: MutableMapping[str, Any] = {
         "input": input_details,
         "output": details,
         "rejects": {
             **reject_details,
+            "streaming_batches": reject_batches_serialised,
             "row_count": reject_count,
         },
     }
@@ -877,6 +1087,12 @@ def _scenario_dq_rejects(
             status="info",
             metrics={"rows_per_second": 6, "partitions": 1},
         ),
+        _timeline_event(
+            phase="Processing",
+            title="Quality flags applied to streaming rows",
+            description="Alternating micro-batch cycles flip values negative so rejects accumulate without stopping the stream.",
+            status="warning",
+        ),
         *_timeline_from_batches(batches, phase="Micro-batch"),
         _timeline_event(
             phase="Validation",
@@ -889,13 +1105,13 @@ def _scenario_dq_rejects(
                 "last_batch_id": details.get("streaming_batch_id"),
             },
         ),
-        *_timeline_from_batches(reject_batches, phase="Rejects"),
+        *_timeline_from_batches(reject_batches_serialised, phase="Rejects"),
         _timeline_event(
             phase="Rejects",
             title="Rejected rows copied to demo.streaming.events_rejects",
             description="The demo reject sink captures failing rows with their reason column.",
             status="warning" if reject_count else "info",
-            metrics={"reject_rows": reject_count},
+            metrics={"reject_rows": reject_count, "path": str(reject_target)},
         ),
         _timeline_event(
             phase="Governance",
@@ -931,6 +1147,20 @@ def _scenario_dq_rejects(
         }
     )
 
+    input_record = _RelatedDataset(
+        contract_id=_INPUT_CONTRACT,
+        contract_version=_CONTRACT_VERSIONS[_INPUT_CONTRACT],
+        dataset_name=_INPUT_CONTRACT,
+        dataset_version=input_version,
+        status=_normalise_status(read_status),
+        dq_details={
+            "stream": "input",
+            "details": input_details,
+            "metrics": dict(read_status.metrics or {}),
+        },
+        run_type=f"{run_type}-input" if run_type else "input",
+        violations=_extract_violation_count(input_details),
+    )
     return _ScenarioResult(
         dataset_name=_OUTPUT_CONTRACT,
         dataset_version=details.get("dataset_version") or dataset_version,
@@ -938,6 +1168,7 @@ def _scenario_dq_rejects(
         queries=queries,
         dq_details=dq_details,
         timeline=timeline,
+        related=[input_record],
     )
 
 
@@ -981,6 +1212,11 @@ def _scenario_schema_break(
         read_status.details if read_status else {}
     )
     input_details.setdefault("dataset_id", _INPUT_CONTRACT)
+    input_version = input_details.get("dataset_version")
+    if not isinstance(input_version, str) or not input_version:
+        input_version = dataset_version
+        input_details["dataset_version"] = input_version
+    _ensure_streaming_version(_INPUT_CONTRACT, input_version)
     _emit(
         {
             "type": "stage",
@@ -989,6 +1225,21 @@ def _scenario_schema_break(
             "description": "Rate source aligned before the schema break is introduced.",
             "status": "success",
         }
+    )
+
+    input_record = _RelatedDataset(
+        contract_id=_INPUT_CONTRACT,
+        contract_version=_CONTRACT_VERSIONS[_INPUT_CONTRACT],
+        dataset_name=_INPUT_CONTRACT,
+        dataset_version=input_version,
+        status=_normalise_status(read_status),
+        dq_details={
+            "stream": "input",
+            "details": input_details,
+            "metrics": dict(read_status.metrics or {}),
+        },
+        run_type=f"{run_type}-input" if run_type else "input",
+        violations=_extract_violation_count(input_details),
     )
 
     broken_df = df.drop("value")
@@ -1032,6 +1283,12 @@ def _scenario_schema_break(
                 status="info",
                 metrics={"rows_per_second": 6, "partitions": 1},
             ),
+            _timeline_event(
+                phase="Processing",
+                title="Required column dropped upstream of validation",
+                description="A faulty transformation removes the value column before the dataset hits the contract boundary.",
+                status="danger",
+            ),
             *_timeline_from_batches(batches, phase="Micro-batch"),
             _timeline_event(
                 phase="Validation",
@@ -1066,6 +1323,7 @@ def _scenario_schema_break(
             dq_details=dq_details,
             timeline=timeline,
             status_reason=status_reason,
+            related=[input_record],
         )
     except Exception as exc:
         dq_details = {
@@ -1082,6 +1340,12 @@ def _scenario_schema_break(
                 description="Events attempted to flow into the processing job, but the downstream schema breaks immediately.",
                 time_label=started_at.strftime("%H:%M:%S"),
                 status="info",
+            ),
+            _timeline_event(
+                phase="Processing",
+                title="Processing step dropped required column",
+                description="The faulty transformation removes value so validation cannot proceed.",
+                status="danger",
             ),
             _timeline_event(
                 phase="Validation",
@@ -1104,6 +1368,7 @@ def _scenario_schema_break(
             dq_details=dq_details,
             timeline=timeline,
             status_reason=str(exc),
+            related=[input_record],
         )
 
 

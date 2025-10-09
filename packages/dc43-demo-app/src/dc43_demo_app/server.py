@@ -39,7 +39,7 @@ from .retail_demo import (
     run_retail_demo,
     simulate_retail_timeline,
 )
-from .streaming import run_streaming_scenario
+from . import streaming as streaming_demo
 
 CATEGORY_LABELS = {
     "contract": "Contract-focused pipelines",
@@ -874,7 +874,7 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         input_payloads = []
         if isinstance(dq_details, Mapping):
             for key, payload in dq_details.items():
-                if key == "output":
+                if key in {"output", "rejects"}:
                     continue
                 input_payloads.append({"name": key, "payload": payload})
         input_refs: list[dict[str, Any]] = []
@@ -899,13 +899,19 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
             if isinstance(reject_section, Mapping):
                 dataset_id = reject_section.get("dataset_id")
                 if dataset_id:
-                    reject_ref: dict[str, Any] = {"dataset": dataset_id}
+                    reject_ref: dict[str, Any] = {
+                        "dataset": dataset_id,
+                        "governed": bool(reject_section.get("governed", True)),
+                    }
                     version = reject_section.get("dataset_version")
                     if isinstance(version, str) and version:
                         reject_ref["version"] = version
                     row_count = reject_section.get("row_count")
                     if isinstance(row_count, (int, float)):
                         reject_ref["row_count"] = int(row_count)
+                    path = reject_section.get("path")
+                    if isinstance(path, str) and path:
+                        reject_ref["path"] = path
                     reject_refs.append(reject_ref)
         timeline: list[Mapping[str, Any]] = []
         if isinstance(dq_details, Mapping):
@@ -995,7 +1001,7 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             except (TypeError, ValueError):
                 seconds_int = 5
             dataset_name, new_version = await asyncio.to_thread(
-                run_streaming_scenario,
+                streaming_demo.run_streaming_scenario,
                 scenario,
                 seconds=seconds_int,
                 run_type=params_cfg.get("run_type", "observe"),
@@ -1075,7 +1081,7 @@ async def run_streaming_endpoint(scenario: str = Form(...)) -> JSONResponse:
     async def _runner() -> None:
         try:
             dataset_name, dataset_version = await asyncio.to_thread(
-                run_streaming_scenario,
+                streaming_demo.run_streaming_scenario,
                 scenario,
                 seconds=seconds,
                 run_type=params_cfg.get("run_type", "observe"),

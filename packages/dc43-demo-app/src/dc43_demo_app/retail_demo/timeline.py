@@ -119,6 +119,7 @@ def _quality_reject_sample(run: RetailDemoRun) -> dict[str, Any]:
     return {
         "dataset": "retail_sales_fact::reject",
         "contract_version": dataset_version,
+        "dataset_version": dataset_version,
         "valid_rows": valid_rows,
         "reject_rows": reject_rows,
         "valid_sample": valid_sample,

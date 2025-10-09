@@ -223,6 +223,23 @@ def scenario_history(
         record for record in records if record.scenario_key == scenario_key
     ]
 
+    if dataset_records:
+        filtered_records = [
+            record
+            for record in dataset_records
+            if not (record.run_type or "").endswith("-batch")
+        ]
+        if dataset_name:
+            targeted = [
+                record
+                for record in filtered_records
+                if record.dataset_name == dataset_name
+            ]
+            if targeted:
+                filtered_records = targeted
+        if filtered_records:
+            dataset_records = filtered_records
+
     if not dataset_records:
         candidate_records = [
             record for record in records if record.dataset_name == dataset_name
@@ -254,7 +271,10 @@ def scenario_history(
                 ]
 
     dataset_records = list(dataset_records)
-    dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+    dataset_records.sort(
+        key=lambda item: _version_sort_key(item.dataset_version or ""),
+        reverse=True,
+    )
     return dataset_records, dataset_name
 
 

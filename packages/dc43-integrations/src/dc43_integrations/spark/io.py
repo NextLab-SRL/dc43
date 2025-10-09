@@ -908,14 +908,37 @@ class ContractVersionLocator:
             return path
 
         base = Path(path)
+        safe_component: Optional[str] = None
+        if self.dataset_version:
+            candidate = _safe_fs_name(self.dataset_version)
+            if candidate and candidate != self.dataset_version:
+                safe_component = candidate
+
         if base.suffix:
-            folder = base.parent / base.stem / self.dataset_version
+            version_component = self.dataset_version
+            parent = base.parent / base.stem
+            if safe_component and version_component:
+                preferred_dir = parent / version_component
+                if not preferred_dir.exists():
+                    version_component = safe_component
+            elif safe_component and not version_component:
+                version_component = safe_component
+
+            folder = parent / version_component if version_component else parent
             if self.subpath:
                 folder = folder / self.subpath
             target = folder / base.name
             return str(target)
 
-        folder = base / self.dataset_version
+        version_component = self.dataset_version
+        if safe_component and version_component:
+            preferred_dir = base / version_component
+            if not preferred_dir.exists():
+                version_component = safe_component
+        elif safe_component and not version_component:
+            version_component = safe_component
+
+        folder = base / version_component if version_component else base
         if self.subpath:
             folder = folder / self.subpath
         return str(folder)

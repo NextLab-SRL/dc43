@@ -2502,7 +2502,7 @@ for query in validation.details.get("streaming_queries", []):
             "<ul>"
             "<li><strong>Source:</strong> <code>demo.streaming.events</code> (0.1.0) keeps emitting 6 rows per second</li>"
             "<li><strong>Processing:</strong> negative values are labelled <code>quality_flag='warning'</code> and routed to rejects</li>"
-            "<li><strong>Outputs:</strong> <code>demo.streaming.events_processed</code> (warn) plus <code>demo.streaming.events_rejects</code> with reasons</li>"
+            "<li><strong>Outputs:</strong> <code>demo.streaming.events_processed</code> (warn) plus an ungoverned <code>demo.streaming.events_rejects</code> folder with reasons</li>"
             "<li><strong>Run length:</strong> around eight seconds to capture at least one violating batch</li>"
             "</ul>"
         ),
@@ -2511,15 +2511,17 @@ for query in validation.details.get("streaming_queries", []):
             + dedent(
                 """
                 flowchart LR
-                    Source["demo.streaming.events\\n6 rows/sec"] -->|mutate| Validate
-                    Validate -->|valid batches| Processed["demo.streaming.events_processed\\nstatus warn"]
-                    Validate -->|violations| Rejects["demo.streaming.events_rejects\\nreason column"]
-                    Validate --> Metrics["Observation writer\\nper-batch metrics"]
-                    Processed --> Governance
-                """
-            ).strip()
-            + "</div>"
-        ),
+                    Source["demo.streaming.events\\n6 rows/sec"] --> Transform["Streaming transform\\nquality flag + reasons"]
+                    Transform --> Processed["demo.streaming.events_processed\\ncontract-aligned"]
+                    Transform --> Rejects["demo.streaming.events_rejects\\nraw files + reason\\n(no contract)"]
+                    Processed --> Validate["Contract validation\\nwarn on negative cycles"]
+                    Validate --> GovStatus["Governance status\\ncontract-backed warn"]
+                    GovStatus --> Metrics["Observation writer\\nper-batch metrics"]
+                    Rejects --> Filesystem["Filesystem archive\\nungoverned path"]
+            """
+        ).strip()
+        + "</div>"
+    ),
         "params": {
             "mode": "streaming",
             "seconds": 8,
@@ -2546,9 +2548,11 @@ for query in validation.details.get("streaming_queries", []):
                 <ul>
                   <li>The processed dataset carries a <code>warn</code> status
                       with violation metrics.</li>
-                  <li>The reject dataset lands under
+                  <li>The reject folder lands under
                       <code>demo.streaming.events_rejects</code> with a reason
-                      column.</li>
+                      column even though it has no contract, and the run
+                      history surfaces the filesystem path for quick
+                      inspection.</li>
                   <li>The validation payload summarises both sinks so operators
                       see where the rows went.</li>
                   <li>The scenario timeline highlights when the rejects kicked
@@ -2560,6 +2564,8 @@ for query in validation.details.get("streaming_queries", []):
                 "Route rejects programmatically",
                 """
 from datetime import datetime, timezone
+
+from pathlib import Path
 
 from pyspark.sql import SparkSession, functions as F
 
@@ -2588,12 +2594,17 @@ source_df, _ = read_stream_with_contract(
     options={"rowsPerSecond": "6", "numPartitions": "1"},
 )
 
-mutated_df = source_df.withColumn(
-    "value",
-    F.when(F.col("value") % 4 == 0, -F.col("value")).otherwise(F.col("value")),
-).withColumn(
-    "quality_flag",
-    F.when(F.col("value") < 0, F.lit("warning")).otherwise(F.lit("valid")),
+mutated_df = (
+    source_df.withColumn("cycle", F.floor(F.col("value") / F.lit(12)) % 2)
+    .withColumn(
+        "value",
+        F.when(F.col("cycle") == 1, -F.col("value")).otherwise(F.col("value")),
+    )
+    .withColumn(
+        "quality_flag",
+        F.when(F.col("cycle") == 1, F.lit("warning")).otherwise(F.lit("valid")),
+    )
+    .drop("cycle")
 )
 
 processed = write_stream_with_contract(
@@ -2611,32 +2622,32 @@ processed = write_stream_with_contract(
     enforce=False,
 )
 
-reject_rows = mutated_df.filter(F.col("value") < 0).select(
-    "timestamp",
-    "value",
-    F.lit("value below zero").alias("reject_reason"),
+reject_path = Path(f"/tmp/dc43-demo/streaming-reject-sink/{dataset_version}")
+reject_path.mkdir(parents=True, exist_ok=True)
+
+def _write_reject_batch(batch_df, batch_id):
+    materialised = batch_df.persist()
+    try:
+        count = materialised.count()
+        if count:
+            materialised.write.mode("append").parquet(str(reject_path))
+    finally:
+        materialised.unpersist()
+    print({"reject_batch": batch_id, "rows": count})
+
+reject_query = (
+    mutated_df.filter(F.col("value") < 0)
+    .select("timestamp", "value", F.lit("value below zero").alias("reject_reason"))
+    .writeStream.foreachBatch(_write_reject_batch)
+    .outputMode("append")
+    .option("checkpointLocation", str(reject_path / "checkpoint"))
+    .queryName(f"demo_stream_reject_sink_{dataset_version}")
+    .start()
 )
 
-rejects = write_stream_with_contract(
-    df=reject_rows,
-    contract_id="demo.streaming.events_rejects",
-    contract_service=contract_service,
-    expected_contract_version="==0.1.0",
-    data_quality_service=dq_service,
-    governance_service=governance_service,
-    dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
-    options={
-        "checkpointLocation": f"/tmp/dc43-demo/streaming-reject-sink/{dataset_version}",
-        "queryName": f"demo_stream_reject_sink_{dataset_version}",
-    },
-)
-
-queries = [
-    *processed.details.get("streaming_queries", []),
-    *rejects.details.get("streaming_queries", []),
-]
-for query in queries:
+for query in [*processed.details.get("streaming_queries", []), reject_query]:
     query.processAllAvailable()
+    query.stop()
                 """,
             ),
         ],
