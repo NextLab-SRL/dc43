@@ -503,6 +503,118 @@ def _timeline_from_batches(
     return events
 
 
+def _streaming_row_count(
+    metrics: Mapping[str, Any] | None,
+    batches: Iterable[Mapping[str, Any]],
+) -> int:
+    """Return a best-effort row count for streaming validations."""
+
+    total = 0
+    if isinstance(metrics, Mapping):
+        candidate = metrics.get("row_count")
+        if isinstance(candidate, (int, float)):
+            total = int(candidate)
+    if total > 0:
+        return total
+    fallback = 0
+    for batch in batches:
+        if not isinstance(batch, Mapping):
+            continue
+        value = batch.get("row_count", 0)
+        if isinstance(value, (int, float)):
+            fallback += int(value)
+    return fallback
+
+
+def _prepare_demo_streaming_batches(
+    batches: Iterable[Mapping[str, Any]],
+) -> List[Mapping[str, Any]]:
+    """Normalise streaming batches and inject synthetic warnings for the demo."""
+
+    normalised: List[Mapping[str, Any]] = []
+    for item in batches:
+        if not isinstance(item, Mapping):
+            continue
+        entry = dict(item)
+        entry["status"] = _normalise_batch_status(entry.get("status"))
+        normalised.append(entry)
+
+    has_warning = any(entry.get("status") == "warning" for entry in normalised)
+
+    if not any(entry.get("status") == "success" for entry in normalised):
+        for index, entry in enumerate(normalised):
+            if entry.get("status") in {"info", "success"}:
+                updated = dict(entry)
+                updated["status"] = "success"
+                normalised[index] = updated
+                break
+
+    if not has_warning:
+        for index, entry in enumerate(normalised):
+            if entry.get("status") != "success":
+                continue
+            row_count = int(entry.get("row_count", 0) or 0)
+            if row_count <= 0:
+                continue
+            mutated = dict(entry)
+            mutated["status"] = "warning"
+            violations = int(mutated.get("violations", 0) or 0)
+            if violations <= 0:
+                violations = max(1, row_count // 6 or 1)
+                mutated["violations"] = violations
+            metrics = mutated.get("metrics")
+            if isinstance(metrics, Mapping):
+                metrics_map = dict(metrics)
+            else:
+                metrics_map = {}
+            metrics_map.setdefault("violations.synthetic_demo", mutated.get("violations", 0))
+            mutated["metrics"] = metrics_map
+            warnings = mutated.get("warnings")
+            if isinstance(warnings, list):
+                warning_list = list(warnings)
+            elif warnings:
+                warning_list = [str(warnings)]
+            else:
+                warning_list = []
+            warning_list.append(
+                "Synthetic demo warning: streaming batch included simulated expectation alerts."
+            )
+            mutated["warnings"] = warning_list
+            normalised[index] = mutated
+            has_warning = True
+            break
+
+    if not has_warning and normalised:
+        entry = dict(normalised[-1])
+        entry["status"] = "warning"
+        row_count = int(entry.get("row_count", 0) or 0)
+        violations = int(entry.get("violations", 0) or 0)
+        if violations <= 0:
+            violations = max(1, row_count or 1)
+            entry["violations"] = violations
+        metrics = entry.get("metrics")
+        if isinstance(metrics, Mapping):
+            metrics_map = dict(metrics)
+        else:
+            metrics_map = {}
+        metrics_map.setdefault("violations.synthetic_demo", entry.get("violations", 0))
+        entry["metrics"] = metrics_map
+        warnings = entry.get("warnings")
+        if isinstance(warnings, list):
+            warning_list = list(warnings)
+        elif warnings:
+            warning_list = [str(warnings)]
+        else:
+            warning_list = []
+        warning_list.append(
+            "Synthetic demo warning: streaming batch included simulated expectation alerts."
+        )
+        entry["warnings"] = warning_list
+        normalised[-1] = entry
+
+    return normalised
+
+
 def _batch_dataset_version(
     base_version: str,
     batch: Mapping[str, Any],
@@ -758,7 +870,9 @@ def _scenario_valid(
     batches: List[Mapping[str, Any]] = []
     candidate_batches = details.get("streaming_batches")
     if isinstance(candidate_batches, list):
-        batches = [item for item in candidate_batches if isinstance(item, Mapping)]
+        batches = _prepare_demo_streaming_batches(candidate_batches)
+        if batches:
+            details["streaming_batches"] = [dict(item) for item in batches]
     dq_details: MutableMapping[str, Any] = {
         "input": input_details,
         "output": details,
@@ -769,6 +883,14 @@ def _scenario_valid(
         for key, value in metrics.items()
         if key.startswith("violations.") and isinstance(value, (int, float))
     )
+    if batches:
+        warning_total = sum(
+            int(entry.get("violations", 0) or 0)
+            for entry in batches
+            if entry.get("status") == "warning"
+        )
+        violations_total = max(violations_total, warning_total)
+    total_rows = _streaming_row_count(metrics, batches)
     timeline = [
         _timeline_event(
             phase="Source",
@@ -791,7 +913,7 @@ def _scenario_valid(
             description="Each micro-batch is validated against demo.streaming.events_processed while streaming metrics are captured.",
             status="success" if validation.ok else "warning",
             metrics={
-                "row_count": metrics.get("row_count", 0),
+                "row_count": total_rows,
                 "failed_expectations": violations_total,
                 "last_batch_id": details.get("streaming_batch_id"),
             },
@@ -1083,6 +1205,14 @@ def _scenario_dq_rejects(
         for key, value in metrics.items()
         if key.startswith("violations.") and isinstance(value, (int, float))
     )
+    if batches:
+        warning_total = sum(
+            int(entry.get("violations", 0) or 0)
+            for entry in batches
+            if entry.get("status") == "warning"
+        )
+        violations_total = max(violations_total, warning_total)
+    total_rows = _streaming_row_count(metrics, batches)
     timeline = [
         _timeline_event(
             phase="Source",
@@ -1105,7 +1235,7 @@ def _scenario_dq_rejects(
             description="Negative values fail ge_value but enforcement is relaxed so the stream continues.",
             status="warning" if violations_total else "success",
             metrics={
-                "row_count": metrics.get("row_count", 0),
+                "row_count": total_rows,
                 "failed_expectations": violations_total,
                 "last_batch_id": details.get("streaming_batch_id"),
             },
