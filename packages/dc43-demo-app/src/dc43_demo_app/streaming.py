@@ -1,6 +1,7 @@
 """Structured Streaming scenarios integrated into the demo application."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -206,9 +207,37 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
     active_queries = list(queries)
     if not active_queries:
         return
+
+    def _query_num_rows(query: StreamingQuery) -> int:
+        """Return the most recent ``numInputRows`` reported by ``query``."""
+
+        try:
+            progress = query.lastProgress
+        except Exception:  # pragma: no cover - streaming engine specific failures
+            return 0
+        payload: Mapping[str, Any] | None = None
+        if isinstance(progress, Mapping):
+            payload = progress
+        elif isinstance(progress, str):
+            try:
+                candidate = json.loads(progress)
+            except Exception:
+                candidate = None
+            if isinstance(candidate, Mapping):
+                payload = candidate
+        if not payload:
+            return 0
+        value = payload.get("numInputRows")
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return 0
+
     # Ensure at least one micro-batch is processed even for short runs so that
     # metrics and validation details have a chance to update.
     remaining: List[StreamingQuery] = []
+    seen_rows = False
     for query in active_queries:
         try:
             query.processAllAvailable()
@@ -217,6 +246,8 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
         except Exception:  # pragma: no cover - streaming engines can close abruptly
             logger.exception("Streaming query failed while draining batches")
             continue
+        if _query_num_rows(query) > 0:
+            seen_rows = True
         remaining.append(query)
     active_queries = remaining
     if not active_queries:
@@ -226,9 +257,15 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
     # populated micro-batch even when ``seconds`` is configured as ``0`` for
     # quick smoke tests.
     minimum_window = 0.5
-    deadline = time.time() + max(seconds, 0)
-    drain_until = max(deadline, time.time() + minimum_window)
-    while time.time() < drain_until and active_queries:
+    now = time.time()
+    deadline = now + max(seconds, 0)
+    drain_until = max(deadline, now + minimum_window)
+    # Provide an extended window when no rows have been observed yet so the
+    # initial micro-batch has time to populate.
+    max_wait = max(drain_until, now + max(3.0, minimum_window + max(seconds, 0)))
+    while active_queries and (
+        time.time() < drain_until or (not seen_rows and time.time() < max_wait)
+    ):
         current: List[StreamingQuery] = []
         for query in active_queries:
             try:
@@ -240,10 +277,14 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
             except Exception:  # pragma: no cover - tolerate interrupted queries
                 logger.exception("Streaming query interrupted during drain")
                 continue
+            if not seen_rows and _query_num_rows(query) > 0:
+                seen_rows = True
             current.append(query)
         active_queries = current
         if not active_queries:
             break
+        if not seen_rows:
+            drain_until = max(drain_until, time.time() + minimum_window)
         time.sleep(0.2)
 
 
