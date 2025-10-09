@@ -835,6 +835,7 @@ def _scenario_valid(
             "checkpointLocation": str(checkpoint),
             "queryName": f"demo_stream_valid_{dataset_version}",
         },
+        enforce=run_type == "enforce",
         on_streaming_batch=_forward,
     )
     queries = _extract_query_handles(validation.details)
@@ -1068,7 +1069,7 @@ def _scenario_dq_rejects(
             "checkpointLocation": str(checkpoint),
             "queryName": f"demo_stream_dq_{dataset_version}",
         },
-        enforce=False,
+        enforce=run_type == "enforce",
         on_streaming_batch=_forward,
     )
     _emit(
@@ -1397,6 +1398,7 @@ def _scenario_schema_break(
                 "checkpointLocation": str(checkpoint),
                 "queryName": f"demo_stream_schema_{dataset_version}",
             },
+            enforce=run_type == "enforce",
         )
         queries = _extract_query_handles(validation.details)
         try:
