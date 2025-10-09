@@ -296,7 +296,7 @@ def _serialise_streaming_details(
 ) -> Dict[str, Any]:
     """Return a shallow copy of ``details`` with serialisable streaming metadata."""
 
-    payload: Dict[str, Any] = dict(details or {})
+    payload: Dict[str, Any] = _sanitize_validation_details(details)
     metadata: List[Mapping[str, Any]] = []
     handles = list(queries or [])
     if not handles:
@@ -364,7 +364,12 @@ def _normalise_status(validation: Optional[ValidationResult]) -> str:
         return "warning"
     if validation.errors:
         return "error"
-    if validation.warnings:
+    warnings = [
+        warning
+        for warning in validation.warnings
+        if not _is_metric_warning(warning)
+    ]
+    if warnings:
         return "warning"
     return "ok"
 
