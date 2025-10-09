@@ -222,8 +222,13 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
     if not active_queries:
         return
 
+    # Allow a short drain window so rate sources have time to emit at least one
+    # populated micro-batch even when ``seconds`` is configured as ``0`` for
+    # quick smoke tests.
+    minimum_window = 0.5
     deadline = time.time() + max(seconds, 0)
-    while time.time() < deadline and active_queries:
+    drain_until = max(deadline, time.time() + minimum_window)
+    while time.time() < drain_until and active_queries:
         current: List[StreamingQuery] = []
         for query in active_queries:
             try:
