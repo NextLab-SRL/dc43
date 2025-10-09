@@ -248,12 +248,46 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
 
 
 def _stop_queries(queries: Iterable[StreamingQuery]) -> None:
+    """Stop ``queries`` while giving metrics observers time to flush."""
+
+    active: List[StreamingQuery] = []
     for query in queries:
-        try:
-            if query.isActive:
-                query.stop()
-        except Exception:
+        if query is None:
             continue
+        active.append(query)
+    if not active:
+        return
+
+    metrics_prefix = "dc43_metrics_"
+    metrics_queries: List[StreamingQuery] = []
+    other_queries: List[StreamingQuery] = []
+    for query in active:
+        name = getattr(query, "name", "") or ""
+        if isinstance(name, str) and name.startswith(metrics_prefix):
+            metrics_queries.append(query)
+        else:
+            other_queries.append(query)
+
+    def _stop(query: StreamingQuery) -> None:
+        try:
+            if not query.isActive:
+                return
+            query.stop()
+            try:
+                query.awaitTermination(5)
+            except TypeError:
+                # Older PySpark signatures omit the timeout parameter.
+                query.awaitTermination()
+            except Exception:
+                # Best-effort termination; ignore failures from Spark shutting down.
+                pass
+        except Exception:  # pragma: no cover - defensive shutdown
+            logger.exception("Failed to stop streaming query %s", getattr(query, "name", ""))
+
+    for query in metrics_queries:
+        _stop(query)
+    for query in other_queries:
+        _stop(query)
 
 
 def _query_metadata(queries: Iterable[StreamingQuery]) -> List[Mapping[str, Any]]:
