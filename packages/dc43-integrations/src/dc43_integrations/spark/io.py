@@ -245,6 +245,7 @@ class StreamingObservationWriter:
         self._intervention = intervention or NoOpStreamingInterventionStrategy()
         self._batches: List[Dict[str, Any]] = []
         self._progress_callback = progress_callback
+        self._sink_queries: List[Any] = []
 
     @property
     def checkpoint_location(self) -> str:
@@ -325,6 +326,21 @@ class StreamingObservationWriter:
             self._progress_callback(dict(event))
         except Exception:  # pragma: no cover - best effort progress hook
             logger.exception("Streaming progress callback failed")
+
+    def watch_sink_query(self, query: Any) -> None:
+        """Track a sink query so it can be stopped on enforcement failure."""
+
+        if query not in self._sink_queries:
+            self._sink_queries.append(query)
+
+    def _stop_sink_queries(self) -> None:
+        for query in list(self._sink_queries):
+            try:
+                stop = getattr(query, "stop", None)
+                if callable(stop):
+                    stop()
+            except Exception:  # pragma: no cover - best effort cleanup
+                logger.exception("Failed to stop streaming sink query")
 
     def _merge_batch_details(
         self,
@@ -420,6 +436,7 @@ class StreamingObservationWriter:
         self._merge_batch_details(result, batch_id=batch_id)
 
         if self.enforce and not result.ok:
+            self._stop_sink_queries()
             raise ValueError(
                 "Streaming batch %s failed data-quality validation: %s"
                 % (batch_id, result.errors)
@@ -451,6 +468,7 @@ class StreamingObservationWriter:
                     "reason": decision,
                 }
             )
+            self._stop_sink_queries()
             raise StreamingInterventionError(decision)
 
         return result
@@ -3340,16 +3358,22 @@ def _execute_write_request(
             logger.info("Starting streaming write to table %s", request.table)
             streaming_query = writer.toTable(request.table)
             streaming_handles.append(streaming_query)
+            if observation_writer is not None:
+                observation_writer.watch_sink_query(streaming_query)
         else:
             target = request.path
             if target:
                 logger.info("Starting streaming write to path %s", target)
                 streaming_query = writer.start(target)
                 streaming_handles.append(streaming_query)
+                if observation_writer is not None:
+                    observation_writer.watch_sink_query(streaming_query)
             else:
                 logger.info("Starting streaming write with implicit sink")
                 streaming_query = writer.start()
                 streaming_handles.append(streaming_query)
+                if observation_writer is not None:
+                    observation_writer.watch_sink_query(streaming_query)
 
         if metrics_query is not None:
             streaming_handles.append(metrics_query)

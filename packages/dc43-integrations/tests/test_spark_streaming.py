@@ -374,3 +374,60 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
     batches = result.details.get("streaming_batches") or []
     assert batches
     assert any(batch.get("intervention") for batch in batches)
+
+
+def test_streaming_enforcement_stops_sink_on_failure(spark, tmp_path: Path) -> None:
+    contract, service = _stream_contract(tmp_path)
+    dq = ControlledDQService(fail_after=2)
+    locator = StaticDatasetLocator(format="memory")
+    governance = RecordingGovernanceService()
+
+    df = (
+        spark.readStream.format("rate")
+        .options(rowsPerSecond="5", numPartitions="1")
+        .load()
+    )
+
+    result = write_stream_with_contract(
+        df=df,
+        contract_id=contract.id,
+        contract_service=service,
+        expected_contract_version=f"=={contract.version}",
+        data_quality_service=dq,
+        dataset_locator=locator,
+        format="memory",
+        options={"queryName": "enforced_sink"},
+        governance_service=governance,
+        enforce=True,
+    )
+
+    queries = result.details.get("streaming_queries") or []
+    assert len(queries) == 2
+    metrics_query = next(q for q in queries if "dc43_metrics" in (q.name or ""))
+    sink_query = next(q for q in queries if q is not metrics_query)
+
+    failure_detected = False
+    deadline = time.time() + 10
+    while time.time() < deadline and not failure_detected:
+        if sink_query.isActive:
+            sink_query.processAllAvailable()
+        try:
+            metrics_query.processAllAvailable()
+        except StreamingQueryException:
+            failure_detected = True
+            break
+        time.sleep(0.2)
+
+    assert failure_detected, "expected enforcement failure to surface"
+
+    deadline = time.time() + 5
+    while time.time() < deadline and sink_query.isActive:
+        time.sleep(0.2)
+
+    assert not sink_query.isActive, "streaming sink should stop after enforcement failure"
+    assert not metrics_query.isActive
+
+    if sink_query.isActive:
+        sink_query.stop()
+    if metrics_query.isActive:
+        metrics_query.stop()
