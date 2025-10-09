@@ -2513,11 +2513,11 @@ for query in validation.details.get("streaming_queries", []):
                 flowchart LR
                     Source["demo.streaming.events\\n6 rows/sec"] --> Transform["Streaming transform\\nquality flag + reasons"]
                     Transform --> Processed["demo.streaming.events_processed\\ncontract-aligned"]
-                    Transform --> Rejects["demo.streaming.events_rejects\\nraw files + reason"]
+                    Transform --> Rejects["demo.streaming.events_rejects\\nraw files + reason\\n(no contract)"]
                     Processed --> Validate["Contract validation\\nwarn on negative cycles"]
-                    Validate --> Metrics["Observation writer\\nper-batch metrics"]
-                    Processed --> Governance
-                    Rejects --> Governance["Governance record\\nwithout contract"]
+                    Validate --> GovStatus["Governance status\\ncontract-backed warn"]
+                    GovStatus --> Metrics["Observation writer\\nper-batch metrics"]
+                    Rejects --> GovArchive["Governance note\\ntracked without contract"]
             """
         ).strip()
         + "</div>"

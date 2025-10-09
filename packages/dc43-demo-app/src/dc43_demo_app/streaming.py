@@ -135,9 +135,10 @@ def _dataset_version_paths(dataset: str, version: str) -> tuple[Path, Path]:
 def _alias_dataset_version(preferred: Path, target: Path) -> None:
     """Create a symlink at ``preferred`` pointing to ``target`` if possible."""
 
-    invalid = {":", "<", ">", "\"", "|", "?", "*"}
-    if any(ch in preferred.name for ch in invalid):
-        return
+    if os.name == "nt":  # pragma: no cover - Windows lacks ``:`` support in paths
+        invalid = {":", "<", ">", "\"", "|", "?", "*"}
+        if any(ch in preferred.name for ch in invalid):
+            return
     try:
         preferred.parent.mkdir(parents=True, exist_ok=True)
         if preferred.is_symlink():
@@ -931,14 +932,21 @@ def _scenario_dq_rejects(
         nonlocal reject_total_rows
         materialised = batch_df.persist()
         try:
-            row_count = materialised.count()
+            try:
+                row_count = materialised.count()
+            except Exception:  # pragma: no cover - Spark can interrupt active jobs
+                logger.exception("Failed to count reject batch %s", batch_id)
+                row_count = 0
             if row_count:
-                materialised.write.mode("append").parquet(str(reject_target))
+                try:
+                    materialised.write.mode("append").parquet(str(reject_target))
+                except Exception:  # pragma: no cover - best-effort reject persistence
+                    logger.exception("Failed to persist reject batch %s", batch_id)
             reject_total_rows += row_count
         finally:
             materialised.unpersist()
 
-        status = "success" if row_count else "info"
+        status = "warning" if row_count else "info"
         batch_event = {
             "batch_id": batch_id,
             "row_count": row_count,
