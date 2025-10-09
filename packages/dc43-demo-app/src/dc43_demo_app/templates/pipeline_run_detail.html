@@ -296,12 +296,20 @@
           {% for ref in entry.reject_refs %}
           <dt class="col-sm-4">Reject dataset</dt>
           <dd class="col-sm-8">
-            <a href="/datasets/{{ ref.dataset }}">{{ ref.dataset }}</a>
+            {% if ref.governed %}
+              <a href="/datasets/{{ ref.dataset }}">{{ ref.dataset }}</a>
+            {% else %}
+              <code>{{ ref.dataset }}</code>
+              <span class="text-muted ms-1">(ungoverned)</span>
+            {% endif %}
             {% if ref.version %}
               <span class="text-muted ms-1">({{ ref.version }})</span>
             {% endif %}
             {% if ref.row_count is not none %}
               <span class="text-muted ms-1">– {{ ref.row_count }} rows</span>
+            {% endif %}
+            {% if ref.path %}
+              <div class="text-muted small mt-1">Path: <code>{{ ref.path }}</code></div>
             {% endif %}
           </dd>
           {% endfor %}

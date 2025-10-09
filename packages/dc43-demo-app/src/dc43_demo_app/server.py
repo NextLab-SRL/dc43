@@ -899,13 +899,19 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
             if isinstance(reject_section, Mapping):
                 dataset_id = reject_section.get("dataset_id")
                 if dataset_id:
-                    reject_ref: dict[str, Any] = {"dataset": dataset_id}
+                    reject_ref: dict[str, Any] = {
+                        "dataset": dataset_id,
+                        "governed": bool(reject_section.get("governed", True)),
+                    }
                     version = reject_section.get("dataset_version")
                     if isinstance(version, str) and version:
                         reject_ref["version"] = version
                     row_count = reject_section.get("row_count")
                     if isinstance(row_count, (int, float)):
                         reject_ref["row_count"] = int(row_count)
+                    path = reject_section.get("path")
+                    if isinstance(path, str) and path:
+                        reject_ref["path"] = path
                     reject_refs.append(reject_ref)
         timeline: list[Mapping[str, Any]] = []
         if isinstance(dq_details, Mapping):

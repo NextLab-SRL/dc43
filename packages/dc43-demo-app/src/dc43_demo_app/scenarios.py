@@ -2517,7 +2517,7 @@ for query in validation.details.get("streaming_queries", []):
                     Processed --> Validate["Contract validation\\nwarn on negative cycles"]
                     Validate --> GovStatus["Governance status\\ncontract-backed warn"]
                     GovStatus --> Metrics["Observation writer\\nper-batch metrics"]
-                    Rejects --> GovArchive["Governance note\\ntracked without contract"]
+                    Rejects --> Filesystem["Filesystem archive\\nungoverned path"]
             """
         ).strip()
         + "</div>"
@@ -2550,7 +2550,9 @@ for query in validation.details.get("streaming_queries", []):
                       with violation metrics.</li>
                   <li>The reject folder lands under
                       <code>demo.streaming.events_rejects</code> with a reason
-                      column even though it has no contract.</li>
+                      column even though it has no contract, and the run
+                      history surfaces the filesystem path for quick
+                      inspection.</li>
                   <li>The validation payload summarises both sinks so operators
                       see where the rows went.</li>
                   <li>The scenario timeline highlights when the rejects kicked

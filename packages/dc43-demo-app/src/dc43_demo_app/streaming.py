@@ -132,6 +132,16 @@ def _dataset_version_paths(dataset: str, version: str) -> tuple[Path, Path]:
     return preferred, safe
 
 
+def _write_version_marker(target: Path, version: str) -> None:
+    """Persist a ``.dc43_version`` marker in ``target`` when possible."""
+
+    marker = target / ".dc43_version"
+    try:
+        marker.write_text(version, encoding="utf-8")
+    except OSError:  # pragma: no cover - best-effort marker creation
+        logger.exception("Failed to record version marker for %s", target)
+
+
 def _alias_dataset_version(preferred: Path, target: Path) -> None:
     """Create a symlink at ``preferred`` pointing to ``target`` if possible."""
 
@@ -350,6 +360,8 @@ def _normalise_status(validation: Optional[ValidationResult]) -> str:
         return "warning"
     if status in {"block", "error"}:
         return "error"
+    if validation.ok and _extract_violation_count(validation.details) > 0:
+        return "warning"
     if validation.errors:
         return "error"
     if validation.warnings:
@@ -504,6 +516,26 @@ def _batch_dataset_version(
 def _batch_status_to_dataset_status(status: str) -> str:
     mapping = {"success": "ok", "info": "ok", "warning": "warning", "danger": "error"}
     return mapping.get(status, "ok")
+
+
+def _downgrade_streaming_batches(
+    batches: Iterable[Mapping[str, Any]] | None,
+) -> List[Mapping[str, Any]]:
+    """Return a serialisable copy of ``batches`` with friendly status labels."""
+
+    normalised: List[Mapping[str, Any]] = []
+    if not batches:
+        return normalised
+    for item in batches:
+        if not isinstance(item, Mapping):
+            continue
+        entry = dict(item)
+        status = _normalise_batch_status(entry.get("status"))
+        if status == "danger":
+            status = "warning"
+        entry["status"] = status
+        normalised.append(entry)
+    return normalised
 
 
 def _record_result(
@@ -925,6 +957,7 @@ def _scenario_dq_rejects(
     )
     _, reject_target = _dataset_version_paths(_REJECT_DATASET, dataset_version)
     reject_target.mkdir(parents=True, exist_ok=True)
+    _write_version_marker(reject_target, dataset_version)
     reject_batches: List[Dict[str, Any]] = []
     reject_total_rows = 0
 
@@ -980,7 +1013,7 @@ def _scenario_dq_rejects(
             "type": "stage",
             "phase": "Rejects",
             "title": "Reject sink streaming",
-            "description": "Invalid rows copied into demo.streaming.events_rejects with reasons.",
+            "description": "Invalid rows copied into the ungoverned demo.streaming.events_rejects folder with reasons.",
             "status": "info",
         }
     )
@@ -1011,17 +1044,21 @@ def _scenario_dq_rejects(
     )
 
     details = _serialise_streaming_details(validation.details, queries=main_queries)
+    streaming_batches = _downgrade_streaming_batches(details.get("streaming_batches"))
+    if streaming_batches:
+        details["streaming_batches"] = streaming_batches
+    validation.status = "warning"
+    validation.details = details
     reject_details: Dict[str, Any] = {
         "dataset_id": _REJECT_DATASET,
         "dataset_version": dataset_version,
         "row_count": reject_total_rows,
         "streaming_batches": reject_batches,
+        "path": str(reject_target),
+        "governed": False,
     }
-    reject_version = dataset_version
     batches: List[Mapping[str, Any]] = []
-    candidate_batches = details.get("streaming_batches")
-    if isinstance(candidate_batches, list):
-        batches = [item for item in candidate_batches if isinstance(item, Mapping)]
+    batches = streaming_batches
     reject_batches_serialised: List[Mapping[str, Any]] = [
         item for item in reject_batches if isinstance(item, Mapping)
     ]
@@ -1035,7 +1072,6 @@ def _scenario_dq_rejects(
             "row_count": reject_count,
         },
     }
-    _ensure_streaming_version(_REJECT_DATASET, reject_version)
     metrics = dict(validation.metrics or {})
     violations_total = sum(
         int(value)
@@ -1075,7 +1111,7 @@ def _scenario_dq_rejects(
             title="Rejected rows copied to demo.streaming.events_rejects",
             description="The demo reject sink captures failing rows with their reason column.",
             status="warning" if reject_count else "info",
-            metrics={"reject_rows": reject_count},
+            metrics={"reject_rows": reject_count, "path": str(reject_target)},
         ),
         _timeline_event(
             phase="Governance",
@@ -1125,22 +1161,6 @@ def _scenario_dq_rejects(
         run_type=f"{run_type}-input" if run_type else "input",
         violations=_extract_violation_count(input_details),
     )
-    reject_status = "warning" if reject_count else "info"
-    reject_record = _RelatedDataset(
-        contract_id="",
-        contract_version="",
-        dataset_name=_REJECT_DATASET,
-        dataset_version=reject_version,
-        status=reject_status,
-        dq_details={
-            "stream": "reject",
-            "details": reject_details,
-            "row_count": reject_count,
-        },
-        run_type=f"{run_type}-rejects" if run_type else "rejects",
-        violations=reject_count,
-    )
-
     return _ScenarioResult(
         dataset_name=_OUTPUT_CONTRACT,
         dataset_version=details.get("dataset_version") or dataset_version,
@@ -1148,7 +1168,7 @@ def _scenario_dq_rejects(
         queries=queries,
         dq_details=dq_details,
         timeline=timeline,
-        related=[input_record, reject_record],
+        related=[input_record],
     )
 
 
