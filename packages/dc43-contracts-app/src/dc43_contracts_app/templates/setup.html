@@ -74,49 +74,62 @@
   <form method="post" novalidate>
     <input type="hidden" name="step" value="1" />
     {% if module_groups %}
-    <nav class="nav nav-pills flex-wrap gap-2 mb-4" aria-label="Setup sections">
-      {% for group in module_groups %}
-      <a class="nav-link" href="#group-{{ group.key }}" data-group-nav>{{ group.title }}</a>
-      {% endfor %}
-    </nav>
-    {% endif %}
-
-    {% for group in module_groups %}
-    <div class="mb-4" id="group-{{ group.key }}" data-group-section>
-      <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2 mb-3">
-        <div>
-          <h2 class="h5 mb-1">{{ group.title }}</h2>
-          <p class="mb-0 text-muted">{{ group.summary }}</p>
+    <div class="row" data-step1-wizard>
+      <div class="col-12 col-lg-3 mb-4 mb-lg-0">
+        <div class="list-group" role="tablist">
+          {% for group in module_groups %}
+          <button type="button" class="list-group-item list-group-item-action" data-step1-nav="{{ group.key }}">
+            <span class="d-block fw-semibold">{{ group.title }}</span>
+            <small class="text-muted">{{ group.modules|length }} module{% if group.modules|length != 1 %}s{% endif %}</small>
+          </button>
+          {% endfor %}
         </div>
-        <span class="badge bg-light text-muted border">{{ group.modules|length }} module{% if group.modules|length != 1 %}s{% endif %}</span>
+        <div class="d-flex gap-2 mt-3">
+          <button type="button" class="btn btn-outline-secondary btn-sm flex-fill" data-step1-prev>Previous</button>
+          <button type="button" class="btn btn-outline-primary btn-sm flex-fill" data-step1-next>Next</button>
+        </div>
+        <div class="text-muted small mt-2" data-step1-progress></div>
       </div>
-      {% for module in group.modules %}
-      <section class="card mb-3" data-module-card data-module-key="{{ module.key }}">
-        <header class="card-header bg-white">
-          <h3 class="h5 mb-1">{{ module.title }}</h3>
-          <p class="mb-0 text-muted">{{ module.summary }}</p>
-        </header>
-        <div class="card-body">
-          <div class="row g-4">
-            {% for option in module.options %}
-            <div class="col-12 col-md-6">
-              <div class="border rounded p-3 h-100">
-                <div class="form-check">
-                  <input class="form-check-input" type="radio" name="module__{{ module.key }}" id="option-{{ module.key }}-{{ option.key }}" value="{{ option.key }}" {% if option.selected %}checked{% endif %} />
-                  <label class="form-check-label fw-semibold" for="option-{{ module.key }}-{{ option.key }}">
-                    {{ option.label }}
-                  </label>
+      <div class="col-12 col-lg-9">
+        {% for group in module_groups %}
+        <div class="mb-4" id="group-{{ group.key }}" data-group-section data-step1-section="{{ group.key }}">
+          <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2 mb-3">
+            <div>
+              <h2 class="h5 mb-1">{{ group.title }}</h2>
+              <p class="mb-0 text-muted">{{ group.summary }}</p>
+            </div>
+            <span class="badge bg-light text-muted border">{{ group.modules|length }} module{% if group.modules|length != 1 %}s{% endif %}</span>
+          </div>
+          {% for module in group.modules %}
+          <section class="card mb-3" data-module-card data-module-key="{{ module.key }}">
+            <header class="card-header bg-white">
+              <h3 class="h5 mb-1">{{ module.title }}</h3>
+              <p class="mb-0 text-muted">{{ module.summary }}</p>
+            </header>
+            <div class="card-body">
+              <div class="row g-4">
+                {% for option in module.options %}
+                <div class="col-12 col-md-6">
+                  <div class="border rounded p-3 h-100">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="module__{{ module.key }}" id="option-{{ module.key }}-{{ option.key }}" value="{{ option.key }}" {% if option.selected %}checked{% endif %} />
+                      <label class="form-check-label fw-semibold" for="option-{{ module.key }}-{{ option.key }}">
+                        {{ option.label }}
+                      </label>
+                    </div>
+                    <p class="text-muted small mb-0 mt-2">{{ option.description }}</p>
+                  </div>
                 </div>
-                <p class="text-muted small mb-0 mt-2">{{ option.description }}</p>
+                {% endfor %}
               </div>
             </div>
-            {% endfor %}
-          </div>
+          </section>
+          {% endfor %}
         </div>
-      </section>
-      {% endfor %}
+        {% endfor %}
+      </div>
     </div>
-    {% endfor %}
+    {% endif %}
     <div class="d-flex justify-content-end">
       <button type="submit" class="btn btn-primary">Continue</button>
     </div>

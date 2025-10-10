@@ -50,17 +50,26 @@ const moduleNodeMap = {
 
 const step = Number.parseInt(root.getAttribute("data-current-step") || "1", 10);
 const mermaidContainer = root.querySelector("[data-setup-diagram]");
-const groupSections = Array.from(root.querySelectorAll("[data-group-section]"));
-const groupNavLinks = Array.from(root.querySelectorAll("[data-group-nav]"));
 const wizardSections = Array.from(root.querySelectorAll("[data-module-section]"));
 const wizardNavButtons = Array.from(root.querySelectorAll("[data-module-target]"));
 const wizardControls = root.querySelector("[data-wizard-controls]");
 const wizardPrev = root.querySelector("[data-wizard-prev]");
 const wizardNext = root.querySelector("[data-wizard-next]");
 const wizardProgress = root.querySelector("[data-wizard-progress]");
+const stepOneContainer = root.querySelector("[data-step1-wizard]");
+const stepOneSections = stepOneContainer
+  ? Array.from(stepOneContainer.querySelectorAll("[data-step1-section]"))
+  : [];
+const stepOneNavButtons = stepOneContainer
+  ? Array.from(stepOneContainer.querySelectorAll("[data-step1-nav]"))
+  : [];
+const stepOnePrev = stepOneContainer ? stepOneContainer.querySelector("[data-step1-prev]") : null;
+const stepOneNext = stepOneContainer ? stepOneContainer.querySelector("[data-step1-next]") : null;
+const stepOneProgress = stepOneContainer ? stepOneContainer.querySelector("[data-step1-progress]") : null;
 
 const selectedModuleKeys = setupState.order.filter((key) => Boolean(setupState.selected[key]));
 let activeModuleKey = selectedModuleKeys[0] || setupState.order[0] || null;
+let activeGroupKey = null;
 let diagramCounter = 0;
 
 function ensureConfiguration(moduleKey) {
@@ -187,6 +196,18 @@ function buildMermaidDefinition(highlightKey) {
   return lines.join("\n");
 }
 
+function getGroupModuleKeys(groupKey) {
+  if (!groupKey || !Array.isArray(setupState.groups)) {
+    return [];
+  }
+  const groupEntry = setupState.groups.find((group) => group && group.key === groupKey);
+  if (!groupEntry) {
+    return [];
+  }
+  const keys = Array.isArray(groupEntry.modules) ? groupEntry.modules : [];
+  return keys.map((value) => String(value));
+}
+
 function waitForMermaid() {
   if (window.mermaid && typeof window.mermaid.render === "function") {
     return Promise.resolve(window.mermaid);
@@ -239,6 +260,93 @@ function setActiveModule(moduleKey, options = {}) {
   updateWizardVisibility(options);
   updateWizardNav();
   renderDiagram(moduleKey);
+}
+
+function updateStepOneControls(currentIndex, total) {
+  if (stepOneProgress) {
+    if (currentIndex >= 0 && total > 0) {
+      stepOneProgress.textContent = `Section ${currentIndex + 1} of ${total}`;
+    } else {
+      stepOneProgress.textContent = "";
+    }
+  }
+
+  if (stepOnePrev) {
+    stepOnePrev.disabled = currentIndex <= 0;
+  }
+
+  if (stepOneNext) {
+    if (total <= 1) {
+      stepOneNext.disabled = total === 0;
+    } else {
+      stepOneNext.disabled = false;
+    }
+    if (currentIndex === -1 || currentIndex >= total - 1) {
+      stepOneNext.textContent = "Review selections";
+    } else {
+      stepOneNext.textContent = "Next section";
+    }
+  }
+}
+
+function setActiveGroup(groupKey, options = {}) {
+  if (!groupKey || !stepOneSections.length) {
+    return;
+  }
+
+  const groupKeys = stepOneSections
+    .map((section) => section.getAttribute("data-step1-section"))
+    .filter(Boolean);
+
+  if (!groupKeys.includes(groupKey)) {
+    return;
+  }
+
+  activeGroupKey = groupKey;
+
+  const scrollIntoView = Boolean(options.scrollIntoView);
+
+  stepOneSections.forEach((section) => {
+    const key = section.getAttribute("data-step1-section");
+    if (key === groupKey) {
+      section.classList.remove("d-none");
+      section.removeAttribute("hidden");
+      if (scrollIntoView) {
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    } else {
+      section.classList.add("d-none");
+      section.setAttribute("hidden", "hidden");
+    }
+  });
+
+  stepOneNavButtons.forEach((button) => {
+    const key = button.getAttribute("data-step1-nav");
+    button.classList.toggle("active", key === groupKey);
+    if (key === groupKey) {
+      button.setAttribute("aria-current", "true");
+    } else {
+      button.removeAttribute("aria-current");
+    }
+  });
+
+  const currentIndex = groupKeys.indexOf(groupKey);
+  updateStepOneControls(currentIndex, groupKeys.length);
+
+  const moduleKeys = getGroupModuleKeys(groupKey);
+  let highlightKey = options.highlightKey || null;
+  if (!highlightKey) {
+    highlightKey = moduleKeys.find((key) => setupState.selected[key]);
+  }
+  if (!highlightKey) {
+    highlightKey = moduleKeys[0] || null;
+  }
+
+  if (highlightKey) {
+    setActiveModule(highlightKey, { scrollIntoView: false });
+  } else {
+    renderDiagram(activeModuleKey);
+  }
 }
 
 function updateWizardVisibility(options = {}) {
@@ -328,42 +436,6 @@ function updateWizardNav() {
   }
 }
 
-function initialiseGroupObserver() {
-  if (!("IntersectionObserver" in window) || !groupSections.length || !groupNavLinks.length) {
-    return;
-  }
-  const navById = new Map();
-  groupNavLinks.forEach((link) => {
-    const href = link.getAttribute("href") || "";
-    const id = href.startsWith("#") ? href.slice(1) : null;
-    if (id) {
-      navById.set(id, link);
-    }
-  });
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        const id = entry.target.getAttribute("id");
-        if (!id) {
-          return;
-        }
-        const link = navById.get(id);
-        if (!link) {
-          return;
-        }
-        if (entry.isIntersecting) {
-          groupNavLinks.forEach((nav) => nav.classList.toggle("active", nav === link));
-        }
-      });
-    },
-    {
-      rootMargin: "-40% 0px -50% 0px",
-      threshold: 0.1,
-    },
-  );
-  groupSections.forEach((section) => observer.observe(section));
-}
-
 function bindStepOneInteractions() {
   const optionInputs = Array.from(root.querySelectorAll('input[type="radio"][name^="module__"]'));
   optionInputs.forEach((input) => {
@@ -380,6 +452,62 @@ function bindStepOneInteractions() {
       setActiveModule(moduleKey);
     });
   });
+}
+
+function bindStepOneWizard() {
+  if (!stepOneContainer || !stepOneSections.length) {
+    return;
+  }
+
+  const groupKeys = stepOneSections
+    .map((section) => section.getAttribute("data-step1-section"))
+    .filter(Boolean);
+
+  let initialGroupKey = groupKeys.find((groupKey) => {
+    const moduleKeys = getGroupModuleKeys(groupKey);
+    return moduleKeys.some((moduleKey) => setupState.selected[moduleKey]);
+  });
+
+  if (!initialGroupKey) {
+    initialGroupKey = groupKeys[0] || null;
+  }
+
+  if (initialGroupKey) {
+    setActiveGroup(initialGroupKey);
+  }
+
+  stepOneNavButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const key = button.getAttribute("data-step1-nav");
+      if (key) {
+        setActiveGroup(key, { scrollIntoView: true });
+      }
+    });
+  });
+
+  if (stepOnePrev) {
+    stepOnePrev.addEventListener("click", () => {
+      const currentIndex = groupKeys.indexOf(activeGroupKey);
+      if (currentIndex > 0) {
+        setActiveGroup(groupKeys[currentIndex - 1], { scrollIntoView: true });
+      }
+    });
+  }
+
+  if (stepOneNext) {
+    stepOneNext.addEventListener("click", () => {
+      const currentIndex = groupKeys.indexOf(activeGroupKey);
+      if (currentIndex >= 0 && currentIndex < groupKeys.length - 1) {
+        setActiveGroup(groupKeys[currentIndex + 1], { scrollIntoView: true });
+      } else {
+        const continueButton = root.querySelector('form button[type="submit"].btn-primary');
+        if (continueButton instanceof HTMLElement) {
+          continueButton.scrollIntoView({ behavior: "smooth", block: "center" });
+          continueButton.focus({ preventScroll: true });
+        }
+      }
+    });
+  }
 }
 
 function bindConfigurationInputs() {
@@ -463,8 +591,8 @@ function bindWizardNav() {
   }
 }
 
-initialiseGroupObserver();
 bindStepOneInteractions();
+bindStepOneWizard();
 bindConfigurationInputs();
 bindWizardNav();
 updateWizardVisibility();
