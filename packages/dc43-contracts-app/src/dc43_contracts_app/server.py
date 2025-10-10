@@ -777,300 +777,534 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 SETUP_MODULES: Dict[str, Dict[str, Any]] = {
     "contracts_backend": {
-        "title": "Contracts backend",
-        "summary": "Where contract definitions are stored and served.",
+        "title": "Contracts storage backend",
+        "summary": "Choose where contract definitions and their history are persisted.",
         "options": {
-            "embedded_fs": {
-                "label": "Embedded filesystem (local demo)",
-                "description": (
-                    "Use the built-in filesystem store. Ideal for Docker based demos "
-                    "or quick local exploration."
-                ),
+            "filesystem": {
+                "label": "Local filesystem",
+                "description": "Store JSON/YAML contract assets on a mounted volume that the UI can read and write.",
                 "installation": [
-                    "Create a shared volume (for example `./volumes/contracts`) and mount it inside the container.",
-                    "No external services are required; the FastAPI app will write JSON contracts locally.",
+                    "Create a persistent volume (for example `./volumes/contracts`) and mount it under the working directory.",
+                    "Ensure backup or version control for the mounted folder so contract changes are traceable.",
                 ],
                 "configuration_notes": [
-                    "Set `DC43_CONTRACTS_APP_BACKEND_MODE=embedded` in your `.env` file or docker compose overrides.",
-                    "Point `DC43_CONTRACTS_APP_WORK_DIR` to the directory configured below so that the UI and backend share storage.",
+                    "Set `DC43_CONTRACTS_APP_BACKEND_MODE=embedded` so the UI boots the bundled backend.",
+                    "Expose the directories below through `DC43_CONTRACTS_APP_WORK_DIR` when running inside Docker.",
                 ],
                 "fields": [
-                    {
-                        "name": "contracts_dir",
-                        "label": "Contracts directory",
-                        "placeholder": "/workspace/contracts",
-                        "help": "Absolute path inside the container that will hold JSON contract files.",
-                        "default_factory": lambda workspace: str(workspace.contracts_dir),
-                    },
                     {
                         "name": "work_dir",
                         "label": "Workspace root",
                         "placeholder": "/workspace",
-                        "help": "Root path bound to `DC43_CONTRACTS_APP_WORK_DIR` for local assets.",
+                        "help": "Root directory that will be bound to `DC43_CONTRACTS_APP_WORK_DIR`.",
                         "default_factory": lambda workspace: str(workspace.root),
                     },
-                ],
-            },
-            "remote_http": {
-                "label": "Remote HTTP service",
-                "description": (
-                    "Connect to an existing dc43-service-backends deployment exposed over HTTP."
-                ),
-                "installation": [
-                    "Deploy `dc43-service-backends` to your preferred environment (Kubernetes, ECS, VM, …).",
-                    "Expose the `/contracts` API via HTTPS. Ensure the container can resolve the hostname.",
-                ],
-                "configuration_notes": [
-                    "Set `DC43_CONTRACTS_APP_BACKEND_MODE=remote` to stop the UI from starting the embedded backend.",
-                    "Provide the base URL below via `DC43_CONTRACTS_APP_BACKEND_URL` or `config/backend.base_url` in TOML.",
-                ],
-                "fields": [
                     {
-                        "name": "base_url",
-                        "label": "Service base URL",
-                        "placeholder": "https://contracts.example.com",
-                        "help": "Public URL for the remote contracts service (no trailing slash).",
-                    },
-                    {
-                        "name": "auth_token",
-                        "label": "API token",
-                        "placeholder": "Optional bearer token",
-                        "help": "Token injected into the `Authorization` header when talking to the remote service.",
-                        "optional": True,
+                        "name": "contracts_dir",
+                        "label": "Contracts directory",
+                        "placeholder": "/workspace/contracts",
+                        "help": "Path where contract files will be created (must be inside the workspace).",
+                        "default_factory": lambda workspace: str(workspace.contracts_dir),
                     },
                 ],
             },
-        },
-    },
-    "governance_catalog": {
-        "title": "Governance catalog",
-        "summary": "Where datasets and ownership metadata live.",
-        "options": {
-            "collibra_cloud": {
-                "label": "Collibra Data Governance",
-                "description": "Synchronise metadata with a Collibra Cloud environment.",
+            "collibra": {
+                "label": "Collibra governance backend",
+                "description": "Persist contracts as assets inside a Collibra Data Governance domain.",
                 "installation": [
                     "Provision a Collibra Cloud site with the Data Quality & Observability package enabled.",
-                    "Create a service account with access to the community that will hold your contracts.",
+                    "Create a service account with write access to the domain that will hold contract assets.",
                 ],
                 "configuration_notes": [
-                    "Populate the credentials below and export them as `COLLIBRA_CLIENT_ID` / `COLLIBRA_CLIENT_SECRET`.",
-                    "Point the integration helper at the domain identifier where contracts should be catalogued.",
+                    "Export credentials via `COLLIBRA_CLIENT_ID` and `COLLIBRA_CLIENT_SECRET` for the automation user.",
+                    "Set `DC43_CONTRACTS_BACKEND=collibra` (or matching Helm/Docker overrides) to activate this connector.",
                 ],
                 "fields": [
                     {
                         "name": "base_url",
                         "label": "Site URL",
                         "placeholder": "https://acme.collibra.com",
-                        "help": "Base URL of your Collibra instance.",
+                        "help": "Fully qualified URL for the Collibra environment.",
                     },
                     {
                         "name": "client_id",
                         "label": "Client ID",
                         "placeholder": "collibra-service-client",
-                        "help": "OAuth client id for the automation user.",
+                        "help": "OAuth client identifier for the integration user.",
                     },
                     {
                         "name": "client_secret",
                         "label": "Client secret",
                         "placeholder": "••••••",
-                        "help": "OAuth client secret (store securely).",
+                        "help": "OAuth client secret stored in your secrets manager.",
                     },
                     {
                         "name": "domain_id",
                         "label": "Target domain",
-                        "placeholder": "DATA_PRODUCTS",
-                        "help": "Collibra domain id that will contain the registered contracts.",
+                        "placeholder": "DATA_CONTRACTS",
+                        "help": "Collibra domain that will contain the contract assets.",
                     },
                 ],
             },
-            "databricks_unity": {
-                "label": "Databricks Unity Catalog",
-                "description": "Register data products into Unity Catalog tables and views.",
+            "sql": {
+                "label": "SQL database",
+                "description": "Use a relational database for contract metadata with transactional guarantees.",
                 "installation": [
-                    "Enable Unity Catalog on your Databricks workspace and assign the automation principal to the catalog.",
-                    "Install the `dc43-integrations` wheel on the cluster that will sync governance metadata.",
+                    "Provision the database (PostgreSQL, SQL Server, or compatible) and create a dedicated schema.",
+                    "Apply migration scripts from `dc43-service-backends` to prepare the contracts tables.",
                 ],
                 "configuration_notes": [
-                    "Provide the workspace information below and export them as `DATABRICKS_HOST`/`DATABRICKS_TOKEN`.",
-                    "The catalog and schema determine where Delta tables for contracts will be created.",
+                    "Populate `DC43_CONTRACTS_SQL_URL` with an application role and SSL enforced connection string.",
+                    "Set `DC43_CONTRACTS_BACKEND=sql` so the services load the SQLAlchemy implementation.",
                 ],
                 "fields": [
                     {
-                        "name": "workspace_url",
-                        "label": "Workspace URL",
-                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
-                        "help": "Base URL (without `/api/2.0`) for the Databricks workspace.",
-                    },
-                    {
-                        "name": "catalog",
-                        "label": "Catalog",
-                        "placeholder": "main",
-                        "help": "Unity Catalog that will host the governance artifacts.",
+                        "name": "connection_uri",
+                        "label": "Connection URI",
+                        "placeholder": "postgresql+psycopg://user:pass@host:5432/contracts",
+                        "help": "SQLAlchemy compatible URI including credentials and database name.",
                     },
                     {
                         "name": "schema",
                         "label": "Schema",
                         "placeholder": "contracts",
-                        "help": "Schema inside the catalog used for contract tables.",
+                        "help": "Database schema where contract tables will be created.",
                     },
                     {
-                        "name": "token",
-                        "label": "Personal access token",
-                        "placeholder": "dapi...",
-                        "help": "Databricks PAT with Unity Catalog permissions.",
+                        "name": "ssl_mode",
+                        "label": "SSL mode",
+                        "placeholder": "require",
+                        "help": "SSL requirement flag passed to the driver (e.g. `require`, `verify-full`).",
+                        "optional": True,
                     },
                 ],
             },
-            "delta_sharing": {
-                "label": "Delta Sharing catalog",
-                "description": "Push contract metadata to a Delta Lake table exposed via Delta Sharing.",
+            "delta_lake": {
+                "label": "Delta Lake (SQL-on-lake)",
+                "description": "Back contracts with Delta tables so history is queryable via Spark or SQL endpoints.",
                 "installation": [
-                    "Create or identify a Delta table that will catalogue contract releases.",
-                    "Expose the table via Delta Sharing or grant read access to the consuming platforms.",
+                    "Create a Delta table (Unity Catalog, Hive metastore, or lakehouse) dedicated to contract revisions.",
+                    "Grant the governance and product services read/write privileges on the catalog/schema pair.",
                 ],
                 "configuration_notes": [
-                    "The profile path below is read by the `delta-sharing` client used during synchronisation.",
-                    "Share and table names determine where each published contract is recorded.",
+                    "Set `DC43_CONTRACTS_BACKEND=delta` to enable the Delta implementation.",
+                    "Point the storage location below to a managed table path or external location with ACID support.",
                 ],
                 "fields": [
                     {
-                        "name": "profile_path",
-                        "label": "Profile (.share) path",
-                        "placeholder": "/secrets/delta/profile.share",
-                        "help": "Filesystem path to the Delta Sharing profile used for authentication.",
+                        "name": "storage_path",
+                        "label": "Delta storage location",
+                        "placeholder": "s3://contracts-lake/contracts",
+                        "help": "URI or catalog path where the Delta table is stored.",
                     },
                     {
-                        "name": "share",
-                        "label": "Share name",
-                        "placeholder": "contracts_share",
-                        "help": "Delta Sharing share that exposes the governance table.",
+                        "name": "catalog",
+                        "label": "Catalog (optional)",
+                        "placeholder": "main",
+                        "help": "Unity Catalog or metastore catalog name if using managed tables.",
+                        "optional": True,
                     },
                     {
-                        "name": "table",
-                        "label": "Table",
-                        "placeholder": "governance.contract_registry",
-                        "help": "Fully qualified table name that stores contract metadata.",
+                        "name": "schema",
+                        "label": "Schema",
+                        "placeholder": "contracts",
+                        "help": "Schema or database that groups the contract Delta tables.",
+                    },
+                ],
+            },
+        },
+    },
+    "products_backend": {
+        "title": "Data products backend",
+        "summary": "Decide where published product manifests are stored alongside operational metadata.",
+        "options": {
+            "filesystem": {
+                "label": "Local filesystem",
+                "description": "Reuse the mounted workspace to materialise product descriptors next to contracts.",
+                "installation": [
+                    "Mount a persistent directory that is shared between the producer pipelines and the UI.",
+                    "Seed the folder with existing product definitions if you are migrating from another platform.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_PRODUCTS_BACKEND=filesystem` so the services co-locate products with contracts.",
+                    "Keep the directory consistent with the contracts workspace to ease local development.",
+                ],
+                "fields": [
+                    {
+                        "name": "products_dir",
+                        "label": "Products directory",
+                        "placeholder": "/workspace/products",
+                        "help": "Folder that stores published product descriptors (JSON/YAML).",
+                        "default_factory": lambda workspace: str(workspace.root / "products"),
+                    },
+                ],
+            },
+            "collibra": {
+                "label": "Collibra domain",
+                "description": "Manage product lifecycles directly in Collibra next to ownership metadata.",
+                "installation": [
+                    "Reuse the Collibra site used for contracts or provision a dedicated community for products.",
+                    "Grant the automation account stewardship permissions for the target domain.",
+                ],
+                "configuration_notes": [
+                    "Share the same credentials as the contracts backend or supply overrides below.",
+                    "Export `DC43_PRODUCTS_BACKEND=collibra` when deploying the governance workflows.",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Site URL",
+                        "placeholder": "https://acme.collibra.com",
+                        "help": "URL of the Collibra instance hosting product assets.",
+                    },
+                    {
+                        "name": "client_id",
+                        "label": "Client ID",
+                        "placeholder": "collibra-products-client",
+                        "help": "OAuth client for the product synchronisation job.",
+                    },
+                    {
+                        "name": "client_secret",
+                        "label": "Client secret",
+                        "placeholder": "••••••",
+                        "help": "Store this secret securely – it is required for API authentication.",
+                    },
+                    {
+                        "name": "domain_id",
+                        "label": "Products domain",
+                        "placeholder": "DATA_PRODUCTS",
+                        "help": "Collibra domain identifier where product assets are stored.",
+                    },
+                ],
+            },
+            "sql": {
+                "label": "SQL database",
+                "description": "Persist product manifests and release checkpoints in a relational database.",
+                "installation": [
+                    "Create the schema that will store product metadata and grant DDL/DML to the automation role.",
+                    "Execute the database migrations from the product service package if available for your engine.",
+                ],
+                "configuration_notes": [
+                    "Populate `DC43_PRODUCTS_SQL_URL` (or Helm secret) with an SSL-enabled connection string.",
+                    "Enable the connector with `DC43_PRODUCTS_BACKEND=sql` to align with the contracts backend.",
+                ],
+                "fields": [
+                    {
+                        "name": "connection_uri",
+                        "label": "Connection URI",
+                        "placeholder": "postgresql+psycopg://user:pass@host:5432/products",
+                        "help": "SQLAlchemy compatible URI for the product metadata database.",
+                    },
+                    {
+                        "name": "schema",
+                        "label": "Schema",
+                        "placeholder": "products",
+                        "help": "Schema that contains the product tables and views.",
+                    },
+                ],
+            },
+            "delta_lake": {
+                "label": "Delta Lake",
+                "description": "Use Delta tables (local lakehouse or Unity Catalog) to track product releases.",
+                "installation": [
+                    "Provision an external location or managed catalog for the product Delta tables.",
+                    "Grant the publishing pipelines and governance hook read/write access to the location.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_PRODUCTS_BACKEND=delta` to keep the configuration consistent with contracts.",
+                    "Use the same catalog/schema pair as the contracts backend when sharing infrastructure.",
+                ],
+                "fields": [
+                    {
+                        "name": "storage_path",
+                        "label": "Delta storage location",
+                        "placeholder": "s3://contracts-lake/products",
+                        "help": "URI or catalog path where the product Delta table lives.",
+                    },
+                    {
+                        "name": "schema",
+                        "label": "Schema",
+                        "placeholder": "products",
+                        "help": "Schema or database that holds the product Delta tables.",
                     },
                 ],
             },
         },
     },
     "data_quality": {
-        "title": "Data quality engine",
-        "summary": "How data quality rules are executed and reported.",
+        "title": "Data quality service",
+        "summary": "Select the engine that evaluates expectations against your datasets.",
         "options": {
-            "local_expectations": {
-                "label": "Local expectations bundle",
-                "description": "Run expectations packaged with the application on the filesystem.",
+            "embedded_engine": {
+                "label": "Embedded local engine",
+                "description": "Run the bundled expectation runner alongside the contracts UI (default).",
                 "installation": [
-                    "Create a directory alongside the workspace to store expectation YAML files.",
-                    "Populate the folder with templates from `tests/fixtures/expectations` as a starting point.",
+                    "Mount a directory for expectation suites and validation results inside the workspace.",
+                    "Install any additional libraries required by your custom expectations (Great Expectations, soda-core, …).",
                 ],
                 "configuration_notes": [
-                    "Point `DC43_DEMO_EXPECTATIONS_DIR` (or your own env var) to the directory below.",
-                    "Use the integration helper to regenerate expectations whenever a contract changes.",
+                    "Set `DC43_DQ_ENGINE=local` to confirm the UI should manage execution locally.",
+                    "Point the directories below to locations writable by the container user.",
                 ],
                 "fields": [
                     {
                         "name": "expectations_path",
                         "label": "Expectations directory",
                         "placeholder": "/workspace/expectations",
-                        "help": "Location where `.yml` or `.json` expectation suites live.",
+                        "help": "Where `.yml`/`.json` suites defining rules are stored.",
                         "default_factory": lambda workspace: str(workspace.records_dir / "expectations"),
                     },
+                    {
+                        "name": "results_path",
+                        "label": "Results directory",
+                        "placeholder": "/workspace/expectations/results",
+                        "help": "Optional folder where validation run outputs are persisted.",
+                        "optional": True,
+                    },
                 ],
-            },
-            "remote_service": {
-                "label": "Remote validation service",
-                "description": "Delegate validation runs to a hosted dc43 data-quality API.",
+            }
+        },
+    },
+    "governance_service": {
+        "title": "Governance interface",
+        "summary": "Decide how orchestration between contracts, products, and data quality runs is hosted.",
+        "options": {
+            "embedded_monolith": {
+                "label": "Embedded web service (server.py)",
+                "description": "Keep the all-in-one FastAPI application that exposes UI and service endpoints together.",
                 "installation": [
-                    "Deploy `dc43-service-backends` with the data-quality component enabled (Spark or SQL).",
-                    "Ensure the contracts service and the quality API share the same backing storage.",
+                    "Expose the container port (default 8000) through Docker Compose or your orchestrator.",
+                    "Mount the same workspace volume used by the contracts and product backends.",
                 ],
                 "configuration_notes": [
-                    "Configure the base URL below via `DC43_DATA_QUALITY_URL` or service discovery.",
-                    "Optional API keys are injected into the `X-API-Key` header on each request.",
+                    "No additional configuration is required beyond the workspace paths defined above.",
+                    "Use `uvicorn dc43_contracts_app.server:app --reload` for local development mode.",
+                ],
+                "fields": [],
+            },
+            "remote_api": {
+                "label": "Remote governance API",
+                "description": "Run governance orchestration as a standalone service and let the UI connect over HTTPS.",
+                "installation": [
+                    "Deploy the governance service package (for example `dc43-service-backends`) to your preferred platform.",
+                    "Enable networking between the UI container and the remote governance endpoint.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_MODE=remote` (or Helm override) to disable the embedded orchestrator.",
+                    "Provide the base URL and optional credentials below via environment variables or secrets.",
                 ],
                 "fields": [
                     {
                         "name": "base_url",
-                        "label": "Quality service URL",
-                        "placeholder": "https://quality.example.com",
-                        "help": "Public endpoint for the remote data quality API.",
+                        "label": "Governance API URL",
+                        "placeholder": "https://governance.example.com",
+                        "help": "HTTPS endpoint exposing the governance service.",
                     },
                     {
-                        "name": "api_key",
-                        "label": "API key",
-                        "placeholder": "Optional secret",
-                        "help": "Shared secret exchanged with the remote validation service.",
+                        "name": "api_token",
+                        "label": "API token",
+                        "placeholder": "Optional bearer token",
+                        "help": "Authentication token presented to the remote governance API.",
                         "optional": True,
                     },
                 ],
             },
         },
     },
-    "compute_orchestration": {
-        "title": "Compute & orchestration",
-        "summary": "Where data pipelines are executed and monitored.",
+    "governance_extensions": {
+        "title": "Governance hooks",
+        "summary": "Extend the governance service with additional integrations such as Unity Catalog tagging.",
         "options": {
-            "local_spark": {
-                "label": "Local Spark / Delta Lake",
-                "description": "Use an in-container Spark runtime materialising Delta tables on disk.",
-                "installation": [
-                    "Install PySpark (`pip install pyspark==3.5.1 delta-spark`).",
-                    "Create a datasets folder (e.g. `./volumes/delta`) and mount it at the path below.",
-                ],
+            "none": {
+                "label": "No additional hooks",
+                "description": "Skip optional extensions – contracts and products remain self-contained.",
+                "installation": [],
                 "configuration_notes": [
-                    "Set `SPARK_MASTER` and `DELTA_TABLE_PATH` environment variables using the values provided.",
-                    "Ensure the contracts workspace has permission to write Delta transaction logs.",
+                    "Use this option when you do not need to synchronise Unity Catalog or other downstream systems yet.",
                 ],
-                "fields": [
-                    {
-                        "name": "spark_master",
-                        "label": "Spark master",
-                        "placeholder": "local[*]",
-                        "help": "Master URL passed to Spark (e.g. `local[*]` or `spark://host:7077`).",
-                        "default": "local[*]",
-                    },
-                    {
-                        "name": "delta_path",
-                        "label": "Delta storage path",
-                        "placeholder": "/workspace/datasets",
-                        "help": "Directory that will host Delta tables produced by the demo pipelines.",
-                        "default_factory": lambda workspace: str(workspace.data_dir),
-                    },
-                ],
+                "fields": [],
             },
-            "databricks_jobs": {
-                "label": "Databricks Jobs",
-                "description": "Trigger Databricks Jobs or Workflows for contract compliant pipelines.",
+            "unity_catalog": {
+                "label": "Unity Catalog synchronisation",
+                "description": "Tag Delta tables and views in Unity Catalog with contract and product metadata.",
                 "installation": [
-                    "Upload the demo wheel to your Databricks workspace and create a Jobs run configuration.",
-                    "Grant the automation principal access to the job and target clusters or Delta Live Tables pipeline.",
+                    "Install the `dc43-integrations` wheel on the Databricks cluster executing the hook.",
+                    "Grant the service principal data steward permissions on the target catalog and schema.",
                 ],
                 "configuration_notes": [
-                    "Populate the workspace host and PAT below (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`).",
-                    "Use the job identifier so the UI can call the Jobs API when running validations.",
+                    "Provide Databricks host/token pairs via `DATABRICKS_HOST` and `DATABRICKS_TOKEN`.",
+                    "Set `DC43_GOVERNANCE_HOOK=unity_catalog` so the governance job loads the extension module.",
                 ],
                 "fields": [
                     {
                         "name": "workspace_url",
                         "label": "Workspace URL",
                         "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
-                        "help": "Base URL for the Databricks workspace that hosts the job.",
+                        "help": "Base URL of the Databricks workspace hosting Unity Catalog.",
                     },
                     {
-                        "name": "job_id",
-                        "label": "Job or pipeline id",
-                        "placeholder": "123456789",
-                        "help": "Identifier of the Databricks Job or Delta Live Tables pipeline.",
+                        "name": "catalog",
+                        "label": "Catalog",
+                        "placeholder": "main",
+                        "help": "Unity Catalog containing the managed tables to tag.",
+                    },
+                    {
+                        "name": "schema",
+                        "label": "Schema",
+                        "placeholder": "contracts",
+                        "help": "Schema that will receive Unity Catalog tags.",
                     },
                     {
                         "name": "token",
                         "label": "Personal access token",
                         "placeholder": "dapi...",
-                        "help": "Token used to authenticate against the Databricks Jobs API.",
+                        "help": "Databricks PAT used by the governance hook.",
+                    },
+                ],
+            },
+            "custom_module": {
+                "label": "Custom Python module",
+                "description": "Load your own governance hook module for bespoke synchronisation steps.",
+                "installation": [
+                    "Package the Python module with your deployment or mount it into the container image.",
+                    "Document the callable entrypoints (`register`, `on_publish`, …) expected by the governance runtime.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_HOOK=python` and provide the module path below.",
+                    "Use virtualenv or Poetry extras to install dependencies required by the hook.",
+                ],
+                "fields": [
+                    {
+                        "name": "module_path",
+                        "label": "Module import path",
+                        "placeholder": "acme.governance.hooks",
+                        "help": "Python import path that exposes the hook entrypoints.",
+                    },
+                    {
+                        "name": "config_path",
+                        "label": "Hook configuration file",
+                        "placeholder": "/workspace/config/governance_hook.yml",
+                        "help": "Optional YAML/JSON file consumed by the custom hook.",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
+    "user_interface": {
+        "title": "User interface",
+        "summary": "Choose how operators will interact with the governance workflows.",
+        "options": {
+            "local_web": {
+                "label": "Bundled web application",
+                "description": "Serve the FastAPI + Bootstrap UI directly from the same container as the services.",
+                "installation": [
+                    "Expose the web port (default 8000) and secure it behind your ingress/proxy of choice.",
+                    "Mount the workspace volume so UI actions persist to the same storage as the services.",
+                ],
+                "configuration_notes": [
+                    "Use environment variables from previous sections – no additional settings are required.",
+                    "Set `DC43_UI_MODE=local` when packaging the UI with Docker Compose.",
+                ],
+                "fields": [],
+            },
+            "remote_portal": {
+                "label": "Hosted portal",
+                "description": "Point users to an externally hosted UI that talks to the governance API.",
+                "installation": [
+                    "Deploy the UI assets (for example via static hosting + backend-for-frontend layer).",
+                    "Configure networking so the hosted portal can reach the remote governance service.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_UI_MODE=remote` to disable the embedded templates.",
+                    "Provide the portal base URL below so deep links are generated correctly.",
+                ],
+                "fields": [
+                    {
+                        "name": "portal_url",
+                        "label": "Portal base URL",
+                        "placeholder": "https://contracts.acme.com",
+                        "help": "URL users will visit to access the hosted UI.",
+                    },
+                ],
+            },
+        },
+    },
+    "authentication": {
+        "title": "Authentication & access",
+        "summary": "Configure how users authenticate with the UI and downstream services.",
+        "options": {
+            "none": {
+                "label": "No authentication",
+                "description": "Rely on network controls only – all endpoints remain unauthenticated.",
+                "installation": [],
+                "configuration_notes": [
+                    "Use this only in isolated demo environments.",
+                    "Consider enabling at least basic auth before exposing the UI broadly.",
+                ],
+                "fields": [],
+            },
+            "basic": {
+                "label": "HTTP basic auth",
+                "description": "Protect the UI with a simple username/password pair managed via environment variables.",
+                "installation": [
+                    "Generate credentials and inject them as secrets in your container orchestrator.",
+                    "Enable HTTPS termination on your ingress/load balancer.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_AUTH_MODE=basic` and provide the credentials below.",
+                    "Rotate passwords frequently and avoid reusing them across environments.",
+                ],
+                "fields": [
+                    {
+                        "name": "username",
+                        "label": "Username",
+                        "placeholder": "governance-admin",
+                        "help": "Login used to access the UI.",
+                    },
+                    {
+                        "name": "password",
+                        "label": "Password",
+                        "placeholder": "••••••",
+                        "help": "Strong password stored as a secret.",
+                    },
+                ],
+            },
+            "oauth_oidc": {
+                "label": "OAuth / OIDC",
+                "description": "Delegate authentication to your identity provider using OAuth 2.0 / OpenID Connect.",
+                "installation": [
+                    "Register the application with your IdP and generate client credentials.",
+                    "Configure redirect URIs that match the portal hostname or localhost for development.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_AUTH_MODE=oauth` and configure the client settings below.",
+                    "Sync group or role mappings in the governance service to enforce authorisation policies.",
+                ],
+                "fields": [
+                    {
+                        "name": "issuer_url",
+                        "label": "Issuer URL",
+                        "placeholder": "https://login.microsoftonline.com/<tenant>/v2.0",
+                        "help": "Discovery endpoint for the identity provider.",
+                    },
+                    {
+                        "name": "client_id",
+                        "label": "Client ID",
+                        "placeholder": "00000000-0000-0000-0000-000000000000",
+                        "help": "Application (client) identifier registered with the IdP.",
+                    },
+                    {
+                        "name": "client_secret",
+                        "label": "Client secret",
+                        "placeholder": "••••••",
+                        "help": "Client secret or certificate thumbprint used for token exchange.",
+                    },
+                    {
+                        "name": "redirect_uri",
+                        "label": "Redirect URI",
+                        "placeholder": "https://contracts.acme.com/oauth/callback",
+                        "help": "URL the IdP will redirect to after authentication.",
                     },
                 ],
             },
