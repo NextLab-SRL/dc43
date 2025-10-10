@@ -29,7 +29,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable
+from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable, Callable
 from uuid import uuid4
 from threading import Lock
 import threading
@@ -1150,16 +1150,16 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
             },
         },
     },
-    "deployment_targets": {
-        "title": "Deployment automation",
-        "summary": "Generate scripts or Terraform modules to deploy the services locally or in the cloud.",
+    "governance_deployment": {
+        "title": "Governance service deployment",
+        "summary": "Capture how the governance backends are hosted so the wizard can emit scripts or Terraform stubs per environment.",
         "options": {
             "local_docker": {
                 "label": "Local Docker or Compose",
-                "description": "Keep everything on a laptop or developer workstation using Docker Compose and the generated helper scripts.",
+                "description": "Keep the governance service on a laptop or developer workstation using Docker Compose and the generated helper scripts.",
                 "installation": [
                     "Install Docker Desktop or an equivalent container runtime.",
-                    "Use `scripts/run_local_stack.py` from the exported bundle to start the UI and service backends.",
+                    "Use `scripts/run_local_stack.py` from the exported bundle to start the governance APIs alongside the UI.",
                 ],
                 "configuration_notes": [
                     "Reuse the TOML files exported by the wizard to keep local environments consistent.",
@@ -1169,7 +1169,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
             },
             "aws_terraform": {
                 "label": "AWS (Terraform)",
-                "description": "Provision the backend services on AWS Fargate using the provided Terraform module skeleton.",
+                "description": "Provision the governance and data-quality APIs on AWS Fargate using the provided Terraform module skeleton.",
                 "installation": [
                     "Clone the Terraform module under `deploy/terraform/aws-service-backend` into your infrastructure repository.",
                     "Ensure the AWS provider is authenticated (for example via `aws configure` or CI/CD secrets).",
@@ -1214,16 +1214,16 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                     },
                     {
                         "name": "contract_filesystem",
-                        "label": "EFS file system ID",
+                        "label": "EFS filesystem ID",
                         "placeholder": "fs-0123456789abcdef0",
-                        "help": "Required when using the filesystem mode so tasks mount the right volume.",
+                        "help": "File system identifier used when `contract_store_mode` is `filesystem`.",
                         "optional": True,
                     },
                     {
                         "name": "contract_storage_path",
                         "label": "Container mount path",
                         "placeholder": "/contracts",
-                        "help": "Directory inside the container that exposes the contracts volume (filesystem mode).",
+                        "help": "Directory inside the container exposing the contracts volume.",
                         "optional": True,
                     },
                     {
@@ -1235,16 +1235,16 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                     },
                     {
                         "name": "contract_store_dsn_secret_arn",
-                        "label": "Secrets Manager ARN",
-                        "placeholder": "arn:aws:secretsmanager:us-east-1:123456789012:secret:ContractsDsn",
-                        "help": "Alternative to embedding the DSN directly – points to Secrets Manager or SSM.",
+                        "label": "DSN secret ARN",
+                        "placeholder": "arn:aws:secretsmanager:...",
+                        "help": "Secrets Manager or SSM parameter storing the DSN (alternative to plaintext).",
                         "optional": True,
                     },
                     {
                         "name": "contract_store_table",
                         "label": "Contracts table name",
                         "placeholder": "contracts",
-                        "help": "Overrides the default table when using the SQL store.",
+                        "help": "Override the default contracts table for the SQL store.",
                         "optional": True,
                     },
                     {
@@ -1257,123 +1257,164 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                     {
                         "name": "private_subnet_ids",
                         "label": "Private subnet IDs",
-                        "placeholder": "subnet-aaaa1111, subnet-bbbb2222",
-                        "help": "Comma-separated list of private subnet IDs for the ECS service.",
+                        "placeholder": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+                        "help": "Comma separated list of subnet IDs used by the ECS tasks.",
                     },
                     {
                         "name": "load_balancer_subnet_ids",
                         "label": "Load balancer subnet IDs",
-                        "placeholder": "subnet-cccc3333, subnet-dddd4444",
-                        "help": "Comma-separated subnet IDs where the Application Load Balancer will live.",
+                        "placeholder": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+                        "help": "Comma separated list of subnet IDs for the public load balancer.",
                     },
                     {
                         "name": "service_security_group_id",
                         "label": "Service security group",
                         "placeholder": "sg-0123456789abcdef0",
-                        "help": "Security group applied to the ECS tasks.",
+                        "help": "Security group attached to the ECS tasks.",
                     },
                     {
                         "name": "load_balancer_security_group_id",
                         "label": "Load balancer security group",
-                        "placeholder": "sg-0fedcba9876543210",
+                        "placeholder": "sg-0123456789abcdef0",
                         "help": "Security group attached to the Application Load Balancer.",
                     },
                     {
                         "name": "certificate_arn",
                         "label": "ACM certificate ARN",
-                        "placeholder": "arn:aws:acm:us-east-1:123456789012:certificate/abcdef...",
-                        "help": "TLS certificate used by the HTTPS listener.",
+                        "placeholder": "arn:aws:acm:...",
+                        "help": "Certificate used for HTTPS ingress.",
                     },
                     {
                         "name": "vpc_id",
                         "label": "VPC ID",
                         "placeholder": "vpc-0123456789abcdef0",
-                        "help": "VPC hosting the service and load balancer.",
-                    },
-                    {
-                        "name": "desired_count",
-                        "label": "Desired task count",
-                        "placeholder": "2",
-                        "help": "Number of Fargate task replicas to run (defaults to 2).",
-                        "optional": True,
+                        "help": "Virtual private cloud hosting the deployment.",
                     },
                     {
                         "name": "task_cpu",
                         "label": "Task CPU units",
                         "placeholder": "512",
-                        "help": "Override the default Fargate CPU reservation if required.",
+                        "help": "Fargate CPU allocation for the service backends task.",
                         "optional": True,
                     },
                     {
                         "name": "task_memory",
                         "label": "Task memory (MiB)",
                         "placeholder": "1024",
-                        "help": "Override the default Fargate memory reservation if required.",
+                        "help": "Fargate memory allocation for the service backends task.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_port",
+                        "label": "Container port",
+                        "placeholder": "8001",
+                        "help": "Port exposed by the container.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "desired_count",
+                        "label": "Desired task count",
+                        "placeholder": "2",
+                        "help": "Number of task replicas to run.",
                         "optional": True,
                     },
                     {
                         "name": "health_check_path",
                         "label": "Health check path",
                         "placeholder": "/health",
-                        "help": "Adjust the ALB health check endpoint when exposing a different route.",
+                        "help": "HTTP path polled by the load balancer.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_interval",
+                        "label": "Health check interval",
+                        "placeholder": "30",
+                        "help": "Seconds between health checks.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_timeout",
+                        "label": "Health check timeout",
+                        "placeholder": "5",
+                        "help": "Seconds before a health check is considered failed.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_healthy_threshold",
+                        "label": "Healthy threshold",
+                        "placeholder": "2",
+                        "help": "Number of consecutive successes before the target is considered healthy.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_unhealthy_threshold",
+                        "label": "Unhealthy threshold",
+                        "placeholder": "2",
+                        "help": "Number of consecutive failures before the target is considered unhealthy.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "log_retention_days",
+                        "label": "Log retention (days)",
+                        "placeholder": "30",
+                        "help": "CloudWatch log retention period.",
                         "optional": True,
                     },
                 ],
             },
             "azure_terraform": {
                 "label": "Azure (Terraform)",
-                "description": "Deploy the backends on Azure Container Apps backed by Azure Files or a SQL database.",
+                "description": "Deploy the governance APIs to Azure Container Apps using the bundled Terraform template.",
                 "installation": [
                     "Copy the Terraform module under `deploy/terraform/azure-service-backend` into your infrastructure repository.",
-                    "Authenticate the AzureRM provider (for example with `az login` or a service principal in CI).",
-                    "Review and apply the generated `terraform.tfvars` file before running `terraform apply`.",
+                    "Authenticate the Azure CLI or provide service principal credentials to Terraform.",
+                    "Review the generated `terraform.tfvars` and run `terraform apply` to provision the resources.",
                 ],
                 "configuration_notes": [
-                    "Provide registry credentials that Container Apps can use to pull the image.",
-                    "Switch `contract_store_mode` to `sql` when pointing at Azure SQL instead of Azure Files.",
+                    "Point the configuration at your container registry and decide whether the contracts store uses Azure Files or SQL.",
+                    "Ensure the exported TOML configuration is mounted or baked into the container image.",
                 ],
                 "fields": [
                     {
                         "name": "subscription_id",
                         "label": "Subscription ID",
                         "placeholder": "00000000-0000-0000-0000-000000000000",
-                        "help": "Azure subscription that will own the resources.",
+                        "help": "Azure subscription hosting the deployment.",
                     },
                     {
                         "name": "resource_group_name",
                         "label": "Resource group",
                         "placeholder": "rg-dc43-governance",
-                        "help": "Resource group used for the Container App and related assets.",
+                        "help": "Resource group where the Container App and storage resources will be created.",
                     },
                     {
                         "name": "location",
-                        "label": "Azure region",
+                        "label": "Location",
                         "placeholder": "westeurope",
-                        "help": "Location where the Container Apps environment will run.",
+                        "help": "Azure region for the resources.",
                     },
                     {
                         "name": "container_registry",
-                        "label": "Container Registry login server",
-                        "placeholder": "acme.azurecr.io",
-                        "help": "ACR hostname (without protocol) that hosts the container image.",
+                        "label": "Container registry",
+                        "placeholder": "dc43.azurecr.io",
+                        "help": "Azure Container Registry host serving the backend image.",
                     },
                     {
                         "name": "container_registry_username",
                         "label": "Registry username",
-                        "placeholder": "acme-pull",
-                        "help": "Username or service principal used to pull from the registry.",
+                        "placeholder": "dc43",
+                        "help": "Username with pull permissions on the registry.",
                     },
                     {
                         "name": "container_registry_password",
                         "label": "Registry password",
                         "placeholder": "••••••",
-                        "help": "Password or access token for the registry account.",
-                        "type": "password",
+                        "help": "Password or access key for the container registry.",
                     },
                     {
                         "name": "image_tag",
                         "label": "Image tag",
-                        "placeholder": "acme.azurecr.io/dc43-backends:latest",
+                        "placeholder": "dc43-backends:latest",
                         "help": "Full reference (repository:tag) for the container image.",
                     },
                     {
@@ -1606,6 +1647,282 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Portal base URL",
                         "placeholder": "https://contracts.acme.com",
                         "help": "URL users will visit to access the hosted UI.",
+                    },
+                ],
+            },
+        },
+    },
+    "ui_deployment": {
+        "title": "User interface deployment",
+        "summary": "Document how the contracts UI is hosted so deployment scripts and Terraform variables can be generated per environment.",
+        "options": {
+            "local_docker": {
+                "label": "Local Docker or Compose",
+                "description": "Run the UI from the same container that serves governance by using the helper scripts provided by the wizard.",
+                "installation": [
+                    "Install Docker Desktop or an equivalent container runtime.",
+                    "Launch the stack with `scripts/run_local_stack.py` or integrate the container into your Compose file.",
+                ],
+                "configuration_notes": [
+                    "Point the UI at the exported TOML configuration or environment variables from previous sections.",
+                    "Reuse the same workspace volume as the governance service so edits persist.",
+                ],
+                "fields": [],
+            },
+            "aws_terraform": {
+                "label": "AWS (Terraform scaffold)",
+                "description": "Capture AWS hosting details so you can feed them into your infrastructure-as-code module for the UI.",
+                "installation": [
+                    "Clone or adapt your existing Terraform stacks for ECS/ALB frontends.",
+                    "Copy the generated `terraform.tfvars` stub into that repository to keep values in sync with the wizard.",
+                ],
+                "configuration_notes": [
+                    "Provide the container image that serves the UI (for example the monolith image with `DC43_UI_MODE=local`).",
+                    "Ensure the security groups and subnets align with those used by the governance service when colocated.",
+                ],
+                "fields": [
+                    {
+                        "name": "aws_region",
+                        "label": "AWS region",
+                        "placeholder": "us-east-1",
+                        "help": "Region hosting the UI frontend.",
+                    },
+                    {
+                        "name": "cluster_name",
+                        "label": "ECS cluster name",
+                        "placeholder": "dc43-ui",
+                        "help": "Existing ECS/Fargate cluster that will run the UI tasks.",
+                    },
+                    {
+                        "name": "service_name",
+                        "label": "ECS service name",
+                        "placeholder": "dc43-contracts-ui",
+                        "help": "Name of the ECS service that will expose the UI.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "ecr_image_uri",
+                        "label": "ECR image URI",
+                        "placeholder": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dc43-contracts:latest",
+                        "help": "Container image containing the contracts UI application.",
+                    },
+                    {
+                        "name": "private_subnet_ids",
+                        "label": "Private subnet IDs",
+                        "placeholder": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+                        "help": "Comma separated list of subnet IDs used by the ECS tasks.",
+                    },
+                    {
+                        "name": "load_balancer_subnet_ids",
+                        "label": "Load balancer subnet IDs",
+                        "placeholder": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+                        "help": "Comma separated list of subnet IDs for the public load balancer.",
+                    },
+                    {
+                        "name": "service_security_group_id",
+                        "label": "Service security group",
+                        "placeholder": "sg-0123456789abcdef0",
+                        "help": "Security group attached to the ECS tasks.",
+                    },
+                    {
+                        "name": "load_balancer_security_group_id",
+                        "label": "Load balancer security group",
+                        "placeholder": "sg-0123456789abcdef0",
+                        "help": "Security group attached to the Application Load Balancer.",
+                    },
+                    {
+                        "name": "certificate_arn",
+                        "label": "ACM certificate ARN",
+                        "placeholder": "arn:aws:acm:...",
+                        "help": "Certificate used for HTTPS ingress.",
+                    },
+                    {
+                        "name": "vpc_id",
+                        "label": "VPC ID",
+                        "placeholder": "vpc-0123456789abcdef0",
+                        "help": "Virtual private cloud hosting the deployment.",
+                    },
+                    {
+                        "name": "container_port",
+                        "label": "Container port",
+                        "placeholder": "8000",
+                        "help": "Port exposed by the UI container.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "desired_count",
+                        "label": "Desired task count",
+                        "placeholder": "2",
+                        "help": "Number of task replicas to run.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "task_cpu",
+                        "label": "Task CPU units",
+                        "placeholder": "512",
+                        "help": "Fargate CPU allocation for the UI task.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "task_memory",
+                        "label": "Task memory (MiB)",
+                        "placeholder": "1024",
+                        "help": "Fargate memory allocation for the UI task.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_path",
+                        "label": "Health check path",
+                        "placeholder": "/health",
+                        "help": "HTTP path polled by the load balancer.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_interval",
+                        "label": "Health check interval",
+                        "placeholder": "30",
+                        "help": "Seconds between health checks.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_timeout",
+                        "label": "Health check timeout",
+                        "placeholder": "5",
+                        "help": "Seconds before a health check is considered failed.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_healthy_threshold",
+                        "label": "Healthy threshold",
+                        "placeholder": "2",
+                        "help": "Number of consecutive successes before the target is considered healthy.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_unhealthy_threshold",
+                        "label": "Unhealthy threshold",
+                        "placeholder": "2",
+                        "help": "Number of consecutive failures before the target is considered unhealthy.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "log_retention_days",
+                        "label": "Log retention (days)",
+                        "placeholder": "30",
+                        "help": "CloudWatch log retention period.",
+                        "optional": True,
+                    },
+                ],
+            },
+            "azure_terraform": {
+                "label": "Azure (Terraform scaffold)",
+                "description": "Collect Azure Container Apps parameters to drive your UI deployment templates.",
+                "installation": [
+                    "Integrate the generated variables into your Container Apps Terraform module or Bicep deployment.",
+                    "Store sensitive values (like registry passwords) in your preferred secret manager before applying.",
+                ],
+                "configuration_notes": [
+                    "Provide the registry location for the UI image and adjust autoscaling bounds as required.",
+                    "Align the tags with your governance service deployment for easier inventory tracking.",
+                ],
+                "fields": [
+                    {
+                        "name": "subscription_id",
+                        "label": "Subscription ID",
+                        "placeholder": "00000000-0000-0000-0000-000000000000",
+                        "help": "Azure subscription hosting the UI deployment.",
+                    },
+                    {
+                        "name": "resource_group_name",
+                        "label": "Resource group",
+                        "placeholder": "rg-dc43-ui",
+                        "help": "Resource group where the Container App will be created.",
+                    },
+                    {
+                        "name": "location",
+                        "label": "Location",
+                        "placeholder": "westeurope",
+                        "help": "Azure region for the resources.",
+                    },
+                    {
+                        "name": "container_registry",
+                        "label": "Container registry",
+                        "placeholder": "dc43.azurecr.io",
+                        "help": "Azure Container Registry host serving the UI image.",
+                    },
+                    {
+                        "name": "container_registry_username",
+                        "label": "Registry username",
+                        "placeholder": "dc43",
+                        "help": "Username with pull permissions on the registry.",
+                    },
+                    {
+                        "name": "container_registry_password",
+                        "label": "Registry password",
+                        "placeholder": "••••••",
+                        "help": "Password or access key for the container registry.",
+                    },
+                    {
+                        "name": "image_tag",
+                        "label": "Image tag",
+                        "placeholder": "dc43-contracts:latest",
+                        "help": "Full reference (repository:tag) for the UI container image.",
+                    },
+                    {
+                        "name": "container_app_environment_name",
+                        "label": "Container Apps environment",
+                        "placeholder": "dc43-ui-env",
+                        "help": "Name assigned to the Container Apps environment.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_app_name",
+                        "label": "Container App name",
+                        "placeholder": "dc43-contracts-ui",
+                        "help": "Name of the Container App resource created by Terraform.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "ingress_port",
+                        "label": "Ingress port",
+                        "placeholder": "8000",
+                        "help": "Port exposed publicly by the Container App.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "min_replicas",
+                        "label": "Minimum replicas",
+                        "placeholder": "1",
+                        "help": "Lower bound for Container Apps autoscaling.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "max_replicas",
+                        "label": "Maximum replicas",
+                        "placeholder": "3",
+                        "help": "Upper bound for Container Apps autoscaling.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_cpu",
+                        "label": "Container CPU",
+                        "placeholder": "0.5",
+                        "help": "vCPU allocation per replica (for example 0.5, 1.0).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_memory",
+                        "label": "Container memory",
+                        "placeholder": "1.0Gi",
+                        "help": "Memory allocation per replica (GiB).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "tags",
+                        "label": "Resource tags",
+                        "placeholder": "env=dev, owner=data-platform",
+                        "help": "Comma-separated key=value pairs applied to Azure resources.",
+                        "optional": True,
                     },
                 ],
             },
@@ -1944,11 +2261,69 @@ def _render_terraform_tfvars(
     return "\n".join(lines)
 
 
-def _terraform_template_files(provider: str) -> List[Tuple[str, str]]:
-    """Return template files bundled with the repository for ``provider``."""
+def _collect_tfvars_entries(
+    data: Mapping[str, Any],
+    *,
+    field_map: Mapping[str, str],
+    field_labels: Mapping[str, str],
+    required_fields: Iterable[str],
+    list_fields: Iterable[str] = (),
+    numeric_fields: Iterable[str] = (),
+    map_fields: Iterable[str] = (),
+    list_parser: Callable[[Any], Iterable[Any]] | None = None,
+    map_parser: Callable[[Any], Mapping[str, Any]] | None = None,
+) -> Tuple[List[Tuple[str, Any]], List[str]]:
+    """Return Terraform variable entries and missing labels for ``field_map``."""
+
+    entries: List[Tuple[str, Any]] = []
+    missing_labels: List[str] = []
+    required_set = {str(name) for name in required_fields}
+    list_fields = {str(name) for name in list_fields}
+    numeric_fields = {str(name) for name in numeric_fields}
+    map_fields = {str(name) for name in map_fields}
+
+    for field_name, var_name in field_map.items():
+        field_name = str(field_name)
+        if field_name in map_fields:
+            parser = map_parser or (lambda value: _parse_key_value_pairs(value))
+            mapping = parser(data.get(field_name))
+            if mapping:
+                entries.append((var_name, mapping))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+        elif field_name in list_fields:
+            parser = list_parser or (lambda value: _split_csv(value))
+            values = [item for item in parser(data.get(field_name)) if item]
+            if values:
+                entries.append((var_name, values))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+        elif field_name in numeric_fields:
+            number = _clean_number(data.get(field_name))
+            if number is not None:
+                entries.append((var_name, number))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+        else:
+            text = _clean_str(data.get(field_name))
+            if text:
+                entries.append((var_name, text))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+
+    return entries, missing_labels
+
+
+def _terraform_template_files(
+    provider: str,
+    *,
+    target: str,
+    template_dir: Path | None = None,
+) -> List[Tuple[str, str]]:
+    """Return template files bundled with the repository for ``provider`` and ``target``."""
 
     files: List[Tuple[str, str]] = []
-    base = TERRAFORM_TEMPLATE_ROOT / f"{provider}-service-backend"
+    base = template_dir or (TERRAFORM_TEMPLATE_ROOT / f"{provider}-service-backend")
     for filename in ("main.tf", "variables.tf", "README.md"):
         path = base / filename
         if not path.exists():
@@ -1957,18 +2332,18 @@ def _terraform_template_files(provider: str) -> List[Tuple[str, str]]:
             content = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        files.append((f"dc43-setup/terraform/{provider}/{filename}", content))
+        files.append((f"dc43-setup/terraform/{target}/{provider}/{filename}", content))
     return files
 
 
-def _aws_terraform_tfvars(
+def _aws_governance_tfvars(
     module_config: Mapping[str, Any],
     *,
     field_labels: Mapping[str, str],
     required_fields: Iterable[str],
     selected: Mapping[str, str],
 ) -> Tuple[str | None, List[str]]:
-    """Return rendered AWS ``terraform.tfvars`` content and missing labels."""
+    """Return rendered AWS ``terraform.tfvars`` content and missing labels for governance deployments."""
 
     data = {str(key): value for key, value in module_config.items()}
     contract_backend = selected.get("contracts_backend", "").strip().lower()
@@ -1998,45 +2373,119 @@ def _aws_terraform_tfvars(
         "task_memory": "task_memory",
         "health_check_path": "health_check_path",
     }
-    list_fields = {"private_subnet_ids", "load_balancer_subnet_ids"}
-    numeric_fields = {"desired_count"}
-    missing_labels: List[str] = []
-    entries: List[Tuple[str, Any]] = []
-
-    required_set = {str(name) for name in required_fields}
-    for field_name, var_name in field_map.items():
-        if field_name in list_fields:
-            values = _split_csv(data.get(field_name))
-            if values:
-                entries.append((var_name, values))
-            elif field_name in required_set:
-                missing_labels.append(field_labels.get(field_name, field_name))
-        elif field_name in numeric_fields:
-            number = _clean_number(data.get(field_name))
-            if number is not None:
-                entries.append((var_name, number))
-            elif field_name in required_set:
-                missing_labels.append(field_labels.get(field_name, field_name))
-        else:
-            text = _clean_str(data.get(field_name))
-            if text:
-                entries.append((var_name, text))
-            elif field_name in required_set:
-                missing_labels.append(field_labels.get(field_name, field_name))
-
+    entries, missing_labels = _collect_tfvars_entries(
+        data,
+        field_map=field_map,
+        field_labels=field_labels,
+        required_fields=required_fields,
+        list_fields={"private_subnet_ids", "load_balancer_subnet_ids"},
+        numeric_fields={"desired_count"},
+    )
     if not entries and not missing_labels:
         return None, []
     return _render_terraform_tfvars(entries, missing_labels), missing_labels
 
-
-def _azure_terraform_tfvars(
+def _aws_ui_tfvars(
     module_config: Mapping[str, Any],
     *,
     field_labels: Mapping[str, str],
     required_fields: Iterable[str],
     selected: Mapping[str, str],
 ) -> Tuple[str | None, List[str]]:
-    """Return rendered Azure ``terraform.tfvars`` content and missing labels."""
+    """Return rendered AWS ``terraform.tfvars`` content for UI deployments."""
+
+    data = {str(key): value for key, value in module_config.items()}
+    field_map = {
+        "aws_region": "aws_region",
+        "cluster_name": "cluster_name",
+        "service_name": "service_name",
+        "ecr_image_uri": "ecr_image_uri",
+        "private_subnet_ids": "private_subnet_ids",
+        "load_balancer_subnet_ids": "load_balancer_subnet_ids",
+        "service_security_group_id": "service_security_group_id",
+        "load_balancer_security_group_id": "load_balancer_security_group_id",
+        "certificate_arn": "certificate_arn",
+        "vpc_id": "vpc_id",
+        "container_port": "container_port",
+        "desired_count": "desired_count",
+        "task_cpu": "task_cpu",
+        "task_memory": "task_memory",
+        "health_check_path": "health_check_path",
+        "health_check_interval": "health_check_interval",
+        "health_check_timeout": "health_check_timeout",
+        "health_check_healthy_threshold": "health_check_healthy_threshold",
+        "health_check_unhealthy_threshold": "health_check_unhealthy_threshold",
+        "log_retention_days": "log_retention_days",
+    }
+    entries, missing_labels = _collect_tfvars_entries(
+        data,
+        field_map=field_map,
+        field_labels=field_labels,
+        required_fields=required_fields,
+        list_fields={"private_subnet_ids", "load_balancer_subnet_ids"},
+        numeric_fields={
+            "container_port",
+            "desired_count",
+            "health_check_interval",
+            "health_check_timeout",
+            "health_check_healthy_threshold",
+            "health_check_unhealthy_threshold",
+            "log_retention_days",
+        },
+    )
+    if not entries and not missing_labels:
+        return None, []
+    return _render_terraform_tfvars(entries, missing_labels), missing_labels
+
+
+def _azure_ui_tfvars(
+    module_config: Mapping[str, Any],
+    *,
+    field_labels: Mapping[str, str],
+    required_fields: Iterable[str],
+    selected: Mapping[str, str],
+) -> Tuple[str | None, List[str]]:
+    """Return rendered Azure ``terraform.tfvars`` content for UI deployments."""
+
+    data = {str(key): value for key, value in module_config.items()}
+    field_map = {
+        "subscription_id": "subscription_id",
+        "resource_group_name": "resource_group_name",
+        "location": "location",
+        "container_registry": "container_registry",
+        "container_registry_username": "container_registry_username",
+        "container_registry_password": "container_registry_password",
+        "image_tag": "image_tag",
+        "container_app_environment_name": "container_app_environment_name",
+        "container_app_name": "container_app_name",
+        "ingress_port": "ingress_port",
+        "min_replicas": "min_replicas",
+        "max_replicas": "max_replicas",
+        "container_cpu": "container_cpu",
+        "container_memory": "container_memory",
+        "tags": "tags",
+    }
+    entries, missing_labels = _collect_tfvars_entries(
+        data,
+        field_map=field_map,
+        field_labels=field_labels,
+        required_fields=required_fields,
+        numeric_fields={"ingress_port", "min_replicas", "max_replicas"},
+        map_fields={"tags"},
+    )
+    if not entries and not missing_labels:
+        return None, []
+    return _render_terraform_tfvars(entries, missing_labels), missing_labels
+
+
+def _azure_governance_tfvars(
+    module_config: Mapping[str, Any],
+    *,
+    field_labels: Mapping[str, str],
+    required_fields: Iterable[str],
+    selected: Mapping[str, str],
+) -> Tuple[str | None, List[str]]:
+    """Return rendered Azure ``terraform.tfvars`` content and missing labels for governance deployments."""
 
     data = {str(key): value for key, value in module_config.items()}
     contract_backend = selected.get("contracts_backend", "").strip().lower()
@@ -2068,32 +2517,14 @@ def _azure_terraform_tfvars(
         "container_memory": "container_memory",
         "tags": "tags",
     }
-    numeric_fields = {"ingress_port", "min_replicas", "max_replicas", "contract_share_quota_gb"}
-    map_fields = {"tags"}
-    missing_labels: List[str] = []
-    entries: List[Tuple[str, Any]] = []
-
-    required_set = {str(name) for name in required_fields}
-    for field_name, var_name in field_map.items():
-        if field_name in map_fields:
-            mapping = _parse_key_value_pairs(data.get(field_name))
-            if mapping:
-                entries.append((var_name, mapping))
-            elif field_name in required_set:
-                missing_labels.append(field_labels.get(field_name, field_name))
-        elif field_name in numeric_fields:
-            number = _clean_number(data.get(field_name))
-            if number is not None:
-                entries.append((var_name, number))
-            elif field_name in required_set:
-                missing_labels.append(field_labels.get(field_name, field_name))
-        else:
-            text = _clean_str(data.get(field_name))
-            if text:
-                entries.append((var_name, text))
-            elif field_name in required_set:
-                missing_labels.append(field_labels.get(field_name, field_name))
-
+    entries, missing_labels = _collect_tfvars_entries(
+        data,
+        field_map=field_map,
+        field_labels=field_labels,
+        required_fields=required_fields,
+        numeric_fields={"ingress_port", "min_replicas", "max_replicas", "contract_share_quota_gb"},
+        map_fields={"tags"},
+    )
     if not entries and not missing_labels:
         return None, []
     return _render_terraform_tfvars(entries, missing_labels), missing_labels
@@ -2114,62 +2545,96 @@ def _terraform_bundle_files(state: Mapping[str, Any]) -> List[Tuple[str, str]]:
         if isinstance(value, Mapping)
     }
 
-    option_key = selected.get("deployment_targets")
-    if not option_key:
-        return []
-
-    module_meta = SETUP_MODULES.get("deployment_targets")
-    if not module_meta:
-        return []
-    option_meta = module_meta["options"].get(option_key)
-    if not option_meta:
-        return []
-
-    field_labels: Dict[str, str] = {}
-    required_fields: List[str] = []
-    for field_meta in option_meta.get("fields", []):
-        name = str(field_meta.get("name") or "")
-        if not name:
-            continue
-        field_labels[name] = str(field_meta.get("label") or name)
-        if not field_meta.get("optional"):
-            required_fields.append(name)
-
-    module_config = configuration.get("deployment_targets", {})
-    if not isinstance(module_config, Mapping):
-        module_config = {}
+    bundle_plan = {
+        "governance_deployment": {
+            "slug": "governance",
+            "options": {
+                "aws_terraform": {
+                    "provider": "aws",
+                    "builder": _aws_governance_tfvars,
+                    "template_dir": TERRAFORM_TEMPLATE_ROOT / "aws-service-backend",
+                },
+                "azure_terraform": {
+                    "provider": "azure",
+                    "builder": _azure_governance_tfvars,
+                    "template_dir": TERRAFORM_TEMPLATE_ROOT / "azure-service-backend",
+                },
+            },
+        },
+        "ui_deployment": {
+            "slug": "ui",
+            "options": {
+                "aws_terraform": {
+                    "provider": "aws",
+                    "builder": _aws_ui_tfvars,
+                    "template_dir": TERRAFORM_TEMPLATE_ROOT / "aws-contracts-app",
+                },
+                "azure_terraform": {
+                    "provider": "azure",
+                    "builder": _azure_ui_tfvars,
+                    "template_dir": TERRAFORM_TEMPLATE_ROOT / "azure-contracts-app",
+                },
+            },
+        },
+    }
 
     files: List[Tuple[str, str]] = []
-    tfvars_text: str | None = None
-    missing: List[str] = []
-    if option_key == "aws_terraform":
-        tfvars_text, missing = _aws_terraform_tfvars(
-            module_config,
-            field_labels=field_labels,
-            required_fields=required_fields,
-            selected=selected,
-        )
-        files.extend(_terraform_template_files("aws"))
-        provider_prefix = "aws"
-    elif option_key == "azure_terraform":
-        tfvars_text, missing = _azure_terraform_tfvars(
-            module_config,
-            field_labels=field_labels,
-            required_fields=required_fields,
-            selected=selected,
-        )
-        files.extend(_terraform_template_files("azure"))
-        provider_prefix = "azure"
-    else:
-        provider_prefix = ""
 
-    if tfvars_text:
-        files.append((f"dc43-setup/terraform/{provider_prefix}/terraform.tfvars", tfvars_text))
-    elif provider_prefix:
-        # Emit an empty stub indicating which values still need to be filled.
-        if missing:
+    for module_key, module_plan in bundle_plan.items():
+        option_key = selected.get(module_key)
+        if not option_key:
+            continue
+        option_plan = module_plan["options"].get(option_key)
+        if not option_plan:
+            continue
+
+        module_meta = SETUP_MODULES.get(module_key)
+        if not module_meta:
+            continue
+        option_meta = module_meta["options"].get(option_key)
+        if not option_meta:
+            continue
+
+        field_labels: Dict[str, str] = {}
+        required_fields: List[str] = []
+        for field_meta in option_meta.get("fields", []):
+            name = str(field_meta.get("name") or "")
+            if not name:
+                continue
+            field_labels[name] = str(field_meta.get("label") or name)
+            if not field_meta.get("optional"):
+                required_fields.append(name)
+
+        module_config = configuration.get(module_key, {})
+        if not isinstance(module_config, Mapping):
+            module_config = {}
+
+        builder = option_plan.get("builder")
+        provider = option_plan.get("provider")
+        template_dir = option_plan.get("template_dir")
+        if not provider or not builder:
+            continue
+
+        tfvars_text, missing = builder(
+            module_config,
+            field_labels=field_labels,
+            required_fields=required_fields,
+            selected=selected,
+        )
+
+        template_files = _terraform_template_files(
+            provider,
+            target=module_plan.get("slug", module_key),
+            template_dir=template_dir if isinstance(template_dir, Path) else None,
+        )
+        files.extend(template_files)
+
+        prefix = f"dc43-setup/terraform/{module_plan.get('slug', module_key)}/{provider}"
+        if tfvars_text:
+            files.append((f"{prefix}/terraform.tfvars", tfvars_text))
+        elif missing:
             stub = _render_terraform_tfvars([], missing)
-            files.append((f"dc43-setup/terraform/{provider_prefix}/terraform.tfvars", stub))
+            files.append((f"{prefix}/terraform.tfvars", stub))
 
     return files
 
@@ -2563,7 +3028,8 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
         "- scripts/run_local_stack.py — start the local UI and backend services for quick testing.",
-        "- terraform/<provider>/ — Terraform templates and generated variables for cloud deployments (when selected).",
+        "- terraform/governance/<provider>/ — Terraform templates and generated variables for governance deployments (when selected).",
+        "- terraform/ui/<provider>/ — Terraform variable stubs for UI hosting (when selected).",
         "",
         "How to use:",
         "1. Copy the TOML files into your deployment repository or configuration management system.",

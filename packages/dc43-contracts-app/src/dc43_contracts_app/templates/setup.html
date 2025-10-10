@@ -34,7 +34,7 @@
   <div class="card-body">
     <h2 class="h5">How the wizard works</h2>
     <ol class="mb-0 ps-3">
-      <li class="mb-2">Pick the implementation you plan to use for each module (contracts backend, governance catalog, data quality engine, orchestration, deployment automation, user interface, and authentication).</li>
+      <li class="mb-2">Pick the implementation you plan to use for each module (contracts backend, data products backend, data quality engine, governance interface, governance deployment, governance extensions, user interface, user interface deployment, and authentication).</li>
       <li class="mb-2">Provide the connection details requested for the implementations you selected. The wizard suggests default paths for local, filesystem, and Delta Lake options and uses these values when building TOML configuration files (and Terraform variables when deploying to AWS or Azure).</li>
       <li>Review the summary and mark the setup as complete once you have applied the configuration to your Docker compose files, Terraform workspace, TOML bundles, environment variables, or external services.</li>
     </ol>
@@ -130,7 +130,7 @@
 <div class="card mb-4">
   <div class="card-body">
     <h2 class="h5">Summary</h2>
-    <p class="mb-3">Review the modules below, apply the suggested environment variables or infrastructure steps, and mark the setup as complete. You can return to previous steps at any time, and when ready you can download a configuration bundle that includes drop-in TOML files, Terraform scaffolding for AWS/Azure deployments, and bootstrap scripts for your orchestration pipelines.</p>
+    <p class="mb-3">Review the modules below, apply the suggested environment variables or infrastructure steps, and mark the setup as complete. You can return to previous steps at any time, and when ready you can download a configuration bundle that includes drop-in TOML files, Terraform scaffolding for AWS/Azure governance and UI deployments, and bootstrap scripts for your orchestration pipelines.</p>
     {% for module in summary_modules %}
     <section class="border rounded p-3 mb-3">
       <header class="d-flex justify-content-between align-items-start mb-2">
