@@ -54,6 +54,15 @@ from fastapi.concurrency import run_in_threadpool
 
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_backends.web import build_local_app
+from dc43_service_backends.config import (
+    AuthConfig as BackendAuthConfig,
+    ContractStoreConfig as BackendContractStoreConfig,
+    DataProductStoreConfig as BackendDataProductStoreConfig,
+    GovernanceConfig as BackendGovernanceConfig,
+    ServiceBackendsConfig,
+    UnityCatalogConfig as BackendUnityCatalogConfig,
+    dumps as dump_service_backends_config,
+)
 from dc43_service_clients._http_sync import close_client
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
@@ -61,7 +70,14 @@ from dc43_service_clients.governance.client.remote import RemoteGovernanceServic
 from dc43_service_clients.odps import OpenDataProductStandard
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
-from .config import BackendConfig, ContractsAppConfig, load_config
+from .config import (
+    BackendConfig,
+    BackendProcessConfig,
+    ContractsAppConfig,
+    WorkspaceConfig,
+    dumps as dump_contracts_app_config,
+    load_config,
+)
 from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
     CustomProperty,
@@ -1483,299 +1499,187 @@ def _toml_string(value: str) -> str:
     return json.dumps(value)
 
 
-def _contract_store_block(option_key: str | None, module_config: Mapping[str, Any]) -> list[str]:
-    """Return TOML lines for the contract store section."""
+def _service_backends_config_from_state(
+    state: Mapping[str, Any],
+) -> ServiceBackendsConfig | None:
+    """Return a :class:`ServiceBackendsConfig` built from the wizard state."""
 
-    if not option_key:
-        return []
+    selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
+    configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
+    if not isinstance(selected_raw, Mapping):
+        return None
 
-    option = option_key.strip().lower()
-    lines = ["[contract_store]"]
+    selected = {str(key): str(value) for key, value in selected_raw.items()}
+    configuration: Dict[str, Mapping[str, Any]] = {}
+    if isinstance(configuration_raw, Mapping):
+        configuration = {
+            str(key): value
+            for key, value in configuration_raw.items()
+            if isinstance(value, Mapping)
+        }
 
-    if option == "filesystem":
-        lines.append('type = "filesystem"')
-        root = _clean_str(
-            module_config.get("contracts_dir")
-            or module_config.get("work_dir")
-            or module_config.get("storage_path")
-        )
-        if root:
-            lines.append(f"root = {_toml_string(root)}")
-        return lines
+    if not selected:
+        return None
 
-    if option == "sql":
-        lines.append('type = "sql"')
-        dsn = _clean_str(module_config.get("connection_uri"))
-        if dsn:
-            lines.append(f"dsn = {_toml_string(dsn)}")
-        schema = _clean_str(module_config.get("schema"))
-        if schema:
-            lines.append(f"schema = {_toml_string(schema)}")
-        return lines
+    def module_config(name: str) -> Mapping[str, Any]:
+        module = configuration.get(name, {})
+        return module if isinstance(module, Mapping) else {}
 
-    if option == "delta_lake":
-        lines.append('type = "delta"')
-        base_path = _clean_str(module_config.get("storage_path"))
-        if base_path:
-            lines.append(f"base_path = {_toml_string(base_path)}")
-        catalog = _clean_str(module_config.get("catalog"))
-        schema = _clean_str(module_config.get("schema"))
-        if catalog and schema:
-            suggested_table = f"{catalog}.{schema}.contracts"
-            lines.append(
-                f"# Uncomment the line below when using Unity Catalog managed tables"
+    def path_from(value: Any) -> Path | None:
+        text = _clean_str(value)
+        if not text:
+            return None
+        try:
+            return Path(text)
+        except (TypeError, ValueError):  # pragma: no cover - safety
+            return None
+
+    contract_option = selected.get("contracts_backend")
+    contract_cfg = BackendContractStoreConfig()
+    if contract_option:
+        option = contract_option.strip().lower()
+        module = module_config("contracts_backend")
+        if option == "filesystem":
+            contract_cfg.type = "filesystem"
+            root = (
+                module.get("contracts_dir")
+                or module.get("work_dir")
+                or module.get("storage_path")
             )
-            lines.append(f"# table = {_toml_string(suggested_table)}")
-        return lines
+            contract_cfg.root = path_from(root)
+        elif option == "sql":
+            contract_cfg.type = "sql"
+            contract_cfg.dsn = _clean_str(module.get("connection_uri"))
+            contract_cfg.schema = _clean_str(module.get("schema"))
+        elif option == "delta_lake":
+            contract_cfg.type = "delta"
+            contract_cfg.base_path = path_from(module.get("storage_path"))
+            contract_cfg.schema = _clean_str(module.get("schema"))
+        elif option == "collibra":
+            contract_cfg.type = "collibra_http"
+            contract_cfg.base_url = _clean_str(module.get("base_url"))
 
-    if option == "collibra":
-        lines.append('type = "collibra_http"')
-        base_url = _clean_str(module_config.get("base_url"))
-        if base_url:
-            lines.append(f"base_url = {_toml_string(base_url)}")
-        lines.append(
-            "# Provide an API token via auth.token or DC43_BACKEND_TOKEN before deploying"
-        )
-        domain_id = _clean_str(module_config.get("domain_id"))
-        if domain_id:
-            lines.append(f"# Collibra domain: {domain_id}")
-        return lines
+    product_option = selected.get("products_backend")
+    product_cfg = BackendDataProductStoreConfig()
+    if product_option:
+        option = product_option.strip().lower()
+        module = module_config("products_backend")
+        if option == "filesystem":
+            product_cfg.type = "filesystem"
+            root = module.get("products_dir") or module.get("storage_path")
+            product_cfg.root = path_from(root)
+        elif option == "sql":
+            product_cfg.type = "sql"
+            product_cfg.dsn = _clean_str(module.get("connection_uri"))
+            product_cfg.schema = _clean_str(module.get("schema"))
+        elif option == "delta_lake":
+            product_cfg.type = "delta"
+            product_cfg.base_path = path_from(module.get("storage_path"))
+            product_cfg.schema = _clean_str(module.get("schema"))
+            product_cfg.catalog = _clean_str(module.get("catalog"))
+        elif option == "collibra":
+            product_cfg.type = "collibra_stub"
+            product_cfg.base_url = _clean_str(module.get("base_url"))
 
-    return []
+    governance_option = selected.get("governance_extensions")
+    unity_cfg = BackendUnityCatalogConfig()
+    governance_builders: tuple[str, ...] = ()
+    if governance_option == "unity_catalog":
+        module = module_config("governance_extensions")
+        unity_cfg.enabled = True
+        unity_cfg.workspace_host = _clean_str(module.get("workspace_url"))
+        unity_cfg.workspace_token = _clean_str(module.get("token"))
+        catalog_value = _clean_str(module.get("catalog"))
+        schema_value = _clean_str(module.get("schema"))
+        notes: dict[str, str] = {}
+        if catalog_value:
+            notes["catalog"] = catalog_value
+        if schema_value:
+            notes["schema"] = schema_value
+        if notes:
+            unity_cfg.static_properties = notes
+    elif governance_option == "custom_module":
+        module = module_config("governance_extensions")
+        module_path = _clean_str(module.get("module_path"))
+        if module_path:
+            governance_builders = (module_path,)
 
+    auth_cfg = BackendAuthConfig()
+    if selected.get("governance_service") == "remote_api":
+        module = module_config("governance_service")
+        auth_cfg.token = _clean_str(module.get("api_token"))
 
-def _data_product_block(option_key: str | None, module_config: Mapping[str, Any]) -> list[str]:
-    """Return TOML lines for the data product store section."""
+    config = ServiceBackendsConfig(
+        contract_store=contract_cfg,
+        data_product_store=product_cfg,
+        auth=auth_cfg,
+        unity_catalog=unity_cfg,
+        governance=BackendGovernanceConfig(
+            dataset_contract_link_builders=governance_builders,
+        ),
+    )
 
-    if not option_key:
-        return []
-
-    option = option_key.strip().lower()
-    lines = ["[data_product]"]
-
-    if option == "filesystem":
-        lines.append('type = "filesystem"')
-        root = _clean_str(module_config.get("products_dir") or module_config.get("storage_path"))
-        if root:
-            lines.append(f"root = {_toml_string(root)}")
-        return lines
-
-    if option == "sql":
-        lines.append('type = "sql"')
-        dsn = _clean_str(module_config.get("connection_uri"))
-        if dsn:
-            lines.append(f"dsn = {_toml_string(dsn)}")
-        schema = _clean_str(module_config.get("schema"))
-        if schema:
-            lines.append(f"schema = {_toml_string(schema)}")
-        return lines
-
-    if option == "delta_lake":
-        lines.append('type = "delta"')
-        base_path = _clean_str(module_config.get("storage_path"))
-        if base_path:
-            lines.append(f"base_path = {_toml_string(base_path)}")
-        catalog = _clean_str(module_config.get("catalog"))
-        schema = _clean_str(module_config.get("schema"))
-        if catalog and schema:
-            suggested_table = f"{catalog}.{schema}.data_products"
-            lines.append(
-                "# Uncomment the line below if the table already exists in Unity Catalog"
-            )
-            lines.append(f"# table = {_toml_string(suggested_table)}")
-        return lines
-
-    if option == "collibra":
-        lines.append('type = "collibra_stub"')
-        base_url = _clean_str(module_config.get("base_url"))
-        if base_url:
-            lines.append(f"# Collibra base URL: {base_url}")
-        domain_id = _clean_str(module_config.get("domain_id"))
-        if domain_id:
-            lines.append(f"# Products domain: {domain_id}")
-        lines.append(
-            "# Update the adapter settings in your deployment to synchronise with Collibra"
-        )
-        return lines
-
-    return []
-
-
-def _unity_catalog_block(module_config: Mapping[str, Any]) -> list[str]:
-    """Return TOML lines for the Unity Catalog extension."""
-
-    lines = ["[unity_catalog]", "enabled = true"]
-    workspace_url = _clean_str(module_config.get("workspace_url"))
-    if workspace_url:
-        lines.append(f"workspace_host = {_toml_string(workspace_url)}")
-    token = _clean_str(module_config.get("token"))
-    if token:
-        lines.append(f"workspace_token = {_toml_string(token)}")
-    catalog = _clean_str(module_config.get("catalog"))
-    schema = _clean_str(module_config.get("schema"))
-    if catalog:
-        lines.append(f"# Catalog: {catalog}")
-    if schema:
-        lines.append(f"# Schema: {schema}")
-    return lines
-
-
-def _governance_block(option_key: str | None, module_config: Mapping[str, Any]) -> list[str]:
-    """Return TOML lines for governance hook customisation."""
-
-    if not option_key:
-        return []
-
-    option = option_key.strip().lower()
-    if option != "custom_module":
-        return []
-
-    module_path = _clean_str(module_config.get("module_path"))
-    if not module_path:
-        return []
-
-    builders = json.dumps([module_path])
-    lines = ["[governance]", f"dataset_contract_link_builders = {builders}"]
-    config_path = _clean_str(module_config.get("config_path"))
-    if config_path:
-        lines.append(f"# Custom hook configuration file: {config_path}")
-    return lines
-
-
-def _auth_block(api_token: str | None) -> list[str]:
-    """Return TOML lines for the backend authentication section."""
-
-    token = _clean_str(api_token)
-    if not token:
-        return []
-    return ["[auth]", f"token = {_toml_string(token)}"]
+    return config
 
 
 def _service_backends_toml(state: Mapping[str, Any]) -> str | None:
     """Render the dc43-service-backends TOML using the wizard selections."""
 
-    selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
+    config = _service_backends_config_from_state(state)
+    if config is None:
+        return None
+    toml_text = dump_service_backends_config(config)
+    return toml_text or None
+
+
+def _contracts_app_config_from_state(
+    state: Mapping[str, Any],
+) -> ContractsAppConfig | None:
+    """Return a :class:`ContractsAppConfig` derived from wizard selections."""
+
     configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
-    selected: Dict[str, str] = {}
-    configuration: Dict[str, Mapping[str, Any]] = {}
+    selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
 
-    if isinstance(selected_raw, Mapping):
-        selected = {str(key): str(value) for key, value in selected_raw.items()}
-    if isinstance(configuration_raw, Mapping):
-        configuration = {
-            str(key): value
-            for key, value in configuration_raw.items()
-            if isinstance(value, Mapping)
-        }
+    if not isinstance(configuration_raw, Mapping):
+        configuration_raw = {}
+    if not isinstance(selected_raw, Mapping):
+        selected_raw = {}
 
-    sections: List[list[str]] = []
+    configuration: Dict[str, Mapping[str, Any]] = {
+        str(key): value
+        for key, value in configuration_raw.items()
+        if isinstance(value, Mapping)
+    }
+    selected = {str(key): str(value) for key, value in selected_raw.items()}
 
-    contract_section = _contract_store_block(
-        selected.get("contracts_backend"),
-        configuration.get("contracts_backend", {}),
-    )
-    if contract_section:
-        sections.append(contract_section)
+    workspace_module = configuration.get("contracts_backend", {})
+    work_dir = _clean_str(workspace_module.get("work_dir"))
+    workspace_cfg = WorkspaceConfig(root=Path(work_dir) if work_dir else None)
 
-    product_section = _data_product_block(
-        selected.get("products_backend"),
-        configuration.get("products_backend", {}),
-    )
-    if product_section:
-        sections.append(product_section)
-
-    governance_option = selected.get("governance_extensions")
-    if governance_option == "unity_catalog":
-        sections.append(
-            _unity_catalog_block(configuration.get("governance_extensions", {}))
-        )
-    elif governance_option == "custom_module":
-        custom_block = _governance_block(
-            governance_option, configuration.get("governance_extensions", {})
-        )
-        if custom_block:
-            sections.append(custom_block)
-
-    api_token = None
+    backend_mode = "embedded"
+    backend_base_url: str | None = None
+    governance_config = configuration.get("governance_service", {})
     if selected.get("governance_service") == "remote_api":
-        api_token = (
-            configuration.get("governance_service", {}).get("api_token")
-            if isinstance(configuration.get("governance_service"), Mapping)
-            else None
-        )
-    auth_section = _auth_block(api_token)
-    if auth_section:
-        sections.append(auth_section)
+        backend_mode = "remote"
+        backend_base_url = _clean_str(governance_config.get("base_url"))
 
-    if not sections:
-        return None
+    backend_cfg = BackendConfig(
+        mode="remote" if backend_mode == "remote" else "embedded",
+        base_url=backend_base_url,
+        process=BackendProcessConfig(),
+    )
 
-    lines: List[str] = []
-    for section in sections:
-        if not section:
-            continue
-        if lines:
-            lines.append("")
-        lines.extend(section)
-
-    if not lines:
-        return None
-
-    return "\n".join(lines) + "\n"
+    return ContractsAppConfig(workspace=workspace_cfg, backend=backend_cfg)
 
 
 def _contracts_app_toml(state: Mapping[str, Any]) -> str | None:
     """Render the dc43-contracts-app TOML derived from the wizard configuration."""
 
-    configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
-    selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
-
-    configuration: Dict[str, Mapping[str, Any]] = {}
-    if isinstance(configuration_raw, Mapping):
-        configuration = {
-            str(key): value
-            for key, value in configuration_raw.items()
-            if isinstance(value, Mapping)
-        }
-
-    selected: Dict[str, str] = {}
-    if isinstance(selected_raw, Mapping):
-        selected = {str(key): str(value) for key, value in selected_raw.items()}
-
-    workspace_config = configuration.get("contracts_backend", {})
-    work_dir = _clean_str(workspace_config.get("work_dir"))
-
-    governance_config = configuration.get("governance_service", {})
-    backend_mode = "embedded"
-    backend_base_url: str | None = None
-    if selected.get("governance_service") == "remote_api":
-        backend_mode = "remote"
-        backend_base_url = _clean_str(governance_config.get("base_url"))
-
-    sections: List[list[str]] = []
-
-    workspace_lines: list[str] = []
-    if work_dir:
-        workspace_lines = ["[workspace]", f"root = {_toml_string(work_dir)}"]
-        sections.append(workspace_lines)
-
-    backend_lines = ["[backend]", f"mode = \"{backend_mode}\""]
-    if backend_base_url:
-        backend_lines.append(f"base_url = {_toml_string(backend_base_url)}")
-    sections.append(backend_lines)
-
-    lines: List[str] = []
-    for section in sections:
-        if not section:
-            continue
-        if lines:
-            lines.append("")
-        lines.extend(section)
-
-    if not lines:
+    config = _contracts_app_config_from_state(state)
+    if config is None:
         return None
-
-    return "\n".join(lines) + "\n"
+    toml_text = dump_contracts_app_config(config)
+    return toml_text or None
 
 
 def _pipeline_bootstrap_script() -> str:
@@ -1821,6 +1725,149 @@ def _pipeline_bootstrap_script() -> str:
         if __name__ == "__main__":
             main()
         """
+        )
+
+
+def _start_stack_script() -> str:
+    """Return a helper script that launches the local UI and backend."""
+
+    return textwrap.dedent(
+        """\
+        #!/usr/bin/env python3
+        '''Start the dc43 UI and backend using the exported configuration.'''
+
+        import argparse
+        import os
+        import subprocess
+        import sys
+        import time
+        from pathlib import Path
+        from urllib.error import URLError
+        from urllib.request import urlopen
+
+        from dc43_contracts_app.config import load_config as load_contracts_config
+        from dc43_service_backends.config import load_config as load_service_config
+
+
+        def _wait_for(url: str, timeout: float = 30.0) -> None:
+            probe = url.rstrip("/") + "/openapi.json"
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    with urlopen(probe, timeout=2):
+                        return
+                except URLError:
+                    time.sleep(0.25)
+            raise RuntimeError(f"Service at {url} failed to start within {timeout}s")
+
+
+        def main() -> None:
+            parser = argparse.ArgumentParser(
+                description="Launch the dc43 stack using exported configuration files.",
+            )
+            parser.add_argument(
+                "--ui-host",
+                default="127.0.0.1",
+                help="Host interface for the contracts UI (default: 127.0.0.1)",
+            )
+            parser.add_argument(
+                "--ui-port",
+                type=int,
+                default=8000,
+                help="Port for the contracts UI (default: 8000)",
+            )
+            parser.add_argument(
+                "--wait-timeout",
+                type=float,
+                default=45.0,
+                help="Seconds to wait for the backend API before aborting (default: 45)",
+            )
+            args = parser.parse_args()
+
+            bundle_root = Path(__file__).resolve().parent.parent
+            config_dir = bundle_root / "config"
+            contracts_config_path = config_dir / "dc43-contracts-app.toml"
+            service_config_path = config_dir / "dc43-service-backends.toml"
+
+            contracts_config = load_contracts_config(contracts_config_path)
+            # Ensure the backends configuration file exists even if we do not inspect it yet.
+            load_service_config(service_config_path)
+
+            backend_cfg = contracts_config.backend
+            process_cfg = backend_cfg.process
+            backend_host = process_cfg.host
+            backend_port = process_cfg.port
+            backend_url = backend_cfg.base_url or process_cfg.url()
+
+            backend_env = os.environ.copy()
+            backend_env.setdefault("DC43_SERVICE_BACKENDS_CONFIG", str(service_config_path))
+
+            backend_proc = None
+            try:
+                if backend_cfg.mode != "remote":
+                    backend_cmd = [
+                        sys.executable,
+                        "-m",
+                        "uvicorn",
+                        "dc43_service_backends.webapp:app",
+                        "--host",
+                        backend_host,
+                        "--port",
+                        str(backend_port),
+                    ]
+                    if process_cfg.log_level:
+                        backend_cmd.extend(["--log-level", process_cfg.log_level])
+
+                    print(
+                        f"Starting service backends at http://{backend_host}:{backend_port} using {service_config_path}..."
+                    )
+                    backend_proc = subprocess.Popen(backend_cmd, env=backend_env)
+                    try:
+                        _wait_for(backend_url, timeout=args.wait_timeout)
+                    except Exception:
+                        backend_proc.terminate()
+                        try:
+                            backend_proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            backend_proc.kill()
+                        raise
+                else:
+                    print(
+                        "Contracts app configured for remote governance; skipping local backend startup."
+                    )
+
+                ui_env = os.environ.copy()
+                ui_env.setdefault("DC43_CONTRACTS_APP_CONFIG", str(contracts_config_path))
+
+                ui_cmd = [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "dc43_contracts_app.server:app",
+                    "--host",
+                    args.ui_host,
+                    "--port",
+                    str(args.ui_port),
+                ]
+
+                print(
+                    f"Starting contracts UI on http://{args.ui_host}:{args.ui_port} using {contracts_config_path}..."
+                )
+                subprocess.run(ui_cmd, check=True, env=ui_env)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                if backend_proc is not None:
+                    backend_proc.terminate()
+                    try:
+                        backend_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        backend_proc.kill()
+
+
+        if __name__ == "__main__":
+            main()
+        """
     )
 
 
@@ -1840,11 +1887,12 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- config/dc43-service-backends.toml — drop-in configuration for the backend services.",
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
+        "- scripts/run_local_stack.py — start the local UI and backend services for quick testing.",
         "",
         "How to use:",
         "1. Copy the TOML files into your deployment repository or configuration management system.",
         "2. Update any commented placeholders (for example Unity Catalog tables or secrets).",
-        "3. Execute `scripts/bootstrap_pipeline.py` from your orchestration runtime to validate the configuration.",
+        "3. Execute `scripts/run_local_stack.py` to launch the local stack or `scripts/bootstrap_pipeline.py` inside orchestration jobs.",
         "4. Follow the installation and configuration notes in each module to finish provisioning.",
         "",
         "Modules exported:",
@@ -1910,6 +1958,11 @@ def _build_setup_bundle(state: Mapping[str, Any]) -> Tuple[io.BytesIO, Dict[str,
         script_info = zipfile.ZipInfo("dc43-setup/scripts/bootstrap_pipeline.py")
         script_info.external_attr = 0o755 << 16  # Mark the script as executable.
         archive.writestr(script_info, bootstrap_script)
+
+        start_script = _start_stack_script()
+        start_info = zipfile.ZipInfo("dc43-setup/scripts/run_local_stack.py")
+        start_info.external_attr = 0o755 << 16
+        archive.writestr(start_info, start_script)
 
     buffer.seek(0)
     return buffer, payload
