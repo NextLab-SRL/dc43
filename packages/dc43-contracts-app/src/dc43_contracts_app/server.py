@@ -2011,6 +2011,40 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
 }
 
 
+SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
+    {
+        "key": "storage_foundations",
+        "title": "Storage foundations",
+        "summary": "Decide how contracts and product metadata are persisted before the orchestration layer is wired in.",
+        "modules": ["contracts_backend", "products_backend"],
+    },
+    {
+        "key": "quality_extensions",
+        "title": "Quality & extensions",
+        "summary": "Cover the bundled data-quality engine and optional governance hooks that enrich downstream catalogs.",
+        "modules": ["data_quality", "governance_extensions"],
+    },
+    {
+        "key": "governance_runtime",
+        "title": "Governance runtime",
+        "summary": "Pair the governance interface model with the matching deployment approach so runtime and automation stay in sync.",
+        "modules": ["governance_service", "governance_deployment"],
+    },
+    {
+        "key": "user_experience",
+        "title": "User experience",
+        "summary": "Choose how operators reach the contracts UI and how that interface is hosted or automated.",
+        "modules": ["user_interface", "ui_deployment"],
+    },
+    {
+        "key": "access_security",
+        "title": "Access & security",
+        "summary": "Specify how users authenticate with the UI and downstream services.",
+        "modules": ["authentication"],
+    },
+]
+
+
 _SETUP_TOTAL_STEPS = 3
 
 
@@ -3145,9 +3179,19 @@ def _build_setup_context(
 
     workspace = current_workspace()
 
+    module_order = list(SETUP_MODULES.keys())
+    module_to_group: Dict[str, str] = {}
+    for group_meta in SETUP_MODULE_GROUPS:
+        for group_module in group_meta.get("modules", []):
+            module_to_group[str(group_module)] = group_meta["key"]
+
     modules: List[Dict[str, Any]] = []
-    for module_key, module_meta in SETUP_MODULES.items():
+    modules_by_key: Dict[str, Dict[str, Any]] = {}
+    modules_metadata: Dict[str, Any] = {}
+    for module_key in module_order:
+        module_meta = SETUP_MODULES[module_key]
         options: List[Dict[str, Any]] = []
+        safe_options: Dict[str, Any] = {}
         for option_key, option_meta in module_meta["options"].items():
             options.append(
                 {
@@ -3157,17 +3201,73 @@ def _build_setup_context(
                     "selected": selected_options.get(module_key) == option_key,
                 }
             )
-        modules.append(
+            safe_fields: List[Dict[str, Any]] = []
+            for field_meta in option_meta.get("fields", []):
+                field_name = field_meta.get("name")
+                if not field_name:
+                    continue
+                safe_fields.append(
+                    {
+                        "name": field_name,
+                        "label": field_meta.get("label"),
+                        "optional": bool(field_meta.get("optional")),
+                    }
+                )
+            safe_options[option_key] = {
+                "label": option_meta.get("label"),
+                "description": option_meta.get("description", ""),
+                "fields": safe_fields,
+            }
+        module_payload = {
+            "key": module_key,
+            "title": module_meta.get("title"),
+            "summary": module_meta.get("summary", ""),
+            "options": options,
+            "group_key": module_to_group.get(module_key),
+        }
+        modules.append(module_payload)
+        modules_by_key[module_key] = module_payload
+        modules_metadata[module_key] = {
+            "title": module_meta.get("title"),
+            "summary": module_meta.get("summary", ""),
+            "group": module_to_group.get(module_key),
+            "options": safe_options,
+        }
+
+    module_groups: List[Dict[str, Any]] = []
+    grouped_keys: List[str] = []
+    for group_meta in SETUP_MODULE_GROUPS:
+        group_module_keys = [key for key in group_meta.get("modules", []) if key in modules_by_key]
+        if not group_module_keys:
+            continue
+        module_groups.append(
             {
-                "key": module_key,
-                "title": module_meta.get("title"),
-                "summary": module_meta.get("summary", ""),
-                "options": options,
+                "key": group_meta["key"],
+                "title": group_meta.get("title"),
+                "summary": group_meta.get("summary", ""),
+                "modules": [modules_by_key[key] for key in group_module_keys],
+                "module_keys": group_module_keys,
+            }
+        )
+        grouped_keys.extend(group_module_keys)
+
+    remaining_module_keys = [key for key in module_order if key not in grouped_keys]
+    if remaining_module_keys:
+        module_groups.append(
+            {
+                "key": "additional_modules",
+                "title": "Additional modules",
+                "summary": "Options that are available outside the primary grouping.",
+                "modules": [modules_by_key[key] for key in remaining_module_keys],
+                "module_keys": remaining_module_keys,
             }
         )
 
     selected_modules: List[Dict[str, Any]] = []
-    for module_key, option_key in selected_options.items():
+    for module_key in module_order:
+        option_key = selected_options.get(module_key)
+        if not option_key:
+            continue
         module_meta = SETUP_MODULES.get(module_key)
         if not module_meta:
             continue
@@ -3191,10 +3291,49 @@ def _build_setup_context(
                     "configuration_notes": list(option_meta.get("configuration_notes", [])),
                 },
                 "fields": fields,
+                "group_key": module_to_group.get(module_key),
             }
         )
 
-    summary_modules: List[Dict[str, Any]] = []
+    selected_by_key = {module["key"]: module for module in selected_modules}
+    selected_groups: List[Dict[str, Any]] = []
+    seen_selected: List[str] = []
+    for group in module_groups:
+        group_selected = [
+            selected_by_key[key]
+            for key in group.get("module_keys", [])
+            if key in selected_by_key
+        ]
+        if not group_selected:
+            continue
+        selected_groups.append(
+            {
+                "key": group["key"],
+                "title": group.get("title"),
+                "summary": group.get("summary", ""),
+                "modules": group_selected,
+                "module_keys": [module["key"] for module in group_selected],
+            }
+        )
+        seen_selected.extend(module["key"] for module in group_selected)
+
+    remaining_selected = [
+        module
+        for module in selected_modules
+        if module["key"] not in seen_selected
+    ]
+    if remaining_selected:
+        selected_groups.append(
+            {
+                "key": "additional_modules",
+                "title": "Additional modules",
+                "summary": "Options that are available outside the primary grouping.",
+                "modules": remaining_selected,
+                "module_keys": [module["key"] for module in remaining_selected],
+            }
+        )
+
+    summary_modules_map: Dict[str, Dict[str, Any]] = {}
     for module in selected_modules:
         module_key = module["key"]
         module_config = configuration.get(module_key, {}) if isinstance(configuration, Mapping) else {}
@@ -3207,15 +3346,93 @@ def _build_setup_context(
                     "optional": field.get("optional", False),
                 }
             )
-        summary_modules.append(
+        summary_modules_map[module_key] = {
+            "key": module_key,
+            "title": module.get("title"),
+            "option_label": module["option"].get("label") if isinstance(module.get("option"), Mapping) else "",
+            "installation": module.get("option", {}).get("installation", []) if isinstance(module.get("option"), Mapping) else [],
+            "configuration_notes": module.get("option", {}).get("configuration_notes", []) if isinstance(module.get("option"), Mapping) else [],
+            "fields": summary_fields,
+        }
+
+    summary_groups: List[Dict[str, Any]] = []
+    seen_summary: List[str] = []
+    for group in module_groups:
+        group_summary = [
+            summary_modules_map[key]
+            for key in group.get("module_keys", [])
+            if key in summary_modules_map
+        ]
+        if not group_summary:
+            continue
+        summary_groups.append(
             {
-                "title": module.get("title"),
-                "option_label": module["option"].get("label") if isinstance(module.get("option"), Mapping) else "",
-                "installation": module.get("option", {}).get("installation", []) if isinstance(module.get("option"), Mapping) else [],
-                "configuration_notes": module.get("option", {}).get("configuration_notes", []) if isinstance(module.get("option"), Mapping) else [],
-                "fields": summary_fields,
+                "key": group["key"],
+                "title": group.get("title"),
+                "summary": group.get("summary", ""),
+                "modules": group_summary,
             }
         )
+        seen_summary.extend(item["key"] for item in group_summary)
+
+    remaining_summary = [
+        summary
+        for summary in summary_modules_map.values()
+        if summary["key"] not in seen_summary
+    ]
+    if remaining_summary:
+        summary_groups.append(
+            {
+                "key": "additional_modules",
+                "title": "Additional modules",
+                "summary": "Options that are available outside the primary grouping.",
+                "modules": remaining_summary,
+            }
+        )
+
+    summary_modules: List[Dict[str, Any]] = [
+        summary_modules_map[key]
+        for key in module_order
+        if key in summary_modules_map
+    ]
+
+    safe_selected: Dict[str, str] = {}
+    for module_key, option_key in selected_options.items():
+        if option_key is None:
+            continue
+        safe_selected[str(module_key)] = str(option_key)
+
+    safe_configuration: Dict[str, Dict[str, Any]] = {}
+    if isinstance(configuration, Mapping):
+        for module_key, module_config in configuration.items():
+            if not isinstance(module_config, Mapping):
+                continue
+            serialised_config: Dict[str, Any] = {}
+            for field_name, value in module_config.items():
+                if value in (None, ""):
+                    continue
+                if isinstance(value, (str, int, float, bool)):
+                    serialised_config[str(field_name)] = value
+                else:
+                    serialised_config[str(field_name)] = str(value)
+            if serialised_config:
+                safe_configuration[str(module_key)] = serialised_config
+
+    setup_state_payload = {
+        "order": module_order,
+        "selected": safe_selected,
+        "configuration": safe_configuration,
+        "modules": modules_metadata,
+        "groups": [
+            {
+                "key": group["key"],
+                "title": group.get("title"),
+                "summary": group.get("summary", ""),
+                "modules": list(group.get("module_keys", [])),
+            }
+            for group in module_groups
+        ],
+    }
 
     configuration_ready = not _requires_configuration(selected_options, configuration)
     can_export_bundle = bool(selected_modules) and configuration_ready
@@ -3227,12 +3444,17 @@ def _build_setup_context(
         "step": current_step,
         "progress": _setup_progress(current_step),
         "modules": modules,
+        "module_groups": module_groups,
         "selected_modules": selected_modules,
+        "selected_groups": selected_groups,
         "summary_modules": summary_modules,
+        "summary_groups": summary_groups,
         "state": state,
         "errors": errors or [],
         "completed": bool(state.get("completed")),
         "can_export_bundle": can_export_bundle,
+        "module_order": module_order,
+        "setup_state_payload": setup_state_payload,
     }
 
 
