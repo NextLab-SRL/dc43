@@ -38,9 +38,9 @@ if (!root) {
   const moduleNodeMap = {
     authentication: { id: "auth", className: "security" },
     user_interface: { id: "ui", className: "interface" },
-    ui_deployment: { id: "ui_dep", className: "interface" },
+    ui_deployment: { id: "ui_dep", className: "deployment" },
     governance_service: { id: "gov", className: "runtime" },
-    governance_deployment: { id: "gov_dep", className: "runtime" },
+    governance_deployment: { id: "gov_dep", className: "deployment" },
     governance_extensions: { id: "ext", className: "runtime" },
     contracts_backend: { id: "contracts", className: "storage" },
     products_backend: { id: "products", className: "storage" },
@@ -107,6 +107,12 @@ if (!root) {
     }
     const optionKey = setupState.selected?.[moduleKey];
     if (!optionKey) {
+      const options = moduleMeta.options || {};
+      const entries = Object.entries(options);
+      if (entries.length === 1) {
+        const [, onlyMeta] = entries[0];
+        return { module: moduleMeta, option: onlyMeta || null };
+      }
       return { module: moduleMeta, option: null };
     }
     const optionMeta = moduleMeta.options?.[optionKey];
@@ -164,41 +170,92 @@ if (!root) {
       dq: buildNodeLabel("data_quality", includeDetails),
     };
 
+    const hasModule = (moduleKey) => {
+      const moduleMeta = setupState.modules?.[moduleKey];
+      if (!moduleMeta) {
+        return false;
+      }
+      const options = moduleMeta.options || {};
+      const optionKeys = Object.keys(options);
+      if (!optionKeys.length || optionKeys.length === 1) {
+        return true;
+      }
+      return Boolean(setupState.selected?.[moduleKey]);
+    };
     const lines = [
-      "graph LR",
+      "flowchart LR",
       "  classDef default fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,color:#212529;",
       "  classDef highlight fill:#fff3cd,stroke:#d39e00,stroke-width:2px,color:#212529;",
       "  classDef storage fill:#e3f2fd,stroke:#0d6efd,color:#0d6efd;",
       "  classDef runtime fill:#fdf2e9,stroke:#fd7e14,color:#d9480f;",
       "  classDef interface fill:#e2f0d9,stroke:#198754,color:#116530;",
       "  classDef security fill:#e7e9f9,stroke:#6f42c1,color:#3d2c8d;",
-      "  user((Users))",
-      `  auth["${nodes.auth}"]`,
-      `  ui["${nodes.ui}"]`,
-      `  ui_dep["${nodes.ui_dep}"]`,
-      `  gov["${nodes.gov}"]`,
-      `  gov_dep["${nodes.gov_dep}"]`,
-      `  ext["${nodes.ext}"]`,
-      `  contracts["${nodes.contracts}"]`,
-      `  products["${nodes.products}"]`,
-      `  dq["${nodes.dq}"]`,
-      "  user --> auth",
-      "  auth --> ui",
-      "  ui --> gov",
-      "  gov --> contracts",
-      "  gov --> products",
-      "  gov --> dq",
-      "  gov --> ext",
-      "  gov -.-> gov_dep",
-      "  ui -.-> ui_dep",
-      "  auth -.-> gov",
-      "  class auth security;",
-      "  class ui,ui_dep interface;",
-      "  class gov,gov_dep,ext,dq runtime;",
-      "  class contracts,products storage;",
+      "  classDef deployment fill:#fcefee,stroke:#d63384,color:#a61e4d;",
     ];
 
-    if (highlightKey && moduleNodeMap[highlightKey]) {
+    const definedNodes = new Set();
+
+    function defineNode(moduleKey, indent = "    ") {
+      const nodeMeta = moduleNodeMap[moduleKey];
+      if (!nodeMeta || !hasModule(moduleKey)) {
+        return;
+      }
+      const label = nodes[nodeMeta.id];
+      lines.push(`${indent}${nodeMeta.id}["${label}"]`);
+      definedNodes.add(moduleKey);
+    }
+
+    const pushSubgraph = (title, moduleKeys) => {
+      const active = moduleKeys.filter((key) => hasModule(key));
+      if (!active.length) {
+        return;
+      }
+      lines.push(`  subgraph "${sanitizeLabel(title)}"`);
+      lines.push("    direction TB");
+      for (const moduleKey of active) {
+        defineNode(moduleKey);
+      }
+      lines.push("  end");
+    };
+
+    pushSubgraph("Interface", ["user_interface", "authentication"]);
+    pushSubgraph("Deployments", ["ui_deployment", "governance_deployment"]);
+    pushSubgraph("Governance", ["governance_service", "governance_extensions", "data_quality"]);
+    pushSubgraph("Storage", ["contracts_backend", "products_backend"]);
+
+    if (hasModule("user_interface") && hasModule("governance_service")) {
+      lines.push("  ui -->|Orchestrates| gov");
+    }
+    if (hasModule("authentication") && hasModule("user_interface")) {
+      lines.push("  auth -->|Protects| ui");
+    }
+    if (hasModule("governance_service") && hasModule("contracts_backend")) {
+      lines.push("  gov -->|Publishes & reads| contracts");
+    }
+    if (hasModule("governance_service") && hasModule("products_backend")) {
+      lines.push("  gov -->|Promotes| products");
+    }
+    if (hasModule("governance_service") && hasModule("data_quality")) {
+      lines.push("  gov -->|Schedules| dq");
+    }
+    if (hasModule("governance_service") && hasModule("governance_extensions")) {
+      lines.push("  gov -->|Extends via| ext");
+    }
+    if (hasModule("ui_deployment") && hasModule("user_interface")) {
+      lines.push("  ui_dep -.->|Hosts| ui");
+    }
+    if (hasModule("governance_deployment") && hasModule("governance_service")) {
+      lines.push("  gov_dep -.->|Hosts| gov");
+    }
+
+    for (const [moduleKey, nodeMeta] of Object.entries(moduleNodeMap)) {
+      if (!definedNodes.has(moduleKey) || !nodeMeta.className) {
+        continue;
+      }
+      lines.push(`  class ${nodeMeta.id} ${nodeMeta.className};`);
+    }
+
+    if (highlightKey && definedNodes.has(highlightKey)) {
       const node = moduleNodeMap[highlightKey];
       lines.push(`  class ${node.id} highlight;`);
     }
