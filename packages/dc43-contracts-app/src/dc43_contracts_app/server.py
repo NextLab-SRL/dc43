@@ -123,6 +123,8 @@ def _spark_session() -> Any:
     return _SPARK_SESSION
 
 BASE_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BASE_DIR.parents[4]
+TERRAFORM_TEMPLATE_ROOT = REPO_ROOT / "deploy" / "terraform"
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ContractsAppConfig | None = None
@@ -1148,6 +1150,348 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
             },
         },
     },
+    "deployment_targets": {
+        "title": "Deployment automation",
+        "summary": "Generate scripts or Terraform modules to deploy the services locally or in the cloud.",
+        "options": {
+            "local_docker": {
+                "label": "Local Docker or Compose",
+                "description": "Keep everything on a laptop or developer workstation using Docker Compose and the generated helper scripts.",
+                "installation": [
+                    "Install Docker Desktop or an equivalent container runtime.",
+                    "Use `scripts/run_local_stack.py` from the exported bundle to start the UI and service backends.",
+                ],
+                "configuration_notes": [
+                    "Reuse the TOML files exported by the wizard to keep local environments consistent.",
+                    "Commit the generated configuration into your infrastructure repo once you are happy with the defaults.",
+                ],
+                "fields": [],
+            },
+            "aws_terraform": {
+                "label": "AWS (Terraform)",
+                "description": "Provision the backend services on AWS Fargate using the provided Terraform module skeleton.",
+                "installation": [
+                    "Clone the Terraform module under `deploy/terraform/aws-service-backend` into your infrastructure repository.",
+                    "Ensure the AWS provider is authenticated (for example via `aws configure` or CI/CD secrets).",
+                    "Run `terraform init` and `terraform apply` after reviewing the generated `terraform.tfvars` file.",
+                ],
+                "configuration_notes": [
+                    "The wizard will emit a `terraform.tfvars` stub aligned with your selections – fill in any missing secrets before applying.",
+                    "Set `contract_store_mode` to `sql` when the contracts backend uses a relational database, otherwise keep `filesystem` for the default volume-backed store.",
+                ],
+                "fields": [
+                    {
+                        "name": "aws_region",
+                        "label": "AWS region",
+                        "placeholder": "us-east-1",
+                        "help": "Region where the ECS service will be created.",
+                    },
+                    {
+                        "name": "cluster_name",
+                        "label": "ECS cluster name",
+                        "placeholder": "dc43-governance",
+                        "help": "Existing ECS/Fargate cluster that will host the tasks.",
+                    },
+                    {
+                        "name": "ecr_image_uri",
+                        "label": "ECR image URI",
+                        "placeholder": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dc43-backends:latest",
+                        "help": "Container image containing the dc43 service backends.",
+                    },
+                    {
+                        "name": "backend_token",
+                        "label": "Backend bearer token",
+                        "placeholder": "Optional shared secret",
+                        "help": "Optional token enforced by the HTTP API – keep in sync with the exported TOML.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_mode",
+                        "label": "Contract store mode",
+                        "placeholder": "filesystem",
+                        "help": "`filesystem` for EFS backed storage or `sql` when using the relational implementation.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_filesystem",
+                        "label": "EFS file system ID",
+                        "placeholder": "fs-0123456789abcdef0",
+                        "help": "Required when using the filesystem mode so tasks mount the right volume.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_storage_path",
+                        "label": "Container mount path",
+                        "placeholder": "/contracts",
+                        "help": "Directory inside the container that exposes the contracts volume (filesystem mode).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_dsn",
+                        "label": "SQL DSN",
+                        "placeholder": "postgresql+psycopg://user:pass@host:5432/contracts",
+                        "help": "Connection string used when `contract_store_mode` is `sql`.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_dsn_secret_arn",
+                        "label": "Secrets Manager ARN",
+                        "placeholder": "arn:aws:secretsmanager:us-east-1:123456789012:secret:ContractsDsn",
+                        "help": "Alternative to embedding the DSN directly – points to Secrets Manager or SSM.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_table",
+                        "label": "Contracts table name",
+                        "placeholder": "contracts",
+                        "help": "Overrides the default table when using the SQL store.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_schema",
+                        "label": "Contracts schema",
+                        "placeholder": "governance",
+                        "help": "Optional schema/namespace for the contracts SQL store.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "private_subnet_ids",
+                        "label": "Private subnet IDs",
+                        "placeholder": "subnet-aaaa1111, subnet-bbbb2222",
+                        "help": "Comma-separated list of private subnet IDs for the ECS service.",
+                    },
+                    {
+                        "name": "load_balancer_subnet_ids",
+                        "label": "Load balancer subnet IDs",
+                        "placeholder": "subnet-cccc3333, subnet-dddd4444",
+                        "help": "Comma-separated subnet IDs where the Application Load Balancer will live.",
+                    },
+                    {
+                        "name": "service_security_group_id",
+                        "label": "Service security group",
+                        "placeholder": "sg-0123456789abcdef0",
+                        "help": "Security group applied to the ECS tasks.",
+                    },
+                    {
+                        "name": "load_balancer_security_group_id",
+                        "label": "Load balancer security group",
+                        "placeholder": "sg-0fedcba9876543210",
+                        "help": "Security group attached to the Application Load Balancer.",
+                    },
+                    {
+                        "name": "certificate_arn",
+                        "label": "ACM certificate ARN",
+                        "placeholder": "arn:aws:acm:us-east-1:123456789012:certificate/abcdef...",
+                        "help": "TLS certificate used by the HTTPS listener.",
+                    },
+                    {
+                        "name": "vpc_id",
+                        "label": "VPC ID",
+                        "placeholder": "vpc-0123456789abcdef0",
+                        "help": "VPC hosting the service and load balancer.",
+                    },
+                    {
+                        "name": "desired_count",
+                        "label": "Desired task count",
+                        "placeholder": "2",
+                        "help": "Number of Fargate task replicas to run (defaults to 2).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "task_cpu",
+                        "label": "Task CPU units",
+                        "placeholder": "512",
+                        "help": "Override the default Fargate CPU reservation if required.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "task_memory",
+                        "label": "Task memory (MiB)",
+                        "placeholder": "1024",
+                        "help": "Override the default Fargate memory reservation if required.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "health_check_path",
+                        "label": "Health check path",
+                        "placeholder": "/health",
+                        "help": "Adjust the ALB health check endpoint when exposing a different route.",
+                        "optional": True,
+                    },
+                ],
+            },
+            "azure_terraform": {
+                "label": "Azure (Terraform)",
+                "description": "Deploy the backends on Azure Container Apps backed by Azure Files or a SQL database.",
+                "installation": [
+                    "Copy the Terraform module under `deploy/terraform/azure-service-backend` into your infrastructure repository.",
+                    "Authenticate the AzureRM provider (for example with `az login` or a service principal in CI).",
+                    "Review and apply the generated `terraform.tfvars` file before running `terraform apply`.",
+                ],
+                "configuration_notes": [
+                    "Provide registry credentials that Container Apps can use to pull the image.",
+                    "Switch `contract_store_mode` to `sql` when pointing at Azure SQL instead of Azure Files.",
+                ],
+                "fields": [
+                    {
+                        "name": "subscription_id",
+                        "label": "Subscription ID",
+                        "placeholder": "00000000-0000-0000-0000-000000000000",
+                        "help": "Azure subscription that will own the resources.",
+                    },
+                    {
+                        "name": "resource_group_name",
+                        "label": "Resource group",
+                        "placeholder": "rg-dc43-governance",
+                        "help": "Resource group used for the Container App and related assets.",
+                    },
+                    {
+                        "name": "location",
+                        "label": "Azure region",
+                        "placeholder": "westeurope",
+                        "help": "Location where the Container Apps environment will run.",
+                    },
+                    {
+                        "name": "container_registry",
+                        "label": "Container Registry login server",
+                        "placeholder": "acme.azurecr.io",
+                        "help": "ACR hostname (without protocol) that hosts the container image.",
+                    },
+                    {
+                        "name": "container_registry_username",
+                        "label": "Registry username",
+                        "placeholder": "acme-pull",
+                        "help": "Username or service principal used to pull from the registry.",
+                    },
+                    {
+                        "name": "container_registry_password",
+                        "label": "Registry password",
+                        "placeholder": "••••••",
+                        "help": "Password or access token for the registry account.",
+                        "type": "password",
+                    },
+                    {
+                        "name": "image_tag",
+                        "label": "Image tag",
+                        "placeholder": "acme.azurecr.io/dc43-backends:latest",
+                        "help": "Full reference (repository:tag) for the container image.",
+                    },
+                    {
+                        "name": "backend_token",
+                        "label": "Backend bearer token",
+                        "placeholder": "Optional shared secret",
+                        "help": "Optional token enforced by the HTTP API – align with the exported TOML.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_mode",
+                        "label": "Contract store mode",
+                        "placeholder": "filesystem",
+                        "help": "`filesystem` for Azure Files, `sql` for Azure SQL deployments.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_storage",
+                        "label": "Container mount path",
+                        "placeholder": "/contracts",
+                        "help": "Directory inside the container exposing the Azure Files share.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_share_name",
+                        "label": "Azure Files share name",
+                        "placeholder": "contracts",
+                        "help": "Name of the file share created for the filesystem-backed contracts store.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_share_quota_gb",
+                        "label": "Share quota (GiB)",
+                        "placeholder": "100",
+                        "help": "Optional quota for the Azure Files share in gibibytes.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_dsn",
+                        "label": "SQL DSN",
+                        "placeholder": "sqlserver://user:pass@host:1433;database=contracts",
+                        "help": "Connection string used when `contract_store_mode` is `sql`.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_table",
+                        "label": "Contracts table name",
+                        "placeholder": "contracts",
+                        "help": "Override the default contracts table for the SQL store.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "contract_store_schema",
+                        "label": "Contracts schema",
+                        "placeholder": "governance",
+                        "help": "Optional schema/namespace for the contracts SQL store.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_app_environment_name",
+                        "label": "Container Apps environment",
+                        "placeholder": "dc43-env",
+                        "help": "Name assigned to the Container Apps environment.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_app_name",
+                        "label": "Container App name",
+                        "placeholder": "dc43-service-backends",
+                        "help": "Name of the Container App resource created by Terraform.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "ingress_port",
+                        "label": "Ingress port",
+                        "placeholder": "8001",
+                        "help": "Port exposed publicly by the Container App.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "min_replicas",
+                        "label": "Minimum replicas",
+                        "placeholder": "1",
+                        "help": "Lower bound for Container Apps autoscaling.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "max_replicas",
+                        "label": "Maximum replicas",
+                        "placeholder": "3",
+                        "help": "Upper bound for Container Apps autoscaling.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_cpu",
+                        "label": "Container CPU",
+                        "placeholder": "0.5",
+                        "help": "vCPU allocation per replica (for example 0.5, 1.0).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "container_memory",
+                        "label": "Container memory",
+                        "placeholder": "1.0Gi",
+                        "help": "Memory allocation per replica (GiB).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "tags",
+                        "label": "Resource tags",
+                        "placeholder": "env=dev, owner=data-platform",
+                        "help": "Comma-separated key=value pairs applied to Azure resources.",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
     "governance_extensions": {
         "title": "Governance hooks",
         "summary": "Extend the governance service with additional integrations such as Unity Catalog tagging.",
@@ -1497,6 +1841,337 @@ def _toml_string(value: str) -> str:
     """Serialise ``value`` using TOML string quoting rules."""
 
     return json.dumps(value)
+
+
+def _clean_number(value: Any) -> int | float | None:
+    """Return ``value`` as a number when possible."""
+
+    if isinstance(value, (int, float)):
+        return value
+    text = _clean_str(value)
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+
+def _split_csv(value: Any) -> List[str]:
+    """Return a list parsed from comma/newline separated ``value``."""
+
+    text = _clean_str(value)
+    if not text:
+        return []
+    parts = [part.strip() for part in re.split(r"[,\n]+", text) if part.strip()]
+    return parts
+
+
+def _parse_key_value_pairs(value: Any) -> Dict[str, str]:
+    """Return a map parsed from ``key=value`` pairs separated by commas/newlines."""
+
+    text = _clean_str(value)
+    if not text:
+        return {}
+    pairs: Dict[str, str] = {}
+    for part in re.split(r"[,\n]+", text):
+        if not part.strip():
+            continue
+        if "=" not in part:
+            continue
+        key, raw_value = part.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        pairs[key] = raw_value.strip()
+    return pairs
+
+
+def _terraform_identifier(key: str) -> str:
+    """Return a Terraform-compatible identifier for ``key``."""
+
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+        return key
+    return json.dumps(key)
+
+
+def _terraform_literal(value: Any) -> str:
+    """Return ``value`` formatted as a Terraform literal."""
+
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, Mapping):
+        items = []
+        for key, item_value in value.items():
+            ident = _terraform_identifier(str(key))
+            items.append(f"  {ident} = {_terraform_literal(item_value)}")
+        if not items:
+            return "{}"
+        return "{\n" + "\n".join(items) + "\n}"
+    if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray)):
+        items = [f"  {_terraform_literal(item)}," for item in value]
+        if not items:
+            return "[]"
+        return "[\n" + "\n".join(items) + "\n]"
+    return json.dumps(str(value))
+
+
+def _render_terraform_tfvars(
+    entries: List[Tuple[str, Any]],
+    missing: Iterable[str],
+) -> str:
+    """Render ``entries`` as a Terraform ``.tfvars`` file."""
+
+    lines = [
+        "# terraform.tfvars generated by the dc43 setup wizard",
+        "# Update any TODO values before running `terraform apply`.",
+        "",
+    ]
+    missing_list = [item for item in missing if item]
+    if missing_list:
+        lines.append("# The following values are still required:")
+        for item in missing_list:
+            lines.append(f"# - {item}")
+        lines.append("")
+    for key, value in entries:
+        lines.append(f"{key} = {_terraform_literal(value)}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _terraform_template_files(provider: str) -> List[Tuple[str, str]]:
+    """Return template files bundled with the repository for ``provider``."""
+
+    files: List[Tuple[str, str]] = []
+    base = TERRAFORM_TEMPLATE_ROOT / f"{provider}-service-backend"
+    for filename in ("main.tf", "variables.tf", "README.md"):
+        path = base / filename
+        if not path.exists():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        files.append((f"dc43-setup/terraform/{provider}/{filename}", content))
+    return files
+
+
+def _aws_terraform_tfvars(
+    module_config: Mapping[str, Any],
+    *,
+    field_labels: Mapping[str, str],
+    required_fields: Iterable[str],
+    selected: Mapping[str, str],
+) -> Tuple[str | None, List[str]]:
+    """Return rendered AWS ``terraform.tfvars`` content and missing labels."""
+
+    data = {str(key): value for key, value in module_config.items()}
+    contract_backend = selected.get("contracts_backend", "").strip().lower()
+    if not _clean_str(data.get("contract_store_mode")):
+        data["contract_store_mode"] = "sql" if contract_backend == "sql" else "filesystem"
+
+    field_map = {
+        "aws_region": "aws_region",
+        "cluster_name": "cluster_name",
+        "ecr_image_uri": "ecr_image_uri",
+        "backend_token": "backend_token",
+        "contract_store_mode": "contract_store_mode",
+        "contract_filesystem": "contract_filesystem",
+        "contract_storage_path": "contract_storage_path",
+        "contract_store_dsn": "contract_store_dsn",
+        "contract_store_dsn_secret_arn": "contract_store_dsn_secret_arn",
+        "contract_store_table": "contract_store_table",
+        "contract_store_schema": "contract_store_schema",
+        "private_subnet_ids": "private_subnet_ids",
+        "load_balancer_subnet_ids": "load_balancer_subnet_ids",
+        "service_security_group_id": "service_security_group_id",
+        "load_balancer_security_group_id": "load_balancer_security_group_id",
+        "certificate_arn": "certificate_arn",
+        "vpc_id": "vpc_id",
+        "desired_count": "desired_count",
+        "task_cpu": "task_cpu",
+        "task_memory": "task_memory",
+        "health_check_path": "health_check_path",
+    }
+    list_fields = {"private_subnet_ids", "load_balancer_subnet_ids"}
+    numeric_fields = {"desired_count"}
+    missing_labels: List[str] = []
+    entries: List[Tuple[str, Any]] = []
+
+    required_set = {str(name) for name in required_fields}
+    for field_name, var_name in field_map.items():
+        if field_name in list_fields:
+            values = _split_csv(data.get(field_name))
+            if values:
+                entries.append((var_name, values))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+        elif field_name in numeric_fields:
+            number = _clean_number(data.get(field_name))
+            if number is not None:
+                entries.append((var_name, number))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+        else:
+            text = _clean_str(data.get(field_name))
+            if text:
+                entries.append((var_name, text))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+
+    if not entries and not missing_labels:
+        return None, []
+    return _render_terraform_tfvars(entries, missing_labels), missing_labels
+
+
+def _azure_terraform_tfvars(
+    module_config: Mapping[str, Any],
+    *,
+    field_labels: Mapping[str, str],
+    required_fields: Iterable[str],
+    selected: Mapping[str, str],
+) -> Tuple[str | None, List[str]]:
+    """Return rendered Azure ``terraform.tfvars`` content and missing labels."""
+
+    data = {str(key): value for key, value in module_config.items()}
+    contract_backend = selected.get("contracts_backend", "").strip().lower()
+    if not _clean_str(data.get("contract_store_mode")):
+        data["contract_store_mode"] = "sql" if contract_backend == "sql" else "filesystem"
+
+    field_map = {
+        "subscription_id": "subscription_id",
+        "resource_group_name": "resource_group_name",
+        "location": "location",
+        "container_registry": "container_registry",
+        "container_registry_username": "container_registry_username",
+        "container_registry_password": "container_registry_password",
+        "image_tag": "image_tag",
+        "backend_token": "backend_token",
+        "contract_store_mode": "contract_store_mode",
+        "contract_storage": "contract_storage",
+        "contract_share_name": "contract_share_name",
+        "contract_share_quota_gb": "contract_share_quota_gb",
+        "contract_store_dsn": "contract_store_dsn",
+        "contract_store_table": "contract_store_table",
+        "contract_store_schema": "contract_store_schema",
+        "container_app_environment_name": "container_app_environment_name",
+        "container_app_name": "container_app_name",
+        "ingress_port": "ingress_port",
+        "min_replicas": "min_replicas",
+        "max_replicas": "max_replicas",
+        "container_cpu": "container_cpu",
+        "container_memory": "container_memory",
+        "tags": "tags",
+    }
+    numeric_fields = {"ingress_port", "min_replicas", "max_replicas", "contract_share_quota_gb"}
+    map_fields = {"tags"}
+    missing_labels: List[str] = []
+    entries: List[Tuple[str, Any]] = []
+
+    required_set = {str(name) for name in required_fields}
+    for field_name, var_name in field_map.items():
+        if field_name in map_fields:
+            mapping = _parse_key_value_pairs(data.get(field_name))
+            if mapping:
+                entries.append((var_name, mapping))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+        elif field_name in numeric_fields:
+            number = _clean_number(data.get(field_name))
+            if number is not None:
+                entries.append((var_name, number))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+        else:
+            text = _clean_str(data.get(field_name))
+            if text:
+                entries.append((var_name, text))
+            elif field_name in required_set:
+                missing_labels.append(field_labels.get(field_name, field_name))
+
+    if not entries and not missing_labels:
+        return None, []
+    return _render_terraform_tfvars(entries, missing_labels), missing_labels
+
+
+def _terraform_bundle_files(state: Mapping[str, Any]) -> List[Tuple[str, str]]:
+    """Return additional Terraform files for the setup bundle."""
+
+    selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
+    configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
+    if not isinstance(selected_raw, Mapping) or not isinstance(configuration_raw, Mapping):
+        return []
+
+    selected = {str(key): str(value) for key, value in selected_raw.items()}
+    configuration: Dict[str, Mapping[str, Any]] = {
+        str(key): value
+        for key, value in configuration_raw.items()
+        if isinstance(value, Mapping)
+    }
+
+    option_key = selected.get("deployment_targets")
+    if not option_key:
+        return []
+
+    module_meta = SETUP_MODULES.get("deployment_targets")
+    if not module_meta:
+        return []
+    option_meta = module_meta["options"].get(option_key)
+    if not option_meta:
+        return []
+
+    field_labels: Dict[str, str] = {}
+    required_fields: List[str] = []
+    for field_meta in option_meta.get("fields", []):
+        name = str(field_meta.get("name") or "")
+        if not name:
+            continue
+        field_labels[name] = str(field_meta.get("label") or name)
+        if not field_meta.get("optional"):
+            required_fields.append(name)
+
+    module_config = configuration.get("deployment_targets", {})
+    if not isinstance(module_config, Mapping):
+        module_config = {}
+
+    files: List[Tuple[str, str]] = []
+    tfvars_text: str | None = None
+    missing: List[str] = []
+    if option_key == "aws_terraform":
+        tfvars_text, missing = _aws_terraform_tfvars(
+            module_config,
+            field_labels=field_labels,
+            required_fields=required_fields,
+            selected=selected,
+        )
+        files.extend(_terraform_template_files("aws"))
+        provider_prefix = "aws"
+    elif option_key == "azure_terraform":
+        tfvars_text, missing = _azure_terraform_tfvars(
+            module_config,
+            field_labels=field_labels,
+            required_fields=required_fields,
+            selected=selected,
+        )
+        files.extend(_terraform_template_files("azure"))
+        provider_prefix = "azure"
+    else:
+        provider_prefix = ""
+
+    if tfvars_text:
+        files.append((f"dc43-setup/terraform/{provider_prefix}/terraform.tfvars", tfvars_text))
+    elif provider_prefix:
+        # Emit an empty stub indicating which values still need to be filled.
+        if missing:
+            stub = _render_terraform_tfvars([], missing)
+            files.append((f"dc43-setup/terraform/{provider_prefix}/terraform.tfvars", stub))
+
+    return files
 
 
 def _service_backends_config_from_state(
@@ -1888,6 +2563,7 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
         "- scripts/run_local_stack.py — start the local UI and backend services for quick testing.",
+        "- terraform/<provider>/ — Terraform templates and generated variables for cloud deployments (when selected).",
         "",
         "How to use:",
         "1. Copy the TOML files into your deployment repository or configuration management system.",
@@ -1963,6 +2639,9 @@ def _build_setup_bundle(state: Mapping[str, Any]) -> Tuple[io.BytesIO, Dict[str,
         start_info = zipfile.ZipInfo("dc43-setup/scripts/run_local_stack.py")
         start_info.external_attr = 0o755 << 16
         archive.writestr(start_info, start_script)
+
+        for relative_path, content in _terraform_bundle_files(state):
+            archive.writestr(relative_path, content)
 
     buffer.seek(0)
     return buffer, payload
