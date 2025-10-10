@@ -36,6 +36,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import textwrap
 from datetime import datetime
 from collections import Counter
@@ -117,7 +118,6 @@ DATASETS_FILE: Path
 DATA_PRODUCTS_FILE: Path
 DQ_STATUS_DIR: Path
 store: FSContractStore
-_SETUP_STATE_LOCK = Lock()
 
 
 def configure_workspace(workspace: ContractsAppWorkspace) -> None:
@@ -667,11 +667,10 @@ def load_setup_state() -> Dict[str, Any]:
     """Read the persisted onboarding state if available."""
 
     path = _setup_state_path()
-    with _SETUP_STATE_LOCK:
-        try:
-            payload = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            payload = {}
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        payload = {}
     state = _default_setup_state()
     if isinstance(payload, Mapping):
         state.update(
@@ -694,8 +693,23 @@ def save_setup_state(state: Mapping[str, Any]) -> None:
     path = _setup_state_path()
     serialisable = dict(state)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _SETUP_STATE_LOCK:
-        path.write_text(json.dumps(serialisable, indent=2, sort_keys=True))
+    temp_path: Optional[str] = None
+    fd = -1
+    try:
+        fd, temp_path = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(serialisable, handle, indent=2, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        fd = -1  # file descriptor ownership moved to context manager
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if fd != -1:
+            os.close(fd)
+        if temp_path:
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(temp_path)
 
 
 def reset_setup_state() -> Dict[str, Any]:
