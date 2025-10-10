@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="mb-1">Environment setup</h1>
+    <p class="text-muted mb-0">Follow the guided wizard to configure the dc43 contracts application for your platform.</p>
+  </div>
+  <div class="text-end">
+    <div class="small text-uppercase text-muted">Progress</div>
+    <div class="progress" style="width: 220px; height: 0.75rem;">
+      <div class="progress-bar" role="progressbar" style="width: {{ progress }}%;" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress }}"></div>
+    </div>
+    <div class="fw-semibold mt-1">Step {{ step }} of 3</div>
+    {% if completed %}
+    <span class="badge bg-success mt-1">Setup complete</span>
+    {% else %}
+    <span class="badge bg-warning text-dark mt-1">Setup required</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if errors %}
+<div class="alert alert-danger" role="alert">
+  <h2 class="h6 alert-heading">Please check the following before continuing</h2>
+  <ul class="mb-0">
+    {% for message in errors %}
+    <li>{{ message }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body">
+    <h2 class="h5">How the wizard works</h2>
+    <ol class="mb-0 ps-3">
+      <li class="mb-2">Pick the implementation you plan to use for each module (contracts backend, governance catalog, data quality engine, and orchestration).</li>
+      <li class="mb-2">Provide the connection details requested for the implementations you selected. The wizard suggests default paths for local, filesystem, and Delta Lake options.</li>
+      <li>Review the summary and mark the setup as complete once you have applied the configuration to your Docker compose files, environment variables, or external services.</li>
+    </ol>
+  </div>
+</div>
+
+{% if step == 1 %}
+<form method="post" novalidate>
+  <input type="hidden" name="step" value="1" />
+  {% for module in modules %}
+  <section class="card mb-4">
+    <div class="card-header bg-white">
+      <h2 class="h5 mb-0">{{ module.title }}</h2>
+      <p class="mb-0 text-muted">{{ module.summary }}</p>
+    </div>
+    <div class="card-body">
+      <div class="row g-4">
+        {% for option in module.options %}
+        <div class="col-12 col-md-6">
+          <div class="border rounded p-3 h-100">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="module__{{ module.key }}" id="option-{{ module.key }}-{{ option.key }}" value="{{ option.key }}" {% if option.selected %}checked{% endif %} />
+              <label class="form-check-label fw-semibold" for="option-{{ module.key }}-{{ option.key }}">
+                {{ option.label }}
+              </label>
+            </div>
+            <p class="text-muted small mb-0 mt-2">{{ option.description }}</p>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+  <div class="d-flex justify-content-end">
+    <button type="submit" class="btn btn-primary">Continue</button>
+  </div>
+</form>
+{% elif step == 2 %}
+<form method="post" novalidate>
+  <input type="hidden" name="step" value="2" />
+  {% for module in selected_modules %}
+  <section class="card mb-4">
+    <div class="card-header bg-white">
+      <h2 class="h5 mb-1">{{ module.title }}</h2>
+      <div class="text-muted small">{{ module.summary }}</div>
+      <span class="badge bg-secondary mt-2">{{ module.option.label }}</span>
+    </div>
+    <div class="card-body">
+      {% if module.option.installation %}
+      <h3 class="h6">Installation checklist</h3>
+      <ol class="ps-3">
+        {% for item in module.option.installation %}
+        <li class="mb-1">{{ item }}</li>
+        {% endfor %}
+      </ol>
+      {% endif %}
+      {% if module.option.configuration_notes %}
+      <h3 class="h6">Configuration tips</h3>
+      <ul class="ps-3">
+        {% for item in module.option.configuration_notes %}
+        <li class="mb-1">{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="row g-4">
+        {% for field in module.fields %}
+        <div class="col-12 col-lg-6">
+          <label class="form-label" for="field-{{ module.key }}-{{ field.name }}">
+            {{ field.label }}
+            {% if field.optional %}<span class="text-muted small">(optional)</span>{% endif %}
+          </label>
+          {% if field.type == "textarea" %}
+          <textarea class="form-control" id="field-{{ module.key }}-{{ field.name }}" name="config__{{ module.key }}__{{ field.name }}" rows="3" placeholder="{{ field.placeholder }}">{{ field.value }}</textarea>
+          {% else %}
+          <input class="form-control" type="{{ field.type }}" id="field-{{ module.key }}-{{ field.name }}" name="config__{{ module.key }}__{{ field.name }}" value="{{ field.value }}" placeholder="{{ field.placeholder }}" />
+          {% endif %}
+          {% if field.help %}
+          <div class="form-text">{{ field.help }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+  <div class="d-flex justify-content-between align-items-center">
+    <a class="btn btn-link" href="/setup?step=1">Back</a>
+    <button type="submit" class="btn btn-primary">Review summary</button>
+  </div>
+</form>
+{% else %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h2 class="h5">Summary</h2>
+    <p class="mb-3">Review the modules below, apply the suggested environment variables or infrastructure steps, and mark the setup as complete. You can return to previous steps at any time.</p>
+    {% for module in summary_modules %}
+    <section class="border rounded p-3 mb-3">
+      <header class="d-flex justify-content-between align-items-start mb-2">
+        <div>
+          <h3 class="h6 mb-1">{{ module.title }}</h3>
+          <span class="badge bg-secondary">{{ module.option_label }}</span>
+        </div>
+      </header>
+      {% if module.installation %}
+      <h4 class="h6">Installation checklist</h4>
+      <ol class="ps-3">
+        {% for item in module.installation %}
+        <li class="mb-1">{{ item }}</li>
+        {% endfor %}
+      </ol>
+      {% endif %}
+      {% if module.configuration_notes %}
+      <h4 class="h6">Configuration notes</h4>
+      <ul class="ps-3">
+        {% for item in module.configuration_notes %}
+        <li class="mb-1">{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if module.fields %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th scope="col">Setting</th>
+              <th scope="col">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for field in module.fields %}
+            <tr>
+              <th scope="row">{{ field.label }}{% if field.optional %} <span class="text-muted small">(optional)</span>{% endif %}</th>
+              <td class="text-break">{{ field.value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
+    <div class="alert alert-info" role="alert">
+      <h3 class="h6 alert-heading">Need to make changes?</h3>
+      <p class="mb-1">Use the buttons below to revisit the configuration choices or reset the wizard entirely.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="/setup?step=1">Edit module selections</a>
+      <a class="btn btn-outline-secondary" href="/setup?step=2">Edit connection details</a>
+      <form method="post" class="d-inline">
+        <input type="hidden" name="step" value="reset" />
+        <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Reset the setup wizard? This will clear your selections.');">Reset wizard</button>
+      </form>
+    </div>
+  </div>
+</div>
+<form method="post" class="d-flex justify-content-end gap-2">
+  <a class="btn btn-link" href="/setup?step=2">Back</a>
+  <input type="hidden" name="step" value="complete" />
+  <button type="submit" class="btn btn-success">Mark setup as complete</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -117,6 +117,7 @@ DATASETS_FILE: Path
 DATA_PRODUCTS_FILE: Path
 DQ_STATUS_DIR: Path
 store: FSContractStore
+_SETUP_STATE_LOCK = Lock()
 
 
 def configure_workspace(workspace: ContractsAppWorkspace) -> None:
@@ -644,6 +645,74 @@ def configure_backend(
         _initialise_backend(base_url=None)
 
 
+def _setup_state_path() -> Path:
+    """Return the path that stores onboarding progress information."""
+
+    workspace = current_workspace()
+    return workspace.root / "setup_state.json"
+
+
+def _default_setup_state() -> Dict[str, Any]:
+    """Return the default onboarding wizard payload."""
+
+    return {
+        "current_step": 1,
+        "selected_options": {},
+        "configuration": {},
+        "completed": False,
+    }
+
+
+def load_setup_state() -> Dict[str, Any]:
+    """Read the persisted onboarding state if available."""
+
+    path = _setup_state_path()
+    with _SETUP_STATE_LOCK:
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+    state = _default_setup_state()
+    if isinstance(payload, Mapping):
+        state.update(
+            {
+                "current_step": int(payload.get("current_step") or 1),
+                "selected_options": dict(payload.get("selected_options") or {}),
+                "configuration": dict(payload.get("configuration") or {}),
+                "completed": bool(payload.get("completed")),
+            }
+        )
+        completed_at = payload.get("completed_at") if isinstance(payload, Mapping) else None
+        if isinstance(completed_at, str):
+            state["completed_at"] = completed_at
+    return state
+
+
+def save_setup_state(state: Mapping[str, Any]) -> None:
+    """Persist onboarding progress to the workspace."""
+
+    path = _setup_state_path()
+    serialisable = dict(state)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _SETUP_STATE_LOCK:
+        path.write_text(json.dumps(serialisable, indent=2, sort_keys=True))
+
+
+def reset_setup_state() -> Dict[str, Any]:
+    """Reset onboarding progress and persist the default payload."""
+
+    state = _default_setup_state()
+    save_setup_state(state)
+    return state
+
+
+def is_setup_complete() -> bool:
+    """Return ``True`` when the onboarding flow has been marked as complete."""
+
+    state = load_setup_state()
+    return bool(state.get("completed"))
+
+
 def configure_from_config(config: ContractsAppConfig | None = None) -> ContractsAppConfig:
     """Apply ``config`` to initialise workspace and backend defaults."""
 
@@ -690,6 +759,491 @@ async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[st
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+SETUP_MODULES: Dict[str, Dict[str, Any]] = {
+    "contracts_backend": {
+        "title": "Contracts backend",
+        "summary": "Where contract definitions are stored and served.",
+        "options": {
+            "embedded_fs": {
+                "label": "Embedded filesystem (local demo)",
+                "description": (
+                    "Use the built-in filesystem store. Ideal for Docker based demos "
+                    "or quick local exploration."
+                ),
+                "installation": [
+                    "Create a shared volume (for example `./volumes/contracts`) and mount it inside the container.",
+                    "No external services are required; the FastAPI app will write JSON contracts locally.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_CONTRACTS_APP_BACKEND_MODE=embedded` in your `.env` file or docker compose overrides.",
+                    "Point `DC43_CONTRACTS_APP_WORK_DIR` to the directory configured below so that the UI and backend share storage.",
+                ],
+                "fields": [
+                    {
+                        "name": "contracts_dir",
+                        "label": "Contracts directory",
+                        "placeholder": "/workspace/contracts",
+                        "help": "Absolute path inside the container that will hold JSON contract files.",
+                        "default_factory": lambda workspace: str(workspace.contracts_dir),
+                    },
+                    {
+                        "name": "work_dir",
+                        "label": "Workspace root",
+                        "placeholder": "/workspace",
+                        "help": "Root path bound to `DC43_CONTRACTS_APP_WORK_DIR` for local assets.",
+                        "default_factory": lambda workspace: str(workspace.root),
+                    },
+                ],
+            },
+            "remote_http": {
+                "label": "Remote HTTP service",
+                "description": (
+                    "Connect to an existing dc43-service-backends deployment exposed over HTTP."
+                ),
+                "installation": [
+                    "Deploy `dc43-service-backends` to your preferred environment (Kubernetes, ECS, VM, …).",
+                    "Expose the `/contracts` API via HTTPS. Ensure the container can resolve the hostname.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_CONTRACTS_APP_BACKEND_MODE=remote` to stop the UI from starting the embedded backend.",
+                    "Provide the base URL below via `DC43_CONTRACTS_APP_BACKEND_URL` or `config/backend.base_url` in TOML.",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Service base URL",
+                        "placeholder": "https://contracts.example.com",
+                        "help": "Public URL for the remote contracts service (no trailing slash).",
+                    },
+                    {
+                        "name": "auth_token",
+                        "label": "API token",
+                        "placeholder": "Optional bearer token",
+                        "help": "Token injected into the `Authorization` header when talking to the remote service.",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
+    "governance_catalog": {
+        "title": "Governance catalog",
+        "summary": "Where datasets and ownership metadata live.",
+        "options": {
+            "collibra_cloud": {
+                "label": "Collibra Data Governance",
+                "description": "Synchronise metadata with a Collibra Cloud environment.",
+                "installation": [
+                    "Provision a Collibra Cloud site with the Data Quality & Observability package enabled.",
+                    "Create a service account with access to the community that will hold your contracts.",
+                ],
+                "configuration_notes": [
+                    "Populate the credentials below and export them as `COLLIBRA_CLIENT_ID` / `COLLIBRA_CLIENT_SECRET`.",
+                    "Point the integration helper at the domain identifier where contracts should be catalogued.",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Site URL",
+                        "placeholder": "https://acme.collibra.com",
+                        "help": "Base URL of your Collibra instance.",
+                    },
+                    {
+                        "name": "client_id",
+                        "label": "Client ID",
+                        "placeholder": "collibra-service-client",
+                        "help": "OAuth client id for the automation user.",
+                    },
+                    {
+                        "name": "client_secret",
+                        "label": "Client secret",
+                        "placeholder": "••••••",
+                        "help": "OAuth client secret (store securely).",
+                    },
+                    {
+                        "name": "domain_id",
+                        "label": "Target domain",
+                        "placeholder": "DATA_PRODUCTS",
+                        "help": "Collibra domain id that will contain the registered contracts.",
+                    },
+                ],
+            },
+            "databricks_unity": {
+                "label": "Databricks Unity Catalog",
+                "description": "Register data products into Unity Catalog tables and views.",
+                "installation": [
+                    "Enable Unity Catalog on your Databricks workspace and assign the automation principal to the catalog.",
+                    "Install the `dc43-integrations` wheel on the cluster that will sync governance metadata.",
+                ],
+                "configuration_notes": [
+                    "Provide the workspace information below and export them as `DATABRICKS_HOST`/`DATABRICKS_TOKEN`.",
+                    "The catalog and schema determine where Delta tables for contracts will be created.",
+                ],
+                "fields": [
+                    {
+                        "name": "workspace_url",
+                        "label": "Workspace URL",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL (without `/api/2.0`) for the Databricks workspace.",
+                    },
+                    {
+                        "name": "catalog",
+                        "label": "Catalog",
+                        "placeholder": "main",
+                        "help": "Unity Catalog that will host the governance artifacts.",
+                    },
+                    {
+                        "name": "schema",
+                        "label": "Schema",
+                        "placeholder": "contracts",
+                        "help": "Schema inside the catalog used for contract tables.",
+                    },
+                    {
+                        "name": "token",
+                        "label": "Personal access token",
+                        "placeholder": "dapi...",
+                        "help": "Databricks PAT with Unity Catalog permissions.",
+                    },
+                ],
+            },
+            "delta_sharing": {
+                "label": "Delta Sharing catalog",
+                "description": "Push contract metadata to a Delta Lake table exposed via Delta Sharing.",
+                "installation": [
+                    "Create or identify a Delta table that will catalogue contract releases.",
+                    "Expose the table via Delta Sharing or grant read access to the consuming platforms.",
+                ],
+                "configuration_notes": [
+                    "The profile path below is read by the `delta-sharing` client used during synchronisation.",
+                    "Share and table names determine where each published contract is recorded.",
+                ],
+                "fields": [
+                    {
+                        "name": "profile_path",
+                        "label": "Profile (.share) path",
+                        "placeholder": "/secrets/delta/profile.share",
+                        "help": "Filesystem path to the Delta Sharing profile used for authentication.",
+                    },
+                    {
+                        "name": "share",
+                        "label": "Share name",
+                        "placeholder": "contracts_share",
+                        "help": "Delta Sharing share that exposes the governance table.",
+                    },
+                    {
+                        "name": "table",
+                        "label": "Table",
+                        "placeholder": "governance.contract_registry",
+                        "help": "Fully qualified table name that stores contract metadata.",
+                    },
+                ],
+            },
+        },
+    },
+    "data_quality": {
+        "title": "Data quality engine",
+        "summary": "How data quality rules are executed and reported.",
+        "options": {
+            "local_expectations": {
+                "label": "Local expectations bundle",
+                "description": "Run expectations packaged with the application on the filesystem.",
+                "installation": [
+                    "Create a directory alongside the workspace to store expectation YAML files.",
+                    "Populate the folder with templates from `tests/fixtures/expectations` as a starting point.",
+                ],
+                "configuration_notes": [
+                    "Point `DC43_DEMO_EXPECTATIONS_DIR` (or your own env var) to the directory below.",
+                    "Use the integration helper to regenerate expectations whenever a contract changes.",
+                ],
+                "fields": [
+                    {
+                        "name": "expectations_path",
+                        "label": "Expectations directory",
+                        "placeholder": "/workspace/expectations",
+                        "help": "Location where `.yml` or `.json` expectation suites live.",
+                        "default_factory": lambda workspace: str(workspace.records_dir / "expectations"),
+                    },
+                ],
+            },
+            "remote_service": {
+                "label": "Remote validation service",
+                "description": "Delegate validation runs to a hosted dc43 data-quality API.",
+                "installation": [
+                    "Deploy `dc43-service-backends` with the data-quality component enabled (Spark or SQL).",
+                    "Ensure the contracts service and the quality API share the same backing storage.",
+                ],
+                "configuration_notes": [
+                    "Configure the base URL below via `DC43_DATA_QUALITY_URL` or service discovery.",
+                    "Optional API keys are injected into the `X-API-Key` header on each request.",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Quality service URL",
+                        "placeholder": "https://quality.example.com",
+                        "help": "Public endpoint for the remote data quality API.",
+                    },
+                    {
+                        "name": "api_key",
+                        "label": "API key",
+                        "placeholder": "Optional secret",
+                        "help": "Shared secret exchanged with the remote validation service.",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
+    "compute_orchestration": {
+        "title": "Compute & orchestration",
+        "summary": "Where data pipelines are executed and monitored.",
+        "options": {
+            "local_spark": {
+                "label": "Local Spark / Delta Lake",
+                "description": "Use an in-container Spark runtime materialising Delta tables on disk.",
+                "installation": [
+                    "Install PySpark (`pip install pyspark==3.5.1 delta-spark`).",
+                    "Create a datasets folder (e.g. `./volumes/delta`) and mount it at the path below.",
+                ],
+                "configuration_notes": [
+                    "Set `SPARK_MASTER` and `DELTA_TABLE_PATH` environment variables using the values provided.",
+                    "Ensure the contracts workspace has permission to write Delta transaction logs.",
+                ],
+                "fields": [
+                    {
+                        "name": "spark_master",
+                        "label": "Spark master",
+                        "placeholder": "local[*]",
+                        "help": "Master URL passed to Spark (e.g. `local[*]` or `spark://host:7077`).",
+                        "default": "local[*]",
+                    },
+                    {
+                        "name": "delta_path",
+                        "label": "Delta storage path",
+                        "placeholder": "/workspace/datasets",
+                        "help": "Directory that will host Delta tables produced by the demo pipelines.",
+                        "default_factory": lambda workspace: str(workspace.data_dir),
+                    },
+                ],
+            },
+            "databricks_jobs": {
+                "label": "Databricks Jobs",
+                "description": "Trigger Databricks Jobs or Workflows for contract compliant pipelines.",
+                "installation": [
+                    "Upload the demo wheel to your Databricks workspace and create a Jobs run configuration.",
+                    "Grant the automation principal access to the job and target clusters or Delta Live Tables pipeline.",
+                ],
+                "configuration_notes": [
+                    "Populate the workspace host and PAT below (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`).",
+                    "Use the job identifier so the UI can call the Jobs API when running validations.",
+                ],
+                "fields": [
+                    {
+                        "name": "workspace_url",
+                        "label": "Workspace URL",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL for the Databricks workspace that hosts the job.",
+                    },
+                    {
+                        "name": "job_id",
+                        "label": "Job or pipeline id",
+                        "placeholder": "123456789",
+                        "help": "Identifier of the Databricks Job or Delta Live Tables pipeline.",
+                    },
+                    {
+                        "name": "token",
+                        "label": "Personal access token",
+                        "placeholder": "dapi...",
+                        "help": "Token used to authenticate against the Databricks Jobs API.",
+                    },
+                ],
+            },
+        },
+    },
+}
+
+
+_SETUP_TOTAL_STEPS = 3
+
+
+def _setup_progress(step: int) -> int:
+    """Return a progress percentage for the onboarding wizard."""
+
+    clamped = max(1, min(_SETUP_TOTAL_STEPS, step))
+    return int((clamped / _SETUP_TOTAL_STEPS) * 100)
+
+
+def _requires_configuration(selected: Mapping[str, str], configuration: Mapping[str, Any]) -> bool:
+    """Return ``True`` when mandatory fields are missing from ``configuration``."""
+
+    for module_key, option_key in selected.items():
+        module_meta = SETUP_MODULES.get(module_key)
+        if not module_meta:
+            continue
+        option_meta = module_meta["options"].get(option_key)
+        if not option_meta:
+            continue
+        config_values = configuration.get(module_key, {})
+        for field_meta in option_meta.get("fields", []):
+            if field_meta.get("optional"):
+                continue
+            value = str(config_values.get(field_meta.get("name"), "") or "").strip()
+            if not value:
+                return True
+    return False
+
+
+def _serialise_field(
+    module_key: str,
+    field_meta: Mapping[str, Any],
+    *,
+    configuration: Mapping[str, Any],
+    workspace: ContractsAppWorkspace,
+) -> Dict[str, Any]:
+    """Return template-friendly metadata for a setup field."""
+
+    stored = configuration.get(module_key, {}) if isinstance(configuration, Mapping) else {}
+    value = str(stored.get(field_meta.get("name"), "") or "")
+    if not value:
+        if "default" in field_meta and field_meta["default"] is not None:
+            value = str(field_meta["default"])
+        else:
+            default_factory = field_meta.get("default_factory")
+            if callable(default_factory):
+                try:
+                    value = str(default_factory(workspace))
+                except Exception:  # pragma: no cover - defensive defaults
+                    value = ""
+    return {
+        "name": field_meta.get("name"),
+        "label": field_meta.get("label"),
+        "placeholder": field_meta.get("placeholder", ""),
+        "help": field_meta.get("help", ""),
+        "optional": bool(field_meta.get("optional")),
+        "type": field_meta.get("type", "text"),
+        "value": value,
+    }
+
+
+def _build_setup_context(
+    request: Request,
+    state: Mapping[str, Any],
+    *,
+    step: Optional[int] = None,
+    errors: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Return the template context shared by onboarding views."""
+
+    selected_options_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
+    selected_options: Dict[str, str] = {}
+    if isinstance(selected_options_raw, Mapping):
+        selected_options = {str(key): str(value) for key, value in selected_options_raw.items()}
+
+    configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
+    configuration: Dict[str, Any] = {}
+    if isinstance(configuration_raw, Mapping):
+        configuration = {str(key): value for key, value in configuration_raw.items()}
+
+    requested_step = int(state.get("current_step") or 1) if step is None else int(step)
+    if requested_step > 1 and not selected_options:
+        requested_step = 1
+
+    if requested_step >= _SETUP_TOTAL_STEPS and not state.get("completed"):
+        if _requires_configuration(selected_options, configuration):
+            requested_step = 2
+
+    if state.get("completed") and step is None:
+        requested_step = _SETUP_TOTAL_STEPS
+
+    workspace = current_workspace()
+
+    modules: List[Dict[str, Any]] = []
+    for module_key, module_meta in SETUP_MODULES.items():
+        options: List[Dict[str, Any]] = []
+        for option_key, option_meta in module_meta["options"].items():
+            options.append(
+                {
+                    "key": option_key,
+                    "label": option_meta.get("label"),
+                    "description": option_meta.get("description", ""),
+                    "selected": selected_options.get(module_key) == option_key,
+                }
+            )
+        modules.append(
+            {
+                "key": module_key,
+                "title": module_meta.get("title"),
+                "summary": module_meta.get("summary", ""),
+                "options": options,
+            }
+        )
+
+    selected_modules: List[Dict[str, Any]] = []
+    for module_key, option_key in selected_options.items():
+        module_meta = SETUP_MODULES.get(module_key)
+        if not module_meta:
+            continue
+        option_meta = module_meta["options"].get(option_key)
+        if not option_meta:
+            continue
+        fields = [
+            _serialise_field(module_key, field_meta, configuration=configuration, workspace=workspace)
+            for field_meta in option_meta.get("fields", [])
+        ]
+        selected_modules.append(
+            {
+                "key": module_key,
+                "title": module_meta.get("title"),
+                "summary": module_meta.get("summary", ""),
+                "option_key": option_key,
+                "option": {
+                    "label": option_meta.get("label"),
+                    "description": option_meta.get("description", ""),
+                    "installation": list(option_meta.get("installation", [])),
+                    "configuration_notes": list(option_meta.get("configuration_notes", [])),
+                },
+                "fields": fields,
+            }
+        )
+
+    summary_modules: List[Dict[str, Any]] = []
+    for module in selected_modules:
+        module_key = module["key"]
+        module_config = configuration.get(module_key, {}) if isinstance(configuration, Mapping) else {}
+        summary_fields: List[Dict[str, Any]] = []
+        for field in module.get("fields", []):
+            summary_fields.append(
+                {
+                    "label": field.get("label"),
+                    "value": str(module_config.get(field.get("name"), "") or field.get("value", "")),
+                    "optional": field.get("optional", False),
+                }
+            )
+        summary_modules.append(
+            {
+                "title": module.get("title"),
+                "option_label": module["option"].get("label") if isinstance(module.get("option"), Mapping) else "",
+                "installation": module.get("option", {}).get("installation", []) if isinstance(module.get("option"), Mapping) else [],
+                "configuration_notes": module.get("option", {}).get("configuration_notes", []) if isinstance(module.get("option"), Mapping) else [],
+                "fields": summary_fields,
+            }
+        )
+
+    current_step = max(1, min(_SETUP_TOTAL_STEPS, requested_step))
+
+    return {
+        "request": request,
+        "step": current_step,
+        "progress": _setup_progress(current_step),
+        "modules": modules,
+        "selected_modules": selected_modules,
+        "summary_modules": summary_modules,
+        "state": state,
+        "errors": errors or [],
+        "completed": bool(state.get("completed")),
+    }
 
 
 @dataclass
@@ -1998,6 +2552,113 @@ async def api_integration_stub(request: Request) -> Dict[str, Any]:
             ],
         },
     }
+
+
+@router.get("/setup", response_class=HTMLResponse)
+async def setup_get(request: Request, step: Optional[int] = None, restart: bool = False) -> HTMLResponse:
+    """Render the environment setup wizard."""
+
+    if restart:
+        state = reset_setup_state()
+    else:
+        state = load_setup_state()
+
+    context = _build_setup_context(request, state, step=step)
+    return templates.TemplateResponse("setup.html", context)
+
+
+@router.post("/setup", response_class=HTMLResponse)
+async def setup_post(request: Request) -> HTMLResponse:
+    """Handle setup wizard transitions and persist configuration."""
+
+    form = await request.form()
+    action = str(form.get("step") or "1")
+    state = load_setup_state()
+
+    if action == "1":
+        selections: Dict[str, str] = {}
+        errors: List[str] = []
+        for module_key, module_meta in SETUP_MODULES.items():
+            field_name = f"module__{module_key}"
+            value = str(form.get(field_name) or "").strip()
+            if not value or value not in module_meta["options"]:
+                errors.append(f"Select an option for {module_meta.get('title') or module_key}.")
+            else:
+                selections[module_key] = value
+        if errors:
+            temp_state = dict(state)
+            temp_state["selected_options"] = selections
+            context = _build_setup_context(request, temp_state, step=1, errors=errors)
+            return templates.TemplateResponse("setup.html", context, status_code=422)
+
+        configuration = state.get("configuration") if isinstance(state, Mapping) else {}
+        new_configuration: Dict[str, Any] = {}
+        if isinstance(configuration, Mapping):
+            for module_key in selections:
+                module_config = configuration.get(module_key, {})
+                if isinstance(module_config, Mapping):
+                    new_configuration[module_key] = dict(module_config)
+
+        updated_state = dict(state)
+        updated_state["selected_options"] = selections
+        updated_state["configuration"] = new_configuration
+        updated_state["current_step"] = 2
+        updated_state["completed"] = False
+        save_setup_state(updated_state)
+        return RedirectResponse(url="/setup?step=2", status_code=303)
+
+    if action == "2":
+        selected_options = state.get("selected_options") if isinstance(state, Mapping) else {}
+        if not isinstance(selected_options, Mapping) or not selected_options:
+            context = _build_setup_context(request, state, step=1, errors=["Choose an implementation for each module first."])
+            return templates.TemplateResponse("setup.html", context, status_code=422)
+
+        configuration: Dict[str, Dict[str, Any]] = {}
+        errors = []
+        for module_key, option_key in selected_options.items():
+            module_meta = SETUP_MODULES.get(module_key)
+            option_meta = module_meta["options"].get(option_key) if module_meta else None
+            if not option_meta:
+                continue
+            module_config: Dict[str, Any] = {}
+            for field_meta in option_meta.get("fields", []):
+                field_name = str(field_meta.get("name") or "")
+                if not field_name:
+                    continue
+                form_key = f"config__{module_key}__{field_name}"
+                value = str(form.get(form_key) or "").strip()
+                if not value and not field_meta.get("optional"):
+                    errors.append(f"{module_meta.get('title')}: {field_meta.get('label')} is required.")
+                module_config[field_name] = value
+            configuration[module_key] = module_config
+
+        if errors:
+            temp_state = dict(state)
+            temp_state["configuration"] = configuration
+            context = _build_setup_context(request, temp_state, step=2, errors=errors)
+            return templates.TemplateResponse("setup.html", context, status_code=422)
+
+        updated_state = dict(state)
+        updated_state["configuration"] = configuration
+        updated_state["current_step"] = 3
+        updated_state["completed"] = False
+        save_setup_state(updated_state)
+        return RedirectResponse(url="/setup?step=3", status_code=303)
+
+    if action == "complete":
+        updated_state = dict(state)
+        updated_state["completed"] = True
+        updated_state["current_step"] = 3
+        updated_state["completed_at"] = datetime.utcnow().isoformat() + "Z"
+        save_setup_state(updated_state)
+        return RedirectResponse(url="/", status_code=303)
+
+    if action == "reset":
+        reset_setup_state()
+        return RedirectResponse(url="/setup?step=1", status_code=303)
+
+    context = _build_setup_context(request, state)
+    return templates.TemplateResponse("setup.html", context)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -3455,6 +4116,22 @@ def create_app() -> FastAPI:
     """Return a FastAPI application serving contract and dataset views."""
 
     application = FastAPI(title="DC43 Contracts App")
+
+    @application.middleware("http")
+    async def setup_guard(request: Request, call_next):  # type: ignore[override]
+        path = request.url.path
+        exempt_paths = {"/openapi.json"}
+        exempt_prefixes = ("/setup", "/static", "/docs", "/redoc")
+        if path in exempt_paths or any(path.startswith(prefix) for prefix in exempt_prefixes):
+            request.state.setup_required = not is_setup_complete()
+            return await call_next(request)
+
+        setup_done = is_setup_complete()
+        request.state.setup_required = not setup_done
+        if not setup_done and path == "/":
+            return RedirectResponse(url="/setup", status_code=307)
+        return await call_next(request)
+
     application.mount(
         "/static",
         StaticFiles(directory=str(BASE_DIR / "static"), check_dir=False),
