@@ -130,7 +130,7 @@
 <div class="card mb-4">
   <div class="card-body">
     <h2 class="h5">Summary</h2>
-    <p class="mb-3">Review the modules below, apply the suggested environment variables or infrastructure steps, and mark the setup as complete. You can return to previous steps at any time.</p>
+    <p class="mb-3">Review the modules below, apply the suggested environment variables or infrastructure steps, and mark the setup as complete. You can return to previous steps at any time, and when ready you can download a configuration bundle to hand off to your automation workflows.</p>
     {% for module in summary_modules %}
     <section class="border rounded p-3 mb-3">
       <header class="d-flex justify-content-between align-items-start mb-2">
@@ -184,6 +184,9 @@
     <div class="d-flex flex-wrap gap-2">
       <a class="btn btn-outline-secondary" href="/setup?step=1">Edit module selections</a>
       <a class="btn btn-outline-secondary" href="/setup?step=2">Edit connection details</a>
+      {% if can_export_bundle %}
+      <a class="btn btn-outline-primary" href="/setup/export">Download configuration bundle</a>
+      {% endif %}
       <form method="post" class="d-inline">
         <input type="hidden" name="step" value="reset" />
         <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Reset the setup wizard? This will clear your selections.');">Reset wizard</button>
