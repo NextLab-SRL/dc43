@@ -1075,7 +1075,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
     },
     "governance_service": {
         "title": "Governance interface",
-        "summary": "Decide how orchestration between contracts, products, and data quality runs is hosted.",
+        "summary": "Decide whether orchestration runs in-process, via the bundled web service, or through a remote API.",
         "options": {
             "embedded_monolith": {
                 "label": "Embedded web service (server.py)",
@@ -1087,6 +1087,19 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 "configuration_notes": [
                     "No additional configuration is required beyond the workspace paths defined above.",
                     "Use `uvicorn dc43_contracts_app.server:app --reload` for local development mode.",
+                ],
+                "fields": [],
+            },
+            "direct_runtime": {
+                "label": "Direct Python orchestration",
+                "description": "Call governance, contracts, and product services in-process without exposing HTTP endpoints.",
+                "installation": [
+                    "Install the dc43 service backends (`pip install dc43-service-backends[contracts,products,dq]`) inside your orchestrator runtime.",
+                    "Ensure the runtime has filesystem or network access to the storage targets configured above.",
+                ],
+                "configuration_notes": [
+                    "Import the backend factories (for example `dc43_service_backends.governance`) directly from your pipelines or notebooks.",
+                    "Reuse the same environment variables or generated configuration files from previous sections – no web server is required.",
                 ],
                 "fields": [],
             },
