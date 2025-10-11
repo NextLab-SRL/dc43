@@ -20,6 +20,9 @@
 - Added bootstrap helpers (`build_backends`, `build_contract_store`,
   `build_data_product_backend`) that translate the TOML configuration into
   concrete backends for notebooks, services, or tests.
+- Added `config_to_mapping`, `dumps`, and `dump` helpers that serialise service
+  backend configuration dataclasses so tooling can emit TOML files and
+  terraform variable stubs from a single source of truth.
 - Introduced `SQLContractStore` so deployments can persist contracts in
   relational databases (PostgreSQL, MySQL, SQL Server, SQLite) via SQLAlchemy.
 - Documented SQL-backed deployment guidance and configuration templates covering

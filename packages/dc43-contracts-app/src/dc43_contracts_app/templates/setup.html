@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  #setup-root .setup-diagram-container {
+    min-height: 260px;
+  }
+  #setup-root .setup-diagram-container svg {
+    width: 100%;
+    height: auto;
+  }
+  #setup-root .setup-wizard-nav button.active {
+    background-color: var(--bs-primary);
+    color: #fff;
+  }
+  #setup-root .setup-wizard-nav button {
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+</style>
+<div id="setup-root" data-current-step="{{ step }}">
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="mb-1">Environment setup</h1>
+      <p class="text-muted mb-0">Follow the guided wizard to configure the dc43 contracts application for your platform.</p>
+    </div>
+    <div class="text-end">
+      <div class="small text-uppercase text-muted">Progress</div>
+      <div class="progress" style="width: 220px; height: 0.75rem;">
+        <div class="progress-bar" role="progressbar" style="width: {{ progress }}%;" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress }}"></div>
+      </div>
+      <div class="fw-semibold mt-1">Step {{ step }} of 3</div>
+      {% if completed %}
+      <span class="badge bg-success mt-1">Setup complete</span>
+      {% else %}
+      <span class="badge bg-warning text-dark mt-1">Setup required</span>
+      {% endif %}
+      <div class="mt-2">
+        <a href="/setup?restart=1" class="btn btn-outline-danger btn-sm">Reset wizard</a>
+      </div>
+    </div>
+  </div>
+
+  {% if errors %}
+  <div class="alert alert-danger" role="alert">
+    <h2 class="h6 alert-heading">Please check the following before continuing</h2>
+    <ul class="mb-0">
+      {% for message in errors %}
+      <li>{{ message }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5">How the wizard works</h2>
+      <ol class="mb-0 ps-3">
+        <li class="mb-2">Pick the implementation you plan to use for each module (contracts backend, data products backend, data quality engine, governance interface, governance deployment, governance extensions, user interface, user interface deployment, authentication, and optional demo automation).</li>
+        <li class="mb-2">Provide the connection details requested for the implementations you selected. The wizard suggests default paths for local, filesystem, and Delta Lake options, adapts deployment follow-ups based on your runtime choices, and uses these values when building TOML configuration files (and Terraform variables when deploying to AWS or Azure).</li>
+        <li>Review the summary and mark the setup as complete once you have applied the configuration to your Docker compose files, Terraform workspace, TOML bundles, environment variables, or external services.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h6 text-uppercase text-muted mb-0">Architecture overview</h2>
+        <span class="text-muted small">Updates as you refine the wizard</span>
+      </div>
+      <div class="setup-diagram-container border rounded bg-light p-3" data-setup-diagram>
+        <div class="text-center text-muted small">Diagram will render once Mermaid loads…</div>
+      </div>
+    </div>
+  </div>
+
+  {% if step == 1 %}
+  <form method="post" novalidate>
+    <input type="hidden" name="step" value="1" />
+    {% if module_groups %}
+    <div class="row" data-step1-wizard>
+      <div class="col-12 col-lg-3 mb-4 mb-lg-0">
+        <div class="list-group" role="tablist">
+          {% for group in module_groups %}
+          {% set active_count = group.visible_count if group.visible_count is not none else group.modules|length %}
+          {% set total_count = group.total_count if group.total_count is not none else group.modules|length %}
+          <button type="button" class="list-group-item list-group-item-action text-start" data-step1-nav="{{ group.key }}" data-step1-group="{{ group.key }}" data-group-visible="{{ active_count }}" data-group-total="{{ total_count }}" data-group-missing="{{ group.missing_count or 0 }}">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <span class="d-block fw-semibold">{{ group.title }}</span>
+                <small class="text-muted">{{ active_count }} active of {{ total_count }} module{% if total_count != 1 %}s{% endif %}</small>
+              </div>
+              <span class="badge bg-warning text-dark ms-2 {% if not group.missing_count %}d-none{% endif %}" data-step1-nav-missing="{{ group.key }}">{{ group.missing_count }} missing</span>
+            </div>
+          </button>
+          {% endfor %}
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <button type="button" class="btn btn-outline-secondary btn-sm flex-fill" data-step1-prev>Previous</button>
+          <button type="button" class="btn btn-outline-primary btn-sm flex-fill" data-step1-next>Next</button>
+        </div>
+        <a href="/setup?restart=1" class="btn btn-outline-danger btn-sm w-100 mt-2" data-step1-reset>Reset selections</a>
+        <div class="text-muted small mt-2" data-step1-progress></div>
+      </div>
+      <div class="col-12 col-lg-9">
+        {% for group in module_groups %}
+        <div class="mb-4" id="group-{{ group.key }}" data-group-section data-step1-section="{{ group.key }}">
+          <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2 mb-3">
+            <div>
+              <h2 class="h5 mb-1">{{ group.title }}</h2>
+              <p class="mb-0 text-muted">{{ group.summary }}</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge bg-light text-muted border" data-step1-section-active="{{ group.key }}">{{ group.visible_count }} active of {{ group.modules|length }} module{% if group.modules|length != 1 %}s{% endif %}</span>
+              <span class="badge bg-warning text-dark {% if not group.missing_count %}d-none{% endif %}" data-step1-section-missing="{{ group.key }}">{{ group.missing_count }} missing</span>
+            </div>
+          </div>
+          {% for module in group.modules %}
+          <section class="card mb-3{% if module.hidden %} d-none{% endif %}" data-module-card data-module-key="{{ module.key }}" data-module-hidden="{{ 'true' if module.hidden else 'false' }}" {% if module.hidden %}hidden{% endif %}>
+            <header class="card-header bg-white d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <h3 class="h5 mb-1">{{ module.title }}</h3>
+                <p class="mb-0 text-muted">{{ module.summary }}</p>
+              </div>
+              <span class="badge bg-warning text-dark {% if not module.missing_selection %}d-none{% endif %}" data-module-missing="{{ module.key }}">Selection required</span>
+            </header>
+            <div class="card-body">
+              <div class="row g-4">
+                {% for option in module.options %}
+                <div class="col-12 col-md-6">
+                  <div class="border rounded p-3 h-100">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="module__{{ module.key }}" id="option-{{ module.key }}-{{ option.key }}" value="{{ option.key }}" {% if option.selected %}checked{% endif %} />
+                      <label class="form-check-label fw-semibold" for="option-{{ module.key }}-{{ option.key }}">
+                        {{ option.label }}
+                      </label>
+                    </div>
+                    <p class="text-muted small mb-0 mt-2">{{ option.description }}</p>
+                  </div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </section>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <div class="d-flex justify-content-end">
+      <button type="submit" class="btn btn-primary">Continue</button>
+    </div>
+  </form>
+  {% elif step == 2 %}
+  <form method="post" novalidate>
+    <input type="hidden" name="step" value="2" />
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h6 text-uppercase text-muted mb-3">Configuration checklist</h2>
+        {% if selected_groups %}
+        {% for group in selected_groups %}
+        <div class="mb-2">
+          <div class="fw-semibold small text-secondary d-flex justify-content-between align-items-center">
+            <span>{{ group.title }}</span>
+            <span class="badge bg-warning text-dark {% if not group.pending_required %}d-none{% endif %}" data-group-nav-pending="{{ group.key }}">{{ group.pending_required }} missing</span>
+          </div>
+          <div class="d-flex flex-wrap gap-2 setup-wizard-nav" data-wizard-group="{{ group.key }}" data-group-pending="{{ group.pending_required or 0 }}">
+            {% for module in group.modules %}
+            <button type="button" class="btn btn-outline-secondary btn-sm d-flex align-items-center justify-content-between gap-2" data-module-target="{{ module.key }}" data-module-pending="{{ module.pending_required or 0 }}">
+              <span>{{ module.display_index if module.display_index is not none else loop.index }} {{ module.title }}</span>
+              <span class="badge bg-warning text-dark {% if not module.pending_required %}d-none{% endif %}" data-module-nav-pending="{{ module.key }}">{{ module.pending_required }} missing</span>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">Select at least one module in step 1 to configure the details.</p>
+        {% endif %}
+        <div class="d-flex justify-content-between align-items-center mt-3" data-wizard-controls>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-wizard-prev disabled>Previous section</button>
+          <div class="text-muted small" data-wizard-progress></div>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-wizard-next>Next section</button>
+        </div>
+      </div>
+    </div>
+
+    {% for group in selected_groups %}
+    <div class="mb-4" id="group-{{ group.key }}" data-group-section>
+      <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2 mb-3">
+        <div>
+          <h2 class="h5 mb-1">{{ group.title }}</h2>
+          <p class="mb-0 text-muted">{{ group.summary }}</p>
+        </div>
+      </div>
+      {% for module in group.modules %}
+      <section class="card mb-4" data-module-section data-module-key="{{ module.key }}">
+        <div class="card-header bg-white">
+          <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+            <div>
+              <h2 class="h5 mb-1">{{ module.title }}</h2>
+              <div class="text-muted small">{{ module.summary }}</div>
+            </div>
+            <div class="d-flex flex-column align-items-md-end gap-2">
+              <span class="badge bg-secondary">{{ module.option.label }}</span>
+              <span class="badge bg-warning text-dark {% if not module.pending_required %}d-none{% endif %}" data-module-header-pending="{{ module.key }}">{{ module.pending_required }} required</span>
+            </div>
+          </div>
+        </div>
+        <div class="card-body">
+          {% if module.option.installation %}
+          <h3 class="h6">Installation checklist</h3>
+          <ol class="ps-3">
+            {% for item in module.option.installation %}
+            <li class="mb-1">{{ item }}</li>
+            {% endfor %}
+          </ol>
+          {% endif %}
+          {% if module.option.configuration_notes %}
+          <h3 class="h6">Configuration tips</h3>
+          <ul class="ps-3">
+            {% for item in module.option.configuration_notes %}
+            <li class="mb-1">{{ item }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          <div class="row g-4">
+            {% for field in module.fields %}
+            <div class="col-12 col-lg-6">
+              <label class="form-label" for="field-{{ module.key }}-{{ field.name }}">
+                {{ field.label }}
+                {% if field.optional %}<span class="text-muted small">(optional)</span>{% endif %}
+              </label>
+              {% if field.type == "textarea" %}
+              <textarea class="form-control" id="field-{{ module.key }}-{{ field.name }}" name="config__{{ module.key }}__{{ field.name }}" rows="3" placeholder="{{ field.placeholder }}">{{ field.value }}</textarea>
+              {% else %}
+              <input class="form-control" type="{{ field.type }}" id="field-{{ module.key }}-{{ field.name }}" name="config__{{ module.key }}__{{ field.name }}" value="{{ field.value }}" placeholder="{{ field.placeholder }}" />
+              {% endif %}
+              {% if field.help %}
+              <div class="form-text">{{ field.help }}</div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    <div class="d-flex justify-content-between align-items-center">
+      <a class="btn btn-link" href="/setup?step=1">Back</a>
+      <button type="submit" class="btn btn-primary">Review summary</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">Summary</h2>
+      <p class="mb-3">Review the modules below, apply the suggested environment variables or infrastructure steps, and mark the setup as complete. You can return to previous steps at any time, and when ready you can download a configuration bundle that includes drop-in TOML files, Terraform scaffolding for AWS/Azure governance and UI deployments, and bootstrap scripts for your orchestration pipelines.</p>
+      {% for group in summary_groups %}
+      <div class="mb-4" id="group-{{ group.key }}" data-group-section>
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-2 mb-2">
+          <div>
+            <h3 class="h6 mb-1 text-uppercase text-muted">{{ group.title }}</h3>
+            <p class="mb-0 text-muted small">{{ group.summary }}</p>
+          </div>
+        </div>
+        {% for module in group.modules %}
+        <section class="border rounded p-3 mb-3" data-summary-module data-module-key="{{ module.key }}">
+          <header class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <h4 class="h6 mb-1">{{ module.title }}</h4>
+              <span class="badge bg-secondary">{{ module.option_label }}</span>
+            </div>
+          </header>
+          {% if module.installation %}
+          <h5 class="h6">Installation checklist</h5>
+          <ol class="ps-3">
+            {% for item in module.installation %}
+            <li class="mb-1">{{ item }}</li>
+            {% endfor %}
+          </ol>
+          {% endif %}
+          {% if module.configuration_notes %}
+          <h5 class="h6">Configuration notes</h5>
+          <ul class="ps-3">
+            {% for item in module.configuration_notes %}
+            <li class="mb-1">{{ item }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          {% if module.fields %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th scope="col">Setting</th>
+                  <th scope="col">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for field in module.fields %}
+                <tr>
+                  <th scope="row">{{ field.label }}{% if field.optional %} <span class="text-muted small">(optional)</span>{% endif %}</th>
+                  <td class="text-break">{{ field.value }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        </section>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      <div class="alert alert-info" role="alert">
+        <h3 class="h6 alert-heading">Need to make changes?</h3>
+        <p class="mb-1">Use the buttons below to revisit the configuration choices or reset the wizard entirely.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary" href="/setup?step=1">Edit module selections</a>
+        <a class="btn btn-outline-secondary" href="/setup?step=2">Edit connection details</a>
+        {% if can_export_bundle %}
+        <a class="btn btn-outline-primary" href="/setup/export">Download configuration bundle</a>
+        {% endif %}
+        <form method="post" class="d-inline">
+          <input type="hidden" name="step" value="reset" />
+          <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Reset the setup wizard? This will clear your selections.');">Reset wizard</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <form method="post" class="d-flex justify-content-end gap-2">
+    <a class="btn btn-link" href="/setup?step=2">Back</a>
+    <input type="hidden" name="step" value="complete" />
+    <button type="submit" class="btn btn-success">Mark setup as complete</button>
+  </form>
+  {% endif %}
+</div>
+<script type="application/json" id="setup-state">{{ setup_state_payload|tojson }}</script>
+<script type="module" src="{{ url_for('static', path='setup.js') }}"></script>
+{% endblock %}
