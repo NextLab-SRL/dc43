@@ -567,9 +567,11 @@ if (!root) {
       recursionStack.add(moduleKey);
 
       const explicitSet = ensureExplicitSelectedSet();
-      if (explicitSet.has(moduleKey)) {
+      const dependencyKey = moduleMeta.depends_on;
+
+      if (!explicitSet.has(moduleKey) && !dependencyKey) {
         recursionStack.delete(moduleKey);
-        return true;
+        return false;
       }
 
       const selectedValue = setupState.selected?.[moduleKey];
@@ -581,7 +583,6 @@ if (!root) {
       const optionKeys = Object.keys(moduleMeta.options || {});
       const auto = isAutoSelected(moduleKey);
 
-      const dependencyKey = moduleMeta.depends_on;
       if (dependencyKey) {
         const dependencyActive = hasModule(dependencyKey, recursionStack);
         if (!dependencyActive) {
@@ -589,8 +590,10 @@ if (!root) {
           return false;
         }
         if (optionKeys.length <= 1) {
+          const includeSingleOption =
+            explicitSet.has(moduleKey) || explicitSet.has(dependencyKey);
           recursionStack.delete(moduleKey);
-          return true;
+          return includeSingleOption;
         }
         if (auto && !explicitSet.has(moduleKey) && !explicitSet.has(dependencyKey)) {
           recursionStack.delete(moduleKey);
@@ -601,12 +604,18 @@ if (!root) {
       }
 
       if (optionKeys.length <= 1) {
+        const includeSingleOption = explicitSet.has(moduleKey);
+        recursionStack.delete(moduleKey);
+        return includeSingleOption;
+      }
+
+      if (auto && !explicitSet.has(moduleKey)) {
         recursionStack.delete(moduleKey);
         return false;
       }
 
       recursionStack.delete(moduleKey);
-      return !auto;
+      return true;
     };
     const lines = [
       "flowchart LR",
