@@ -3929,12 +3929,26 @@ def _build_setup_context(
             if serialised_config:
                 safe_configuration[str(module_key)] = serialised_config
 
+    explicit_selected_keys: List[str] = []
+    if isinstance(raw_selected_options, Mapping):
+        seen_explicit: Set[str] = set()
+        for module_key, option_key in raw_selected_options.items():
+            if option_key is None:
+                continue
+            module_str = str(module_key)
+            if module_str in seen_explicit:
+                continue
+            seen_explicit.add(module_str)
+            explicit_selected_keys.append(module_str)
+    explicit_selected_keys.sort()
+
     setup_state_payload = {
         "order": module_order,
         "selected": safe_selected,
         "configuration": safe_configuration,
         "modules": modules_metadata,
         "autoSelected": sorted(auto_selected),
+        "explicitSelected": explicit_selected_keys,
         "groups": [
             {
                 "key": group["key"],

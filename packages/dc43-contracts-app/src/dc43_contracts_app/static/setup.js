@@ -11,6 +11,7 @@ if (!root) {
     modules: {},
     groups: [],
     autoSelected: new Set(),
+    explicitSelected: new Set(),
   };
 
   if (stateEl) {
@@ -33,6 +34,9 @@ if (!root) {
       }
       if (Array.isArray(parsed.autoSelected)) {
         setupState.autoSelected = new Set(parsed.autoSelected.map((value) => String(value)));
+      }
+      if (Array.isArray(parsed.explicitSelected)) {
+        setupState.explicitSelected = new Set(parsed.explicitSelected.map((value) => String(value)));
       }
     } catch (error) {
       console.warn("Unable to parse setup wizard state", error);
@@ -102,6 +106,26 @@ if (!root) {
       autoSet.add(moduleKey);
     } else {
       autoSet.delete(moduleKey);
+    }
+  }
+
+  function ensureExplicitSelectedSet() {
+    if (!(setupState.explicitSelected instanceof Set)) {
+      const values = Array.isArray(setupState.explicitSelected) ? setupState.explicitSelected : [];
+      setupState.explicitSelected = new Set(values.map((value) => String(value)));
+    }
+    return setupState.explicitSelected;
+  }
+
+  function markExplicitSelected(moduleKey, shouldMark) {
+    if (!moduleKey) {
+      return;
+    }
+    const explicitSet = ensureExplicitSelectedSet();
+    if (shouldMark) {
+      explicitSet.add(moduleKey);
+    } else {
+      explicitSet.delete(moduleKey);
     }
   }
 
@@ -484,6 +508,12 @@ if (!root) {
 
   function buildMermaidDefinition(highlightKey) {
     const selectedKeys = getSelectedModuleKeys();
+    const explicitSet = ensureExplicitSelectedSet();
+    const hasExplicitSelection = selectedKeys.some((moduleKey) => explicitSet.has(moduleKey));
+    if (!hasExplicitSelection) {
+      return null;
+    }
+
     const hasMeaningfulSelection = selectedKeys.some((moduleKey) => {
       const meta = moduleMeta(moduleKey);
       if (!meta) {
@@ -1017,6 +1047,9 @@ if (!root) {
       if (selection) {
         setupState.selected[moduleKey] = selection;
         markAutoSelected(moduleKey, selectionIsAuto && allowed.length > 1);
+        if (selectionIsAuto) {
+          markExplicitSelected(moduleKey, false);
+        }
         inputs.forEach((input) => {
           if (!input.disabled) {
             input.checked = input.value === selection;
@@ -1027,6 +1060,7 @@ if (!root) {
       } else {
         delete setupState.selected[moduleKey];
         markAutoSelected(moduleKey, false);
+        markExplicitSelected(moduleKey, false);
         inputs.forEach((input) => {
           if (!input.disabled) {
             input.checked = false;
@@ -1055,6 +1089,7 @@ if (!root) {
         }
         setupState.selected[moduleKey] = target.value;
         markAutoSelected(moduleKey, false);
+        markExplicitSelected(moduleKey, true);
         applyModuleDependencies();
         setActiveModule(moduleKey);
       });
