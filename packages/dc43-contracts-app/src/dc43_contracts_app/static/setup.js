@@ -45,6 +45,7 @@ if (!root) {
     contracts_backend: { id: "contracts", className: "storage" },
     products_backend: { id: "products", className: "storage" },
     data_quality: { id: "dq", className: "runtime" },
+    demo_automation: { id: "demo", className: "automation" },
   };
 
   const step = Number.parseInt(root.getAttribute("data-current-step") || "1", 10);
@@ -70,6 +71,8 @@ if (!root) {
   let activeModuleKey = selectedModuleKeys[0] || setupState.order[0] || null;
   let activeGroupKey = null;
   let diagramCounter = 0;
+
+  applyModuleDependencies();
 
   function ensureConfiguration(moduleKey) {
     if (!setupState.configuration[moduleKey] || typeof setupState.configuration[moduleKey] !== "object") {
@@ -191,9 +194,23 @@ if (!root) {
       "  classDef interface fill:#e2f0d9,stroke:#198754,color:#116530;",
       "  classDef security fill:#e7e9f9,stroke:#6f42c1,color:#3d2c8d;",
       "  classDef deployment fill:#fcefee,stroke:#d63384,color:#a61e4d;",
+      "  classDef automation fill:#f3e5f5,stroke:#8e44ad,color:#5f249f;",
+      "  classDef external fill:#fff8e1,stroke:#f0ad4e,color:#a15c0f;",
     ];
 
     const definedNodes = new Set();
+    const externalNodeMap = new Map();
+    const externalEdges = [];
+
+    function resolveNodeRef(ref) {
+      if (!ref) {
+        return null;
+      }
+      if (moduleNodeMap[ref]) {
+        return moduleNodeMap[ref].id;
+      }
+      return String(ref);
+    }
 
     function defineNode(moduleKey, indent = "    ") {
       const nodeMeta = moduleNodeMap[moduleKey];
@@ -203,6 +220,44 @@ if (!root) {
       const label = nodes[nodeMeta.id];
       lines.push(`${indent}${nodeMeta.id}["${label}"]`);
       definedNodes.add(moduleKey);
+    }
+
+    function registerExternalNode(moduleKey, rawNode) {
+      if (!rawNode || !rawNode.id) {
+        return;
+      }
+      const nodeId = String(rawNode.id);
+      if (!externalNodeMap.has(nodeId)) {
+        externalNodeMap.set(nodeId, {
+          id: nodeId,
+          label: sanitizeLabel(rawNode.label || nodeId),
+          className:
+            rawNode.className || rawNode.class || rawNode.class_name || "external",
+        });
+      }
+
+      const edges = Array.isArray(rawNode.edges) && rawNode.edges.length
+        ? rawNode.edges
+        : [
+            {
+              from: moduleKey,
+              to: nodeId,
+              label: rawNode.edgeLabel || null,
+            },
+          ];
+
+      for (const edge of edges) {
+        const fromId = resolveNodeRef(edge.from || moduleKey);
+        const toId = resolveNodeRef(edge.to || nodeId);
+        if (!fromId || !toId) {
+          continue;
+        }
+        externalEdges.push({
+          from: fromId,
+          to: toId,
+          label: edge.label ? sanitizeLabel(edge.label) : null,
+        });
+      }
     }
 
     const pushSubgraph = (title, moduleKeys) => {
@@ -222,6 +277,23 @@ if (!root) {
     pushSubgraph("Deployments", ["ui_deployment", "governance_deployment"]);
     pushSubgraph("Governance", ["governance_service", "governance_extensions", "data_quality"]);
     pushSubgraph("Storage", ["contracts_backend", "products_backend"]);
+    pushSubgraph("Accelerators", ["demo_automation"]);
+
+    if (setupState.modules && typeof setupState.modules === "object") {
+      for (const [moduleKey, moduleMeta] of Object.entries(setupState.modules)) {
+        if (!moduleMeta || !hasModule(moduleKey)) {
+          continue;
+        }
+        const optionMeta = moduleOptionMeta(moduleKey);
+        const diagram = optionMeta?.option?.diagram;
+        if (!diagram || !Array.isArray(diagram.nodes)) {
+          continue;
+        }
+        for (const rawNode of diagram.nodes) {
+          registerExternalNode(moduleKey, rawNode);
+        }
+      }
+    }
 
     if (hasModule("user_interface") && hasModule("governance_service")) {
       lines.push("  ui -->|Orchestrates| gov");
@@ -247,12 +319,34 @@ if (!root) {
     if (hasModule("governance_deployment") && hasModule("governance_service")) {
       lines.push("  gov_dep -.->|Hosts| gov");
     }
+    if (hasModule("demo_automation") && hasModule("governance_service")) {
+      lines.push("  demo -->|Bootstraps| gov");
+    }
+    if (hasModule("demo_automation") && hasModule("user_interface")) {
+      lines.push("  demo -->|Opens| ui");
+    }
+
+    for (const node of externalNodeMap.values()) {
+      lines.push(`  ${node.id}["${node.label}"]`);
+    }
+
+    for (const edge of externalEdges) {
+      const label = edge.label ? `|${edge.label}|` : "";
+      lines.push(`  ${edge.from} -->${label} ${edge.to}`);
+    }
 
     for (const [moduleKey, nodeMeta] of Object.entries(moduleNodeMap)) {
       if (!definedNodes.has(moduleKey) || !nodeMeta.className) {
         continue;
       }
       lines.push(`  class ${nodeMeta.id} ${nodeMeta.className};`);
+    }
+
+    for (const node of externalNodeMap.values()) {
+      if (!node.className) {
+        continue;
+      }
+      lines.push(`  class ${node.id} ${node.className};`);
     }
 
     if (highlightKey && definedNodes.has(highlightKey)) {
@@ -503,6 +597,115 @@ if (!root) {
     }
   }
 
+  function getModuleOptionInputs(moduleKey) {
+    if (!moduleKey) {
+      return [];
+    }
+    return Array.from(
+      root.querySelectorAll(`input[type="radio"][name="module__${moduleKey}"]`),
+    );
+  }
+
+  function applyModuleDependencies() {
+    const governanceRuntime = setupState.selected.governance_service;
+    const governanceInputs = getModuleOptionInputs("governance_deployment");
+    if (governanceInputs.length) {
+      if (governanceRuntime === "direct_runtime") {
+        governanceInputs.forEach((input) => {
+          const isNotRequired = input.value === "not_required";
+          input.disabled = !isNotRequired;
+          if (isNotRequired) {
+            if (!input.checked) {
+              input.checked = true;
+            }
+            setupState.selected.governance_deployment = input.value;
+          } else if (input.checked) {
+            input.checked = false;
+          }
+        });
+      } else {
+        governanceInputs.forEach((input) => {
+          input.disabled = input.value === "not_required";
+          if (input.disabled && input.checked) {
+            input.checked = false;
+          }
+        });
+        let selectedInput = governanceInputs.find((input) => input.checked && !input.disabled);
+        if (!selectedInput) {
+          selectedInput =
+            governanceInputs.find((input) => input.value === "local_python" && !input.disabled) ||
+            governanceInputs.find((input) => input.value === "local_docker" && !input.disabled) ||
+            governanceInputs.find((input) => !input.disabled);
+        }
+        if (selectedInput) {
+          governanceInputs.forEach((input) => {
+            input.checked = input === selectedInput;
+          });
+          setupState.selected.governance_deployment = selectedInput.value;
+        }
+      }
+    }
+
+    const uiMode = setupState.selected.user_interface;
+    const uiInputs = getModuleOptionInputs("ui_deployment");
+    if (uiInputs.length) {
+      uiInputs.forEach((input) => {
+        input.disabled = false;
+      });
+      let preferred = setupState.selected.ui_deployment;
+      if (uiMode === "local_web") {
+        if (!preferred || preferred === "skip_hosting") {
+          preferred = "local_python";
+        }
+      } else if (uiMode === "remote_portal") {
+        if (!preferred || preferred === "local_python") {
+          preferred = "skip_hosting";
+        }
+      }
+
+      let selectedInput = preferred
+        ? uiInputs.find((input) => input.value === preferred)
+        : uiInputs.find((input) => input.checked);
+      if (!selectedInput) {
+        selectedInput =
+          uiInputs.find((input) => input.value === "skip_hosting") || uiInputs.find((input) => true);
+      }
+      if (selectedInput) {
+        uiInputs.forEach((input) => {
+          input.checked = input === selectedInput;
+        });
+        setupState.selected.ui_deployment = selectedInput.value;
+      }
+    }
+
+    const demoInputs = getModuleOptionInputs("demo_automation");
+    if (demoInputs.length) {
+      let selectedDemo = setupState.selected.demo_automation;
+      if (!selectedDemo) {
+        const defaultInput =
+          demoInputs.find((input) => input.value === "skip_demo") || demoInputs[0] || null;
+        if (defaultInput && !defaultInput.checked) {
+          defaultInput.checked = true;
+        }
+        if (defaultInput) {
+          selectedDemo = defaultInput.value;
+        }
+      } else {
+        const matchingInput = demoInputs.find((input) => input.value === selectedDemo);
+        if (!matchingInput) {
+          const fallback = demoInputs[0];
+          if (fallback && !fallback.checked) {
+            fallback.checked = true;
+          }
+          selectedDemo = fallback ? fallback.value : selectedDemo;
+        }
+      }
+      if (selectedDemo) {
+        setupState.selected.demo_automation = selectedDemo;
+      }
+    }
+  }
+
   function bindStepOneInteractions() {
     const optionInputs = Array.from(root.querySelectorAll('input[type="radio"][name^="module__"]'));
     optionInputs.forEach((input) => {
@@ -516,6 +719,7 @@ if (!root) {
           return;
         }
         setupState.selected[moduleKey] = target.value;
+        applyModuleDependencies();
         setActiveModule(moduleKey);
       });
     });

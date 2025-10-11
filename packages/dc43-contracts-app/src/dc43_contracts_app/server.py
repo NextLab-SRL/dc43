@@ -29,7 +29,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable, Callable
+from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable, Callable, Set
 from uuid import uuid4
 from threading import Lock
 import threading
@@ -827,6 +827,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "default_factory": lambda workspace: str(workspace.contracts_dir),
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "contracts_backend_filesystem",
+                            "label": "Contracts workspace (filesystem)",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "contracts_backend",
+                                    "to": "contracts_backend_filesystem",
+                                    "label": "Stores contracts",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             "collibra": {
                 "label": "Collibra governance backend",
@@ -865,6 +881,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "help": "Collibra domain that will contain the contract assets.",
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "contracts_backend_collibra",
+                            "label": "Collibra contracts domain",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "contracts_backend",
+                                    "to": "contracts_backend_collibra",
+                                    "label": "Syncs assets",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             "sql": {
                 "label": "SQL database",
@@ -898,6 +930,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "optional": True,
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "contracts_backend_sql",
+                            "label": "Contracts SQL database",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "contracts_backend",
+                                    "to": "contracts_backend_sql",
+                                    "label": "Persists metadata",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             "delta_lake": {
                 "label": "Delta Lake (SQL-on-lake)",
@@ -931,6 +979,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "help": "Schema or database that groups the contract Delta tables.",
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "contracts_backend_delta",
+                            "label": "Contracts Delta Lake",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "contracts_backend",
+                                    "to": "contracts_backend_delta",
+                                    "label": "ACID table",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
         },
     },
@@ -958,6 +1022,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "default_factory": lambda workspace: str(workspace.root / "products"),
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "products_backend_filesystem",
+                            "label": "Products workspace (filesystem)",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "products_backend",
+                                    "to": "products_backend_filesystem",
+                                    "label": "Stores products",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             "collibra": {
                 "label": "Collibra domain",
@@ -996,6 +1076,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "help": "Collibra domain identifier where product assets are stored.",
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "products_backend_collibra",
+                            "label": "Collibra products domain",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "products_backend",
+                                    "to": "products_backend_collibra",
+                                    "label": "Syncs assets",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             "sql": {
                 "label": "SQL database",
@@ -1022,6 +1118,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "help": "Schema that contains the product tables and views.",
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "products_backend_sql",
+                            "label": "Products SQL database",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "products_backend",
+                                    "to": "products_backend_sql",
+                                    "label": "Persists metadata",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             "delta_lake": {
                 "label": "Delta Lake",
@@ -1054,6 +1166,22 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "help": "Schema or database that holds the product Delta tables.",
                     },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "products_backend_delta",
+                            "label": "Products Delta Lake",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "products_backend",
+                                    "to": "products_backend_delta",
+                                    "label": "ACID table",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
         },
     },
@@ -1154,6 +1282,28 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
         "title": "Governance service deployment",
         "summary": "Capture how the governance backends are hosted so the wizard can emit scripts or Terraform stubs per environment.",
         "options": {
+            "local_python": {
+                "label": "Local Python process",
+                "description": "Start the bundled FastAPI server directly with `uvicorn` for interactive development.",
+                "installation": [
+                    "Install the contracts app package into your virtual environment (for example `pip install -e .`).",
+                    "Run `uvicorn dc43_contracts_app.server:app --reload --port 8000` from the workspace root.",
+                ],
+                "configuration_notes": [
+                    "Reuse the TOML files exported by the wizard or environment variables to configure backends.",
+                    "Ensure the process runs with access to the same workspace paths defined in the storage step.",
+                ],
+                "fields": [
+                    {
+                        "name": "command",
+                        "label": "Launch command",
+                        "placeholder": "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                        "help": "Command used by developers to start the governance service locally.",
+                        "optional": True,
+                        "default_factory": lambda workspace: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                    },
+                ],
+            },
             "local_docker": {
                 "label": "Local Docker or Compose",
                 "description": "Keep the governance service on a laptop or developer workstation using Docker Compose and the generated helper scripts.",
@@ -1531,6 +1681,18 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                     },
                 ],
             },
+            "not_required": {
+                "label": "Not required (direct runtime)",
+                "description": "Skip dedicated deployment automation when governance orchestration stays embedded in Python workloads.",
+                "installation": [
+                    "No standalone service is provisioned – pipelines import and execute governance code directly.",
+                ],
+                "configuration_notes": [
+                    "Ensure orchestrators install `dc43-service-backends` and reference the generated TOML files.",
+                ],
+                "fields": [],
+                "skip_configuration": True,
+            },
         },
     },
     "governance_extensions": {
@@ -1656,6 +1818,28 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
         "title": "User interface deployment",
         "summary": "Document how the contracts UI is hosted so deployment scripts and Terraform variables can be generated per environment.",
         "options": {
+            "local_python": {
+                "label": "Local Python process",
+                "description": "Run the UI with the bundled FastAPI server directly from your shell (no containers).",
+                "installation": [
+                    "Install the contracts app package and its extras into a virtual environment.",
+                    "Start the UI with `uvicorn dc43_contracts_app.server:app --reload --port 8000` and keep the terminal session running.",
+                ],
+                "configuration_notes": [
+                    "Load the generated TOML files via `DC43_CONTRACTS_APP_CONFIG` or environment variables.",
+                    "Ensure the workspace folders selected earlier are accessible on the host machine.",
+                ],
+                "fields": [
+                    {
+                        "name": "command",
+                        "label": "Launch command",
+                        "placeholder": "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                        "help": "Command your operators should run to bring up the UI locally.",
+                        "optional": True,
+                        "default_factory": lambda workspace: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                    },
+                ],
+            },
             "local_docker": {
                 "label": "Local Docker or Compose",
                 "description": "Run the UI from the same container that serves governance by using the helper scripts provided by the wizard.",
@@ -1668,6 +1852,18 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                     "Reuse the same workspace volume as the governance service so edits persist.",
                 ],
                 "fields": [],
+            },
+            "skip_hosting": {
+                "label": "No dedicated hosting",
+                "description": "Document that the UI will not be deployed – operators rely on APIs or another portal.",
+                "installation": [
+                    "No services are provisioned by this wizard selection.",
+                ],
+                "configuration_notes": [
+                    "Ensure governance APIs are reachable for automation even without the bundled UI.",
+                ],
+                "fields": [],
+                "skip_configuration": True,
             },
             "aws_terraform": {
                 "label": "AWS (Terraform scaffold)",
@@ -1928,6 +2124,50 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
             },
         },
     },
+    "demo_automation": {
+        "title": "Demo automation",
+        "summary": "Optionally launch the sample stack so teams can explore dc43 quickly.",
+        "options": {
+            "skip_demo": {
+                "label": "Do not launch the demo",
+                "description": "Skip demo orchestration and proceed with production workflows only.",
+                "installation": [
+                    "No demo-specific scripts or datasets will be provisioned.",
+                ],
+                "configuration_notes": [
+                    "You can always re-run the wizard and export demo helpers later if needed.",
+                ],
+                "fields": [],
+                "skip_configuration": True,
+            },
+            "local_python": {
+                "label": "Run demo locally (Python)",
+                "description": "Execute the generated helper script to populate sample contracts and run orchestrated pipelines on your laptop.",
+                "installation": [
+                    "Install the repository in editable mode (`pip install -e .[demo]`) so demo modules are importable.",
+                    "Execute `python scripts/run_demo.py` from the exported bundle to seed sample data and launch demo flows.",
+                ],
+                "configuration_notes": [
+                    "Ensure the workspace directories selected in storage steps exist and are writable.",
+                    "Review the generated README for credentials and follow-up teardown guidance.",
+                ],
+                "fields": [],
+            },
+            "local_docker": {
+                "label": "Run demo locally (Docker)",
+                "description": "Leverage Docker Compose via the helper script to start the demo UI, governance APIs, and datasets.",
+                "installation": [
+                    "Install Docker Desktop (or equivalent) with access to the repository workspace volume.",
+                    "Run `./run_local_stack.py --with-demo` from the exported bundle to launch the demo stack.",
+                ],
+                "configuration_notes": [
+                    "The helper reuses the TOML configuration emitted by the wizard for consistency.",
+                    "Stop the containers before running infrastructure automation to avoid port conflicts.",
+                ],
+                "fields": [],
+            },
+        },
+    },
     "authentication": {
         "title": "Authentication & access",
         "summary": "Configure how users authenticate with the UI and downstream services.",
@@ -2042,6 +2282,12 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "summary": "Specify how users authenticate with the UI and downstream services.",
         "modules": ["authentication"],
     },
+    {
+        "key": "accelerators",
+        "title": "Accelerators",
+        "summary": "Optionally launch the bundled demo so teams can explore the platform end-to-end.",
+        "modules": ["demo_automation"],
+    },
 ]
 
 
@@ -2105,6 +2351,55 @@ def _serialise_field(
         "type": field_meta.get("type", "text"),
         "value": value,
     }
+
+
+def _serialise_diagram(diagram_meta: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return a JSON-safe payload describing diagram nodes/edges."""
+
+    nodes: List[Dict[str, Any]] = []
+    for node_meta in diagram_meta.get("nodes", []):
+        if not isinstance(node_meta, Mapping):
+            continue
+        node_id = str(node_meta.get("id") or "").strip()
+        if not node_id:
+            continue
+        node_payload: Dict[str, Any] = {
+            "id": node_id,
+            "label": node_meta.get("label") or node_id,
+        }
+        class_name = (
+            node_meta.get("class")
+            or node_meta.get("class_name")
+            or node_meta.get("className")
+        )
+        if class_name:
+            node_payload["className"] = str(class_name)
+
+        edges: List[Dict[str, Any]] = []
+        for edge_meta in node_meta.get("edges", []):
+            if not isinstance(edge_meta, Mapping):
+                continue
+            edge_from = str(edge_meta.get("from") or "").strip()
+            edge_to = str(edge_meta.get("to") or "").strip()
+            if not edge_from or not edge_to:
+                continue
+            edge_payload: Dict[str, Any] = {
+                "from": edge_from,
+                "to": edge_to,
+            }
+            if edge_meta.get("label"):
+                edge_payload["label"] = str(edge_meta.get("label"))
+            edges.append(edge_payload)
+
+        if edges:
+            node_payload["edges"] = edges
+
+        nodes.append(node_payload)
+
+    payload: Dict[str, Any] = {}
+    if nodes:
+        payload["nodes"] = nodes
+    return payload
 
 
 def _setup_export_payload(state: Mapping[str, Any]) -> Dict[str, Any]:
@@ -3213,11 +3508,17 @@ def _build_setup_context(
                         "optional": bool(field_meta.get("optional")),
                     }
                 )
-            safe_options[option_key] = {
+            safe_option: Dict[str, Any] = {
                 "label": option_meta.get("label"),
                 "description": option_meta.get("description", ""),
                 "fields": safe_fields,
             }
+            diagram_meta = option_meta.get("diagram")
+            if isinstance(diagram_meta, Mapping):
+                serialised_diagram = _serialise_diagram(diagram_meta)
+                if serialised_diagram:
+                    safe_option["diagram"] = serialised_diagram
+            safe_options[option_key] = safe_option
         module_payload = {
             "key": module_key,
             "title": module_meta.get("title"),
@@ -3292,18 +3593,23 @@ def _build_setup_context(
                 },
                 "fields": fields,
                 "group_key": module_to_group.get(module_key),
+                "skip_configuration": bool(option_meta.get("skip_configuration")),
             }
         )
 
     selected_by_key = {module["key"]: module for module in selected_modules}
     selected_groups: List[Dict[str, Any]] = []
-    seen_selected: List[str] = []
+    seen_selected: Set[str] = set()
     for group in module_groups:
-        group_selected = [
-            selected_by_key[key]
-            for key in group.get("module_keys", [])
-            if key in selected_by_key
-        ]
+        group_selected: List[Dict[str, Any]] = []
+        for key in group.get("module_keys", []):
+            if key not in selected_by_key:
+                continue
+            seen_selected.add(key)
+            module_entry = selected_by_key[key]
+            if module_entry.get("skip_configuration"):
+                continue
+            group_selected.append(module_entry)
         if not group_selected:
             continue
         selected_groups.append(
@@ -3315,7 +3621,6 @@ def _build_setup_context(
                 "module_keys": [module["key"] for module in group_selected],
             }
         )
-        seen_selected.extend(module["key"] for module in group_selected)
 
     remaining_selected = [
         module
@@ -3332,6 +3637,12 @@ def _build_setup_context(
                 "module_keys": [module["key"] for module in remaining_selected],
             }
         )
+
+    for group_index, group in enumerate(selected_groups, start=1):
+        group["display_index"] = group_index
+        modules = group.get("modules", [])
+        for module_index, module in enumerate(modules, start=1):
+            module["display_index"] = f"{group_index}.{module_index}"
 
     summary_modules_map: Dict[str, Dict[str, Any]] = {}
     for module in selected_modules:

@@ -51,8 +51,8 @@
     <div class="card-body">
       <h2 class="h5">How the wizard works</h2>
       <ol class="mb-0 ps-3">
-        <li class="mb-2">Pick the implementation you plan to use for each module (contracts backend, data products backend, data quality engine, governance interface, governance deployment, governance extensions, user interface, user interface deployment, and authentication).</li>
-        <li class="mb-2">Provide the connection details requested for the implementations you selected. The wizard suggests default paths for local, filesystem, and Delta Lake options and uses these values when building TOML configuration files (and Terraform variables when deploying to AWS or Azure).</li>
+        <li class="mb-2">Pick the implementation you plan to use for each module (contracts backend, data products backend, data quality engine, governance interface, governance deployment, governance extensions, user interface, user interface deployment, authentication, and optional demo automation).</li>
+        <li class="mb-2">Provide the connection details requested for the implementations you selected. The wizard suggests default paths for local, filesystem, and Delta Lake options, adapts deployment follow-ups based on your runtime choices, and uses these values when building TOML configuration files (and Terraform variables when deploying to AWS or Azure).</li>
         <li>Review the summary and mark the setup as complete once you have applied the configuration to your Docker compose files, Terraform workspace, TOML bundles, environment variables, or external services.</li>
       </ol>
     </div>
@@ -146,7 +146,7 @@
           <div class="fw-semibold small text-secondary">{{ group.title }}</div>
           <div class="d-flex flex-wrap gap-2 setup-wizard-nav" data-wizard-group="{{ group.key }}">
             {% for module in group.modules %}
-            <button type="button" class="btn btn-outline-secondary btn-sm" data-module-target="{{ module.key }}">{{ loop.parent.index }}.{{ loop.index }} {{ module.title }}</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-module-target="{{ module.key }}">{{ module.display_index if module.display_index is not none else loop.index }} {{ module.title }}</button>
             {% endfor %}
           </div>
         </div>
