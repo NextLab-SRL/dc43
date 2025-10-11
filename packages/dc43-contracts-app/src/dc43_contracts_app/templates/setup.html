@@ -33,6 +33,9 @@
       {% else %}
       <span class="badge bg-warning text-dark mt-1">Setup required</span>
       {% endif %}
+      <div class="mt-2">
+        <a href="/setup?restart=1" class="btn btn-outline-danger btn-sm">Reset wizard</a>
+      </div>
     </div>
   </div>
 
@@ -78,9 +81,16 @@
       <div class="col-12 col-lg-3 mb-4 mb-lg-0">
         <div class="list-group" role="tablist">
           {% for group in module_groups %}
-          <button type="button" class="list-group-item list-group-item-action" data-step1-nav="{{ group.key }}">
-            <span class="d-block fw-semibold">{{ group.title }}</span>
-            <small class="text-muted">{{ group.modules|length }} module{% if group.modules|length != 1 %}s{% endif %}</small>
+          {% set active_count = group.visible_count if group.visible_count is not none else group.modules|length %}
+          {% set total_count = group.total_count if group.total_count is not none else group.modules|length %}
+          <button type="button" class="list-group-item list-group-item-action text-start" data-step1-nav="{{ group.key }}" data-step1-group="{{ group.key }}" data-group-visible="{{ active_count }}" data-group-total="{{ total_count }}" data-group-missing="{{ group.missing_count or 0 }}">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <span class="d-block fw-semibold">{{ group.title }}</span>
+                <small class="text-muted">{{ active_count }} active of {{ total_count }} module{% if total_count != 1 %}s{% endif %}</small>
+              </div>
+              <span class="badge bg-warning text-dark ms-2 {% if not group.missing_count %}d-none{% endif %}" data-step1-nav-missing="{{ group.key }}">{{ group.missing_count }} missing</span>
+            </div>
           </button>
           {% endfor %}
         </div>
@@ -88,6 +98,7 @@
           <button type="button" class="btn btn-outline-secondary btn-sm flex-fill" data-step1-prev>Previous</button>
           <button type="button" class="btn btn-outline-primary btn-sm flex-fill" data-step1-next>Next</button>
         </div>
+        <a href="/setup?restart=1" class="btn btn-outline-danger btn-sm w-100 mt-2" data-step1-reset>Reset selections</a>
         <div class="text-muted small mt-2" data-step1-progress></div>
       </div>
       <div class="col-12 col-lg-9">
@@ -98,13 +109,19 @@
               <h2 class="h5 mb-1">{{ group.title }}</h2>
               <p class="mb-0 text-muted">{{ group.summary }}</p>
             </div>
-            <span class="badge bg-light text-muted border">{{ group.modules|length }} module{% if group.modules|length != 1 %}s{% endif %}</span>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge bg-light text-muted border" data-step1-section-active="{{ group.key }}">{{ group.visible_count }} active of {{ group.modules|length }} module{% if group.modules|length != 1 %}s{% endif %}</span>
+              <span class="badge bg-warning text-dark {% if not group.missing_count %}d-none{% endif %}" data-step1-section-missing="{{ group.key }}">{{ group.missing_count }} missing</span>
+            </div>
           </div>
           {% for module in group.modules %}
-          <section class="card mb-3" data-module-card data-module-key="{{ module.key }}">
-            <header class="card-header bg-white">
-              <h3 class="h5 mb-1">{{ module.title }}</h3>
-              <p class="mb-0 text-muted">{{ module.summary }}</p>
+          <section class="card mb-3{% if module.hidden %} d-none{% endif %}" data-module-card data-module-key="{{ module.key }}" data-module-hidden="{{ 'true' if module.hidden else 'false' }}" {% if module.hidden %}hidden{% endif %}>
+            <header class="card-header bg-white d-flex justify-content-between align-items-start gap-3">
+              <div>
+                <h3 class="h5 mb-1">{{ module.title }}</h3>
+                <p class="mb-0 text-muted">{{ module.summary }}</p>
+              </div>
+              <span class="badge bg-warning text-dark {% if not module.missing_selection %}d-none{% endif %}" data-module-missing="{{ module.key }}">Selection required</span>
             </header>
             <div class="card-body">
               <div class="row g-4">
@@ -143,10 +160,16 @@
         {% if selected_groups %}
         {% for group in selected_groups %}
         <div class="mb-2">
-          <div class="fw-semibold small text-secondary">{{ group.title }}</div>
-          <div class="d-flex flex-wrap gap-2 setup-wizard-nav" data-wizard-group="{{ group.key }}">
+          <div class="fw-semibold small text-secondary d-flex justify-content-between align-items-center">
+            <span>{{ group.title }}</span>
+            <span class="badge bg-warning text-dark {% if not group.pending_required %}d-none{% endif %}" data-group-nav-pending="{{ group.key }}">{{ group.pending_required }} missing</span>
+          </div>
+          <div class="d-flex flex-wrap gap-2 setup-wizard-nav" data-wizard-group="{{ group.key }}" data-group-pending="{{ group.pending_required or 0 }}">
             {% for module in group.modules %}
-            <button type="button" class="btn btn-outline-secondary btn-sm" data-module-target="{{ module.key }}">{{ module.display_index if module.display_index is not none else loop.index }} {{ module.title }}</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm d-flex align-items-center justify-content-between gap-2" data-module-target="{{ module.key }}" data-module-pending="{{ module.pending_required or 0 }}">
+              <span>{{ module.display_index if module.display_index is not none else loop.index }} {{ module.title }}</span>
+              <span class="badge bg-warning text-dark {% if not module.pending_required %}d-none{% endif %}" data-module-nav-pending="{{ module.key }}">{{ module.pending_required }} missing</span>
+            </button>
             {% endfor %}
           </div>
         </div>
@@ -173,9 +196,16 @@
       {% for module in group.modules %}
       <section class="card mb-4" data-module-section data-module-key="{{ module.key }}">
         <div class="card-header bg-white">
-          <h2 class="h5 mb-1">{{ module.title }}</h2>
-          <div class="text-muted small">{{ module.summary }}</div>
-          <span class="badge bg-secondary mt-2">{{ module.option.label }}</span>
+          <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
+            <div>
+              <h2 class="h5 mb-1">{{ module.title }}</h2>
+              <div class="text-muted small">{{ module.summary }}</div>
+            </div>
+            <div class="d-flex flex-column align-items-md-end gap-2">
+              <span class="badge bg-secondary">{{ module.option.label }}</span>
+              <span class="badge bg-warning text-dark {% if not module.pending_required %}d-none{% endif %}" data-module-header-pending="{{ module.key }}">{{ module.pending_required }} required</span>
+            </div>
+          </div>
         </div>
         <div class="card-body">
           {% if module.option.installation %}

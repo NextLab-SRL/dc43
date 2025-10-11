@@ -1281,6 +1281,24 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
     "governance_deployment": {
         "title": "Governance service deployment",
         "summary": "Capture how the governance backends are hosted so the wizard can emit scripts or Terraform stubs per environment.",
+        "depends_on": "governance_service",
+        "visible_when": {
+            "embedded_monolith": ["local_python", "local_docker"],
+            "remote_api": [
+                "local_python",
+                "local_docker",
+                "aws_terraform",
+                "azure_terraform",
+            ],
+            "direct_runtime": ["not_required"],
+        },
+        "hide_when": ["direct_runtime"],
+        "default_for": {
+            "embedded_monolith": "local_python",
+            "remote_api": "local_docker",
+            "direct_runtime": "not_required",
+        },
+        "default_option": "local_python",
         "options": {
             "local_python": {
                 "label": "Local Python process",
@@ -1817,6 +1835,27 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
     "ui_deployment": {
         "title": "User interface deployment",
         "summary": "Document how the contracts UI is hosted so deployment scripts and Terraform variables can be generated per environment.",
+        "depends_on": "user_interface",
+        "visible_when": {
+            "local_web": ["skip_hosting"],
+            "local_python": ["local_python"],
+            "local_docker": ["local_docker"],
+            "remote_portal": ["skip_hosting", "aws_terraform", "azure_terraform"],
+            "aws_terraform": ["aws_terraform"],
+            "azure_terraform": ["azure_terraform"],
+            "skip_hosting": ["skip_hosting"],
+        },
+        "hide_when": ["local_web", "skip_hosting"],
+        "default_for": {
+            "local_web": "skip_hosting",
+            "local_python": "local_python",
+            "local_docker": "local_docker",
+            "remote_portal": "skip_hosting",
+            "aws_terraform": "aws_terraform",
+            "azure_terraform": "azure_terraform",
+            "skip_hosting": "skip_hosting",
+        },
+        "default_option": "skip_hosting",
         "options": {
             "local_python": {
                 "label": "Local Python process",
@@ -2127,6 +2166,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
     "demo_automation": {
         "title": "Demo automation",
         "summary": "Optionally launch the sample stack so teams can explore dc43 quickly.",
+        "default_option": "skip_demo",
         "options": {
             "skip_demo": {
                 "label": "Do not launch the demo",
@@ -2259,12 +2299,6 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "modules": ["contracts_backend", "products_backend"],
     },
     {
-        "key": "quality_extensions",
-        "title": "Quality & extensions",
-        "summary": "Cover the bundled data-quality engine and optional governance hooks that enrich downstream catalogs.",
-        "modules": ["data_quality", "governance_extensions"],
-    },
-    {
         "key": "governance_runtime",
         "title": "Governance runtime",
         "summary": "Pair the governance interface model with the matching deployment approach so runtime and automation stay in sync.",
@@ -2281,6 +2315,12 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "title": "Access & security",
         "summary": "Specify how users authenticate with the UI and downstream services.",
         "modules": ["authentication"],
+    },
+    {
+        "key": "quality_extensions",
+        "title": "Quality & extensions",
+        "summary": "Cover the bundled data-quality engine and optional governance hooks that enrich downstream catalogs.",
+        "modules": ["data_quality", "governance_extensions"],
     },
     {
         "key": "accelerators",
@@ -2319,6 +2359,74 @@ def _requires_configuration(selected: Mapping[str, str], configuration: Mapping[
             if not value:
                 return True
     return False
+
+
+def _module_dependency_value(module_key: str, selected: Mapping[str, str]) -> str | None:
+    """Return the dependency value for ``module_key`` if configured."""
+
+    module_meta = SETUP_MODULES.get(module_key)
+    if not module_meta:
+        return None
+    depends_on = module_meta.get("depends_on")
+    if not depends_on:
+        return None
+    value = selected.get(depends_on)
+    return str(value) if value is not None else None
+
+
+def _module_visible_options(module_key: str, selected: Mapping[str, str]) -> List[str]:
+    """Return option keys that should be shown for ``module_key``."""
+
+    module_meta = SETUP_MODULES.get(module_key)
+    if not module_meta:
+        return []
+    options = module_meta.get("options", {})
+    depends_on = module_meta.get("depends_on")
+    visible_map = module_meta.get("visible_when") or {}
+    if not depends_on or not visible_map:
+        return [str(key) for key in options.keys()]
+    dependency_value = _module_dependency_value(module_key, selected)
+    if dependency_value is None:
+        allowed = visible_map.get("__default__", [])
+    else:
+        allowed = visible_map.get(dependency_value)
+        if allowed is None:
+            allowed = visible_map.get("__default__", [])
+    if not isinstance(allowed, Iterable):
+        return []
+    return [key for key in allowed if key in options]
+
+
+def _module_should_hide(module_key: str, selected: Mapping[str, str]) -> bool:
+    """Return ``True`` when a module should be hidden based on dependencies."""
+
+    module_meta = SETUP_MODULES.get(module_key)
+    if not module_meta:
+        return False
+    hide_when = module_meta.get("hide_when") or []
+    if not hide_when:
+        return False
+    dependency_value = _module_dependency_value(module_key, selected)
+    return dependency_value in hide_when
+
+
+def _module_default_option(module_key: str, selected: Mapping[str, str]) -> str | None:
+    """Return the default option for ``module_key`` given current selections."""
+
+    module_meta = SETUP_MODULES.get(module_key)
+    if not module_meta:
+        return None
+    default_map = module_meta.get("default_for") or {}
+    dependency_value = _module_dependency_value(module_key, selected)
+    if dependency_value is not None and dependency_value in default_map:
+        return str(default_map[dependency_value])
+    default_option = module_meta.get("default_option")
+    if isinstance(default_option, str) and default_option in module_meta.get("options", {}):
+        return default_option
+    visible_options = _module_visible_options(module_key, selected)
+    if len(visible_options) == 1:
+        return visible_options[0]
+    return None
 
 
 def _serialise_field(
@@ -3452,17 +3560,44 @@ def _build_setup_context(
     """Return the template context shared by onboarding views."""
 
     selected_options_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
-    selected_options: Dict[str, str] = {}
+    raw_selected_options: Dict[str, str] = {}
     if isinstance(selected_options_raw, Mapping):
-        selected_options = {str(key): str(value) for key, value in selected_options_raw.items()}
+        raw_selected_options = {str(key): str(value) for key, value in selected_options_raw.items()}
 
     configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
     configuration: Dict[str, Any] = {}
     if isinstance(configuration_raw, Mapping):
         configuration = {str(key): value for key, value in configuration_raw.items()}
 
+    module_order = list(SETUP_MODULES.keys())
+    resolved_selected: Dict[str, str] = dict(raw_selected_options)
+    auto_selected: Set[str] = set()
+    for module_key in module_order:
+        visible_options = _module_visible_options(module_key, resolved_selected)
+        current_value = resolved_selected.get(module_key)
+        if current_value and visible_options and current_value not in visible_options:
+            current_value = None
+        auto_choice = False
+        if not current_value and visible_options:
+            default_option = _module_default_option(module_key, resolved_selected)
+            if default_option and (not visible_options or default_option in visible_options):
+                current_value = default_option
+                if raw_selected_options.get(module_key) != default_option:
+                    auto_choice = True
+        if current_value:
+            resolved_selected[module_key] = current_value
+            if auto_choice:
+                auto_selected.add(module_key)
+            elif module_key in auto_selected and raw_selected_options.get(module_key) == current_value:
+                auto_selected.discard(module_key)
+        else:
+            resolved_selected.pop(module_key, None)
+            auto_selected.discard(module_key)
+
+    selected_options = resolved_selected
+
     requested_step = int(state.get("current_step") or 1) if step is None else int(step)
-    if requested_step > 1 and not selected_options:
+    if requested_step > 1 and not raw_selected_options:
         requested_step = 1
 
     if requested_step >= _SETUP_TOTAL_STEPS and not state.get("completed"):
@@ -3474,7 +3609,6 @@ def _build_setup_context(
 
     workspace = current_workspace()
 
-    module_order = list(SETUP_MODULES.keys())
     module_to_group: Dict[str, str] = {}
     for group_meta in SETUP_MODULE_GROUPS:
         for group_module in group_meta.get("modules", []):
@@ -3485,9 +3619,22 @@ def _build_setup_context(
     modules_metadata: Dict[str, Any] = {}
     for module_key in module_order:
         module_meta = SETUP_MODULES[module_key]
+        visible_options = _module_visible_options(module_key, selected_options)
+        module_hidden = _module_should_hide(module_key, selected_options) or (
+            module_meta.get("depends_on") and not visible_options
+        )
+
+        option_items: Iterable[Tuple[str, Mapping[str, Any]]] = module_meta["options"].items()
+        if visible_options:
+            option_items = [
+                (key, module_meta["options"][key])
+                for key in visible_options
+                if key in module_meta["options"]
+            ]
+
         options: List[Dict[str, Any]] = []
         safe_options: Dict[str, Any] = {}
-        for option_key, option_meta in module_meta["options"].items():
+        for option_key, option_meta in option_items:
             options.append(
                 {
                     "key": option_key,
@@ -3512,6 +3659,7 @@ def _build_setup_context(
                 "label": option_meta.get("label"),
                 "description": option_meta.get("description", ""),
                 "fields": safe_fields,
+                "skip_configuration": bool(option_meta.get("skip_configuration")),
             }
             diagram_meta = option_meta.get("diagram")
             if isinstance(diagram_meta, Mapping):
@@ -3519,12 +3667,33 @@ def _build_setup_context(
                 if serialised_diagram:
                     safe_option["diagram"] = serialised_diagram
             safe_options[option_key] = safe_option
+
+        selected_value = selected_options.get(module_key)
+        requires_choice = len(visible_options) > 1 and not module_hidden
+        module_missing = requires_choice and (
+            not selected_value or selected_value not in visible_options
+        )
+        if (
+            not module_missing
+            and module_key in auto_selected
+            and not module_hidden
+            and len(visible_options) > 1
+        ):
+            selected_option_meta = module_meta["options"].get(selected_value) if selected_value else None
+            skip_auto = bool(selected_option_meta and selected_option_meta.get("skip_configuration"))
+            if not skip_auto:
+                module_missing = True
+
         module_payload = {
             "key": module_key,
             "title": module_meta.get("title"),
             "summary": module_meta.get("summary", ""),
             "options": options,
             "group_key": module_to_group.get(module_key),
+            "hidden": module_hidden,
+            "missing_selection": module_missing,
+            "visible_options": visible_options,
+            "auto_selected": module_key in auto_selected,
         }
         modules.append(module_payload)
         modules_by_key[module_key] = module_payload
@@ -3533,6 +3702,13 @@ def _build_setup_context(
             "summary": module_meta.get("summary", ""),
             "group": module_to_group.get(module_key),
             "options": safe_options,
+            "depends_on": module_meta.get("depends_on"),
+            "visible_when": module_meta.get("visible_when"),
+            "hide_when": module_meta.get("hide_when"),
+            "default_for": module_meta.get("default_for"),
+            "default_option": module_meta.get("default_option"),
+            "hidden": module_hidden,
+            "auto_selected": module_key in auto_selected,
         }
 
     module_groups: List[Dict[str, Any]] = []
@@ -3541,26 +3717,36 @@ def _build_setup_context(
         group_module_keys = [key for key in group_meta.get("modules", []) if key in modules_by_key]
         if not group_module_keys:
             continue
+        group_modules = [modules_by_key[key] for key in group_module_keys]
+        visible_count = sum(1 for module in group_modules if not module.get("hidden"))
+        missing_count = sum(1 for module in group_modules if module.get("missing_selection"))
         module_groups.append(
             {
                 "key": group_meta["key"],
                 "title": group_meta.get("title"),
                 "summary": group_meta.get("summary", ""),
-                "modules": [modules_by_key[key] for key in group_module_keys],
+                "modules": group_modules,
                 "module_keys": group_module_keys,
+                "visible_count": visible_count,
+                "missing_count": missing_count,
+                "total_count": len(group_module_keys),
             }
         )
         grouped_keys.extend(group_module_keys)
 
     remaining_module_keys = [key for key in module_order if key not in grouped_keys]
     if remaining_module_keys:
+        remaining_modules = [modules_by_key[key] for key in remaining_module_keys]
         module_groups.append(
             {
                 "key": "additional_modules",
                 "title": "Additional modules",
                 "summary": "Options that are available outside the primary grouping.",
-                "modules": [modules_by_key[key] for key in remaining_module_keys],
+                "modules": remaining_modules,
                 "module_keys": remaining_module_keys,
+                "visible_count": sum(1 for module in remaining_modules if not module.get("hidden")),
+                "missing_count": sum(1 for module in remaining_modules if module.get("missing_selection")),
+                "total_count": len(remaining_module_keys),
             }
         )
 
@@ -3579,6 +3765,13 @@ def _build_setup_context(
             _serialise_field(module_key, field_meta, configuration=configuration, workspace=workspace)
             for field_meta in option_meta.get("fields", [])
         ]
+        pending_required = 0
+        for field in fields:
+            if field.get("optional"):
+                continue
+            value = str(field.get("value", "") or "").strip()
+            if not value:
+                pending_required += 1
         selected_modules.append(
             {
                 "key": module_key,
@@ -3594,6 +3787,7 @@ def _build_setup_context(
                 "fields": fields,
                 "group_key": module_to_group.get(module_key),
                 "skip_configuration": bool(option_meta.get("skip_configuration")),
+                "pending_required": pending_required,
             }
         )
 
@@ -3609,9 +3803,11 @@ def _build_setup_context(
             module_entry = selected_by_key[key]
             if module_entry.get("skip_configuration"):
                 continue
+            module_entry["has_pending"] = module_entry.get("pending_required", 0) > 0
             group_selected.append(module_entry)
         if not group_selected:
             continue
+        pending_total = sum(module.get("pending_required", 0) for module in group_selected)
         selected_groups.append(
             {
                 "key": group["key"],
@@ -3619,6 +3815,7 @@ def _build_setup_context(
                 "summary": group.get("summary", ""),
                 "modules": group_selected,
                 "module_keys": [module["key"] for module in group_selected],
+                "pending_required": pending_total,
             }
         )
 
@@ -3628,6 +3825,8 @@ def _build_setup_context(
         if module["key"] not in seen_selected
     ]
     if remaining_selected:
+        for module in remaining_selected:
+            module["has_pending"] = module.get("pending_required", 0) > 0
         selected_groups.append(
             {
                 "key": "additional_modules",
@@ -3635,6 +3834,7 @@ def _build_setup_context(
                 "summary": "Options that are available outside the primary grouping.",
                 "modules": remaining_selected,
                 "module_keys": [module["key"] for module in remaining_selected],
+                "pending_required": sum(module.get("pending_required", 0) for module in remaining_selected),
             }
         )
 
@@ -3734,6 +3934,7 @@ def _build_setup_context(
         "selected": safe_selected,
         "configuration": safe_configuration,
         "modules": modules_metadata,
+        "autoSelected": sorted(auto_selected),
         "groups": [
             {
                 "key": group["key"],
@@ -5101,13 +5302,45 @@ async def setup_post(request: Request) -> HTMLResponse:
     if action == "1":
         selections: Dict[str, str] = {}
         errors: List[str] = []
-        for module_key, module_meta in SETUP_MODULES.items():
+        for module_key in SETUP_MODULES.keys():
+            module_meta = SETUP_MODULES[module_key]
             field_name = f"module__{module_key}"
-            value = str(form.get(field_name) or "").strip()
-            if not value or value not in module_meta["options"]:
+            raw_value = str(form.get(field_name) or "").strip()
+            allowed_options = _module_visible_options(module_key, selections)
+            hide_module = _module_should_hide(module_key, selections) or (
+                module_meta.get("depends_on") and not allowed_options
+            )
+
+            if hide_module:
+                default_option = _module_default_option(module_key, selections)
+                if default_option:
+                    selections[module_key] = default_option
+                continue
+
+            if allowed_options:
+                if len(allowed_options) == 1:
+                    selections[module_key] = allowed_options[0]
+                    continue
+                if raw_value and raw_value in allowed_options:
+                    selections[module_key] = raw_value
+                    continue
+                default_option = _module_default_option(module_key, selections)
+                if default_option and default_option in allowed_options:
+                    selections[module_key] = default_option
+                    continue
                 errors.append(f"Select an option for {module_meta.get('title') or module_key}.")
+                continue
+
+            if raw_value and raw_value in module_meta["options"]:
+                selections[module_key] = raw_value
+                continue
+
+            default_option = _module_default_option(module_key, selections)
+            if default_option:
+                selections[module_key] = default_option
             else:
-                selections[module_key] = value
+                errors.append(f"Select an option for {module_meta.get('title') or module_key}.")
+
         if errors:
             temp_state = dict(state)
             temp_state["selected_options"] = selections

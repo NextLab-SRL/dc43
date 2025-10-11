@@ -10,6 +10,7 @@ if (!root) {
     configuration: {},
     modules: {},
     groups: [],
+    autoSelected: new Set(),
   };
 
   if (stateEl) {
@@ -30,9 +31,17 @@ if (!root) {
       if (Array.isArray(parsed.groups)) {
         setupState.groups = parsed.groups;
       }
+      if (Array.isArray(parsed.autoSelected)) {
+        setupState.autoSelected = new Set(parsed.autoSelected.map((value) => String(value)));
+      }
     } catch (error) {
       console.warn("Unable to parse setup wizard state", error);
     }
+  }
+
+  if (!(setupState.autoSelected instanceof Set)) {
+    const values = Array.isArray(setupState.autoSelected) ? setupState.autoSelected : [];
+    setupState.autoSelected = new Set(values.map((value) => String(value)));
   }
 
   const moduleNodeMap = {
@@ -67,8 +76,322 @@ if (!root) {
   const stepOneNext = stepOneContainer ? stepOneContainer.querySelector("[data-step1-next]") : null;
   const stepOneProgress = stepOneContainer ? stepOneContainer.querySelector("[data-step1-progress]") : null;
 
-  const selectedModuleKeys = setupState.order.filter((key) => Boolean(setupState.selected[key]));
-  let activeModuleKey = selectedModuleKeys[0] || setupState.order[0] || null;
+  const stepOneForm = stepOneContainer ? stepOneContainer.closest("form") : null;
+
+  function ensureAutoSelectedSet() {
+    if (!(setupState.autoSelected instanceof Set)) {
+      const values = Array.isArray(setupState.autoSelected) ? setupState.autoSelected : [];
+      setupState.autoSelected = new Set(values.map((value) => String(value)));
+    }
+    return setupState.autoSelected;
+  }
+
+  function isAutoSelected(moduleKey) {
+    if (!moduleKey) {
+      return false;
+    }
+    return ensureAutoSelectedSet().has(moduleKey);
+  }
+
+  function markAutoSelected(moduleKey, shouldMark) {
+    if (!moduleKey) {
+      return;
+    }
+    const autoSet = ensureAutoSelectedSet();
+    if (shouldMark) {
+      autoSet.add(moduleKey);
+    } else {
+      autoSet.delete(moduleKey);
+    }
+  }
+
+  function moduleMeta(moduleKey) {
+    if (!moduleKey || !setupState.modules) {
+      return null;
+    }
+    return setupState.modules[moduleKey] || null;
+  }
+
+  function isModuleHidden(moduleKey) {
+    if (!moduleKey) {
+      return false;
+    }
+    const card = root.querySelector(`[data-module-card][data-module-key="${moduleKey}"]`);
+    if (!card) {
+      return false;
+    }
+    const attributeHidden = card.getAttribute("data-module-hidden");
+    if (attributeHidden === "true") {
+      return true;
+    }
+    return card.classList.contains("d-none");
+  }
+
+  function getSelectedModuleKeys() {
+    const order = Array.isArray(setupState.order) ? setupState.order : [];
+    const selected = setupState.selected || {};
+    const selectedKeys = Object.keys(selected).filter((key) => {
+      if (!selected[key]) {
+        return false;
+      }
+      if (isAutoSelected(key)) {
+        const meta = moduleMeta(key);
+        if (meta) {
+          const optionCount = Object.keys(meta.options || {}).length;
+          if (optionCount > 1) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+    if (!order.length) {
+      return selectedKeys;
+    }
+    return order.filter((key) => selectedKeys.includes(key));
+  }
+
+  function dependencyValue(moduleKey) {
+    const meta = moduleMeta(moduleKey);
+    if (!meta || !meta.depends_on) {
+      return null;
+    }
+    const value = setupState.selected?.[meta.depends_on];
+    return value == null ? null : String(value);
+  }
+
+  function visibleOptions(moduleKey) {
+    const meta = moduleMeta(moduleKey);
+    if (!meta) {
+      return [];
+    }
+    const optionKeys = Object.keys(meta.options || {});
+    const dependsOn = meta.depends_on;
+    const visibleWhen = meta.visible_when || {};
+    if (!dependsOn || Object.keys(visibleWhen).length === 0) {
+      return optionKeys;
+    }
+    const dependency = dependencyValue(moduleKey);
+    let allowed = Array.isArray(visibleWhen[dependency]) ? visibleWhen[dependency] : null;
+    if (!allowed && Array.isArray(visibleWhen.__default__)) {
+      allowed = visibleWhen.__default__;
+    }
+    if (!allowed) {
+      return [];
+    }
+    return allowed.filter((key) => key in (meta.options || {}));
+  }
+
+  function shouldHideModule(moduleKey) {
+    const meta = moduleMeta(moduleKey);
+    if (!meta) {
+      return false;
+    }
+    const hideWhen = Array.isArray(meta.hide_when) ? meta.hide_when : [];
+    if (!hideWhen.length || !meta.depends_on) {
+      return false;
+    }
+    const dependency = dependencyValue(moduleKey);
+    return dependency != null && hideWhen.includes(dependency);
+  }
+
+  function defaultSelection(moduleKey, allowedOptions) {
+    const meta = moduleMeta(moduleKey);
+    if (!meta) {
+      return null;
+    }
+    const dependsOn = meta.depends_on;
+    const defaultFor = meta.default_for || {};
+    if (dependsOn) {
+      const dependency = dependencyValue(moduleKey);
+      if (dependency != null && typeof defaultFor[dependency] === "string") {
+        return defaultFor[dependency];
+      }
+    }
+    if (typeof meta.default_option === "string") {
+      if (!allowedOptions || allowedOptions.includes(meta.default_option)) {
+        return meta.default_option;
+      }
+    }
+    if (Array.isArray(allowedOptions) && allowedOptions.length === 1) {
+      return allowedOptions[0];
+    }
+    return null;
+  }
+
+  function moduleSelectionMissing(moduleKey) {
+    const meta = moduleMeta(moduleKey);
+    if (!meta) {
+      return false;
+    }
+    const allowed = visibleOptions(moduleKey);
+    const hidden = isModuleHidden(moduleKey) || shouldHideModule(moduleKey) || (meta.depends_on && allowed.length === 0);
+    if (hidden) {
+      return false;
+    }
+    if (!Array.isArray(allowed) || allowed.length <= 1) {
+      return false;
+    }
+    const inputs = getModuleOptionInputs(moduleKey).filter((input) => !input.disabled);
+    if (!inputs.length) {
+      return false;
+    }
+    if (isAutoSelected(moduleKey) && !hidden && allowed.length > 1) {
+      const selectedValue = setupState.selected?.[moduleKey];
+      const optionMeta = meta.options?.[selectedValue] || null;
+      const skipAuto = Boolean(optionMeta && optionMeta.skip_configuration);
+      if (!skipAuto) {
+        return true;
+      }
+    }
+    return !inputs.some((input) => input.checked);
+  }
+
+  function toggleModuleVisibility(moduleKey, hidden) {
+    const card = root.querySelector(`[data-module-card][data-module-key="${moduleKey}"]`);
+    if (!card) {
+      return;
+    }
+    card.setAttribute("data-module-hidden", hidden ? "true" : "false");
+    if (hidden) {
+      card.classList.add("d-none");
+      card.setAttribute("hidden", "hidden");
+      card.setAttribute("aria-hidden", "true");
+    } else {
+      card.classList.remove("d-none");
+      card.removeAttribute("hidden");
+      card.removeAttribute("aria-hidden");
+    }
+  }
+
+  function updateModuleMissingIndicator(moduleKey) {
+    const indicator = root.querySelector(`[data-module-missing="${moduleKey}"]`);
+    if (!indicator) {
+      return;
+    }
+    const missing = moduleSelectionMissing(moduleKey);
+    indicator.classList.toggle("d-none", !missing);
+  }
+
+  function updateStepOneMissingBadges() {
+    const groupButtons = Array.from(root.querySelectorAll('[data-step1-group]'));
+    groupButtons.forEach((button) => {
+      const groupKey = button.getAttribute("data-step1-group");
+      const moduleKeys = getGroupModuleKeys(groupKey);
+      let missingCount = 0;
+      let visibleCount = 0;
+      moduleKeys.forEach((moduleKey) => {
+        const meta = moduleMeta(moduleKey);
+        if (!meta) {
+          return;
+        }
+        const allowed = visibleOptions(moduleKey);
+        const hidden = isModuleHidden(moduleKey) || shouldHideModule(moduleKey) || (meta.depends_on && allowed.length === 0);
+        if (!hidden) {
+          visibleCount += 1;
+        }
+        if (moduleSelectionMissing(moduleKey)) {
+          missingCount += 1;
+        }
+      });
+      button.setAttribute("data-group-visible", String(visibleCount));
+      button.setAttribute("data-group-missing", String(missingCount));
+      const badge = button.querySelector('[data-step1-nav-missing]');
+      if (badge) {
+        badge.classList.toggle("d-none", missingCount === 0);
+        if (missingCount > 0) {
+          badge.textContent = `${missingCount} missing`;
+        }
+      }
+      const label = button.querySelector("small.text-muted");
+      if (label) {
+        const total = Number(button.getAttribute("data-group-total") || 0) || moduleKeys.length;
+        const plural = total === 1 ? "" : "s";
+        label.textContent = `${visibleCount} active of ${total} module${plural}`;
+      }
+      const sectionActive = root.querySelector(`[data-step1-section-active="${groupKey}"]`);
+      if (sectionActive) {
+        const total = moduleKeys.length;
+        const plural = total === 1 ? "" : "s";
+        sectionActive.textContent = `${visibleCount} active of ${total} module${plural}`;
+      }
+      const sectionBadge = root.querySelector(`[data-step1-section-missing="${groupKey}"]`);
+      if (sectionBadge) {
+        sectionBadge.classList.toggle("d-none", missingCount === 0);
+        if (missingCount > 0) {
+          sectionBadge.textContent = `${missingCount} missing`;
+        }
+      }
+    });
+  }
+
+  function pendingFieldsForModule(moduleKey) {
+    const meta = moduleMeta(moduleKey);
+    if (!meta) {
+      return 0;
+    }
+    const selectedKey = setupState.selected?.[moduleKey];
+    if (!selectedKey) {
+      return 0;
+    }
+    const optionMeta = meta.options?.[selectedKey];
+    if (!optionMeta) {
+      return 0;
+    }
+    const fields = Array.isArray(optionMeta.fields) ? optionMeta.fields : [];
+    const values = setupState.configuration?.[moduleKey] || {};
+    let pending = 0;
+    fields.forEach((field) => {
+      if (!field || field.optional) {
+        return;
+      }
+      const value = values[field.name];
+      if (value == null || String(value).trim() === "") {
+        pending += 1;
+      }
+    });
+    return pending;
+  }
+
+  function updateConfigurationBadges() {
+    const groupNavs = Array.from(root.querySelectorAll('[data-wizard-group]'));
+    groupNavs.forEach((nav) => {
+      const groupKey = nav.getAttribute("data-wizard-group");
+      let groupPending = 0;
+      const buttons = Array.from(nav.querySelectorAll('[data-module-target]'));
+      buttons.forEach((button) => {
+        const moduleKey = button.getAttribute("data-module-target");
+        const pending = pendingFieldsForModule(moduleKey);
+        groupPending += pending;
+        button.setAttribute("data-module-pending", String(pending));
+        const badge = button.querySelector('[data-module-nav-pending]');
+        if (badge) {
+          badge.classList.toggle("d-none", pending === 0);
+          if (pending > 0) {
+            badge.textContent = `${pending} missing`;
+          }
+        }
+        const headerBadge = root.querySelector(`[data-module-header-pending="${moduleKey}"]`);
+        if (headerBadge) {
+          headerBadge.classList.toggle("d-none", pending === 0);
+          if (pending > 0) {
+            headerBadge.textContent = `${pending} required`;
+          }
+        }
+      });
+      nav.setAttribute("data-group-pending", String(groupPending));
+      const groupBadge = root.querySelector(`[data-group-nav-pending="${groupKey}"]`);
+      if (groupBadge) {
+        groupBadge.classList.toggle("d-none", groupPending === 0);
+        if (groupPending > 0) {
+          groupBadge.textContent = `${groupPending} missing`;
+        }
+      }
+    });
+  }
+
+  const initialSelectedKeys = getSelectedModuleKeys();
+  let activeModuleKey = initialSelectedKeys[0] || (Array.isArray(setupState.order) ? setupState.order[0] : null);
   let activeGroupKey = null;
   let diagramCounter = 0;
 
@@ -160,6 +483,30 @@ if (!root) {
   }
 
   function buildMermaidDefinition(highlightKey) {
+    const selectedKeys = getSelectedModuleKeys();
+    const hasMeaningfulSelection = selectedKeys.some((moduleKey) => {
+      const meta = moduleMeta(moduleKey);
+      if (!meta) {
+        return false;
+      }
+      const optionKeys = Object.keys(meta.options || {});
+      if (optionKeys.length <= 1) {
+        return false;
+      }
+      if (isModuleHidden(moduleKey)) {
+        return false;
+      }
+      if (isAutoSelected(moduleKey)) {
+        return false;
+      }
+      const value = setupState.selected?.[moduleKey];
+      return value != null && value !== "";
+    });
+
+    if (!hasMeaningfulSelection) {
+      return null;
+    }
+
     const includeDetails = step >= 2;
     const nodes = {
       auth: buildNodeLabel("authentication", includeDetails),
@@ -175,13 +522,16 @@ if (!root) {
 
     const hasModule = (moduleKey) => {
       const moduleMeta = setupState.modules?.[moduleKey];
-      if (!moduleMeta) {
+      if (!moduleMeta || isModuleHidden(moduleKey)) {
         return false;
       }
       const options = moduleMeta.options || {};
       const optionKeys = Object.keys(options);
       if (!optionKeys.length || optionKeys.length === 1) {
         return true;
+      }
+      if (isAutoSelected(moduleKey)) {
+        return false;
       }
       return Boolean(setupState.selected?.[moduleKey]);
     };
@@ -400,6 +750,10 @@ if (!root) {
       return;
     }
     const definition = buildMermaidDefinition(highlightKey);
+    if (!definition) {
+      mermaidContainer.innerHTML = '<div class="text-muted small text-center">Select modules to build your architecture overview.</div>';
+      return;
+    }
     diagramCounter += 1;
     try {
       const { svg, bindFunctions } = await mermaid.render(`setupDiagram${diagramCounter}`, definition);
@@ -497,10 +851,13 @@ if (!root) {
     const moduleKeys = getGroupModuleKeys(groupKey);
     let highlightKey = options.highlightKey || null;
     if (!highlightKey) {
-      highlightKey = moduleKeys.find((key) => setupState.selected[key]);
+      highlightKey = moduleKeys.find((key) => setupState.selected[key] && !isAutoSelected(key) && !isModuleHidden(key));
     }
     if (!highlightKey) {
-      highlightKey = moduleKeys[0] || null;
+      highlightKey = moduleKeys.find((key) => !isAutoSelected(key) && !isModuleHidden(key)) || null;
+    }
+    if (!highlightKey) {
+      highlightKey = moduleKeys.find((key) => !isModuleHidden(key)) || moduleKeys[0] || null;
     }
 
     if (highlightKey) {
@@ -607,103 +964,81 @@ if (!root) {
   }
 
   function applyModuleDependencies() {
-    const governanceRuntime = setupState.selected.governance_service;
-    const governanceInputs = getModuleOptionInputs("governance_deployment");
-    if (governanceInputs.length) {
-      if (governanceRuntime === "direct_runtime") {
-        governanceInputs.forEach((input) => {
-          const isNotRequired = input.value === "not_required";
-          input.disabled = !isNotRequired;
-          if (isNotRequired) {
-            if (!input.checked) {
-              input.checked = true;
-            }
-            setupState.selected.governance_deployment = input.value;
-          } else if (input.checked) {
-            input.checked = false;
-          }
-        });
-      } else {
-        governanceInputs.forEach((input) => {
-          input.disabled = input.value === "not_required";
-          if (input.disabled && input.checked) {
-            input.checked = false;
-          }
-        });
-        let selectedInput = governanceInputs.find((input) => input.checked && !input.disabled);
-        if (!selectedInput) {
-          selectedInput =
-            governanceInputs.find((input) => input.value === "local_python" && !input.disabled) ||
-            governanceInputs.find((input) => input.value === "local_docker" && !input.disabled) ||
-            governanceInputs.find((input) => !input.disabled);
-        }
-        if (selectedInput) {
-          governanceInputs.forEach((input) => {
-            input.checked = input === selectedInput;
-          });
-          setupState.selected.governance_deployment = selectedInput.value;
-        }
-      }
+    if (!setupState.modules) {
+      return;
     }
-
-    const uiMode = setupState.selected.user_interface;
-    const uiInputs = getModuleOptionInputs("ui_deployment");
-    if (uiInputs.length) {
-      uiInputs.forEach((input) => {
-        input.disabled = false;
+    const moduleKeys = Array.isArray(setupState.order)
+      ? setupState.order
+      : Object.keys(setupState.modules);
+    moduleKeys.forEach((moduleKey) => {
+      const meta = moduleMeta(moduleKey);
+      if (!meta) {
+        return;
+      }
+      const allowed = visibleOptions(moduleKey);
+      const hide = shouldHideModule(moduleKey) || (meta.depends_on && allowed.length === 0);
+      toggleModuleVisibility(moduleKey, hide);
+      const inputs = getModuleOptionInputs(moduleKey);
+      inputs.forEach((input) => {
+        const isAllowed = !allowed.length || allowed.includes(input.value);
+        const disable = hide || !isAllowed;
+        input.disabled = disable;
+        if (disable && input.checked) {
+          input.checked = false;
+        }
       });
-      let preferred = setupState.selected.ui_deployment;
-      if (uiMode === "local_web") {
-        if (!preferred || preferred === "skip_hosting") {
-          preferred = "local_python";
-        }
-      } else if (uiMode === "remote_portal") {
-        if (!preferred || preferred === "local_python") {
-          preferred = "skip_hosting";
-        }
-      }
 
-      let selectedInput = preferred
-        ? uiInputs.find((input) => input.value === preferred)
-        : uiInputs.find((input) => input.checked);
-      if (!selectedInput) {
-        selectedInput =
-          uiInputs.find((input) => input.value === "skip_hosting") || uiInputs.find((input) => true);
-      }
-      if (selectedInput) {
-        uiInputs.forEach((input) => {
-          input.checked = input === selectedInput;
-        });
-        setupState.selected.ui_deployment = selectedInput.value;
-      }
-    }
-
-    const demoInputs = getModuleOptionInputs("demo_automation");
-    if (demoInputs.length) {
-      let selectedDemo = setupState.selected.demo_automation;
-      if (!selectedDemo) {
-        const defaultInput =
-          demoInputs.find((input) => input.value === "skip_demo") || demoInputs[0] || null;
-        if (defaultInput && !defaultInput.checked) {
-          defaultInput.checked = true;
-        }
-        if (defaultInput) {
-          selectedDemo = defaultInput.value;
+      let selection = setupState.selected?.[moduleKey] || null;
+      let selectionIsAuto = isAutoSelected(moduleKey);
+      if (hide) {
+        const fallback = defaultSelection(moduleKey, allowed);
+        if (fallback) {
+          selection = fallback;
+          selectionIsAuto = true;
         }
       } else {
-        const matchingInput = demoInputs.find((input) => input.value === selectedDemo);
-        if (!matchingInput) {
-          const fallback = demoInputs[0];
-          if (fallback && !fallback.checked) {
-            fallback.checked = true;
+        const checked = inputs.find((input) => input.checked && !input.disabled);
+        if (checked) {
+          selection = checked.value;
+          selectionIsAuto = false;
+        }
+        if (selection && allowed.length && !allowed.includes(selection)) {
+          selection = null;
+        }
+        if (!selection) {
+          const fallback = defaultSelection(moduleKey, allowed);
+          if (fallback) {
+            selection = fallback;
+            selectionIsAuto = true;
           }
-          selectedDemo = fallback ? fallback.value : selectedDemo;
         }
       }
-      if (selectedDemo) {
-        setupState.selected.demo_automation = selectedDemo;
+
+      if (selection) {
+        setupState.selected[moduleKey] = selection;
+        markAutoSelected(moduleKey, selectionIsAuto && allowed.length > 1);
+        inputs.forEach((input) => {
+          if (!input.disabled) {
+            input.checked = input.value === selection;
+          } else if (hide && input.value === selection) {
+            input.checked = true;
+          }
+        });
+      } else {
+        delete setupState.selected[moduleKey];
+        markAutoSelected(moduleKey, false);
+        inputs.forEach((input) => {
+          if (!input.disabled) {
+            input.checked = false;
+          }
+        });
       }
-    }
+
+      updateModuleMissingIndicator(moduleKey);
+    });
+
+    updateStepOneMissingBadges();
+    updateConfigurationBadges();
   }
 
   function bindStepOneInteractions() {
@@ -719,6 +1054,7 @@ if (!root) {
           return;
         }
         setupState.selected[moduleKey] = target.value;
+        markAutoSelected(moduleKey, false);
         applyModuleDependencies();
         setActiveModule(moduleKey);
       });
@@ -735,9 +1071,20 @@ if (!root) {
       .filter(Boolean);
 
     let initialGroupKey = groupKeys.find((groupKey) => {
-      const moduleKeys = getGroupModuleKeys(groupKey);
-      return moduleKeys.some((moduleKey) => setupState.selected[moduleKey]);
+      const button = stepOneContainer?.querySelector?.(`[data-step1-nav="${groupKey}"]`);
+      if (!button) {
+        return false;
+      }
+      const missing = Number(button.getAttribute("data-group-missing") || 0);
+      return Number.isFinite(missing) && missing > 0;
     });
+
+    if (!initialGroupKey) {
+      initialGroupKey = groupKeys.find((groupKey) => {
+        const moduleKeys = getGroupModuleKeys(groupKey);
+        return moduleKeys.some((moduleKey) => setupState.selected[moduleKey] && !isAutoSelected(moduleKey));
+      });
+    }
 
     if (!initialGroupKey) {
       initialGroupKey = groupKeys[0] || null;
@@ -770,11 +1117,23 @@ if (!root) {
         const currentIndex = groupKeys.indexOf(activeGroupKey);
         if (currentIndex >= 0 && currentIndex < groupKeys.length - 1) {
           setActiveGroup(groupKeys[currentIndex + 1], { scrollIntoView: true });
-        } else {
-          const continueButton = root.querySelector('form button[type="submit"].btn-primary');
-          if (continueButton instanceof HTMLElement) {
-            continueButton.scrollIntoView({ behavior: "smooth", block: "center" });
-            safeFocus(continueButton);
+        } else if (stepOneForm instanceof HTMLFormElement) {
+          const blockingGroup = groupKeys.find((key) => {
+            const button = stepOneContainer.querySelector(`[data-step1-nav="${key}"]`);
+            if (!button) {
+              return false;
+            }
+            const missing = Number(button.getAttribute("data-group-missing") || 0);
+            return Number.isFinite(missing) && missing > 0;
+          });
+          if (blockingGroup) {
+            setActiveGroup(blockingGroup, { scrollIntoView: true });
+            return;
+          }
+          if (typeof stepOneForm.requestSubmit === "function") {
+            stepOneForm.requestSubmit();
+          } else {
+            stepOneForm.submit();
           }
         }
       });
@@ -801,8 +1160,10 @@ if (!root) {
         const configuration = ensureConfiguration(moduleKey);
         configuration[fieldName] = target.value;
         renderDiagram(activeModuleKey);
+        updateConfigurationBadges();
       });
     });
+    updateConfigurationBadges();
   }
 
   function bindWizardNav() {
