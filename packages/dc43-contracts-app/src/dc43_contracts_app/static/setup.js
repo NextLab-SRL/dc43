@@ -548,22 +548,65 @@ if (!root) {
       contracts: buildNodeLabel("contracts_backend", includeDetails),
       products: buildNodeLabel("products_backend", includeDetails),
       dq: buildNodeLabel("data_quality", includeDetails),
+      demo: buildNodeLabel("demo_automation", includeDetails),
     };
 
-    const hasModule = (moduleKey) => {
+    const hasModule = (moduleKey, stack) => {
+      if (!moduleKey) {
+        return false;
+      }
       const moduleMeta = setupState.modules?.[moduleKey];
       if (!moduleMeta || isModuleHidden(moduleKey)) {
         return false;
       }
-      const options = moduleMeta.options || {};
-      const optionKeys = Object.keys(options);
-      if (!optionKeys.length || optionKeys.length === 1) {
-        return true;
-      }
-      if (isAutoSelected(moduleKey)) {
+
+      const recursionStack = stack instanceof Set ? stack : new Set();
+      if (recursionStack.has(moduleKey)) {
         return false;
       }
-      return Boolean(setupState.selected?.[moduleKey]);
+      recursionStack.add(moduleKey);
+
+      const explicitSet = ensureExplicitSelectedSet();
+      if (explicitSet.has(moduleKey)) {
+        recursionStack.delete(moduleKey);
+        return true;
+      }
+
+      const selectedValue = setupState.selected?.[moduleKey];
+      if (selectedValue == null || selectedValue === "") {
+        recursionStack.delete(moduleKey);
+        return false;
+      }
+
+      const optionKeys = Object.keys(moduleMeta.options || {});
+      const auto = isAutoSelected(moduleKey);
+
+      const dependencyKey = moduleMeta.depends_on;
+      if (dependencyKey) {
+        const dependencyActive = hasModule(dependencyKey, recursionStack);
+        if (!dependencyActive) {
+          recursionStack.delete(moduleKey);
+          return false;
+        }
+        if (optionKeys.length <= 1) {
+          recursionStack.delete(moduleKey);
+          return true;
+        }
+        if (auto && !explicitSet.has(moduleKey) && !explicitSet.has(dependencyKey)) {
+          recursionStack.delete(moduleKey);
+          return false;
+        }
+        recursionStack.delete(moduleKey);
+        return true;
+      }
+
+      if (optionKeys.length <= 1) {
+        recursionStack.delete(moduleKey);
+        return false;
+      }
+
+      recursionStack.delete(moduleKey);
+      return !auto;
     };
     const lines = [
       "flowchart LR",
@@ -1194,6 +1237,7 @@ if (!root) {
         }
         const configuration = ensureConfiguration(moduleKey);
         configuration[fieldName] = target.value;
+        markExplicitSelected(moduleKey, true);
         renderDiagram(activeModuleKey);
         updateConfigurationBadges();
       });
