@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
-from dc43_service_clients.data_quality import ValidationResult
+from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
 from .interface import GovernanceStore
 
