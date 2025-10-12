@@ -50,7 +50,7 @@ def _dependency(name: str, *, extras: str | None = None) -> str:
     version = _PACKAGE_VERSIONS[name]
     suffix = f"[{extras}]" if extras else ""
     if name not in _LOCAL_FALLBACK_PACKAGES or _use_pypi_versions():
-        return f"{name}{suffix}=={version}"
+        return f"{name}{suffix}>={version}"
     candidate = _local_package_path(name)
     if candidate.exists():
         return f"{name}{suffix} @ {candidate.resolve().as_uri()}"

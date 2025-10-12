@@ -1,0 +1,24 @@
+graph TD
+    dc43["dc43"]
+    dc43_demo_app["dc43-demo-app"]
+    dc43_service_clients["dc43-service-clients"]
+    dc43_service_backends["dc43-service-backends"]
+    dc43_integrations["dc43-integrations"]
+    dc43_contracts_app["dc43-contracts-app"]
+    dc43 --> dc43_contracts_app
+    dc43 --> dc43_integrations
+    dc43 --> dc43_service_backends
+    dc43 --> dc43_service_clients
+    dc43_demo_app --> dc43_contracts_app
+    dc43_demo_app --> dc43_integrations
+    dc43_demo_app --> dc43_service_backends
+    dc43_demo_app --> dc43_service_clients
+    dc43_service_backends --> dc43
+    dc43_service_backends --> dc43_service_clients
+    dc43_integrations --> dc43_service_clients
+    dc43_contracts_app --> dc43_service_backends
+    dc43_contracts_app --> dc43_service_clients
+    dc43 -.-> dc43_demo_app
+    dc43_integrations -.-> dc43_service_backends
+    dc43_contracts_app -.-> dc43_integrations
+    %% Dashed arrows indicate optional extras
