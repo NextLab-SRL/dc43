@@ -14,9 +14,12 @@ def test_load_config_from_file(tmp_path: Path) -> None:
             [
                 "[contract_store]",
                 f"root = '{tmp_path / 'contracts'}'",
-                "",
+                "", 
                 "[data_product]",
                 f"root = '{tmp_path / 'products'}'",
+                "",
+                "[data_quality]",
+                "type = 'local'",
                 "",
                 "[auth]",
                 "token = 'secret'",
@@ -31,8 +34,12 @@ def test_load_config_from_file(tmp_path: Path) -> None:
     assert config.contract_store.root == tmp_path / "contracts"
     assert config.data_product_store.type == "memory"
     assert config.data_product_store.root == tmp_path / "products"
+    assert config.data_quality.type == "local"
+    assert config.data_quality.base_url is None
+    assert config.data_quality.default_engine == "native"
     assert config.auth.token == "secret"
     assert config.governance.dataset_contract_link_builders == ()
+    assert config.governance_store.type == "memory"
 
 
 def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,14 +50,30 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("DC43_CONTRACT_STORE", str(tmp_path / "override"))
     monkeypatch.setenv("DC43_BACKEND_TOKEN", "env-token")
     monkeypatch.setenv("DC43_DATA_PRODUCT_STORE", str(tmp_path / "dp"))
+    monkeypatch.setenv("DC43_DATA_QUALITY_BACKEND_TYPE", "http")
+    monkeypatch.setenv("DC43_DATA_QUALITY_BACKEND_URL", "https://quality.local")
+    monkeypatch.setenv("DC43_DATA_QUALITY_BACKEND_TOKEN", "dq-token")
+    monkeypatch.setenv("DC43_DATA_QUALITY_BACKEND_TOKEN_HEADER", "X-Api")
+    monkeypatch.setenv("DC43_DATA_QUALITY_BACKEND_TOKEN_SCHEME", "")
+    monkeypatch.setenv("DC43_GOVERNANCE_STORE_TYPE", "filesystem")
+    monkeypatch.setenv("DC43_GOVERNANCE_STORE", str(tmp_path / "gov"))
+    monkeypatch.setenv("DC43_DATA_QUALITY_DEFAULT_ENGINE", "soda")
 
     config = load_config()
     assert config.contract_store.type == "filesystem"
     assert config.contract_store.root == tmp_path / "override"
     assert config.data_product_store.root == tmp_path / "dp"
+    assert config.data_quality.type == "http"
+    assert config.data_quality.base_url == "https://quality.local"
+    assert config.data_quality.token == "dq-token"
+    assert config.data_quality.token_header == "X-Api"
+    assert config.data_quality.token_scheme == ""
+    assert config.data_quality.default_engine == "soda"
     assert config.auth.token == "env-token"
     assert config.unity_catalog.enabled is False
     assert config.governance.dataset_contract_link_builders == ()
+    assert config.governance_store.type == "filesystem"
+    assert config.governance_store.root == tmp_path / "gov"
 
 
 def test_env_overrides_contract_store_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,6 +136,16 @@ def test_delta_store_config(tmp_path: Path) -> None:
                 "[data_product]",
                 "type = 'delta'",
                 "table = 'governed.meta.data_products'",
+                "",
+                "[data_quality]",
+                "type = 'http'",
+                "base_url = 'https://observability.example.com'",
+                "token = 'api-token'",
+                "token_header = 'X-Token'",
+                "token_scheme = ''",
+                "",
+                "[data_quality.headers]",
+                "X-Org = 'governed'",
             ]
         )
         + "\n",
@@ -124,6 +157,44 @@ def test_delta_store_config(tmp_path: Path) -> None:
     assert config.contract_store.table == "governed.meta.contracts"
     assert config.data_product_store.type == "delta"
     assert config.data_product_store.table == "governed.meta.data_products"
+    assert config.data_quality.type == "http"
+    assert config.data_quality.base_url == "https://observability.example.com"
+    assert config.data_quality.token == "api-token"
+    assert config.data_quality.token_header == "X-Token"
+    assert config.data_quality.token_scheme == ""
+    assert config.data_quality.headers == {"X-Org": "governed"}
+
+
+def test_data_quality_engines_config(tmp_path: Path) -> None:
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text("{}", encoding="utf-8")
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[data_quality]",
+                "default_engine = 'great_expectations'",
+                "",
+                "[data_quality.engines.native]",
+                "type = 'native'",
+                "strict_types = false",
+                "",
+                "[data_quality.engines.great_expectations]",
+                f"suite_path = '{suite_path}'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.data_quality.default_engine == "great_expectations"
+    assert "native" in config.data_quality.engines
+    native_cfg = config.data_quality.engines["native"]
+    assert native_cfg["type"] == "native"
+    assert native_cfg["strict_types"] is False
+    ge_cfg = config.data_quality.engines["great_expectations"]
+    assert ge_cfg["suite_path"] == str(suite_path)
 
 
 def test_load_collibra_http_config(tmp_path: Path) -> None:

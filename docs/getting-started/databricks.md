@@ -82,7 +82,9 @@ from dc43_service_backends.bootstrap import build_backends
 from dc43_service_backends.config import load_config
 
 config = load_config("dbfs:/mnt/dc43-demo/config/dc43-service-backends.toml")
-contract_backend, data_product_backend = build_backends(config)
+suite = build_backends(config)
+contract_backend, data_product_backend = suite
+dq_backend = suite.data_quality
 ```
 
 When you prefer to materialise the catalogues in Unity tables, set the `table`
@@ -146,6 +148,9 @@ data_product_backend.register_output_port(
 
 The backend persists both artefacts in Delta tables under the base paths you set
 in the configuration file. You can inspect them directly with `spark.read.format("delta")`.
+`suite.data_quality` exposes the data-quality delegate configured in the TOML
+file—useful when you offload expectation evaluation to remote observability
+services.
 
 ## 5. Generate a governed Delta table
 

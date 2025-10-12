@@ -16,7 +16,12 @@ except ModuleNotFoundError as exc:  # pragma: no cover - raised when extras abse
 
 from .auth import bearer_token_dependency
 from .config import ServiceBackendsConfig, load_config
-from .bootstrap import build_contract_store, build_data_product_backend
+from .bootstrap import (
+    build_contract_store,
+    build_data_product_backend,
+    build_data_quality_backend,
+    build_governance_store,
+)
 from .web import build_local_app
 from .governance.bootstrap import build_dataset_contract_link_hooks
 
@@ -59,12 +64,16 @@ def create_app(config: ServiceBackendsConfig | None = None) -> FastAPI:
     active_config = configure_from_config(config)
     store = build_contract_store(active_config.contract_store)
     data_product_backend = build_data_product_backend(active_config.data_product_store)
+    dq_backend = build_data_quality_backend(active_config.data_quality)
+    governance_store = build_governance_store(active_config.governance_store)
     dependencies = _resolve_dependencies(active_config)
     link_hooks = build_dataset_contract_link_hooks(active_config)
     return build_local_app(
         store,
         dependencies=dependencies,
         data_product_backend=data_product_backend,
+        dq_backend=dq_backend,
+        governance_store=governance_store,
         link_hooks=link_hooks or None,
     )
 

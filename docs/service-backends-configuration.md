@@ -46,8 +46,8 @@ single field without editing the TOML file:
 
 ## Service backend configuration schema
 
-The service backend configuration supports three core tables:
-`contract_store`, `data_product`, and `auth`.
+The service backend configuration supports five core tables:
+`contract_store`, `data_product`, `data_quality`, `governance_store`, and `auth`.
 
 ```toml
 [contract_store]
@@ -55,6 +55,12 @@ type = "filesystem"
 root = "./contracts"
 
 [data_product]
+type = "memory"
+
+[data_quality]
+type = "local"
+
+[governance_store]
 type = "memory"
 
 [auth]
@@ -157,6 +163,90 @@ Like the contract store, the Delta option automatically initialises the table an
 expects either `table` or `base_path` to be defined. Switching the type to a
 remote backend keeps the service compatible with managed stores such as
 PostgreSQL or Azure Files.
+
+### Configuring the data-quality backend
+
+`[data_quality]` controls how the backend evaluates contract expectations.
+Supported types are:
+
+| Type | Description |
+| ---- | ----------- |
+| `local` | Runs the bundled engine inside the FastAPI process. Useful for filesystem demos or when you already ship expectations with the service deployment. |
+| `http` | Delegates evaluations to an external HTTP API via `RemoteDataQualityServiceBackend`. Ideal when relying on managed observability platforms or custom enforcement services. |
+
+Common keys include:
+
+| Key | Type | Applies to | Description |
+| --- | ---- | ---------- | ----------- |
+| `base_url` | string | `http` | Base URL of the remote quality service. Required when `type = "http"`. |
+| `token` | string | `http` | Optional bearer token forwarded to the remote service. |
+| `token_header` | string | `http` | Header used for bearer authentication (defaults to `Authorization`). |
+| `token_scheme` | string | `http` | Prefix applied before the token value (defaults to `Bearer`). |
+| `headers` | table | `http` | Extra static headers injected into every request. |
+
+Environment overrides mirror other sections: `DC43_DATA_QUALITY_BACKEND_TYPE`,
+`DC43_DATA_QUALITY_BACKEND_URL`, `DC43_DATA_QUALITY_BACKEND_TOKEN`,
+`DC43_DATA_QUALITY_BACKEND_TOKEN_HEADER`, and
+`DC43_DATA_QUALITY_BACKEND_TOKEN_SCHEME`. Use
+`DC43_DATA_QUALITY_DEFAULT_ENGINE` to override the engine selected when
+contracts do not specify one.
+
+#### Configuring execution engines
+
+Local deployments can register additional execution engines under
+`[data_quality.engines]`. Each table name becomes the engine key that contracts
+may reference via `metadata.quality_engine` or per-field `quality[].engine`
+values. Supported engine `type` values are:
+
+| Type | Description |
+| ---- | ----------- |
+| `native` / `builtin` | Wraps the contract-driven validator included with dc43. Supports `strict_types`, `allow_extra_columns`, and `expectation_severity` overrides. |
+| `great_expectations` | Consumes summaries emitted by Great Expectations pipelines. Accepts `metrics_key` (defaults to the engine name) and `suite_path`/`expectations_path` for describing suites in the UI. |
+| `soda` | Interprets Soda scan outcomes. Configure `metrics_key` and `checks_path` to point at Soda checks for documentation. |
+
+Example:
+
+```toml
+[data_quality]
+default_engine = "great_expectations"
+
+[data_quality.engines.native]
+type = "native"
+strict_types = false
+
+[data_quality.engines.great_expectations]
+suite_path = "./expectations/orders.json"
+```
+
+When `default_engine` is set, any contract that does not request a specific
+engine inherits that value. Remote data-quality services ignore the engine
+configuration because execution happens outside the FastAPI process.
+
+### Configuring the governance store
+
+`[governance_store]` controls where validation results, dataset links, and
+pipeline activity are persisted. Supported types are:
+
+| Type | Description |
+| ---- | ----------- |
+| `memory` | Stores governance metadata in process memory. Useful for lightweight demos. |
+| `filesystem` | Persists status snapshots, pipeline activity, and dataset links as JSON artefacts under `root`. |
+| `sql` | Uses a relational database via `SQLGovernanceStore`. Requires `sqlalchemy`. |
+| `delta` | Writes governance artefacts to Delta tables using Spark. Requires `pyspark`. |
+| `http` | Delegates persistence to an external HTTP service implementing the governance store API. |
+
+Common keys include `root`/`base_path` (filesystem and Delta), `dsn` and
+`schema` (SQL), `status_table`/`activity_table`/`link_table` (SQL and Delta),
+and `base_url`/`token`/`headers` (HTTP). Environment overrides follow the
+pattern `DC43_GOVERNANCE_STORE_*`, for example
+`DC43_GOVERNANCE_STORE_TYPE`, `DC43_GOVERNANCE_STORE`,
+`DC43_GOVERNANCE_STORE_URL`, and `DC43_GOVERNANCE_STORE_TOKEN`.
+
+> When the service uses Delta-backed contract or data product stores, the
+> process must run in an environment that can authenticate against the target
+> Unity Catalog or Delta Lake deployment. The data-quality backend—local or
+> remote—can run independently; remote services only need network access to the
+> tables if they compute expectations directly against the storage layer.
 
 #### Authentication
 

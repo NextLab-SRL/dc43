@@ -1,11 +1,18 @@
-"""Factory helpers for wiring contract and data product backends."""
+"""Factory helpers for wiring contract, data product, and DQ backends."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Mapping
 
-from .config import ContractStoreConfig, DataProductStoreConfig, ServiceBackendsConfig
+from .config import (
+    ContractStoreConfig,
+    DataProductStoreConfig,
+    DataQualityBackendConfig,
+    GovernanceStoreConfig,
+    ServiceBackendsConfig,
+)
 from .contracts.backend import LocalContractServiceBackend
 from .contracts.backend.interface import ContractServiceBackend
 from .contracts.backend.stores import (
@@ -24,6 +31,34 @@ from .data_products import (
     LocalDataProductServiceBackend,
     StubCollibraDataProductAdapter,
 )
+from .data_quality.backend import (
+    DataQualityManager,
+    DataQualityServiceBackend,
+    LocalDataQualityServiceBackend,
+    RemoteDataQualityServiceBackend,
+)
+from .data_quality.backend.engines import (
+    DataQualityExecutionEngine,
+    GreatExpectationsEngine,
+    NativeDataQualityEngine,
+    SodaEngine,
+)
+from .governance.storage import (
+    GovernanceStore,
+    InMemoryGovernanceStore,
+)
+from .governance.storage.filesystem import FilesystemGovernanceStore
+from .governance.storage.sql import SQLGovernanceStore
+
+try:  # pragma: no cover - optional dependencies
+    from .governance.storage.delta import DeltaGovernanceStore
+except ModuleNotFoundError:  # pragma: no cover - pyspark optional
+    DeltaGovernanceStore = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - optional dependencies
+    from .governance.storage.http import HttpGovernanceStore
+except ModuleNotFoundError:  # pragma: no cover - httpx optional
+    HttpGovernanceStore = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:  # pragma: no cover - help type-checkers without importing pyspark
     from pyspark.sql import SparkSession as SparkSessionType
@@ -40,11 +75,30 @@ except ModuleNotFoundError:  # pragma: no cover - resolved via monkeypatch in te
 SparkSession = _SparkSession  # type: ignore[assignment]
 
 __all__ = [
+    "BackendSuite",
     "build_contract_store",
     "build_contract_backend",
     "build_data_product_backend",
+    "build_data_quality_backend",
+    "build_governance_store",
     "build_backends",
 ]
+
+
+@dataclass(slots=True)
+class BackendSuite:
+    """Bundle of service backends resolved from configuration."""
+
+    contract: ContractServiceBackend
+    data_product: DataProductServiceBackend
+    data_quality: DataQualityServiceBackend
+    governance_store: GovernanceStore
+
+    def __iter__(self):
+        yield self.contract
+        yield self.data_product
+        yield self.data_quality
+        yield self.governance_store
 
 
 def _resolve_collibra_store(config: ContractStoreConfig) -> ContractStore:
@@ -189,9 +243,198 @@ def build_data_product_backend(config: DataProductStoreConfig) -> DataProductSer
     raise RuntimeError(f"Unsupported data product store type: {store_type}")
 
 
-def build_backends(config: ServiceBackendsConfig) -> tuple[ContractServiceBackend, DataProductServiceBackend]:
-    """Construct contract and data product backends using ``config``."""
+def _coerce_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalised = value.strip().lower()
+        if normalised in {"1", "true", "yes", "on"}:
+            return True
+        if normalised in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _build_engine_from_config(
+    name: str, payload: Mapping[str, object]
+) -> tuple[str, DataQualityExecutionEngine]:
+    engine_type = str(payload.get("type") or name).strip().lower()
+    engine_name = name.strip().lower()
+
+    if engine_type in {"native", "builtin"}:
+        strict_types = _coerce_bool(payload.get("strict_types"), True)
+        allow_extra = _coerce_bool(payload.get("allow_extra_columns"), True)
+        severity = str(payload.get("expectation_severity") or "error")
+        engine = NativeDataQualityEngine(
+            strict_types=strict_types,
+            allow_extra_columns=allow_extra,
+            expectation_severity=severity,
+        )
+        return engine_name, engine
+
+    if engine_type in {"great_expectations", "ge"}:
+        metrics_key = str(payload.get("metrics_key") or engine_name or "great_expectations")
+        suite_path_raw = payload.get("suite_path") or payload.get("expectations_path")
+        suite_path = str(suite_path_raw).strip() if isinstance(suite_path_raw, str) and suite_path_raw.strip() else None
+        engine = GreatExpectationsEngine(metrics_key=metrics_key, suite_path=suite_path)
+        return engine_name, engine
+
+    if engine_type == "soda":
+        metrics_key = str(payload.get("metrics_key") or engine_name or "soda")
+        checks_raw = (
+            payload.get("checks_path")
+            or payload.get("suite_path")
+            or payload.get("expectations_path")
+        )
+        checks_path = str(checks_raw).strip() if isinstance(checks_raw, str) and checks_raw.strip() else None
+        engine = SodaEngine(metrics_key=metrics_key, checks_path=checks_path)
+        return engine_name, engine
+
+    raise RuntimeError(f"Unsupported data-quality engine type: {engine_type}")
+
+
+def _build_local_dq_manager(config: DataQualityBackendConfig) -> DataQualityManager:
+    engine_mapping: dict[str, DataQualityExecutionEngine] = {}
+    for name, payload in config.engines.items():
+        if not isinstance(payload, Mapping):
+            continue
+        engine_name, engine = _build_engine_from_config(name, payload)
+        engine_mapping[engine_name] = engine
+    return DataQualityManager(
+        default_engine=config.default_engine,
+        engines=engine_mapping,
+    )
+
+
+def build_data_quality_backend(
+    config: DataQualityBackendConfig,
+) -> DataQualityServiceBackend:
+    """Instantiate a data-quality backend matching ``config``."""
+
+    backend_type = (config.type or "local").lower()
+
+    if backend_type in {"local", "filesystem"}:
+        manager = _build_local_dq_manager(config)
+        return LocalDataQualityServiceBackend(manager)
+
+    if backend_type in {"remote", "http"}:
+        if not config.base_url:
+            raise RuntimeError(
+                "data_quality_backend.base_url is required when type is 'http'",
+            )
+        try:
+            from dc43_service_clients.data_quality.client.remote import (
+                RemoteDataQualityServiceClient,
+            )
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "httpx is required when data_quality_backend.type is 'http'. "
+                "Install 'dc43-service-clients[http]' or ensure httpx is available.",
+            ) from exc
+
+        headers = dict(config.headers)
+        client = RemoteDataQualityServiceClient(
+            base_url=config.base_url,
+            headers=headers or None,
+            token=config.token,
+            token_header=config.token_header or "Authorization",
+            token_scheme=config.token_scheme or "Bearer",
+        )
+        return RemoteDataQualityServiceBackend(client)
+
+    raise RuntimeError(f"Unsupported data quality backend type: {backend_type}")
+
+
+def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
+    """Instantiate a governance metadata store matching ``config``."""
+
+    store_type = (config.type or "memory").lower()
+
+    if store_type in {"memory", "local"}:
+        return InMemoryGovernanceStore()
+
+    if store_type == "filesystem":
+        base = config.root or config.base_path or Path.cwd() / "governance"
+        path = Path(base).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        return FilesystemGovernanceStore(str(path))
+
+    if store_type == "sql":
+        try:
+            from sqlalchemy import create_engine
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "sqlalchemy is required when governance_store.type is 'sql'.",
+            ) from exc
+        if not config.dsn:
+            raise RuntimeError(
+                "governance_store.dsn must be configured when type is 'sql'",
+            )
+        engine = create_engine(config.dsn)
+        status_table = config.status_table or "dq_status"
+        activity_table = config.activity_table or "dq_activity"
+        link_table = config.link_table or "dq_dataset_contract_links"
+        return SQLGovernanceStore(
+            engine,
+            schema=config.schema,
+            status_table=status_table,
+            activity_table=activity_table,
+            link_table=link_table,
+        )
+
+    if store_type == "delta":
+        if DeltaGovernanceStore is None:
+            raise RuntimeError(
+                "pyspark is required when governance_store.type is 'delta'.",
+            )
+        spark = _get_spark_session("governance_store")
+        base_path = config.base_path or config.root
+        if not (base_path or (config.status_table and config.activity_table and config.link_table)):
+            raise RuntimeError(
+                "Configure governance_store.base_path or explicit Delta table names",
+            )
+        return DeltaGovernanceStore(
+            spark,
+            base_path=str(base_path) if base_path else None,
+            status_table=config.status_table,
+            activity_table=config.activity_table,
+            link_table=config.link_table,
+        )
+
+    if store_type in {"http", "remote"}:
+        if HttpGovernanceStore is None:
+            raise RuntimeError(
+                "httpx is required when governance_store.type is 'http'.",
+            )
+        if not config.base_url:
+            raise RuntimeError(
+                "governance_store.base_url is required when type is 'http'",
+            )
+        headers = dict(config.headers)
+        return HttpGovernanceStore(
+            config.base_url,
+            headers=headers or None,
+            token=config.token,
+            token_header=config.token_header or "Authorization",
+            token_scheme=config.token_scheme or "Bearer",
+            timeout=config.timeout,
+        )
+
+    raise RuntimeError(f"Unsupported governance store type: {store_type}")
+
+
+def build_backends(config: ServiceBackendsConfig) -> BackendSuite:
+    """Construct contract, data product, and DQ backends using ``config``."""
 
     contract_backend = build_contract_backend(config.contract_store)
     data_product_backend = build_data_product_backend(config.data_product_store)
-    return contract_backend, data_product_backend
+    dq_backend = build_data_quality_backend(config.data_quality)
+    governance_store = build_governance_store(config.governance_store)
+    return BackendSuite(
+        contract=contract_backend,
+        data_product=data_product_backend,
+        data_quality=dq_backend,
+        governance_store=governance_store,
+    )
