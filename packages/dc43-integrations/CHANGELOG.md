@@ -53,9 +53,9 @@
   demo application now hosts the streaming walkthrough.
 
 ### Fixed
-- Relaxed the ``test`` extra's ``dc43-service-backends`` requirement so CI can
-  install the published backend package instead of failing while waiting for the
-  latest release to propagate.
+- Tightened the ``test`` extra's ``dc43-service-backends`` requirement to
+  ``>=0.18.0.0`` so dependency resolution stays aligned with the bundled
+  backend package and avoids downgrading to older PyPI releases during CI.
 - Installing the ``test`` extra now pulls in ``dc43-service-backends`` with its
   SQL dependencies and ``httpx`` so the integration suite runs without tweaking
   import guards.
