@@ -3,10 +3,7 @@
 from .interface import GovernanceStore
 from .memory import InMemoryGovernanceStore
 from .filesystem import FilesystemGovernanceStore
-try:  # pragma: no cover - optional dependency
-    from .sql import SQLGovernanceStore
-except ModuleNotFoundError:  # pragma: no cover - sqlalchemy optional
-    SQLGovernanceStore = None  # type: ignore[assignment]
+from .sql import SQLGovernanceStore
 
 try:  # pragma: no cover - optional dependencies
     from .delta import DeltaGovernanceStore
