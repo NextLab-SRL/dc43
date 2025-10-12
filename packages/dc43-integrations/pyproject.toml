@@ -25,7 +25,10 @@ dependencies = [
 spark = [
   "pyspark>=3.4",
 ]
-test = []
+test = [
+  "dc43-service-backends[sql]>=0.18.0.0",
+  "httpx>=0.24",
+]
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

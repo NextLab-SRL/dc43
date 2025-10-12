@@ -53,6 +53,9 @@
   demo application now hosts the streaming walkthrough.
 
 ### Fixed
+- Installing the ``test`` extra now pulls in ``dc43-service-backends`` with its
+  SQL dependencies and ``httpx`` so the integration suite runs without tweaking
+  import guards.
 - `StrictWriteViolationStrategy` now reuses the wrapped strategy's contract status
   allowances so strict enforcement respects custom governance policies.
 - Spark writes that overwrite their source path now checkpoint the aligned dataframe

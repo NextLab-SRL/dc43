@@ -46,6 +46,8 @@
   `DC43_GOVERNANCE_LINK_BUILDERS` environment variable) so deployments can load
   custom dataset–contract link hooks without editing the service code.
 ### Changed
+- Governance storage once again imports the SQL backend eagerly, keeping
+  SQLAlchemy a required dependency instead of relying on placeholder guards.
 - Unity Catalog tagging now runs through pluggable governance hooks so service
   and client interfaces stay technology agnostic while still supporting
   Databricks-specific metadata updates.
