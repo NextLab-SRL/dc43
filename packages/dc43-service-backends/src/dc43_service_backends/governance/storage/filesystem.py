@@ -32,6 +32,8 @@ class FilesystemGovernanceStore(GovernanceStore):
     def __init__(self, base_path: str | os.PathLike[str]) -> None:
         self.base_path = Path(base_path).expanduser()
         self.base_path.mkdir(parents=True, exist_ok=True)
+        for subdir in ("status", "links", "pipeline_activity"):
+            (self.base_path / subdir).mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Helpers

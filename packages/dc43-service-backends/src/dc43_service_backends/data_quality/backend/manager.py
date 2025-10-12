@@ -52,31 +52,33 @@ class DataQualityManager:
             for key in ("quality_engine", "qualityEngine", "dq_engine", "dqEngine"):
                 value = metadata.get(key)
                 if isinstance(value, str) and value.strip():
-                    candidate = value.strip().lower()
-                    if candidate in self._engines:
-                        return candidate
+                    return value.strip().lower()
         for obj in getattr(contract, "schema_", []) or []:
             for dq in getattr(obj, "quality", []) or []:
                 engine_name = getattr(dq, "engine", None)
                 if isinstance(engine_name, str) and engine_name.strip():
-                    candidate = engine_name.strip().lower()
-                    if candidate in self._engines:
-                        return candidate
-        return self._default_engine if self._default_engine in self._engines else "native"
+                    return engine_name.strip().lower()
+        return self._default_engine or "native"
 
-    def _engine_for(self, contract: OpenDataContractStandard) -> DataQualityExecutionEngine:
-        name = self._resolve_engine_name(contract)
+    def _engine_for_name(self, name: str) -> DataQualityExecutionEngine:
         engine = self._engines.get(name)
         if engine is None:
             raise RuntimeError(f"No data-quality engine registered for '{name}'")
         return engine
+
+    def _engine_for(
+        self, contract: OpenDataContractStandard
+    ) -> tuple[str, DataQualityExecutionEngine]:
+        name = self._resolve_engine_name(contract)
+        engine = self._engine_for_name(name)
+        return name, engine
 
     def evaluate(
         self,
         contract: OpenDataContractStandard,
         payload: ObservationPayload,
     ) -> ValidationResult:
-        engine = self._engine_for(contract)
+        engine_name, engine = self._engine_for(contract)
         result = engine.evaluate(contract, payload)
         details = result.details
         need_plan = not isinstance(details.get("expectation_plan"), list)
@@ -92,13 +94,20 @@ class DataQualityManager:
                     extras["expectation_predicates"] = predicates
             if extras:
                 result.merge_details(extras)
+        if (
+            result.status == "unknown"
+            and not result.reason
+            and not result.errors
+            and details.get("engine") == engine_name
+        ):
+            result.status = engine_name
         return result
 
     def describe_expectations(
         self,
         contract: OpenDataContractStandard,
     ) -> list[dict[str, object]]:
-        engine = self._engine_for(contract)
+        _, engine = self._engine_for(contract)
         descriptors = engine.describe_expectations(contract)
         return [dict(item) for item in descriptors]
 
