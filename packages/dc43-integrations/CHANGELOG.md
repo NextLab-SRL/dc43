@@ -53,6 +53,9 @@
   demo application now hosts the streaming walkthrough.
 
 ### Fixed
+- Relaxed the ``test`` extra's ``dc43-service-backends`` requirement so CI can
+  install the published backend package instead of failing while waiting for the
+  latest release to propagate.
 - Installing the ``test`` extra now pulls in ``dc43-service-backends`` with its
   SQL dependencies and ``httpx`` so the integration suite runs without tweaking
   import guards.
