@@ -353,10 +353,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             dq_token_value = str(token_raw).strip() or None
         token_header_raw = dq_section.get("token_header")
         if token_header_raw is not None:
-            dq_token_header_value = str(token_header_raw).strip() or "Authorization"
+            dq_token_header_value = str(token_header_raw).strip()
         token_scheme_raw = dq_section.get("token_scheme")
         if token_scheme_raw is not None:
-            dq_token_scheme_value = str(token_scheme_raw).strip() or "Bearer"
+            dq_token_scheme_value = str(token_scheme_raw).strip()
         headers_raw = dq_section.get("headers")
         if headers_raw is not None:
             dq_headers_value = _parse_str_dict(headers_raw)
@@ -522,12 +522,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         dq_token_value = env_dq_token.strip() or dq_token_value
 
     env_dq_header = os.getenv("DC43_DATA_QUALITY_BACKEND_TOKEN_HEADER")
-    if env_dq_header:
-        dq_token_header_value = env_dq_header.strip() or dq_token_header_value
+    if env_dq_header is not None:
+        dq_token_header_value = env_dq_header.strip()
 
     env_dq_scheme = os.getenv("DC43_DATA_QUALITY_BACKEND_TOKEN_SCHEME")
-    if env_dq_scheme:
-        dq_token_scheme_value = env_dq_scheme.strip() or dq_token_scheme_value
+    if env_dq_scheme is not None:
+        dq_token_scheme_value = env_dq_scheme.strip()
 
     env_dq_default_engine = os.getenv("DC43_DATA_QUALITY_DEFAULT_ENGINE")
     if env_dq_default_engine:
@@ -606,12 +606,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         gov_token_value = env_gov_token.strip() or gov_token_value
 
     env_gov_token_header = os.getenv("DC43_GOVERNANCE_STORE_TOKEN_HEADER")
-    if env_gov_token_header:
-        gov_token_header_value = env_gov_token_header.strip() or gov_token_header_value
+    if env_gov_token_header is not None:
+        gov_token_header_value = env_gov_token_header.strip()
 
     env_gov_token_scheme = os.getenv("DC43_GOVERNANCE_STORE_TOKEN_SCHEME")
-    if env_gov_token_scheme:
-        gov_token_scheme_value = env_gov_token_scheme.strip() or gov_token_scheme_value
+    if env_gov_token_scheme is not None:
+        gov_token_scheme_value = env_gov_token_scheme.strip()
 
     env_gov_timeout = os.getenv("DC43_GOVERNANCE_STORE_TIMEOUT")
     if env_gov_timeout:

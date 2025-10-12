@@ -339,8 +339,16 @@ def build_data_quality_backend(
             base_url=config.base_url,
             headers=headers or None,
             token=config.token,
-            token_header=config.token_header or "Authorization",
-            token_scheme=config.token_scheme or "Bearer",
+            token_header=(
+                config.token_header
+                if config.token_header is not None
+                else "Authorization"
+            ),
+            token_scheme=(
+                config.token_scheme
+                if config.token_scheme is not None
+                else "Bearer"
+            ),
         )
         return RemoteDataQualityServiceBackend(client)
 
@@ -417,8 +425,16 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
             config.base_url,
             headers=headers or None,
             token=config.token,
-            token_header=config.token_header or "Authorization",
-            token_scheme=config.token_scheme or "Bearer",
+            token_header=(
+                config.token_header
+                if config.token_header is not None
+                else "Authorization"
+            ),
+            token_scheme=(
+                config.token_scheme
+                if config.token_scheme is not None
+                else "Bearer"
+            ),
             timeout=config.timeout,
         )
 
