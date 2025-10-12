@@ -46,9 +46,9 @@ from .data_quality.backend.engines import (
 from .governance.storage import (
     GovernanceStore,
     InMemoryGovernanceStore,
+    SQLGovernanceStore,
 )
 from .governance.storage.filesystem import FilesystemGovernanceStore
-from .governance.storage.sql import SQLGovernanceStore
 
 try:  # pragma: no cover - optional dependencies
     from .governance.storage.delta import DeltaGovernanceStore
@@ -370,6 +370,10 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
         return FilesystemGovernanceStore(str(path))
 
     if store_type == "sql":
+        if SQLGovernanceStore is None:
+            raise RuntimeError(
+                "sqlalchemy is required when governance_store.type is 'sql'.",
+            )
         try:
             from sqlalchemy import create_engine
         except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
