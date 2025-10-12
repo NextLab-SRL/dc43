@@ -46,9 +46,9 @@ from .data_quality.backend.engines import (
 from .governance.storage import (
     GovernanceStore,
     InMemoryGovernanceStore,
+    SQLGovernanceStore,
 )
 from .governance.storage.filesystem import FilesystemGovernanceStore
-from .governance.storage.sql import SQLGovernanceStore
 
 try:  # pragma: no cover - optional dependencies
     from .governance.storage.delta import DeltaGovernanceStore
