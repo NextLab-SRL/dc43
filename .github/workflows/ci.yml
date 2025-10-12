@@ -59,6 +59,7 @@ jobs:
             install: |
               pip install -e . --no-deps
               pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+              pip install "dc43-service-backends[sql] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
               pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
             test_command: "pytest packages/dc43-integrations/tests -q"
           - display: contracts-app

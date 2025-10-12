@@ -53,9 +53,10 @@
   demo application now hosts the streaming walkthrough.
 
 ### Fixed
-- Relaxed the ``test`` extra's ``dc43-service-backends`` requirement to
-  ``>=0.17.0.0`` so dependency resolution matches the latest published
-  backend package and unblocks CI while ``0.18.0.0`` is prepared.
+- The CI workflow now installs the repository's ``dc43-service-backends``
+  package before resolving the ``test`` extra so dependency checks continue to
+  target ``0.18.0.0`` while avoiding missing-distribution errors during
+  integration runs.
 - Installing the ``test`` extra now pulls in ``dc43-service-backends`` with its
   SQL dependencies and ``httpx`` so the integration suite runs without tweaking
   import guards.
