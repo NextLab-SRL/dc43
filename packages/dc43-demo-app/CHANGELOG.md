@@ -69,3 +69,5 @@
   the reject-routing walkthrough can persist dataset history without errors.
 - Restore filesystem aliases for timestamped streaming versions so dataset previews resolve the
   governed slices on platforms that support colon-separated folder names.
+- Install the ODCS reference implementation during CI runs so the demo suite's service-client
+  and backend imports succeed without additional bootstrap steps.

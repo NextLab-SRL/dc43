@@ -50,6 +50,7 @@ jobs:
             install: |
               pip install -e . --no-deps
               pip install fastapi jinja2 python-multipart uvicorn pyspark httpx "sqlalchemy>=2.0"
+              pip install "open-data-contract-standard==3.0.2"
               pip install --no-deps "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
               pip install --no-deps "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
               pip install --no-deps "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"

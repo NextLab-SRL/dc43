@@ -18,3 +18,5 @@
 - Renamed the root CI matrix entry to `meta`, moved the demo and backend integration tests
   into their dedicated packages, and added a demo-app matrix job so each distribution owns
   its test suite without duplicating runs.
+- Ensured the demo-app CI lane installs `open-data-contract-standard` so the demo pipeline
+  and UI tests can exercise the backend helpers without missing dependencies.
