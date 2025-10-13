@@ -3,14 +3,7 @@ from typing import Any, Mapping, Optional, Tuple
 
 import pytest
 
-from open_data_contract_standard.model import (
-    OpenDataContractStandard,
-    SchemaObject,
-    SchemaProperty,
-    DataQuality,
-    Description,
-    Server,
-)
+from open_data_contract_standard.model import OpenDataContractStandard
 
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_clients.contracts import LocalContractServiceClient
@@ -36,42 +29,9 @@ from dc43_service_backends.core.odps import (
     DataProductOutputPort,
     OpenDataProductStandard as DataProductDoc,
 )
+from .helpers.orders import build_orders_contract, materialise_orders
 from datetime import datetime
 import logging
-
-
-def make_contract(base_path: str, fmt: str = "parquet") -> OpenDataContractStandard:
-    return OpenDataContractStandard(
-        version="0.1.0",
-        kind="DataContract",
-        apiVersion="3.0.2",
-        id="test.orders",
-        name="Orders",
-        description=Description(usage="Orders facts"),
-        schema=[
-            SchemaObject(
-                name="orders",
-                properties=[
-                    SchemaProperty(name="order_id", physicalType="bigint", required=True),
-                    SchemaProperty(name="customer_id", physicalType="bigint", required=True),
-                    SchemaProperty(name="order_ts", physicalType="timestamp", required=True),
-                    SchemaProperty(
-                        name="amount",
-                        physicalType="double",
-                        required=True,
-                        quality=[DataQuality(mustBeGreaterThan=0.0)],
-                    ),
-                    SchemaProperty(
-                        name="currency",
-                        physicalType="string",
-                        required=True,
-                        quality=[DataQuality(rule="enum", mustBe=["EUR", "USD"])],
-                    ),
-                ],
-            )
-        ],
-        servers=[Server(server="local", type="filesystem", path=base_path, format=fmt)],
-    )
 
 
 def persist_contract(
@@ -80,22 +40,6 @@ def persist_contract(
     store = FSContractStore(str(tmp_path / "contracts"))
     store.put(contract)
     return store, LocalContractServiceClient(store), LocalDataQualityServiceClient()
-
-
-def _materialise_orders(
-    spark, tmp_path: Path, data: list[tuple[Any, ...]] | None = None
-) -> Path:
-    data_dir = tmp_path / "parquet"
-    rows = data or [
-        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
-        (2, 102, datetime(2024, 1, 2, 10, 0, 0), 20.5, "USD"),
-    ]
-    df = spark.createDataFrame(
-        rows,
-        ["order_id", "customer_id", "order_ts", "amount", "currency"],
-    )
-    df.write.mode("overwrite").format("parquet").save(str(data_dir))
-    return data_dir
 
 
 class StubDataProductService:
@@ -185,8 +129,8 @@ class StubDataProductService:
 
 
 def test_read_blocks_on_draft_contract_status(spark, tmp_path: Path) -> None:
-    data_dir = _materialise_orders(spark, tmp_path)
-    contract = make_contract(str(data_dir))
+    data_dir = materialise_orders(spark, tmp_path)
+    contract = build_orders_contract(str(data_dir))
     contract.status = "draft"
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
@@ -203,8 +147,8 @@ def test_read_blocks_on_draft_contract_status(spark, tmp_path: Path) -> None:
 
 
 def test_read_allows_draft_contract_with_strategy(spark, tmp_path: Path) -> None:
-    data_dir = _materialise_orders(spark, tmp_path)
-    contract = make_contract(str(data_dir))
+    data_dir = materialise_orders(spark, tmp_path)
+    contract = build_orders_contract(str(data_dir))
     contract.status = "draft"
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
@@ -226,8 +170,8 @@ def test_read_allows_draft_contract_with_strategy(spark, tmp_path: Path) -> None
 
 
 def test_read_registers_data_product_input_port(spark, tmp_path: Path) -> None:
-    data_dir = _materialise_orders(spark, tmp_path)
-    contract = make_contract(str(data_dir))
+    data_dir = materialise_orders(spark, tmp_path)
+    contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
     dp_service = StubDataProductService()
@@ -249,8 +193,8 @@ def test_read_registers_data_product_input_port(spark, tmp_path: Path) -> None:
 
 
 def test_read_skips_registration_when_input_port_exists(spark, tmp_path: Path) -> None:
-    data_dir = _materialise_orders(spark, tmp_path)
-    contract = make_contract(str(data_dir))
+    data_dir = materialise_orders(spark, tmp_path)
+    contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
     dp_service = StubDataProductService(registration_changed=False)
@@ -273,8 +217,8 @@ def test_read_skips_registration_when_input_port_exists(spark, tmp_path: Path) -
 
 
 def test_read_resolves_contract_from_data_product_port(spark, tmp_path: Path) -> None:
-    data_dir = _materialise_orders(spark, tmp_path)
-    contract = make_contract(str(data_dir))
+    data_dir = materialise_orders(spark, tmp_path)
+    contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
     dp_service = StubDataProductService(
@@ -303,7 +247,7 @@ def test_read_resolves_contract_from_data_product_port(spark, tmp_path: Path) ->
 
 def test_write_blocks_on_deprecated_contract_status(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "dq"
-    contract = make_contract(str(dest_dir))
+    contract = build_orders_contract(str(dest_dir))
     contract.status = "deprecated"
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     df = spark.createDataFrame(
@@ -328,7 +272,7 @@ def test_write_allows_deprecated_contract_with_relaxed_strategy(
     spark, tmp_path: Path
 ) -> None:
     dest_dir = tmp_path / "relaxed"
-    contract = make_contract(str(dest_dir))
+    contract = build_orders_contract(str(dest_dir))
     contract.status = "deprecated"
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     df = spark.createDataFrame(
@@ -355,7 +299,7 @@ def test_write_allows_deprecated_contract_with_relaxed_strategy(
 
 def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
     data_dir = tmp_path / "parquet"
-    contract = make_contract(str(data_dir))
+    contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     # Prepare data with one enum violation for currency
     data = [
@@ -387,7 +331,7 @@ def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
 
 def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "dq"
-    contract = make_contract(str(dest_dir))
+    contract = build_orders_contract(str(dest_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     df = spark.createDataFrame(
         [
@@ -419,7 +363,7 @@ def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
 
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
     dest_dir = tmp_path / "out"
-    contract = make_contract(str(dest_dir))
+    contract = build_orders_contract(str(dest_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     # Missing required column 'currency' to trigger validation error
     data = [(1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0)]
@@ -456,7 +400,7 @@ def test_inferred_contract_id_simple(spark, tmp_path: Path):
 def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
     expected_dir = tmp_path / "expected"
     actual_dir = tmp_path / "actual"
-    contract = make_contract(str(expected_dir))
+    contract = build_orders_contract(str(expected_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -481,7 +425,7 @@ def test_write_warn_on_path_mismatch(spark, tmp_path: Path):
 def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
     base_dir = tmp_path / "data"
     contract_path = base_dir / "orders_enriched.parquet"
-    contract = make_contract(str(contract_path))
+    contract = build_orders_contract(str(contract_path))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -508,7 +452,7 @@ def test_write_path_version_under_contract_root(spark, tmp_path: Path, caplog):
 
 def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     data_dir = tmp_path / "json"
-    contract = make_contract(str(data_dir), fmt="parquet")
+    contract = build_orders_contract(str(data_dir), fmt="parquet")
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -536,7 +480,7 @@ def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
 
 def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
     dest_dir = tmp_path / "out"
-    contract = make_contract(str(dest_dir), fmt="parquet")
+    contract = build_orders_contract(str(dest_dir), fmt="parquet")
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -569,7 +513,7 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
 
 def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
     base_dir = tmp_path / "split"
-    contract = make_contract(str(base_dir))
+    contract = build_orders_contract(str(base_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -611,7 +555,7 @@ def test_write_split_strategy_creates_auxiliary_datasets(spark, tmp_path: Path):
 
 def test_write_dq_violation_reports_status(spark, tmp_path: Path):
     dest_dir = tmp_path / "dq_out"
-    contract = make_contract(str(dest_dir))
+    contract = build_orders_contract(str(dest_dir))
     # Tighten quality rule to trigger a violation for the sample data below.
     contract.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=100)]
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
@@ -660,7 +604,7 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
 
 def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     dest_dir = tmp_path / "upgrade"
-    contract_v1 = make_contract(str(dest_dir))
+    contract_v1 = build_orders_contract(str(dest_dir))
     data_ok = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 500.0, "EUR"),
         (2, 102, datetime(2024, 1, 2, 11, 0, 0), 750.0, "USD"),
@@ -710,8 +654,8 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
 
 
 def test_write_registers_data_product_output_port(spark, tmp_path: Path) -> None:
-    data_dir = _materialise_orders(spark, tmp_path)
-    contract = make_contract(str(data_dir))
+    data_dir = materialise_orders(spark, tmp_path)
+    contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
     dp_service = StubDataProductService()
@@ -737,8 +681,8 @@ def test_write_registers_data_product_output_port(spark, tmp_path: Path) -> None
 
 
 def test_write_skips_registration_when_output_exists(spark, tmp_path: Path) -> None:
-    data_dir = _materialise_orders(spark, tmp_path)
-    contract = make_contract(str(data_dir))
+    data_dir = materialise_orders(spark, tmp_path)
+    contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
     dp_service = StubDataProductService(registration_changed=False)
@@ -765,8 +709,8 @@ def test_write_skips_registration_when_output_exists(spark, tmp_path: Path) -> N
 
 
 def test_data_product_pipeline_roundtrip(spark, tmp_path: Path) -> None:
-    source_dir = _materialise_orders(spark, tmp_path)
-    source_contract = make_contract(str(source_dir))
+    source_dir = materialise_orders(spark, tmp_path)
+    source_contract = build_orders_contract(str(source_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, source_contract)
     governance = build_local_governance_service(store)
     dp_service = StubDataProductService(
@@ -789,7 +733,7 @@ def test_data_product_pipeline_roundtrip(spark, tmp_path: Path) -> None:
     )
 
     stage_dir = tmp_path / "stage"
-    intermediate_contract = make_contract(str(stage_dir))
+    intermediate_contract = build_orders_contract(str(stage_dir))
     intermediate_contract.id = "dp.analytics.stage"
     store.put(intermediate_contract)
 
@@ -814,7 +758,7 @@ def test_data_product_pipeline_roundtrip(spark, tmp_path: Path) -> None:
     )
 
     final_dir = tmp_path / "final"
-    final_contract = make_contract(str(final_dir))
+    final_contract = build_orders_contract(str(final_dir))
     final_contract.id = "dp.analytics.final"
     store.put(final_contract)
 
@@ -838,7 +782,7 @@ def test_data_product_pipeline_roundtrip(spark, tmp_path: Path) -> None:
 
 def test_governance_service_persists_draft_context(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "handles"
-    contract = make_contract(str(dest_dir))
+    contract = build_orders_contract(str(dest_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
 
     # Missing the 'currency' column to trigger a draft proposal.

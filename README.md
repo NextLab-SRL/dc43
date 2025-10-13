@@ -244,18 +244,33 @@ write_with_contract(
 
 ```python
 import dlt
-from collections.abc import Mapping
-from dc43_integrations.spark.dlt import apply_dlt_expectations
+from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_service_clients.data_quality import LocalDataQualityServiceClient
+from dc43_integrations.spark.dlt import contract_table
 
-@dlt.table(name="orders")
+contract_service = LocalContractServiceClient(store)
+data_quality_service = LocalDataQualityServiceClient()
+
+
+@contract_table(
+    dlt,
+    name="orders",
+    contract_id="sales.orders",
+    contract_service=contract_service,
+    data_quality_service=data_quality_service,
+    expected_contract_version=">=0.1.0",
+)
 def orders():
     df = spark.read.stream.table("bronze.sales_orders_raw")
-    # Retrieve predicates from your configured data-quality service.
-    predicates = dq_status.details.get("expectation_predicates")
-    if isinstance(predicates, Mapping):
-        apply_dlt_expectations(dlt, predicates)
     return df.select("order_id", "customer_id", "order_ts", "amount", "currency")
 ```
+
+Need to experiment outside Databricks? Install [`databricks-dlt`](https://pypi.org/project/databricks-dlt/)
+for the notebook-compatible stubs—its local mode only flips a flag—then wrap
+your pipeline definitions in ``LocalDLTHarness`` (see
+`packages/dc43-integrations/examples/dlt_contract_pipeline.py`) to execute the
+same annotations on a local Spark session and inspect the recorded expectation
+verdicts.
 
 4) Store and resolve contracts
 
