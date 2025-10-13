@@ -151,6 +151,7 @@ def test_demo_pipeline_existing_contract_ok(tmp_path: Path) -> None:
         pipeline.set_active_version("orders", "2025-10-05")
 
         params = dict(SCENARIOS["ok"].get("params", {}))
+        params.pop("mode", None)
         params.setdefault("dataset_name", None)
         params.setdefault("dataset_version", None)
         dataset_name, dataset_version = pipeline.run_pipeline(
@@ -231,7 +232,7 @@ def test_demo_pipeline_dlt_mode(tmp_path: Path) -> None:
     try:
         pipeline.set_active_version("orders", "2025-10-05")
 
-        params = dict(SCENARIOS["ok-dlt"].get("params", {}))
+        params = dict(SCENARIOS["ok"].get("params", {}))
         params.setdefault("dataset_name", None)
         params.setdefault("dataset_version", None)
         dataset_name, dataset_version = dlt_pipeline.run_dlt_pipeline(
@@ -247,7 +248,7 @@ def test_demo_pipeline_dlt_mode(tmp_path: Path) -> None:
             inputs=params.get("inputs"),
             output_adjustment=params.get("output_adjustment"),
             data_product_flow=params.get("data_product_flow"),
-            scenario_key="ok-dlt",
+            scenario_key="ok",
         )
 
         assert dataset_name == "orders_enriched"
@@ -256,7 +257,7 @@ def test_demo_pipeline_dlt_mode(tmp_path: Path) -> None:
         last = updated[-1]
         assert last.dataset_name == dataset_name
         assert last.dataset_version == dataset_version
-        assert last.scenario_key == "ok-dlt"
+        assert last.scenario_key == "ok"
         output_details = last.dq_details.get("output", {})
         assert output_details.get("pipeline_engine") == "dlt"
         reports = output_details.get("dlt_expectations")

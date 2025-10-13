@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from textwrap import dedent
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 import html
 
 
@@ -2927,5 +2927,145 @@ write_stream_with_contract(
         ],
     },
 }
+
+
+def _ensure_mode_option(options: list[dict[str, Any]], *, mode: str, label: str) -> None:
+    """Add a mode descriptor to ``options`` when missing."""
+
+    for existing in options:
+        if isinstance(existing, Mapping) and existing.get("mode") == mode:
+            return
+    options.append({"mode": mode, "label": label})
+
+
+def _sanitize_identifier(value: str | None, *, fallback: str = "asset") -> str:
+    """Return a safe Python identifier derived from ``value``."""
+
+    if not value:
+        return fallback
+    cleaned = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in value)
+    cleaned = cleaned.lstrip("0123456789") or fallback
+    return cleaned
+
+
+def _dlt_code_snippet(*, contract_id: str, contract_version: str | None, asset_name: str) -> str:
+    """Return a DLT example snippet tailored for ``contract_id``."""
+
+    expected_line = (
+        f"    expected_contract_version=\"=={contract_version}\",\n" if contract_version else ""
+    )
+    function_name = _sanitize_identifier(asset_name or contract_id)
+    template = """
+        import dlt
+        from pyspark.sql import DataFrame, SparkSession
+
+        from dc43_demo_app.contracts_api import contract_service, dq_service
+        from dc43_integrations.spark.dlt import contract_table
+        from dc43_integrations.spark.dlt_local import LocalDLTHarness
+
+
+        def build_dataframe(spark: SparkSession) -> DataFrame:
+            \"\"\"Replicate the Spark transformations showcased in the scenario.\"\"\"
+
+            # TODO: materialise the same joins and calculations as the Spark example.
+            raise NotImplementedError("fill in the transformations")
+
+
+        @contract_table(
+            dlt,
+            name="{asset_name}",
+            contract_id="{contract_id}",
+            contract_service=contract_service,
+            data_quality_service=dq_service,
+        {expected_line}    # Optionally pass pre-rendered predicates via expectation_predicates.
+        )
+        def {function_name}() -> DataFrame:
+            spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+            return build_dataframe(spark)
+
+
+        if __name__ == "__main__":
+            spark = SparkSession.builder.appName("demo-dlt").getOrCreate()
+            with LocalDLTHarness(spark) as harness:
+                harness.run_asset("{asset_name}")
+    """
+    return dedent(template).strip().format(
+        asset_name=asset_name,
+        contract_id=contract_id,
+        expected_line=expected_line,
+        function_name=function_name,
+    )
+
+
+def _augment_contract_scenarios() -> None:
+    """Enrich contract-focused scenarios with DLT metadata."""
+
+    for key, scenario in list(SCENARIOS.items()):
+        params = scenario.setdefault("params", {})
+        mode = params.get("mode")
+        mode_options: list[dict[str, Any]] = list(scenario.get("mode_options", []))
+
+        if mode == "streaming":
+            _ensure_mode_option(mode_options, mode="streaming", label="Run streaming demo")
+            scenario["mode_options"] = mode_options
+            continue
+
+        if mode not in {"spark", "pipeline", "dlt"}:
+            mode = "spark"
+            params["mode"] = mode
+
+        has_contract = bool(params.get("contract_id"))
+
+        if mode == "dlt" and not has_contract:
+            _ensure_mode_option(mode_options, mode="dlt", label="Run with Databricks DLT")
+            scenario["mode_options"] = mode_options
+            continue
+
+        if mode == "dlt" and has_contract:
+            _ensure_mode_option(mode_options, mode="dlt", label="Run with Databricks DLT")
+            scenario["mode_options"] = mode_options
+            continue
+
+        _ensure_mode_option(mode_options, mode="spark", label="Run with Spark helpers")
+
+        if has_contract:
+            _ensure_mode_option(mode_options, mode="dlt", label="Run with Databricks DLT")
+            guide = list(scenario.get("guide", []))
+            already_has = any(
+                isinstance(section, Mapping) and section.get("title") == "DLT equivalent"
+                for section in guide
+            )
+            if not already_has:
+                contract_id = str(params["contract_id"])
+                contract_version = params.get("contract_version")
+                asset_hint = (
+                    params.get("dataset_name")
+                    or scenario.get("dataset_name")
+                    or contract_id
+                )
+                snippet = _dlt_code_snippet(
+                    contract_id=contract_id,
+                    contract_version=contract_version,
+                    asset_name=str(asset_hint or contract_id),
+                )
+                lead = dedent(
+                    """
+                    <p>
+                      The same contract metadata can be enforced through a DLT
+                      notebook. The decorator resolves expectations from the
+                      dc43 services and stacks the generated
+                      <code>dlt.expect_all*</code> calls on top of the
+                      <code>@dlt.table</code> registration while the local
+                      harness mirrors Databricks execution for offline tests.
+                    </p>
+                    """
+                ).strip()
+                guide.append(_code_section("DLT equivalent", snippet, lead=lead))
+                scenario["guide"] = guide
+
+        scenario["mode_options"] = mode_options
+
+
+_augment_contract_scenarios()
 
 __all__ = ["SCENARIOS", "_DEFAULT_SLICE", "_INVALID_SLICE"]

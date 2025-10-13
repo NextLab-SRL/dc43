@@ -16,7 +16,19 @@
 
 <form id="scenario-run-form" class="mb-4" method="post" action="/pipeline/run" data-scenario-category="{{ scenario_row.category }}">
   <input type="hidden" name="scenario" value="{{ scenario_key }}"/>
+  {% set mode_options = scenario_row.mode_options if scenario_row.mode_options else [] %}
+  {% if mode_options|length > 1 %}
+  <div class="btn-group" role="group" aria-label="Run modes">
+    {% for option in mode_options %}
+    <button class="btn btn-primary" type="submit" name="mode" value="{{ option.mode }}">{{ option.label }}</button>
+    {% endfor %}
+  </div>
+  {% elif mode_options|length == 1 %}
+  {% set option = mode_options[0] %}
+  <button class="btn btn-primary" type="submit" name="mode" value="{{ option.mode }}">{{ option.label }}</button>
+  {% else %}
   <button class="btn btn-primary" type="submit">Run this scenario</button>
+  {% endif %}
 </form>
 
 {% if scenario_row.category == 'streaming' %}

@@ -6,6 +6,8 @@ from typing import Any, MutableMapping
 
 from pyspark.sql import DataFrame
 
+from .spark_compat import ensure_local_spark_builder
+
 from dc43_integrations.spark.dlt import contract_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness
 
@@ -91,6 +93,8 @@ def run_dlt_pipeline(
     scenario_key: str | None = None,
 ) -> tuple[str, str]:
     """Execute the demo pipeline while applying the output through DLT helpers."""
+
+    ensure_local_spark_builder()
 
     return pipeline.run_pipeline(
         contract_id,

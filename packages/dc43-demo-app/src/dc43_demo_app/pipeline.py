@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Seque
 
 from . import contracts_api as contracts_server
 from .contracts_records import DatasetRecord, _version_sort_key
+from .spark_compat import ensure_local_spark_builder
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
     expectation_specs,
@@ -1433,6 +1434,8 @@ def run_pipeline(
     Spark implementation. Returns the dataset name used along with the
     materialized version.
     """
+    ensure_local_spark_builder()
+
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
     governance = contracts_server.governance_service
