@@ -13,3 +13,5 @@
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.
+- Simplified the CI workflow to avoid duplicate push/PR runs and ensured the contracts app
+  job installs SQLAlchemy so its test suite resolves backend dependencies.
