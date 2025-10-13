@@ -28,13 +28,12 @@ graph TD
     dc43_demo_app --> dc43_integrations
     dc43_demo_app --> dc43_service_backends
     dc43_demo_app --> dc43_service_clients
-    dc43_service_backends --> dc43
     dc43_service_backends --> dc43_service_clients
+    dc43_integrations --> dc43_service_backends
     dc43_integrations --> dc43_service_clients
     dc43_contracts_app --> dc43_service_backends
     dc43_contracts_app --> dc43_service_clients
     dc43 -.-> dc43_demo_app
-    dc43_integrations -.-> dc43_service_backends
     dc43_contracts_app -.-> dc43_integrations
     %% Dashed arrows indicate optional extras
 ```

@@ -31,7 +31,7 @@ from dc43_integrations.spark.violation_strategy import (
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
 from dc43_service_clients.governance import build_local_governance_service
 from dc43_service_backends.data_products import DataProductRegistrationResult
-from dc43.core.odps import (
+from dc43_service_backends.core.odps import (
     DataProductInputPort,
     DataProductOutputPort,
     OpenDataProductStandard as DataProductDoc,
