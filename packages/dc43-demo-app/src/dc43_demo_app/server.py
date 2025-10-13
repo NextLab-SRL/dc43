@@ -1007,6 +1007,25 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
                 run_type=params_cfg.get("run_type", "observe"),
                 progress=None,
             )
+        elif mode == "dlt":
+            from .dlt_pipeline import run_dlt_pipeline
+
+            dataset_name, new_version = await asyncio.to_thread(
+                run_dlt_pipeline,
+                params_cfg.get("contract_id"),
+                params_cfg.get("contract_version"),
+                params_cfg.get("dataset_name"),
+                params_cfg.get("dataset_version"),
+                params_cfg.get("run_type", "infer"),
+                collect_examples=params_cfg.get("collect_examples", False),
+                examples_limit=params_cfg.get("examples_limit", 5),
+                violation_strategy=params_cfg.get("violation_strategy"),
+                enforce_contract_status=params_cfg.get("enforce_contract_status"),
+                inputs=params_cfg.get("inputs"),
+                output_adjustment=params_cfg.get("output_adjustment"),
+                data_product_flow=params_cfg.get("data_product_flow"),
+                scenario_key=scenario,
+            )
         else:
             dataset_name, new_version = await asyncio.to_thread(
                 run_pipeline,

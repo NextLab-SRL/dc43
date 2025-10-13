@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- DLT execution mode for the orders_enriched scenario with a shared
+  `run_dlt_pipeline` helper, LocalDLTHarness integration, and regression tests
+  that exercise the contract decorators locally.
 - Structured Streaming scenarios that demonstrate contract-enforced reads and
   writes directly inside the pipeline demo, plus a `dc43_demo_app.streaming`
   helper for triggering the healthy, reject-routing, and schema-drift flows

@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Mapping
 
 import pytest
 from pyspark.sql import SparkSession
 
-from dc43_demo_app import pipeline
+from dc43_demo_app import dlt_pipeline, pipeline
 from dc43_demo_app.contracts_records import DatasetRecord
 from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
@@ -172,6 +173,97 @@ def test_demo_pipeline_existing_contract_ok(tmp_path: Path) -> None:
         orders_metrics = orders_section.get("metrics") or {}
         assert orders_metrics.get("row_count") == 3
         assert orders_metrics.get("violations.gt_amount", 0) == 0
+    finally:
+        pipeline.save_records(original_records)
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        if original_orders_version:
+            pipeline.set_active_version("orders", original_orders_version)
+        else:
+            pipeline.set_active_version("orders", "2024-01-01")
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
+        if dataset_name and dataset_version:
+            out_dir = Path(pipeline.DATA_DIR) / dataset_name / dataset_version
+            if out_dir.exists():
+                shutil.rmtree(out_dir, ignore_errors=True)
+
+
+def test_demo_pipeline_dlt_mode(tmp_path: Path) -> None:
+    workspace = current_workspace()
+
+    def _active_version(dataset: str) -> str | None:
+        latest = workspace.data_dir / dataset / "latest"
+        if not latest.exists():
+            return None
+        try:
+            resolved = latest.resolve()
+        except OSError:
+            resolved = latest
+        if resolved.is_dir():
+            marker = resolved / ".dc43_version"
+            if marker.exists():
+                try:
+                    text = marker.read_text().strip()
+                except OSError:
+                    text = ""
+                if text:
+                    return text
+            return resolved.name
+        return None
+
+    original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_dlt"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
+
+    dataset_name: str | None = None
+    dataset_version: str | None = None
+    original_orders_version = _active_version("orders")
+
+    try:
+        pipeline.set_active_version("orders", "2025-10-05")
+
+        params = dict(SCENARIOS["ok-dlt"].get("params", {}))
+        params.setdefault("dataset_name", None)
+        params.setdefault("dataset_version", None)
+        dataset_name, dataset_version = dlt_pipeline.run_dlt_pipeline(
+            params.get("contract_id"),
+            params.get("contract_version"),
+            params.get("dataset_name"),
+            params.get("dataset_version"),
+            params.get("run_type", "infer"),
+            collect_examples=params.get("collect_examples", False),
+            examples_limit=params.get("examples_limit", 5),
+            violation_strategy=params.get("violation_strategy"),
+            enforce_contract_status=params.get("enforce_contract_status"),
+            inputs=params.get("inputs"),
+            output_adjustment=params.get("output_adjustment"),
+            data_product_flow=params.get("data_product_flow"),
+            scenario_key="ok-dlt",
+        )
+
+        assert dataset_name == "orders_enriched"
+
+        updated = pipeline.load_records()
+        last = updated[-1]
+        assert last.dataset_name == dataset_name
+        assert last.dataset_version == dataset_version
+        assert last.scenario_key == "ok-dlt"
+        output_details = last.dq_details.get("output", {})
+        assert output_details.get("pipeline_engine") == "dlt"
+        reports = output_details.get("dlt_expectations")
+        assert isinstance(reports, list)
+        assert reports
+        assert all(isinstance(entry, Mapping) for entry in reports)
+        assert all(entry.get("asset") == "orders_enriched" for entry in reports)
     finally:
         pipeline.save_records(original_records)
         if dq_dir.exists():

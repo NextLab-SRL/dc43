@@ -140,7 +140,7 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
             _code_section(
                 "Pipeline example",
                 """
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
 from dc43_integrations.spark.io import (
     DefaultReadStatusStrategy,
     StaticDatasetLocator,
@@ -407,6 +407,180 @@ def run_orders_enriched_ok(
                   see how the same pipeline reacts when expectations fail.
                 </p>
                 """,
+            ),
+        ],
+    },
+    "ok-dlt": {
+        "label": "Existing contract OK (DLT)",
+        "description": (
+            "<p>Replays the happy path using the demo DLT harness.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reads <code>orders:1.1.0</code> and"
+            " <code>customers:1.0.0</code> with the same locators as the Spark run.</li>"
+            "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.0.0</code>"
+            " and lets the decorator generate <code>dlt.expect_all</code> calls.</li>"
+            "<li><strong>Writes:</strong> Persists <code>orders_enriched</code>"
+            " via <code>write_with_contract</code> after the DLT table enforces the expectations.</li>"
+            "<li><strong>Status:</strong> Both the harness reports and the post-write validation return OK.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Orders["orders latest → 2024-01-01\ncontract orders:1.1.0"] --> Join[Join datasets]
+                    Customers["customers latest → 2024-01-01\ncontract customers:1.0.0"] --> Join
+                    Join --> DLT["DLT table orders_enriched\ncontract decorators"]
+                    DLT --> Write["orders_enriched «timestamp»\ncontract orders_enriched:1.0.0"]
+                    Write --> Status[Run status: OK]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE, orders="2025-10-05"),
+        "params": {
+            "contract_id": "orders_enriched",
+            "contract_version": "1.0.0",
+            "run_type": "enforce",
+            "mode": "dlt",
+            "inputs": {
+                "orders": {
+                    "dataset_version": "2025-10-05__pinned",
+                }
+            },
+        },
+        "guide": [
+            _section(
+                "What this example shows",
+                """
+                <p>
+                  The same curated inputs are published through the
+                  <code>LocalDLTHarness</code>, allowing notebooks that rely on
+                  <code>@dlt.table</code> to exercise contract expectations
+                  locally. The resulting dataframe is then persisted with
+                  <code>write_with_contract</code> so history, telemetry, and
+                  record-keeping match the Spark-only run.
+                </p>
+                """,
+            ),
+            _section(
+                "Why it matters",
+                """
+                <p>
+                  Teams adopting DLT can validate their assets without leaving
+                  the demo workspace. The scenario emphasises:
+                </p>
+                <ul>
+                  <li>How <code>contract_table</code> converts contracts into
+                      <code>dlt.expect_all</code> calls.</li>
+                  <li>That the harness mirrors Databricks metadata so
+                      declarative notebooks run unchanged.</li>
+                  <li>The shared record pipeline that still captures dataset
+                      versions and governance verdicts.</li>
+                </ul>
+                """,
+            ),
+            _section(
+                "Feature focus",
+                """
+                <ul>
+                  <li><strong>Annotation-driven enforcement</strong> – the
+                      decorator stack derived from the contract drives DLT
+                      expectations.</li>
+                  <li><strong>Expectation telemetry</strong> – harness reports
+                      are attached to the run so you can inspect each rule.</li>
+                  <li><strong>Compatibility with Spark runs</strong> – the same
+                      records and dataset layout are produced.</li>
+                </ul>
+                """,
+            ),
+            _section(
+                "What to explore next",
+                """
+                <p>
+                  Compare the DLT expectation report with the DQ payload, then
+                  tweak the code to drop or warn on different rules. You can
+                  also switch back to the Spark mode to confirm both paths stay
+                  in sync.
+                </p>
+                """,
+            ),
+            _code_section(
+                "Pipeline example",
+                """
+from datetime import datetime, timezone
+import dlt
+from pyspark.sql import SparkSession
+from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt_local import LocalDLTHarness
+from dc43_integrations.spark.io import (
+    DefaultReadStatusStrategy,
+    StaticDatasetLocator,
+    read_from_contract,
+    write_with_contract_id,
+)
+from dc43_service_clients.contracts.client.interface import ContractServiceClient
+from dc43_service_clients.data_quality.client.interface import DataQualityServiceClient
+
+
+def run_orders_enriched_dlt(
+    spark: SparkSession,
+    *,
+    contract_service: ContractServiceClient,
+    dq_service: DataQualityServiceClient,
+) -> None:
+    '''Execute the happy-path pipeline via DLT decorators.'''
+
+    orders_df = read_from_contract(
+        spark,
+        contract_id="orders",
+        contract_service=contract_service,
+        expected_contract_version="1.1.0",
+        data_quality_service=dq_service,
+        dataset_locator=StaticDatasetLocator(dataset_version="2025-10-05__pinned"),
+        status_strategy=DefaultReadStatusStrategy(),
+        return_status=False,
+    )
+    customers_df = read_from_contract(
+        spark,
+        contract_id="customers",
+        contract_service=contract_service,
+        expected_contract_version="1.0.0",
+        data_quality_service=dq_service,
+        dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+        status_strategy=DefaultReadStatusStrategy(),
+        return_status=False,
+    )
+    enriched_df = orders_df.join(customers_df, "customer_id", "left")
+
+    with LocalDLTHarness(spark) as harness:
+
+        @contract_table(
+            dlt,
+            name="orders_enriched",
+            contract_id="orders_enriched",
+            contract_service=contract_service,
+            data_quality_service=dq_service,
+            expected_contract_version="==1.0.0",
+        )
+        def orders_enriched() -> DataFrame:
+            return enriched_df
+
+        validated_df = harness.run_asset("orders_enriched")
+
+    run_version = datetime.now(timezone.utc).isoformat()
+    write_with_contract_id(
+        df=validated_df,
+        contract_id="orders_enriched",
+        expected_contract_version="==1.0.0",
+        contract_service=contract_service,
+        data_quality_service=dq_service,
+        dataset_locator=StaticDatasetLocator(dataset_version=run_version),
+        pipeline_context={"mode": "dlt"},
+    )
+                """,
+                "<p>Use <code>contract_table</code> and the local harness to mirror what Databricks would execute, then persist the governed dataset through the usual helpers.</p>",
             ),
         ],
     },

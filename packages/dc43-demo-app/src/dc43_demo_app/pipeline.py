@@ -9,7 +9,7 @@ recording the dataset version in the demo app's registry.
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, MutableMapping, Sequence
+from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Sequence
 
 from . import contracts_api as contracts_server
 from .contracts_records import DatasetRecord, _version_sort_key
@@ -1412,6 +1412,7 @@ def run_pipeline(
     data_product_flow: Mapping[str, Any] | None = None,
     *,
     scenario_key: str | None = None,
+    output_transform: Callable[[DataFrame, MutableMapping[str, Any]], DataFrame] | None = None,
 ) -> tuple[str, str]:
     """Run an example pipeline using the configured contract store.
 
@@ -1426,8 +1427,11 @@ def run_pipeline(
     toggles whether non-active contracts raise immediately when writing; by
     default enforcement matches ``run_type == "enforce"``. ``scenario_key`` tags
     the recorded run so the UI can distinguish scenarios that share the same
-    output dataset.  Returns the dataset name used along with the materialized
-    version.
+    output dataset.  ``output_transform`` allows callers to wrap the final
+    dataframe before publishing (for example to execute it through a local DLT
+    harness) while keeping the record-keeping logic shared with the default
+    Spark implementation. Returns the dataset name used along with the
+    materialized version.
     """
     existing_session = SparkSession.getActiveSession()
     spark = SparkSession.builder.appName("dc43-demo").getOrCreate()
@@ -1690,6 +1694,27 @@ def run_pipeline(
     if strategy_policy:
         write_context_extra["contract_status_policy"] = strategy_policy
 
+    transform_context: MutableMapping[str, Any] = {}
+    if output_transform:
+        transform_context = {
+            "spark": spark,
+            "contract_id": contract_id_ref,
+            "expected_contract_version": expected_version,
+            "dataset_name": dataset_name,
+            "dataset_version": dataset_version,
+            "contract_service": contracts_server.contract_service,
+            "data_quality_service": contracts_server.dq_service,
+            "run_type": run_type,
+        }
+        df = output_transform(df, transform_context)
+        engine_label = transform_context.get("pipeline_engine")
+        if engine_label:
+            base_pipeline_context["engine"] = engine_label
+            write_context_extra.setdefault("engine", engine_label)
+        asset_name = transform_context.get("dlt_asset_name")
+        if asset_name:
+            write_context_extra.setdefault("dlt_asset", asset_name)
+
     write_error: ValueError | None = None
     if output_contract and contract_status_enforce:
         try:
@@ -1925,8 +1950,22 @@ def run_pipeline(
                         continue
                     if message not in warning_messages:
                         warning_messages.append(message)
-                if warning_messages:
-                    output_details["warnings"] = warning_messages
+            if warning_messages:
+                output_details["warnings"] = warning_messages
+
+    if transform_context:
+        engine_label = transform_context.get("pipeline_engine")
+        if engine_label and "pipeline_engine" not in output_details:
+            output_details["pipeline_engine"] = engine_label
+        asset_name = transform_context.get("dlt_asset_name")
+        if asset_name and "dlt_asset" not in output_details:
+            output_details["dlt_asset"] = asset_name
+        reports = transform_context.get("dlt_expectation_reports")
+        if reports and "dlt_expectations" not in output_details:
+            output_details["dlt_expectations"] = reports
+        table_options = transform_context.get("dlt_table_options")
+        if table_options and "dlt_table_options" not in output_details:
+            output_details["dlt_table_options"] = table_options
 
     if dataset_name and dataset_version:
         try:
