@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import dlt
 import pytest
+
+dlt = pytest.importorskip(
+    "dlt", reason="databricks-dlt must be installed to exercise the local harness"
+)
 
 from dc43_integrations.spark.dlt import contract_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness
