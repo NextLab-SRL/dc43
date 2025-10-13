@@ -2373,6 +2373,111 @@ def run_split_invalid_rows(
             ),
         ],
     },
+    "dlt-contract-table": {
+        "label": "DLT: contract table pipeline",
+        "category": "dlt",
+        "description": (
+            "<p>Run the contract-table scenario with a local Delta Live Tables harness.</p>"
+            "<ul>"
+            "<li><strong>Inputs:</strong> Reuses the curated <code>orders</code> and <code>customers</code>"
+            " slices that power the batch demo.</li>"
+            "<li><strong>Execution:</strong> Builds the integration-provided contract table pipeline and"
+            " drives it with <code>LocalDLTHarness</code>.</li>"
+            "<li><strong>Outputs:</strong> Registers the newly materialised <code>orders_enriched</code> version"
+            " and surfaces its validation payload.</li>"
+            "<li><strong>Status:</strong> Mirrors the DQ verdict returned by the harness, raising in enforcement mode when"
+            " violations block the run.</li>"
+            "</ul>"
+        ),
+        "diagram": (
+            "<div class=\"mermaid\">"
+            + dedent(
+                """
+                flowchart TD
+                    Sources["orders + customers\\ncontract slices"] --> DLT["LocalDLTHarness\\ncontract table pipeline"]
+                    DLT --> Output["orders_enriched\\nregistered version"]
+                    DLT --> Governance["DQ & governance\\nstatus and metrics"]
+                """
+            ).strip()
+            + "</div>"
+        ),
+        "activate_versions": dict(_DEFAULT_SLICE, orders="2025-10-05"),
+        "params": {
+            "mode": "dlt",
+            "contract_id": "orders_enriched",
+            "contract_version": "1.1.0",
+            "dataset_name": None,
+            "dataset_version": None,
+            "run_type": "enforce",
+            "dlt": {
+                "run": {
+                    "full_refresh": False,
+                }
+            },
+        },
+        "guide": [
+            _section(
+                "What this example shows",
+                """
+                <p>
+                  The scenario translates the contract-table batch demo into a
+                  Delta Live Tables run. It keeps the same curated source slices,
+                  executes the integration pipeline with the local harness, and
+                  records the resulting dataset version in the demo registry.
+                </p>
+                """,
+            ),
+            _section(
+                "Why it matters",
+                """
+                <p>
+                  Teams experimenting with DLT can see how contract-aware
+                  orchestration carries across engine boundaries. The walkthrough
+                  highlights:
+                </p>
+                <ul>
+                  <li>How <code>LocalDLTHarness</code> wraps the integration
+                      pipeline for local iteration.</li>
+                  <li>The shared dataset history and validation payloads between
+                      batch and DLT executions.</li>
+                  <li>Enforcement semantics that stay consistent regardless of
+                      whether Spark runs the job or Delta Live Tables does.</li>
+                </ul>
+                """,
+            ),
+            _section(
+                "How it works",
+                """
+                <ol>
+                  <li>Build the contract-table pipeline from the
+                      <code>dc43_integrations.spark.dlt</code> module.</li>
+                  <li>Execute it with <code>LocalDLTHarness</code>, which handles
+                      source resolution and Delta Live Tables execution locally.</li>
+                  <li>Use <code>run_dlt_pipeline</code> to record the resulting
+                      dataset version, validation metadata, and governance
+                      status for the UI.</li>
+                </ol>
+                """,
+            ),
+            _code_section(
+                "Run the DLT harness locally",
+                """
+from dc43_integrations.spark.dlt.contract_table import LocalDLTHarness, build_pipeline
+
+pipeline = build_pipeline()
+with LocalDLTHarness(pipeline) as harness:
+    result = harness.run(
+        contract_id="orders_enriched",
+        contract_version="1.1.0",
+        run_type="enforce",
+    )
+    print(f"{result['dataset']} → {result['dataset_version']}")
+                """,
+                "<p>The demo's <code>run_dlt_pipeline</code> helper wraps the same harness so UI-triggered runs capture"
+                " dataset history without additional boilerplate.</p>",
+            ),
+        ],
+    },
     "streaming-valid": {
         "label": "Streaming: healthy pipeline",
         "category": "streaming",

@@ -45,6 +45,7 @@ CATEGORY_LABELS = {
     "contract": "Contract-focused pipelines",
     "data-product": "Data product pipelines",
     "streaming": "Streaming pipelines",
+    "dlt": "Delta Live Tables pipelines",
 }
 
 STATUS_BADGES = {
@@ -981,6 +982,7 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
 @app.post("/pipeline/run", response_class=HTMLResponse)
 async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
     from .pipeline import run_pipeline
+    from .dlt_pipeline import run_dlt_pipeline
 
     cfg = SCENARIOS.get(scenario)
     if not cfg:
@@ -1006,6 +1008,17 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
                 seconds=seconds_int,
                 run_type=params_cfg.get("run_type", "observe"),
                 progress=None,
+            )
+        elif mode == "dlt":
+            dataset_name, new_version = await asyncio.to_thread(
+                run_dlt_pipeline,
+                params_cfg.get("contract_id"),
+                params_cfg.get("contract_version"),
+                params_cfg.get("dataset_name"),
+                params_cfg.get("dataset_version"),
+                params_cfg.get("run_type", "infer"),
+                scenario_key=scenario,
+                dlt_config=params_cfg.get("dlt"),
             )
         else:
             dataset_name, new_version = await asyncio.to_thread(
