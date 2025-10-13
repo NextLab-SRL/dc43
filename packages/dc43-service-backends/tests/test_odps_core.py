@@ -1,4 +1,4 @@
-from dc43.core.odps import (
+from dc43_service_backends.core.odps import (
     DataProductInputPort,
     DataProductOutputPort,
     OpenDataProductStandard,

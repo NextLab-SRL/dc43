@@ -201,6 +201,43 @@ def _progress_emit(
         logger.exception("Failed to emit streaming progress event")
 
 
+def _is_streaming_shutdown_error(exc: BaseException | None) -> bool:
+    """Return ``True`` when ``exc`` indicates a graceful streaming shutdown."""
+
+    if exc is None:
+        return False
+    stack: List[BaseException] = [exc]
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        identifier = id(current)
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+        text = str(current) or repr(current)
+        lowered = text.lower()
+        if "interruptedexception" in lowered or "interruptedioexception" in lowered:
+            return True
+        nested = getattr(current, "__cause__", None)
+        if isinstance(nested, BaseException):
+            stack.append(nested)
+        nested = getattr(current, "__context__", None)
+        if isinstance(nested, BaseException):
+            stack.append(nested)
+        nested = getattr(current, "cause", None)
+        if isinstance(nested, BaseException):
+            stack.append(nested)
+        java_exc = getattr(current, "java_exception", None)
+        if java_exc is not None:
+            try:
+                java_text = str(java_exc).lower()
+            except Exception:  # pragma: no cover - defensive conversion
+                java_text = ""
+            if "interruptedexception" in java_text or "interruptedioexception" in java_text:
+                return True
+    return False
+
+
 def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
     """Advance ``queries`` for roughly ``seconds`` seconds."""
 
@@ -241,9 +278,15 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
     for query in active_queries:
         try:
             query.processAllAvailable()
-        except StreamingQueryException:
+        except StreamingQueryException as exc:
+            if _is_streaming_shutdown_error(exc):
+                logger.debug("Streaming query stopped while draining: %s", exc)
+                continue
             raise
-        except Exception:  # pragma: no cover - streaming engines can close abruptly
+        except Exception as exc:  # pragma: no cover - streaming engines can close abruptly
+            if _is_streaming_shutdown_error(exc):
+                logger.debug("Streaming query interrupted while draining: %s", exc)
+                continue
             logger.exception("Streaming query failed while draining batches")
             continue
         if _query_num_rows(query) > 0:
@@ -270,11 +313,17 @@ def _drive_queries(queries: Iterable[StreamingQuery], *, seconds: int) -> None:
         for query in active_queries:
             try:
                 query.processAllAvailable()
-            except StreamingQueryException:
+            except StreamingQueryException as exc:
+                if _is_streaming_shutdown_error(exc):
+                    logger.debug("Streaming query stopped during drain: %s", exc)
+                    continue
                 # Propagate failures to the caller after stopping all queries so the
                 # dataset record can capture the reason from the validation payload.
                 raise
-            except Exception:  # pragma: no cover - tolerate interrupted queries
+            except Exception as exc:  # pragma: no cover - tolerate interrupted queries
+                if _is_streaming_shutdown_error(exc):
+                    logger.debug("Streaming query interrupted during drain: %s", exc)
+                    continue
                 logger.exception("Streaming query interrupted during drain")
                 continue
             if not seen_rows and _query_num_rows(query) > 0:

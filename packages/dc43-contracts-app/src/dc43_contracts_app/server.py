@@ -3283,7 +3283,9 @@ def _pipeline_bootstrap_script() -> str:
             bundle_root = Path(__file__).resolve().parent.parent
             config_path = bundle_root / "config" / "dc43-service-backends.toml"
             config = load_config(config_path)
-            contract_backend, data_product_backend = build_backends(config)
+            suite = build_backends(config)
+            contract_backend, data_product_backend = suite
+            dq_backend = suite.data_quality
 
             print(
                 "Contract backend initialised:",
@@ -3294,8 +3296,12 @@ def _pipeline_bootstrap_script() -> str:
                 data_product_backend.__class__.__name__,
             )
             print(
+                "Data-quality backend initialised:",
+                dq_backend.__class__.__name__,
+            )
+            print(
                 "Integrate these instances into your pipeline or notebooks to"
-                " publish contracts and data products programmatically.",
+                " publish contracts, data products, and validation payloads programmatically.",
             )
 
 

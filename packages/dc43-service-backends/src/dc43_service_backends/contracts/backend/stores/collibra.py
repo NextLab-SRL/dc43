@@ -11,8 +11,8 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 
 from .interface import ContractStore
 from .filesystem import FSContractStore
-from dc43.core.odcs import as_odcs_dict, contract_identity, ensure_version, to_model
-from dc43.core.versioning import SemVer
+from dc43_service_backends.core.odcs import as_odcs_dict, contract_identity, ensure_version, to_model
+from dc43_service_backends.core.versioning import SemVer
 
 
 def _semver_key(version: str) -> Tuple[int, int, int, str]:

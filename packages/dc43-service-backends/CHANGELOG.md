@@ -23,6 +23,15 @@
 - Added `config_to_mapping`, `dumps`, and `dump` helpers that serialise service
   backend configuration dataclasses so tooling can emit TOML files and
   terraform variable stubs from a single source of truth.
+- Added a pluggable data-quality backend configuration (`data_quality`) with
+  HTTP delegation support mirrored by `build_data_quality_backend` and the
+  shared `build_backends` helper.
+- Data-quality configuration now supports pluggable execution engines (native,
+  Great Expectations, Soda) selectable per contract or via
+  `data_quality.default_engine`.
+- Introduced configurable governance stores (memory, filesystem, SQL, Delta,
+  HTTP) and a `build_governance_store` helper so validation results and
+  dataset links persist beyond process memory.
 - Introduced `SQLContractStore` so deployments can persist contracts in
   relational databases (PostgreSQL, MySQL, SQL Server, SQLite) via SQLAlchemy.
 - Documented SQL-backed deployment guidance and configuration templates covering
@@ -37,6 +46,8 @@
   `DC43_GOVERNANCE_LINK_BUILDERS` environment variable) so deployments can load
   custom dataset–contract link hooks without editing the service code.
 ### Changed
+- Governance storage once again imports the SQL backend eagerly, keeping
+  SQLAlchemy a required dependency instead of relying on placeholder guards.
 - Unity Catalog tagging now runs through pluggable governance hooks so service
   and client interfaces stay technology agnostic while still supporting
   Databricks-specific metadata updates.
@@ -54,3 +65,8 @@
 - Configuration loaders respect `DC43_CONTRACT_STORE_TYPE`, enabling IaC tools
   to switch backends without editing TOML files, and the Delta store reuses the
   SQL serialisation helper to keep schemas aligned.
+- Adopted the ODCS/ODPS helper implementations from the deprecated core
+  package so the backend exposes them directly without depending on the meta
+  distribution.
+- Took ownership of the legacy ODCS/ODPS tests from the meta distribution so
+  backend changes validate the helpers in-package.

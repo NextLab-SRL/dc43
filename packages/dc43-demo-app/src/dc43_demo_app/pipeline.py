@@ -1908,6 +1908,25 @@ def run_pipeline(
                     )
             if aux:
                 output_details.setdefault("auxiliary_datasets", aux)
+                warning_messages = list(output_details.get("warnings", []) or [])
+                for entry in aux:
+                    if not isinstance(entry, Mapping):
+                        continue
+                    kind = entry.get("kind")
+                    if kind == "valid":
+                        message = (
+                            f"Valid subset written to dataset suffix '{strategy.valid_suffix}'"
+                        )
+                    elif kind == "reject":
+                        message = (
+                            f"Rejected subset written to dataset suffix '{strategy.reject_suffix}'"
+                        )
+                    else:
+                        continue
+                    if message not in warning_messages:
+                        warning_messages.append(message)
+                if warning_messages:
+                    output_details["warnings"] = warning_messages
 
     if dataset_name and dataset_version:
         try:

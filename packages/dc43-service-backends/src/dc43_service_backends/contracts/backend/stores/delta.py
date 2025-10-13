@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover
 
 from ._sql_common import prepare_contract_row
 from .interface import ContractStore
-from dc43.core.odcs import to_model
+from dc43_service_backends.core.odcs import to_model
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
