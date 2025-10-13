@@ -57,6 +57,8 @@
 - Streaming run history now focuses on the primary contract slice, surfaces the ungoverned reject
   path, orders the versions by recency, and refreshes the scenario diagram so the governance
   hand-offs highlight which assets are contract-backed versus tracked without a contract.
+- Adopted the demo pipeline, UI, and streaming regression tests into the package so its
+  distribution validates the bundled scenarios directly during CI runs.
 
 ### Fixed
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware
@@ -67,3 +69,5 @@
   the reject-routing walkthrough can persist dataset history without errors.
 - Restore filesystem aliases for timestamped streaming versions so dataset previews resolve the
   governed slices on platforms that support colon-separated folder names.
+- Install the ODCS reference implementation during CI runs so the demo suite's service-client
+  and backend imports succeed without additional bootstrap steps.

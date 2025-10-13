@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Optional, Tuple, Dict, Any
 
-from dc43.core.odcs import (
+from dc43_service_backends.core.odcs import (
     as_odcs_dict,
     contract_identity,
     ensure_version,

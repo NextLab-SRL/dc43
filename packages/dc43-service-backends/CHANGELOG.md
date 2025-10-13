@@ -65,3 +65,8 @@
 - Configuration loaders respect `DC43_CONTRACT_STORE_TYPE`, enabling IaC tools
   to switch backends without editing TOML files, and the Delta store reuses the
   SQL serialisation helper to keep schemas aligned.
+- Adopted the ODCS/ODPS helper implementations from the deprecated core
+  package so the backend exposes them directly without depending on the meta
+  distribution.
+- Took ownership of the legacy ODCS/ODPS tests from the meta distribution so
+  backend changes validate the helpers in-package.

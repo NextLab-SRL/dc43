@@ -22,3 +22,5 @@
 - Decoupled the data product clients from the backend package so importing the
   protocol and client helpers no longer requires installing the service
   backends distribution.
+- Updated the ODPS helper import guard to consume the backend-provided core
+  modules when available while preserving the legacy fallback.

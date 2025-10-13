@@ -53,12 +53,15 @@
   demo application now hosts the streaming walkthrough.
 
 ### Fixed
-- Tightened the ``test`` extra's ``dc43-service-backends`` requirement to
-  ``>=0.18.0.0`` so dependency resolution stays aligned with the bundled
-  backend package and avoids downgrading to older PyPI releases during CI.
+- The CI workflow now installs the repository's ``dc43-service-backends``
+  package before resolving the ``test`` extra so dependency checks continue to
+  target ``0.18.0.0`` while avoiding missing-distribution errors during
+  integration runs.
 - Installing the ``test`` extra now pulls in ``dc43-service-backends`` with its
   SQL dependencies and ``httpx`` so the integration suite runs without tweaking
   import guards.
+- Declared a direct dependency on ``dc43-service-backends`` so Spark helpers
+  can import the shared ODCS utilities without relying on the meta package.
 - `StrictWriteViolationStrategy` now reuses the wrapped strategy's contract status
   allowances so strict enforcement respects custom governance policies.
 - Spark writes that overwrite their source path now checkpoint the aligned dataframe

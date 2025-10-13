@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.core.odcs import list_properties
+from dc43_service_backends.core.odcs import list_properties
 from dc43_service_clients.data_quality import ValidationResult
 
 _TYPE_SYNONYMS: Dict[str, str] = {

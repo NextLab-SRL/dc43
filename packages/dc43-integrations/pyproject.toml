@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
   "dc43-service-clients>=0.0.3",
+  "dc43-service-backends>=0.18.0.0",
   "pyspark>=3.4",
 ]
 
