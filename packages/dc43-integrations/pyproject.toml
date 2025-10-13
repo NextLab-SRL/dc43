@@ -29,6 +29,7 @@ spark = [
 test = [
   "dc43-service-backends[sql]>=0.18.0.0",
   "httpx>=0.24",
+  "databricks-dlt>=0.3",
 ]
 
 [tool.setuptools.dynamic]

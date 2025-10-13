@@ -53,6 +53,8 @@
   demo application now hosts the streaming walkthrough.
 
 ### Fixed
+- Installing the ``test`` extra now pulls in ``databricks-dlt`` so the local DLT
+  harness tests execute instead of being skipped when the dependency is absent.
 - The CI workflow now installs the repository's ``dc43-service-backends``
   package before resolving the ``test`` extra so dependency checks continue to
   target ``0.18.0.0`` while avoiding missing-distribution errors during
