@@ -956,7 +956,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 ],
                 "configuration_notes": [
                     "Set `DC43_CONTRACTS_BACKEND=delta` to enable the Delta implementation.",
-                    "Point the storage location below to a managed table path or external location with ACID support.",
+                    "Provide either the Unity Catalog table name or an external Delta storage location; leave the storage location blank when using managed tables.",
                     "Populate `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (or a Databricks CLI profile) so the service can negotiate with Unity Catalog.",
                 ],
                 "fields": [
@@ -964,7 +964,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "name": "storage_path",
                         "label": "Delta storage location",
                         "placeholder": "s3://contracts-lake/contracts",
-                        "help": "URI or catalog path where the Delta table is stored.",
+                        "help": "External Delta location (S3/ABFS/etc.). Leave blank when referencing a Unity-managed table below.",
                         "optional": True,
                     },
                     {
@@ -1173,7 +1173,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 ],
                 "configuration_notes": [
                     "Set `DC43_PRODUCTS_BACKEND=delta` to keep the configuration consistent with contracts.",
-                    "Use the same catalog/schema pair as the contracts backend when sharing infrastructure.",
+                    "Provide either the Unity Catalog table name or an external Delta storage location; leave the storage location blank when using managed tables.",
                     "Provide `DATABRICKS_HOST`/`DATABRICKS_TOKEN` or a CLI profile so publishing jobs can reach the workspace.",
                 ],
                 "fields": [
@@ -1181,7 +1181,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "name": "storage_path",
                         "label": "Delta storage location",
                         "placeholder": "s3://contracts-lake/products",
-                        "help": "URI or catalog path where the product Delta table lives.",
+                        "help": "External Delta location (S3/ABFS/etc.). Leave blank when referencing a Unity-managed table below.",
                         "optional": True,
                     },
                     {
