@@ -207,3 +207,60 @@ def test_governance_store_module_sits_with_storage_foundations() -> None:
     assert storage_group is not None
     module_keys = [module.get("key") for module in storage_group.get("modules", [])]
     assert "governance_store" in module_keys
+
+
+def test_pipeline_integration_group_is_present() -> None:
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    state = server._default_setup_state()
+
+    context = server._build_setup_context(request, state)
+    groups = context.get("module_groups", [])
+    pipeline_group = next((group for group in groups if group.get("key") == "pipeline_runtime"), None)
+
+    assert pipeline_group is not None
+    module_keys = [module.get("key") for module in pipeline_group.get("modules", [])]
+    assert "pipeline_integration" in module_keys
+
+
+def test_pipeline_bootstrap_script_for_spark_integration() -> None:
+    state = {
+        "selected_options": {
+            "pipeline_integration": "spark",
+        },
+        "configuration": {
+            "pipeline_integration": {
+                "runtime": "databricks job",
+                "workspace_url": "https://adb-123.example.net",
+                "workspace_profile": "pipelines",
+                "cluster_reference": "job:dc43",
+            }
+        },
+    }
+
+    script = server._pipeline_bootstrap_script(state)
+
+    assert "def build_spark_context" in script
+    assert "Spark runtime hint" in script
+    assert "databricks job" in script
+    assert "suite.contract" in script
+
+
+def test_pipeline_bootstrap_script_for_dlt_integration() -> None:
+    state = {
+        "selected_options": {
+            "pipeline_integration": "dlt",
+        },
+        "configuration": {
+            "pipeline_integration": {
+                "workspace_url": "https://adb-456.example.net",
+                "pipeline_name": "dc43-contract-governance",
+                "target_schema": "main.governance",
+            }
+        },
+    }
+
+    script = server._pipeline_bootstrap_script(state)
+
+    assert "WorkspaceClient" in script
+    assert "dc43-contract-governance" in script
+    assert "DLT workspace host" in script

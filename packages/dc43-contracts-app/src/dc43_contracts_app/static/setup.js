@@ -56,6 +56,7 @@ if (!root) {
     governance_deployment: { id: "gov_dep", className: "deployment" },
     governance_store: { id: "gov_store", className: "storage" },
     governance_extensions: { id: "ext", className: "runtime" },
+    pipeline_integration: { id: "pipeline", className: "runtime" },
     contracts_backend: { id: "contracts", className: "storage" },
     products_backend: { id: "products", className: "storage" },
     data_quality: { id: "dq", className: "runtime" },
@@ -546,6 +547,7 @@ if (!root) {
       gov: buildNodeLabel("governance_service", includeDetails),
       gov_dep: buildNodeLabel("governance_deployment", includeDetails),
       ext: buildNodeLabel("governance_extensions", includeDetails),
+      pipeline: buildNodeLabel("pipeline_integration", includeDetails),
       contracts: buildNodeLabel("contracts_backend", includeDetails),
       products: buildNodeLabel("products_backend", includeDetails),
       gov_store: buildNodeLabel("governance_store", includeDetails),
@@ -726,7 +728,7 @@ if (!root) {
     };
 
     pushGroupedSubgraphs("Pipeline footprint", [
-      { title: "Operator experience", modules: ["user_interface", "authentication"] },
+      { title: "Pipeline integration", modules: ["pipeline_integration"] },
       {
         title: "Orchestration & quality",
         modules: ["governance_service", "data_quality", "governance_extensions"],
@@ -735,12 +737,26 @@ if (!root) {
         title: "Persistent storage",
         modules: ["contracts_backend", "products_backend", "governance_store"],
       },
+    ]);
+
+    pushGroupedSubgraphs("Operator experience", [
+      { title: "Interface & access", modules: ["user_interface", "authentication"] },
       { title: "Accelerators", modules: ["demo_automation"] },
     ]);
 
-    pushGroupedSubgraphs("Remote services & hosting", [
-      { title: "Hosted deployments", modules: ["ui_deployment", "governance_deployment"] },
-    ]);
+    const hostingGroups = [];
+    if (hasModule("ui_deployment")) {
+      hostingGroups.push({ title: "UI hosting", modules: ["ui_deployment"] });
+    }
+    if (hasModule("governance_deployment")) {
+      const choice = setupState.selected?.governance_deployment;
+      const localOptions = new Set(["local_python", "local_docker", "not_required"]);
+      const title = localOptions.has(choice) ? "Local runtime" : "Hosted deployments";
+      hostingGroups.push({ title, modules: ["governance_deployment"] });
+    }
+    if (hostingGroups.length) {
+      pushGroupedSubgraphs("Operations & hosting", hostingGroups);
+    }
 
     if (setupState.modules && typeof setupState.modules === "object") {
       for (const [moduleKey, moduleMeta] of Object.entries(setupState.modules)) {
@@ -763,6 +779,21 @@ if (!root) {
     }
     if (hasModule("authentication") && hasModule("user_interface")) {
       lines.push("  auth -->|Protects| ui");
+    }
+    if (hasModule("pipeline_integration") && hasModule("governance_service")) {
+      lines.push("  pipeline -->|Invokes| gov");
+    }
+    if (hasModule("pipeline_integration") && hasModule("data_quality")) {
+      lines.push("  pipeline -->|Requests checks| dq");
+    }
+    if (hasModule("pipeline_integration") && hasModule("contracts_backend")) {
+      lines.push("  pipeline -->|Reads contracts| contracts");
+    }
+    if (hasModule("pipeline_integration") && hasModule("products_backend")) {
+      lines.push("  pipeline -->|Publishes releases| products");
+    }
+    if (hasModule("pipeline_integration") && hasModule("governance_store")) {
+      lines.push("  pipeline -->|Records outcomes| gov_store");
     }
     if (hasModule("governance_service") && hasModule("contracts_backend")) {
       lines.push("  gov -->|Publishes & reads| contracts");

@@ -9,6 +9,9 @@
   products, quality, and governance modules.
 - Bundled environment exports now emit TOML configs, Terraform stubs, and launch scripts tailored to
   the selected deployment targets so new installations can jump straight into provisioning.
+- Added a pipeline integration module covering Spark and Delta Live Tables runtimes so the wizard
+  captures orchestration credentials and the exported helper script shows how to initialise the
+  chosen engine alongside the dc43 backends.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are
@@ -19,3 +22,6 @@
 - The setup architecture overview groups the pipeline footprint versus remote hosting, surfaces the
   validation results store, and links quality runs back to their persistence target so operators can
   see how governance data flows through the deployment.
+- Architecture groupings now distinguish local runtime choices from hosted deployments so the
+  diagram no longer lists local Python orchestration under remote hosting and highlights the new
+  pipeline integration node.
