@@ -14,6 +14,81 @@ except Exception as exc:  # pragma: no cover - databricks-dlt not installed
 else:  # pragma: no cover - only executed when the import succeeds
     _DLT_IMPORT_ERROR = None
 
+
+def _build_stub_dlt_module() -> Any:
+    """Return a minimal ``dlt`` facsimile for environments without the package."""
+
+    class _StubDLTModule:
+        __slots__ = ()
+        __name__ = "dc43_integrations.stub_dlt"
+        __dc43_is_stub__ = True
+
+        # ------------------------------------------------------------------
+        # Runtime toggles
+        # ------------------------------------------------------------------
+        @staticmethod
+        def enable_local_execution() -> None:  # pragma: no cover - no-op
+            return None
+
+        # ------------------------------------------------------------------
+        # Expectation decorators
+        # ------------------------------------------------------------------
+        @staticmethod
+        def expect_all(predicates: Mapping[str, str]) -> Callable[[F], F]:
+            return _StubDLTModule._noop_decorator
+
+        @staticmethod
+        def expect_all_or_drop(predicates: Mapping[str, str]) -> Callable[[F], F]:
+            return _StubDLTModule._noop_decorator
+
+        @staticmethod
+        def _noop_decorator(fn: F) -> F:  # pragma: no cover - trivial
+            return fn
+
+        # ------------------------------------------------------------------
+        # Asset decorators
+        # ------------------------------------------------------------------
+        @staticmethod
+        def table(query_function: F | None = None, **kwargs: Any) -> Callable[[F], F]:
+            if query_function is not None and callable(query_function):
+                return query_function
+
+            def decorator(fn: F) -> F:
+                return fn
+
+            return decorator
+
+        @staticmethod
+        def view(query_function: F | None = None, **kwargs: Any) -> Callable[[F], F]:
+            if query_function is not None and callable(query_function):
+                return query_function
+
+            def decorator(fn: F) -> F:
+                return fn
+
+            return decorator
+
+    return _StubDLTModule()
+
+
+_STUB_DLT_MODULE: Any | None = None
+
+
+def ensure_dlt_module(*, allow_stub: bool = False) -> Any:
+    """Return the ``dlt`` module or a stub replacement when requested."""
+
+    if databricks_dlt is not None:
+        return databricks_dlt
+    if not allow_stub:
+        raise RuntimeError(
+            "databricks-dlt package is required for DLT helpers"
+        ) from _DLT_IMPORT_ERROR
+
+    global _STUB_DLT_MODULE
+    if _STUB_DLT_MODULE is None:
+        _STUB_DLT_MODULE = _build_stub_dlt_module()
+    return _STUB_DLT_MODULE
+
 try:  # pragma: no cover - optional dependency guard
     from pyspark.sql.functions import expr
 except Exception as exc:  # pragma: no cover - pyspark not installed
@@ -68,13 +143,10 @@ class LocalDLTHarness:
                 "LocalDLTHarness requires pyspark; install pyspark to run local DLT tests"
             ) from _PYSPARK_IMPORT_ERROR
         if module is None:
-            if databricks_dlt is None:  # pragma: no cover - databricks-dlt missing
-                raise RuntimeError(
-                    "databricks-dlt package is required for the local DLT harness"
-                ) from _DLT_IMPORT_ERROR
-            module = databricks_dlt
+            module = ensure_dlt_module(allow_stub=True)
         self.spark = spark
         self.module = module
+        self._using_stub = bool(getattr(module, "__dc43_is_stub__", False))
         self.expectation_reports: list[ExpectationReport] = []
         self.table_options: Dict[str, Mapping[str, Any]] = {}
         self.view_options: Dict[str, Mapping[str, Any]] = {}
@@ -245,4 +317,4 @@ class LocalDLTHarness:
         self.expectation_reports.append(report)
 
 
-__all__ = ["ExpectationReport", "LocalDLTHarness"]
+__all__ = ["ExpectationReport", "LocalDLTHarness", "ensure_dlt_module"]

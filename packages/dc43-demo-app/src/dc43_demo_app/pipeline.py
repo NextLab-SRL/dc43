@@ -1960,6 +1960,11 @@ def run_pipeline(
         engine_label = transform_context.get("pipeline_engine")
         if engine_label and "pipeline_engine" not in output_details:
             output_details["pipeline_engine"] = engine_label
+        module_name = transform_context.get("dlt_module_name")
+        if module_name and "dlt_module_name" not in output_details:
+            output_details["dlt_module_name"] = module_name
+        if "dlt_module_stub" not in output_details and "dlt_module_stub" in transform_context:
+            output_details["dlt_module_stub"] = bool(transform_context["dlt_module_stub"])
         asset_name = transform_context.get("dlt_asset_name")
         if asset_name and "dlt_asset" not in output_details:
             output_details["dlt_asset"] = asset_name

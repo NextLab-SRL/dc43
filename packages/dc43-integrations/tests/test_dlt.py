@@ -7,6 +7,7 @@ from typing import Iterable, Mapping, Sequence
 
 import pytest
 
+from dc43_integrations.spark import dlt_local
 from dc43_integrations.spark.dlt import (
     DLTContractBinding,
     DLTExpectations,
@@ -65,6 +66,22 @@ def test_expectations_from_plan_separates_optional_rules():
 
     assert expectations.enforced == {"required_column": "col IS NOT NULL", "missing_predicate": "some_expression"}
     assert expectations.observed == {"optional_enum": "col IN ('a', 'b')"}
+
+
+def test_ensure_dlt_module_falls_back_to_stub(monkeypatch):
+    monkeypatch.setattr(dlt_local, "databricks_dlt", None, raising=False)
+    monkeypatch.setattr(dlt_local, "_DLT_IMPORT_ERROR", ModuleNotFoundError("missing"), raising=False)
+    monkeypatch.setattr(dlt_local, "_STUB_DLT_MODULE", None, raising=False)
+
+    module = dlt_local.ensure_dlt_module(allow_stub=True)
+
+    assert getattr(module, "__dc43_is_stub__", False)
+
+    @module.table
+    def sample():  # pragma: no cover - simple stub
+        return "ok"
+
+    assert sample() == "ok"
 
 
 def test_apply_dlt_expectations_accepts_mapping():

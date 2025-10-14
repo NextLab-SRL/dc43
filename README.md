@@ -266,11 +266,13 @@ def orders():
 ```
 
 Need to experiment outside Databricks? Install [`databricks-dlt`](https://pypi.org/project/databricks-dlt/)
-for the notebook-compatible stubs—its local mode only flips a flag—then wrap
-your pipeline definitions in ``LocalDLTHarness`` (see
-`packages/dc43-integrations/examples/dlt_contract_pipeline.py`) to execute the
-same annotations on a local Spark session and inspect the recorded expectation
-verdicts.
+for the official notebook-compatible shims (the local mode only flips a flag).
+If the package is not available the helpers now fall back to an in-repo stub so
+the demo pipeline and tests continue to run, but installing the real package is
+recommended for parity. Wrap your pipeline definitions in
+``LocalDLTHarness`` (see `packages/dc43-integrations/examples/dlt_contract_pipeline.py`)
+to execute the same annotations on a local Spark session and inspect the
+recorded expectation verdicts.
 
 4) Store and resolve contracts
 

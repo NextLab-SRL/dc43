@@ -260,6 +260,8 @@ def test_demo_pipeline_dlt_mode(tmp_path: Path) -> None:
         assert last.scenario_key == "ok"
         output_details = last.dq_details.get("output", {})
         assert output_details.get("pipeline_engine") == "dlt"
+        assert output_details.get("dlt_module_name")
+        assert output_details.get("dlt_module_stub") in {True, False}
         reports = output_details.get("dlt_expectations")
         assert isinstance(reports, list)
         assert reports

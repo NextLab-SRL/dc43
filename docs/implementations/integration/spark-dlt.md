@@ -102,22 +102,23 @@ methods.
 ### Local testing without Databricks
 
 Install [`databricks-dlt`](https://pypi.org/project/databricks-dlt/) alongside
-``pyspark`` to obtain the local Delta Live Tables stubs. The upstream package
-only flips a ``LOCAL_EXECUTION_MODE`` flag though—the decorators still return a
-stub callable that yields ``None``—so :class:`~dc43_integrations.spark.dlt_local.LocalDLTHarness`
-patches the ``dlt`` module to register/execute the assets and record the outcome
-of every expectation evaluation:
+``pyspark`` to obtain the official Delta Live Tables notebook shims. When the
+package is missing dc43 falls back to a tiny in-repo stub so tests can still
+exercise the helpers, but installing the upstream wheel keeps the experience
+closest to production. :class:`~dc43_integrations.spark.dlt_local.LocalDLTHarness`
+then patches the ``dlt`` module to register/execute the assets and record the
+outcome of every expectation evaluation:
 
 ```python
-import dlt
 from pyspark.sql import SparkSession
 
 from dc43_integrations.spark.dlt import contract_table
-from dc43_integrations.spark.dlt_local import LocalDLTHarness
+from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 
 spark = SparkSession.builder.master("local[2]").appName("demo").getOrCreate()
+dlt = ensure_dlt_module(allow_stub=True)
 
-with LocalDLTHarness(spark) as harness:
+with LocalDLTHarness(spark, module=dlt) as harness:
 
     @contract_table(
         dlt,

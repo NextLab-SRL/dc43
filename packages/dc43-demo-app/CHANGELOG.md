@@ -47,6 +47,9 @@
 - Contract-driven pipeline scenarios now embed tailored DLT notebook snippets and
   the DLT-only walkthrough mirrors the same annotation-driven code shown in the
   UI guides.
+- DLT runs now resolve the ``dlt`` module through ``ensure_dlt_module``, record
+  whether the stub fallback was used, and keep the demo executable even when
+  ``databricks-dlt`` is not installed locally.
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
   contracts and the new override workflow for development runs.
 - Data-product pipeline enforces the configured expected contract version when resolving

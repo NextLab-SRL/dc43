@@ -6,21 +6,15 @@ from datetime import datetime
 
 import pytest
 
-try:  # pragma: no cover - dependency presence checked at import time
-    import dlt
-except ModuleNotFoundError as exc:  # pragma: no cover - executed only when missing
-    raise ImportError(
-        "databricks-dlt must be installed to exercise the local harness "
-        "tests. Install the integration package with the 'test' extra: "
-        "pip install 'dc43-integrations[test]'"
-    ) from exc
-
 from dc43_integrations.spark.dlt import contract_table
-from dc43_integrations.spark.dlt_local import LocalDLTHarness
+from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_clients.contracts import LocalContractServiceClient
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
 from .helpers.orders import build_orders_contract
+
+
+dlt = ensure_dlt_module(allow_stub=True)
 
 
 @pytest.mark.usefixtures("spark")

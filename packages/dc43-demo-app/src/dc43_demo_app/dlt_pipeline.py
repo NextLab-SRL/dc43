@@ -9,7 +9,7 @@ from pyspark.sql import DataFrame
 from .spark_compat import ensure_local_spark_builder
 
 from dc43_integrations.spark.dlt import contract_table
-from dc43_integrations.spark.dlt_local import LocalDLTHarness
+from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 
 from . import pipeline
 
@@ -20,12 +20,9 @@ def _dlt_output_transform(
 ) -> DataFrame:
     """Route the final dataframe through a local DLT harness."""
 
-    try:
-        import dlt as databricks_dlt
-    except Exception as exc:  # pragma: no cover - dependency guard
-        raise RuntimeError(
-            "databricks-dlt package is required to run the demo pipeline in DLT mode"
-        ) from exc
+    databricks_dlt = ensure_dlt_module(allow_stub=True)
+    context["dlt_module_name"] = getattr(databricks_dlt, "__name__", "dlt")
+    context["dlt_module_stub"] = bool(getattr(databricks_dlt, "__dc43_is_stub__", False))
 
     spark = context.get("spark")
     if spark is None:

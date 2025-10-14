@@ -7,7 +7,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-import dlt
 from pyspark.sql import SparkSession
 
 from open_data_contract_standard.model import (
@@ -20,7 +19,7 @@ from open_data_contract_standard.model import (
 )
 
 from dc43_integrations.spark.dlt import contract_table
-from dc43_integrations.spark.dlt_local import LocalDLTHarness
+from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_clients.contracts import LocalContractServiceClient
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
@@ -109,10 +108,12 @@ def main() -> None:
             columns = ["order_id", "customer_id", "order_ts", "amount", "currency"]
             bronze_df = spark.createDataFrame(bronze_rows, columns)
 
-            with LocalDLTHarness(spark) as harness:
+            dlt_module = ensure_dlt_module(allow_stub=True)
+
+            with LocalDLTHarness(spark, module=dlt_module) as harness:
 
                 @contract_table(
-                    dlt,
+                    dlt_module,
                     name="orders",
                     contract_id=contract.id,
                     contract_service=contract_service,
