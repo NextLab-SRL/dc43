@@ -957,6 +957,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 "configuration_notes": [
                     "Set `DC43_CONTRACTS_BACKEND=delta` to enable the Delta implementation.",
                     "Point the storage location below to a managed table path or external location with ACID support.",
+                    "Populate `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (or a Databricks CLI profile) so the service can negotiate with Unity Catalog.",
                 ],
                 "fields": [
                     {
@@ -964,6 +965,34 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Delta storage location",
                         "placeholder": "s3://contracts-lake/contracts",
                         "help": "URI or catalog path where the Delta table is stored.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "table_name",
+                        "label": "Unity Catalog table (optional)",
+                        "placeholder": "main.contracts.contract_store",
+                        "help": "Fully qualified Unity Catalog table name when using a managed table instead of a storage path.",
+                    },
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL (optional)",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL of the Databricks workspace that hosts the Delta catalog.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile name from databricks.cfg when using profile-based auth instead of a static token.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_token",
+                        "label": "Workspace personal access token (optional)",
+                        "placeholder": "dapi...",
+                        "help": "PAT stored as `DATABRICKS_TOKEN` for Spark sessions that connect to Unity Catalog.",
+                        "optional": True,
                     },
                     {
                         "name": "catalog",
@@ -1145,6 +1174,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 "configuration_notes": [
                     "Set `DC43_PRODUCTS_BACKEND=delta` to keep the configuration consistent with contracts.",
                     "Use the same catalog/schema pair as the contracts backend when sharing infrastructure.",
+                    "Provide `DATABRICKS_HOST`/`DATABRICKS_TOKEN` or a CLI profile so publishing jobs can reach the workspace.",
                 ],
                 "fields": [
                     {
@@ -1152,6 +1182,34 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Delta storage location",
                         "placeholder": "s3://contracts-lake/products",
                         "help": "URI or catalog path where the product Delta table lives.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "table_name",
+                        "label": "Unity Catalog table (optional)",
+                        "placeholder": "main.products.catalogue",
+                        "help": "Fully qualified Unity Catalog table name when publishing to managed tables.",
+                    },
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL (optional)",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL of the Databricks workspace backing the Delta tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile configured in databricks.cfg when avoiding inline PATs.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_token",
+                        "label": "Workspace personal access token (optional)",
+                        "placeholder": "dapi...",
+                        "help": "Token exported as `DATABRICKS_TOKEN` for Spark or REST clients.",
+                        "optional": True,
                     },
                     {
                         "name": "catalog",
@@ -1739,6 +1797,20 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 ],
                 "fields": [
                     {
+                        "name": "dataset_prefix",
+                        "label": "Dataset prefix",
+                        "placeholder": "table:",
+                        "help": "Prefix added to contract dataset identifiers before tagging Unity tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile name from databricks.cfg when using profile-based authentication instead of host/token.",
+                        "optional": True,
+                    },
+                    {
                         "name": "workspace_url",
                         "label": "Workspace URL",
                         "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
@@ -1761,6 +1833,13 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Personal access token",
                         "placeholder": "dapi...",
                         "help": "Databricks PAT used by the governance hook.",
+                    },
+                    {
+                        "name": "static_properties",
+                        "label": "Static table properties (optional)",
+                        "placeholder": "owner=governance-team,environment=prod",
+                        "help": "Comma or newline separated key=value pairs applied to every Unity table update.",
+                        "optional": True,
                     },
                 ],
             },
@@ -3111,7 +3190,56 @@ def _service_backends_config_from_state(
         except (TypeError, ValueError):  # pragma: no cover - safety
             return None
 
+    def parse_static_properties(value: Any) -> dict[str, str]:
+        properties: dict[str, str] = {}
+        if isinstance(value, Mapping):
+            for key, raw in value.items():
+                name = _clean_str(key)
+                if not name:
+                    continue
+                properties[name] = _clean_str(raw) or ""
+            return properties
+
+        text = _clean_str(value)
+        if not text:
+            return properties
+
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, Mapping):
+            for key, raw in parsed.items():
+                name = _clean_str(key)
+                if not name:
+                    continue
+                properties[name] = _clean_str(raw) or ""
+            if properties:
+                return properties
+
+        for token in re.split(r"[\n,]", text):
+            candidate = token.strip()
+            if not candidate:
+                continue
+            separator: str | None = None
+            for sep in ("=", ":"):
+                if sep in candidate:
+                    separator = sep
+                    break
+            if not separator:
+                continue
+            key_part, value_part = candidate.split(separator, 1)
+            name = key_part.strip()
+            if not name:
+                continue
+            properties[name] = value_part.strip()
+
+        return properties
+
     contract_option = selected.get("contracts_backend")
+    databricks_hosts: list[str] = []
+    databricks_profiles: list[str] = []
+    databricks_tokens: list[str] = []
     contract_cfg = BackendContractStoreConfig()
     if contract_option:
         option = contract_option.strip().lower()
@@ -3132,6 +3260,18 @@ def _service_backends_config_from_state(
             contract_cfg.type = "delta"
             contract_cfg.base_path = path_from(module.get("storage_path"))
             contract_cfg.schema = _clean_str(module.get("schema"))
+            table_name = _clean_str(module.get("table_name"))
+            if table_name:
+                contract_cfg.table = table_name
+            host_value = _clean_str(module.get("workspace_url"))
+            if host_value:
+                databricks_hosts.append(host_value)
+            profile_value = _clean_str(module.get("workspace_profile"))
+            if profile_value:
+                databricks_profiles.append(profile_value)
+            token_value = _clean_str(module.get("workspace_token"))
+            if token_value:
+                databricks_tokens.append(token_value)
         elif option == "collibra":
             contract_cfg.type = "collibra_http"
             contract_cfg.base_url = _clean_str(module.get("base_url"))
@@ -3154,6 +3294,18 @@ def _service_backends_config_from_state(
             product_cfg.base_path = path_from(module.get("storage_path"))
             product_cfg.schema = _clean_str(module.get("schema"))
             product_cfg.catalog = _clean_str(module.get("catalog"))
+            table_name = _clean_str(module.get("table_name"))
+            if table_name:
+                product_cfg.table = table_name
+            host_value = _clean_str(module.get("workspace_url"))
+            if host_value:
+                databricks_hosts.append(host_value)
+            profile_value = _clean_str(module.get("workspace_profile"))
+            if profile_value:
+                databricks_profiles.append(profile_value)
+            token_value = _clean_str(module.get("workspace_token"))
+            if token_value:
+                databricks_tokens.append(token_value)
         elif option == "collibra":
             product_cfg.type = "collibra_stub"
             product_cfg.base_url = _clean_str(module.get("base_url"))
@@ -3164,14 +3316,18 @@ def _service_backends_config_from_state(
     if governance_option == "unity_catalog":
         module = module_config("governance_extensions")
         unity_cfg.enabled = True
+        prefix_value = _clean_str(module.get("dataset_prefix"))
+        if prefix_value:
+            unity_cfg.dataset_prefix = prefix_value
+        unity_cfg.workspace_profile = _clean_str(module.get("workspace_profile"))
         unity_cfg.workspace_host = _clean_str(module.get("workspace_url"))
         unity_cfg.workspace_token = _clean_str(module.get("token"))
         catalog_value = _clean_str(module.get("catalog"))
         schema_value = _clean_str(module.get("schema"))
-        notes: dict[str, str] = {}
-        if catalog_value:
+        notes = parse_static_properties(module.get("static_properties"))
+        if catalog_value and "catalog" not in notes:
             notes["catalog"] = catalog_value
-        if schema_value:
+        if schema_value and "schema" not in notes:
             notes["schema"] = schema_value
         if notes:
             unity_cfg.static_properties = notes
@@ -3180,6 +3336,22 @@ def _service_backends_config_from_state(
         module_path = _clean_str(module.get("module_path"))
         if module_path:
             governance_builders = (module_path,)
+
+    if not unity_cfg.workspace_host:
+        for host in databricks_hosts:
+            if host:
+                unity_cfg.workspace_host = host
+                break
+    if not unity_cfg.workspace_profile:
+        for profile in databricks_profiles:
+            if profile:
+                unity_cfg.workspace_profile = profile
+                break
+    if not unity_cfg.workspace_token:
+        for token in databricks_tokens:
+            if token:
+                unity_cfg.workspace_token = token
+                break
 
     auth_cfg = BackendAuthConfig()
     if selected.get("governance_service") == "remote_api":
