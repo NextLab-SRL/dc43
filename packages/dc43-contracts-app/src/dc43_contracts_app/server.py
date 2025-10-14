@@ -58,6 +58,7 @@ from dc43_service_backends.config import (
     AuthConfig as BackendAuthConfig,
     ContractStoreConfig as BackendContractStoreConfig,
     DataProductStoreConfig as BackendDataProductStoreConfig,
+    DataQualityBackendConfig as BackendDataQualityConfig,
     GovernanceConfig as BackendGovernanceConfig,
     ServiceBackendsConfig,
     UnityCatalogConfig as BackendUnityCatalogConfig,
@@ -1246,6 +1247,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
     "data_quality": {
         "title": "Data quality service",
         "summary": "Select the engine that evaluates expectations against your datasets.",
+        "default_option": "embedded_engine",
         "options": {
             "embedded_engine": {
                 "label": "Embedded local engine",
@@ -1274,7 +1276,63 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "optional": True,
                     },
                 ],
-            }
+            },
+            "remote_http": {
+                "label": "Remote data-quality API",
+                "description": "Delegate expectation evaluation to an external observability service that persists validation results in your chosen storage backend.",
+                "installation": [
+                    "Deploy the dc43 data-quality backend (or a compatible API) near the storage system that should hold validation outcomes.",
+                    "Expose the HTTPS endpoint to the contracts UI container or automation environment.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_DATA_QUALITY_BACKEND_TYPE=http` so backends use the HTTP delegate.",
+                    "Provide the service URL and credentials via `DC43_DATA_QUALITY_BACKEND_URL` and `DC43_DATA_QUALITY_BACKEND_TOKEN` (plus optional header/scheme overrides).",
+                    "Include any static headers your observability platform requires (for example organisation or workspace identifiers).",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Service base URL",
+                        "placeholder": "https://quality.example.com",
+                        "help": "HTTPS endpoint for the remote data-quality API.",
+                    },
+                    {
+                        "name": "api_token",
+                        "label": "API token (optional)",
+                        "placeholder": "quality-token",
+                        "help": "Bearer or PAT credential presented to the remote data-quality service.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_header",
+                        "label": "Token header (optional)",
+                        "placeholder": "Authorization",
+                        "help": "Override the HTTP header used to pass the token (defaults to Authorization).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_scheme",
+                        "label": "Token scheme (optional)",
+                        "placeholder": "Bearer",
+                        "help": "Override the scheme/prefix that precedes the token value.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "default_engine",
+                        "label": "Default expectation engine (optional)",
+                        "placeholder": "soda",
+                        "help": "Engine identifier requested when contracts omit an explicit engine.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "extra_headers",
+                        "label": "Additional headers (optional)",
+                        "placeholder": "X-Org=governance,X-Team=data-quality",
+                        "help": "Comma or newline separated key=value pairs appended to every request.",
+                        "optional": True,
+                    },
+                ],
+            },
         },
     },
     "governance_service": {
@@ -3310,6 +3368,33 @@ def _service_backends_config_from_state(
             product_cfg.type = "collibra_stub"
             product_cfg.base_url = _clean_str(module.get("base_url"))
 
+    dq_option = selected.get("data_quality")
+    dq_cfg = BackendDataQualityConfig()
+    if dq_option:
+        option = dq_option.strip().lower()
+        module = module_config("data_quality")
+        if option == "embedded_engine":
+            dq_cfg.type = "local"
+            default_engine = _clean_str(module.get("default_engine"))
+            if default_engine:
+                dq_cfg.default_engine = default_engine
+        elif option == "remote_http":
+            dq_cfg.type = "http"
+            dq_cfg.base_url = _clean_str(module.get("base_url"))
+            dq_cfg.token = _clean_str(module.get("api_token"))
+            header_value = _clean_str(module.get("token_header"))
+            if header_value:
+                dq_cfg.token_header = header_value
+            scheme_value = _clean_str(module.get("token_scheme"))
+            if scheme_value:
+                dq_cfg.token_scheme = scheme_value
+            default_engine = _clean_str(module.get("default_engine"))
+            if default_engine:
+                dq_cfg.default_engine = default_engine
+            headers_value = _parse_key_value_pairs(module.get("extra_headers"))
+            if headers_value:
+                dq_cfg.headers = headers_value
+
     governance_option = selected.get("governance_extensions")
     unity_cfg = BackendUnityCatalogConfig()
     governance_builders: tuple[str, ...] = ()
@@ -3361,6 +3446,7 @@ def _service_backends_config_from_state(
     config = ServiceBackendsConfig(
         contract_store=contract_cfg,
         data_product_store=product_cfg,
+        data_quality=dq_cfg,
         auth=auth_cfg,
         unity_catalog=unity_cfg,
         governance=BackendGovernanceConfig(

@@ -86,3 +86,33 @@ def test_unity_hook_credentials_remain_authoritative() -> None:
     assert unity_cfg.workspace_host == "https://adb-governance.example.net"
     assert unity_cfg.workspace_profile == "governance-profile"
     assert unity_cfg.workspace_token == "token-governance"
+
+
+def test_remote_data_quality_backend_configuration() -> None:
+    state = {
+        "selected_options": {
+            "data_quality": "remote_http",
+        },
+        "configuration": {
+            "data_quality": {
+                "base_url": "https://quality.example.com",
+                "api_token": "secret-token",
+                "token_header": "X-Api-Key",
+                "token_scheme": "Token",
+                "default_engine": "soda",
+                "extra_headers": "X-Org=governance\nX-Region=emea",
+            }
+        },
+    }
+
+    config = server._service_backends_config_from_state(state)
+    assert config is not None
+
+    dq_cfg = config.data_quality
+    assert dq_cfg.type == "http"
+    assert dq_cfg.base_url == "https://quality.example.com"
+    assert dq_cfg.token == "secret-token"
+    assert dq_cfg.token_header == "X-Api-Key"
+    assert dq_cfg.token_scheme == "Token"
+    assert dq_cfg.default_engine == "soda"
+    assert dq_cfg.headers == {"X-Org": "governance", "X-Region": "emea"}
