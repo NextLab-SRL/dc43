@@ -60,6 +60,7 @@ from dc43_service_backends.config import (
     DataProductStoreConfig as BackendDataProductStoreConfig,
     DataQualityBackendConfig as BackendDataQualityConfig,
     GovernanceConfig as BackendGovernanceConfig,
+    GovernanceStoreConfig as BackendGovernanceStoreConfig,
     ServiceBackendsConfig,
     UnityCatalogConfig as BackendUnityCatalogConfig,
     dumps as dump_service_backends_config,
@@ -1335,6 +1336,213 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
             },
         },
     },
+    "governance_store": {
+        "title": "Validation results storage",
+        "summary": "Select the persistence layer for validation statuses, dataset links, and pipeline activity.",
+        "default_option": "embedded_memory",
+        "options": {
+            "embedded_memory": {
+                "label": "In-memory cache (demo)",
+                "description": "Keep validation results inside the application process. Recommended only for local demos.",
+                "installation": [
+                    "No additional dependencies required – data is discarded when the process restarts.",
+                ],
+                "configuration_notes": [
+                    "Leave `governance_store.type` unset (defaults to `memory`).",
+                    "Suitable for proof-of-concept environments where durability is not required.",
+                ],
+                "fields": [],
+            },
+            "filesystem": {
+                "label": "Filesystem archive",
+                "description": "Persist validation history as JSON files on a mounted volume that pipelines can inspect.",
+                "installation": [
+                    "Provision a durable volume (for example an NFS export or cloud file share).",
+                    "Mount the volume into the container running the governance services.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=filesystem` to activate the JSON archive.",
+                    "Point the directory below at a shared location accessible to operators and pipelines.",
+                ],
+                "fields": [
+                    {
+                        "name": "storage_path",
+                        "label": "Governance storage directory",
+                        "placeholder": "/workspace/governance",
+                        "help": "Root folder that will contain status, link, and pipeline activity subdirectories.",
+                        "default_factory": lambda workspace: str(workspace.root / "governance"),
+                    },
+                ],
+            },
+            "sql": {
+                "label": "SQL database",
+                "description": "Write validation outcomes and pipeline activity to relational tables via SQLAlchemy.",
+                "installation": [
+                    "Provision a PostgreSQL, MySQL, or compatible database reachable from the governance services.",
+                    "Create tables or grant schema ownership so the connector can manage them automatically.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=sql` and export the DSN via `DC43_GOVERNANCE_STORE_DSN`.",
+                    "Override table names if the default `dq_status`, `dq_activity`, and link tables already exist.",
+                ],
+                "fields": [
+                    {
+                        "name": "connection_uri",
+                        "label": "Database connection URI",
+                        "placeholder": "postgresql+psycopg://governance:secret@db.example.com/dc43",
+                        "help": "SQLAlchemy-compatible DSN used to create the governance tables.",
+                    },
+                    {
+                        "name": "schema",
+                        "label": "Schema (optional)",
+                        "placeholder": "governance",
+                        "help": "Schema or database namespace used for the governance tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "status_table",
+                        "label": "Status table (optional)",
+                        "placeholder": "dq_status",
+                        "help": "Table that stores the latest validation status for each dataset version.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "activity_table",
+                        "label": "Activity table (optional)",
+                        "placeholder": "dq_activity",
+                        "help": "Table that records pipeline activity and validation history.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "link_table",
+                        "label": "Dataset link table (optional)",
+                        "placeholder": "dq_dataset_contract_links",
+                        "help": "Table that maps dataset versions to governed contract versions.",
+                        "optional": True,
+                    },
+                ],
+            },
+            "delta_lake": {
+                "label": "Delta Lake",
+                "description": "Persist validation artefacts to Delta tables so Unity Catalog and lakehouse tooling can query them.",
+                "installation": [
+                    "Ensure the deployment environment has access to the target Delta Lake or Unity Catalog workspace.",
+                    "Grant the service principal permission to write to the Delta location or managed tables.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=delta` so the governance services use the Spark connector.",
+                    "Provide either a base storage path for external tables or the fully qualified Unity table names below.",
+                    "Populate `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (or profile) to allow Spark to reach Unity Catalog.",
+                ],
+                "fields": [
+                    {
+                        "name": "storage_path",
+                        "label": "Delta storage location (optional)",
+                        "placeholder": "s3://governance/validation",
+                        "help": "Base folder for Delta tables when not using managed Unity Catalog tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "status_table",
+                        "label": "Status table name (optional)",
+                        "placeholder": "main.governance.dq_status",
+                        "help": "Fully qualified Unity Catalog table for validation status records.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "activity_table",
+                        "label": "Activity table name (optional)",
+                        "placeholder": "main.governance.dq_activity",
+                        "help": "Unity Catalog table that captures pipeline activity events.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "link_table",
+                        "label": "Dataset link table (optional)",
+                        "placeholder": "main.governance.dq_dataset_contract_links",
+                        "help": "Unity Catalog table mapping dataset versions to contract versions.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL (optional)",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL of the Databricks workspace hosting the Delta catalog.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile from databricks.cfg when authenticating without inline PATs.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_token",
+                        "label": "Workspace personal access token (optional)",
+                        "placeholder": "dapi...",
+                        "help": "PAT stored as `DATABRICKS_TOKEN` so Spark can authenticate against Unity Catalog.",
+                        "optional": True,
+                    },
+                ],
+            },
+            "remote_http": {
+                "label": "Remote governance API",
+                "description": "Proxy validation storage to an external observability service over HTTPS.",
+                "installation": [
+                    "Deploy a dc43-compatible governance API or integrate with an existing observability platform.",
+                    "Expose the HTTPS endpoint and credentials to the contracts application environment.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=http` to activate the HTTP persistence delegate.",
+                    "Provide the base URL, token, and any additional headers required by the remote API.",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Service base URL",
+                        "placeholder": "https://governance.example.com",
+                        "help": "HTTPS endpoint for the remote governance persistence API.",
+                    },
+                    {
+                        "name": "api_token",
+                        "label": "API token (optional)",
+                        "placeholder": "governance-token",
+                        "help": "Bearer or PAT credential presented to the remote governance service.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_header",
+                        "label": "Token header (optional)",
+                        "placeholder": "Authorization",
+                        "help": "Override the HTTP header that carries the authentication token.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_scheme",
+                        "label": "Token scheme (optional)",
+                        "placeholder": "Bearer",
+                        "help": "Override the scheme/prefix applied to the token value.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "timeout",
+                        "label": "Request timeout (seconds, optional)",
+                        "placeholder": "10",
+                        "help": "Override the HTTP client timeout when the remote service has higher latency.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "extra_headers",
+                        "label": "Additional headers (optional)",
+                        "placeholder": "X-Org=governance,X-Team=quality",
+                        "help": "Comma or newline separated key=value pairs appended to every request.",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
     "governance_service": {
         "title": "Governance interface",
         "summary": "Decide whether orchestration runs in-process, via the bundled web service, or through a remote API.",
@@ -2457,7 +2665,7 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "key": "quality_extensions",
         "title": "Quality & extensions",
         "summary": "Cover the bundled data-quality engine and optional governance hooks that enrich downstream catalogs.",
-        "modules": ["data_quality", "governance_extensions"],
+        "modules": ["data_quality", "governance_store", "governance_extensions"],
     },
     {
         "key": "accelerators",
@@ -3395,6 +3603,64 @@ def _service_backends_config_from_state(
             if headers_value:
                 dq_cfg.headers = headers_value
 
+    store_option = selected.get("governance_store")
+    governance_store_cfg = BackendGovernanceStoreConfig()
+    if store_option:
+        option = store_option.strip().lower()
+        module = module_config("governance_store")
+        if option in {"embedded_memory", "memory", "local"}:
+            governance_store_cfg.type = "memory"
+        elif option == "filesystem":
+            governance_store_cfg.type = "filesystem"
+            governance_store_cfg.root = path_from(
+                module.get("storage_path") or module.get("base_path")
+            )
+        elif option == "sql":
+            governance_store_cfg.type = "sql"
+            governance_store_cfg.dsn = _clean_str(module.get("connection_uri"))
+            governance_store_cfg.schema = _clean_str(module.get("schema"))
+            governance_store_cfg.status_table = _clean_str(module.get("status_table"))
+            governance_store_cfg.activity_table = _clean_str(
+                module.get("activity_table")
+            )
+            governance_store_cfg.link_table = _clean_str(module.get("link_table"))
+        elif option == "delta_lake":
+            governance_store_cfg.type = "delta"
+            governance_store_cfg.base_path = path_from(module.get("storage_path"))
+            governance_store_cfg.status_table = _clean_str(module.get("status_table"))
+            governance_store_cfg.activity_table = _clean_str(
+                module.get("activity_table")
+            )
+            governance_store_cfg.link_table = _clean_str(module.get("link_table"))
+            host_value = _clean_str(module.get("workspace_url"))
+            if host_value:
+                databricks_hosts.append(host_value)
+            profile_value = _clean_str(module.get("workspace_profile"))
+            if profile_value:
+                databricks_profiles.append(profile_value)
+            token_value = _clean_str(module.get("workspace_token"))
+            if token_value:
+                databricks_tokens.append(token_value)
+        elif option == "remote_http":
+            governance_store_cfg.type = "http"
+            governance_store_cfg.base_url = _clean_str(module.get("base_url"))
+            governance_store_cfg.token = _clean_str(module.get("api_token"))
+            header_value = _clean_str(module.get("token_header"))
+            if header_value:
+                governance_store_cfg.token_header = header_value
+            scheme_value = _clean_str(module.get("token_scheme"))
+            if scheme_value:
+                governance_store_cfg.token_scheme = scheme_value
+            timeout_value = _clean_number(module.get("timeout"))
+            if timeout_value is not None:
+                try:
+                    governance_store_cfg.timeout = float(timeout_value)
+                except (TypeError, ValueError):  # pragma: no cover - defensive
+                    pass
+            headers_value = _parse_key_value_pairs(module.get("extra_headers"))
+            if headers_value:
+                governance_store_cfg.headers = headers_value
+
     governance_option = selected.get("governance_extensions")
     unity_cfg = BackendUnityCatalogConfig()
     governance_builders: tuple[str, ...] = ()
@@ -3452,6 +3718,7 @@ def _service_backends_config_from_state(
         governance=BackendGovernanceConfig(
             dataset_contract_link_builders=governance_builders,
         ),
+        governance_store=governance_store_cfg,
     )
 
     return config

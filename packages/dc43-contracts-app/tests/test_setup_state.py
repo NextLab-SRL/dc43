@@ -116,3 +116,79 @@ def test_remote_data_quality_backend_configuration() -> None:
     assert dq_cfg.token_scheme == "Token"
     assert dq_cfg.default_engine == "soda"
     assert dq_cfg.headers == {"X-Org": "governance", "X-Region": "emea"}
+
+
+def test_governance_store_filesystem_configuration() -> None:
+    state = {
+        "selected_options": {
+            "governance_store": "filesystem",
+        },
+        "configuration": {
+            "governance_store": {
+                "storage_path": "/var/lib/dc43/governance",
+            }
+        },
+    }
+
+    config = server._service_backends_config_from_state(state)
+    assert config is not None
+
+    store_cfg = config.governance_store
+    assert store_cfg.type == "filesystem"
+    assert str(store_cfg.root) == "/var/lib/dc43/governance"
+
+
+def test_governance_store_delta_adds_databricks_credentials() -> None:
+    state = {
+        "selected_options": {
+            "governance_store": "delta_lake",
+        },
+        "configuration": {
+            "governance_store": {
+                "workspace_url": "https://adb-governance.example.net",
+                "workspace_profile": "governance-profile",
+                "workspace_token": "token-governance",
+            }
+        },
+    }
+
+    config = server._service_backends_config_from_state(state)
+    assert config is not None
+
+    store_cfg = config.governance_store
+    assert store_cfg.type == "delta"
+
+    unity_cfg = config.unity_catalog
+    assert unity_cfg.workspace_host == "https://adb-governance.example.net"
+    assert unity_cfg.workspace_profile == "governance-profile"
+    assert unity_cfg.workspace_token == "token-governance"
+
+
+def test_governance_store_http_configuration() -> None:
+    state = {
+        "selected_options": {
+            "governance_store": "remote_http",
+        },
+        "configuration": {
+            "governance_store": {
+                "base_url": "https://governance.example.com",
+                "api_token": "secret-token",
+                "token_header": "X-Api-Key",
+                "token_scheme": "Token",
+                "timeout": "30",
+                "extra_headers": "X-Org=governance,X-Team=quality",
+            }
+        },
+    }
+
+    config = server._service_backends_config_from_state(state)
+    assert config is not None
+
+    store_cfg = config.governance_store
+    assert store_cfg.type == "http"
+    assert store_cfg.base_url == "https://governance.example.com"
+    assert store_cfg.token == "secret-token"
+    assert store_cfg.token_header == "X-Api-Key"
+    assert store_cfg.token_scheme == "Token"
+    assert store_cfg.timeout == 30.0
+    assert store_cfg.headers == {"X-Org": "governance", "X-Team": "quality"}
