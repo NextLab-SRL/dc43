@@ -635,6 +635,8 @@ def _read_override_full_snippet() -> str:
 def _split_lenient_snippet() -> str:
     return dedent(
         """
+        from datetime import datetime, timezone
+
         import dlt
         from pyspark.sql import SparkSession
 
@@ -645,7 +647,9 @@ def _split_lenient_snippet() -> str:
             DefaultReadStatusStrategy,
             StaticDatasetLocator,
             read_from_contract,
+            write_with_contract_id,
         )
+        from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
 
 
         @contract_table(
@@ -685,7 +689,25 @@ def _split_lenient_snippet() -> str:
         if __name__ == "__main__":
             spark = SparkSession.builder.appName("demo-dlt").getOrCreate()
             with LocalDLTHarness(spark) as harness:
-                harness.run_asset("orders_enriched")
+                enriched_df = harness.run_asset("orders_enriched")
+
+            strategy = SplitWriteViolationStrategy(
+                include_valid=True,
+                include_reject=True,
+                write_primary_on_violation=True,
+            )
+            version = datetime.now(timezone.utc).isoformat()
+            result = write_with_contract_id(
+                df=enriched_df,
+                contract_id="orders_enriched",
+                expected_contract_version="==1.1.0",
+                contract_service=contract_service,
+                data_quality_service=dq_service,
+                dataset_locator=StaticDatasetLocator(dataset_version=version),
+                violation_strategy=strategy,
+                enforce=False,
+            )
+            print(f"Split strategy finished with status {result.status} for {version}")
         """
     ).strip()
 

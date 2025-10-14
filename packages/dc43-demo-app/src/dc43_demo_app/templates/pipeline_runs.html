@@ -1,8 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Pipeline Scenarios</h1>
-{% if message %}<div class="alert alert-success">{{ message }}</div>{% endif %}
-{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 {% set scenario_group_list = scenario_groups if scenario_groups else [{'key': 'default', 'label': 'Scenarios', 'rows': scenario_rows}] %}
 <table class="table table-striped align-middle" id="scenario-table">
   <thead>

@@ -31,6 +31,13 @@
   {% endif %}
 </form>
 
+<div id="scenario-run-progress" class="alert alert-info d-none align-items-center d-flex" role="status">
+  <div class="d-flex align-items-center">
+    <div class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></div>
+    <span id="scenario-run-progress-text">Preparing run…</span>
+  </div>
+</div>
+
 {% if scenario_row.category == 'streaming' %}
 <div id="live-streaming-card" class="card mb-4 d-none">
   <div class="card-body">
@@ -478,6 +485,9 @@
     const batchesContainer = document.getElementById('live-streaming-batches');
     const timelineContainer = document.getElementById('live-streaming-timeline');
     const batchCards = new Map();
+    const buttons = form ? Array.from(form.querySelectorAll('button[type="submit"]')) : [];
+    const progressBar = document.getElementById('scenario-run-progress');
+    const progressText = document.getElementById('scenario-run-progress-text');
     let eventSource = null;
 
     const timelineBadges = {
@@ -497,28 +507,37 @@
       error: 'border-danger text-danger'
     };
 
-    function disableButton() {
-      if (!form) { return; }
-      const button = form.querySelector('button[type="submit"]');
-      if (!button || button.disabled) { return; }
-      button.disabled = true;
-      button.innerHTML = '';
-      const spinner = document.createElement('span');
-      spinner.className = 'spinner-border spinner-border-sm me-2';
-      spinner.setAttribute('role', 'status');
-      spinner.setAttribute('aria-hidden', 'true');
-      button.appendChild(spinner);
-      const label = document.createElement('span');
-      label.textContent = 'Running…';
-      button.appendChild(label);
+    function setButtonsBusy(active, submitter) {
+      buttons.forEach((button) => {
+        if (!button.dataset.originalLabel) {
+          button.dataset.originalLabel = button.textContent || button.value || 'Run';
+        }
+        button.disabled = active;
+        if (active && submitter === button) {
+          button.innerHTML = '';
+          const spinner = document.createElement('span');
+          spinner.className = 'spinner-border spinner-border-sm me-2';
+          spinner.setAttribute('role', 'status');
+          spinner.setAttribute('aria-hidden', 'true');
+          const label = document.createElement('span');
+          label.textContent = 'Running…';
+          button.appendChild(spinner);
+          button.appendChild(label);
+        } else if (!active) {
+          button.innerHTML = button.dataset.originalLabel;
+        }
+      });
     }
 
-    function enableButton() {
-      if (!form) { return; }
-      const button = form.querySelector('button[type="submit"]');
-      if (!button) { return; }
-      button.disabled = false;
-      button.textContent = 'Run this scenario';
+    function showProgress(message) {
+      if (!progressBar || !progressText) { return; }
+      progressText.textContent = message || 'Running scenario…';
+      progressBar.classList.remove('d-none');
+    }
+
+    function hideProgress() {
+      if (!progressBar) { return; }
+      progressBar.classList.add('d-none');
     }
 
     function formatTime(value) {
@@ -620,11 +639,15 @@
         const dataset = event.dataset_name || 'dataset';
         const version = event.dataset_version || 'unknown';
         statusEl.textContent = `Run completed for ${dataset}@${version}`;
+        if (window.dc43Toast && typeof window.dc43Toast.show === 'function') {
+          window.dc43Toast.show(`Streaming run finished for ${dataset}@${version}`, 'success');
+        }
       }
       if (eventSource) {
         eventSource.close();
         eventSource = null;
       }
+      hideProgress();
       window.setTimeout(function () {
         window.location.reload();
       }, 1500);
@@ -640,7 +663,11 @@
         eventSource.close();
         eventSource = null;
       }
-      enableButton();
+      setButtonsBusy(false);
+      hideProgress();
+      if (window.dc43Toast && typeof window.dc43Toast.show === 'function') {
+        window.dc43Toast.show(`Streaming run failed: ${message}`, 'danger');
+      }
     }
 
     function handleEvent(event) {
@@ -709,9 +736,9 @@
       };
     }
 
-    function startStreamingRun() {
+    function startStreamingRun(formData, submitter) {
       if (!form) { return; }
-      disableButton();
+      setButtonsBusy(true, submitter);
       if (liveCard) {
         liveCard.classList.remove('d-none');
       }
@@ -720,7 +747,7 @@
         statusEl.classList.add('text-muted');
         statusEl.textContent = 'Starting streaming run…';
       }
-      const formData = new FormData(form);
+      showProgress('Running streaming scenario…');
       fetch('/pipeline/run/streaming', {
         method: 'POST',
         body: formData,
@@ -742,13 +769,62 @@
         });
     }
 
+    function startStandardRun(formData, submitter, mode) {
+      setButtonsBusy(true, submitter);
+      const modeLabel = mode === 'dlt' ? 'Running with Databricks DLT…' : 'Running Spark scenario…';
+      showProgress(modeLabel);
+      fetch('/pipeline/run', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+        body: formData,
+      })
+        .then(function (response) {
+          if (!response.ok) {
+            return response.json().catch(() => ({ status: 'error', message: `HTTP ${response.status}` }));
+          }
+          return response.json();
+        })
+        .then(function (payload) {
+          if (!payload) {
+            throw new Error('Unexpected empty response');
+          }
+          if (payload.status !== 'success') {
+            throw new Error(payload.message || 'Run failed');
+          }
+          if (window.dc43Toast && typeof window.dc43Toast.show === 'function') {
+            const toastLabel = payload.mode === 'dlt' ? 'DLT run finished successfully.' : 'Spark run finished successfully.';
+            window.dc43Toast.show(payload.message || toastLabel, 'success');
+          }
+          const target = payload.detail_url || window.location.href;
+          hideProgress();
+          setTimeout(function () {
+            window.location.href = target;
+          }, 800);
+        })
+        .catch(function (error) {
+          setButtonsBusy(false);
+          hideProgress();
+          if (window.dc43Toast && typeof window.dc43Toast.show === 'function') {
+            window.dc43Toast.show(error.message || String(error), 'danger');
+          }
+        });
+    }
+
     if (form) {
       form.addEventListener('submit', function (event) {
+        if (!event) { return; }
+        const submitter = event.submitter || null;
+        const mode = submitter && submitter.name === 'mode' ? String(submitter.value || '').toLowerCase() : null;
+        const formData = new FormData(form);
+        if (submitter && submitter.name) {
+          formData.set(submitter.name, submitter.value);
+        }
         if (isStreamingScenario) {
           event.preventDefault();
-          startStreamingRun();
+          startStreamingRun(formData, submitter);
         } else {
-          disableButton();
+          event.preventDefault();
+          startStandardRun(formData, submitter, mode);
         }
       });
     }

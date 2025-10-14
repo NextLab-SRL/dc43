@@ -177,9 +177,18 @@ def test_run_pipeline_endpoint_passes_data_product_flow(monkeypatch):
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
 
     client = TestClient(demo_app)
-    resp = client.post("/pipeline/run", data={"scenario": "data-product-roundtrip"}, follow_redirects=False)
+    resp = client.post(
+        "/pipeline/run",
+        data={"scenario": "data-product-roundtrip"},
+        headers={"accept": "application/json"},
+    )
 
-    assert resp.status_code == 303
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "success"
+    assert payload["mode"] == "pipeline"
+    assert payload["message"].startswith("Run succeeded: ")
+    assert payload["detail_url"].startswith("/pipeline-runs/data-product-roundtrip?flash=")
     assert captured["args"][:5] == (
         params.get("contract_id"),
         params.get("contract_version"),
@@ -196,6 +205,26 @@ def test_run_pipeline_endpoint_passes_data_product_flow(monkeypatch):
     assert kwargs["output_adjustment"] == params.get("output_adjustment")
     assert kwargs["data_product_flow"] == params.get("data_product_flow")
     assert kwargs["scenario_key"] == "data-product-roundtrip"
+
+
+def test_run_pipeline_endpoint_redirects_without_json(monkeypatch):
+    params = SCENARIOS["ok"]["params"]
+
+    def fake_run_pipeline(*args: Any, **kwargs: Any) -> tuple[str, str]:
+        return (params.get("dataset_name") or "orders_enriched", "2024-03-01T00:00:00Z")
+
+    async def fake_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("dc43_demo_app.pipeline.run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    client = TestClient(demo_app)
+    resp = client.post("/pipeline/run", data={"scenario": "ok"}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    location = resp.headers.get("location")
+    assert location and location.startswith("/pipeline-runs/ok?flash=")
 
 
 def test_run_pipeline_endpoint_streaming(monkeypatch):

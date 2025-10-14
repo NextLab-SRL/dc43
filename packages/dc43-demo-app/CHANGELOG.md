@@ -38,6 +38,9 @@
   exposes a richer sample script for presenters to reuse in notebooks.
 
 ### Changed
+- Pipeline scenario details now run Spark or DLT modes in place using asynchronous
+  progress indicators, Bootstrap toasts for completion status, and the JSON
+  pipeline endpoint instead of redirecting back to the scenario list.
 - Contract-driven pipeline scenarios now embed tailored DLT notebook snippets and
   the DLT-only walkthrough mirrors the same annotation-driven code shown in the
   UI guides.

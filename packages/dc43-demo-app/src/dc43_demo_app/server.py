@@ -958,6 +958,15 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         category_key, category_key.replace("-", " ").title()
     )
 
+    flash_token = request.query_params.get("flash")
+    flash_message: str | None = None
+    flash_error: str | None = None
+    if flash_token:
+        flash_message, flash_error = pop_flash(flash_token)
+    else:
+        flash_message = request.query_params.get("msg")
+        flash_error = request.query_params.get("error")
+
     context = {
         "request": request,
         "scenario_key": scenario_key,
@@ -974,12 +983,15 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         "scenario_params": params_cfg,
         "activate_versions": scenario_cfg.get("activate_versions", {}),
         "status_badges": STATUS_BADGES,
+        "message": flash_message,
+        "error": flash_error,
     }
     return templates.TemplateResponse("pipeline_run_detail.html", context)
 
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
 async def run_pipeline_endpoint(
+    request: Request,
     scenario: str = Form(...),
     mode: str | None = Form(None),
 ) -> HTMLResponse:
@@ -1064,13 +1076,41 @@ async def run_pipeline_endpoint(
             or params_cfg.get("contract_id")
             or "dataset"
         )
-        token = queue_flash(message=f"Run succeeded: {label} {new_version}")
+        message = f"Run succeeded: {label} {new_version}"
+        token = queue_flash(message=message)
         params_qs = urlencode({"flash": token})
+        detail_url = f"/pipeline-runs/{scenario}?{params_qs}"
+        wants_json = "application/json" in request.headers.get("accept", "").lower()
+        if wants_json:
+            return JSONResponse(
+                {
+                    "status": "success",
+                    "message": message,
+                    "dataset_name": dataset_name,
+                    "dataset_version": new_version,
+                    "detail_url": detail_url,
+                    "mode": selected_mode,
+                }
+            )
+        return RedirectResponse(url=detail_url, status_code=303)
     except Exception as exc:  # pragma: no cover - surface pipeline errors
         logger.exception("Pipeline run failed for scenario %s", scenario)
-        token = queue_flash(error=str(exc))
+        error_message = str(exc)
+        token = queue_flash(error=error_message)
         params_qs = urlencode({"flash": token})
-    return RedirectResponse(url=f"/pipeline-runs?{params_qs}", status_code=303)
+        detail_url = f"/pipeline-runs/{scenario}?{params_qs}"
+        wants_json = "application/json" in request.headers.get("accept", "").lower()
+        if wants_json:
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": error_message,
+                    "detail_url": detail_url,
+                    "mode": selected_mode,
+                },
+                status_code=500,
+            )
+        return RedirectResponse(url=detail_url, status_code=303)
 
 
 @app.post("/pipeline/run/streaming", response_class=JSONResponse)
