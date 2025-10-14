@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 import pytest
 from pyspark.sql import SparkSession
@@ -19,6 +19,45 @@ from dc43_demo_app.contracts_workspace import current_workspace, prepare_demo_wo
 from dc43_demo_app.scenarios import SCENARIOS
 
 prepare_demo_workspace()
+
+
+def _activate_scenario_versions(scenario_key: str) -> None:
+    """Set ``latest`` aliases required for ``scenario_key``."""
+
+    scenario = SCENARIOS.get(scenario_key)
+    if not scenario:
+        return
+    for dataset, version in scenario.get("activate_versions", {}).items():
+        try:
+            pipeline.set_active_version(dataset, version)
+        except FileNotFoundError:
+            continue
+
+
+def _run_dlt_for_params(params: Mapping[str, Any], *, scenario_key: str) -> tuple[str, str]:
+    """Execute the demo pipeline in DLT mode using ``params``."""
+
+    try:
+        return dlt_pipeline.run_dlt_pipeline(
+            params.get("contract_id"),
+            params.get("contract_version"),
+            params.get("dataset_name"),
+            params.get("dataset_version"),
+            params.get("run_type", "infer"),
+            collect_examples=params.get("collect_examples", False),
+            examples_limit=params.get("examples_limit", 5),
+            violation_strategy=params.get("violation_strategy"),
+            enforce_contract_status=params.get("enforce_contract_status"),
+            inputs=params.get("inputs"),
+            output_adjustment=params.get("output_adjustment"),
+            data_product_flow=params.get("data_product_flow"),
+            scenario_key=scenario_key,
+        )
+    except PermissionError as exc:  # pragma: no cover - environment quirk
+        message = str(exc).lower()
+        if "spark-submit" in message or "permission denied" in message:
+            pytest.skip("Spark submit binary is not executable in this environment")
+        raise
 
 
 def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
@@ -195,70 +234,154 @@ def test_demo_pipeline_existing_contract_ok(tmp_path: Path) -> None:
                 shutil.rmtree(out_dir, ignore_errors=True)
 
 
-def test_demo_pipeline_dlt_mode(tmp_path: Path) -> None:
-    workspace = current_workspace()
+DLT_SCENARIO_EXPECTATIONS = [
+    (
+        "ok",
+        {
+            "status": "ok",
+            "dataset": "orders_enriched",
+            "dlt_asset": "orders_enriched",
+        },
+    ),
+    (
+        "ok-dlt",
+        {
+            "status": "ok",
+            "dataset": "orders_enriched",
+            "dlt_asset": "orders_enriched",
+        },
+    ),
+    (
+        "dq",
+        {
+            "error": "DQ violation",
+            "status": "error",
+            "dataset": "orders_enriched",
+            "failed_expectations": True,
+        },
+    ),
+    (
+        "schema-dq",
+        {
+            "error": "Schema validation failed",
+            "status": "error",
+            "dataset": "orders_enriched",
+            "failed_expectations": True,
+            "schema_errors": True,
+        },
+    ),
+    (
+        "contract-draft-block",
+        {
+            "error": "draft",
+            "status": "error",
+            "dataset": "orders_enriched",
+            "contract_status_error": True,
+            "contract_policy_allowed": ["active"],
+        },
+    ),
+    (
+        "contract-draft-override",
+        {
+            "status": "ok",
+            "dataset": "orders_enriched",
+            "contract_policy_allowed": ["active", "draft"],
+        },
+    ),
+    (
+        "read-invalid-block",
+        {
+            "error": "DQ status is blocking",
+            "status": "error",
+            "dataset": "orders_enriched",
+            "dq_reason_prefix": "DQ status is blocking",
+        },
+    ),
+    (
+        "read-valid-subset",
+        {
+            "status": "ok",
+            "dataset": "orders_enriched",
+            "dataset_version": "valid-ok",
+        },
+    ),
+    (
+        "read-valid-subset-violation",
+        {
+            "status": "error",
+            "dataset": "orders_enriched",
+            "dataset_version": "valid-invalid",
+            "failed_expectations": True,
+            "raises_value_error": True,
+        },
+    ),
+    (
+        "read-override-full",
+        {
+            "status_in": {"warning", "error"},
+            "dataset": "orders_enriched",
+            "dataset_version": "override-full",
+        },
+    ),
+    (
+        "split-lenient",
+        {
+            "status": "warning",
+            "dataset": "orders_enriched",
+            "auxiliary_kinds": {"valid", "reject"},
+        },
+    ),
+    (
+        "data-product-roundtrip",
+        {
+            "status": "ok",
+            "dataset": "orders_enriched",
+        },
+    ),
+]
 
-    def _active_version(dataset: str) -> str | None:
-        latest = workspace.data_dir / dataset / "latest"
-        if not latest.exists():
-            return None
-        try:
-            resolved = latest.resolve()
-        except OSError:
-            resolved = latest
-        if resolved.is_dir():
-            marker = resolved / ".dc43_version"
-            if marker.exists():
-                try:
-                    text = marker.read_text().strip()
-                except OSError:
-                    text = ""
-                if text:
-                    return text
-            return resolved.name
-        return None
 
-    original_records = pipeline.load_records()
-    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
-    backup = tmp_path / "dq_state_backup_dlt"
-    if dq_dir.exists():
-        shutil.copytree(dq_dir, backup)
-    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
+@pytest.mark.parametrize(
+    "scenario_key, expectation",
+    DLT_SCENARIO_EXPECTATIONS,
+    ids=[entry[0] for entry in DLT_SCENARIO_EXPECTATIONS],
+)
+def test_demo_pipeline_dlt_scenarios(
+    scenario_key: str,
+    expectation: Mapping[str, Any],
+) -> None:
+    prepare_demo_workspace()
+    _activate_scenario_versions(scenario_key)
+    params = dict(SCENARIOS[scenario_key].get("params", {}))
+    params.pop("mode", None)
 
-    dataset_name: str | None = None
-    dataset_version: str | None = None
-    original_orders_version = _active_version("orders")
-
+    dataset_result: tuple[str, str] | None = None
     try:
-        pipeline.set_active_version("orders", "2025-10-05")
+        should_raise = expectation.get("raises_value_error") or expectation.get("error")
+        if should_raise:
+            with pytest.raises(ValueError) as excinfo:
+                _run_dlt_for_params(params, scenario_key=scenario_key)
+            error_text = expectation.get("error")
+            if error_text:
+                assert error_text.lower() in str(excinfo.value).lower()
+        else:
+            dataset_result = _run_dlt_for_params(params, scenario_key=scenario_key)
+            expected_dataset = expectation.get("dataset")
+            if expected_dataset and dataset_result:
+                assert dataset_result[0] == expected_dataset
+            expected_version = expectation.get("dataset_version")
+            if expected_version and dataset_result:
+                assert dataset_result[1] == expected_version
 
-        params = dict(SCENARIOS["ok"].get("params", {}))
-        params.setdefault("dataset_name", None)
-        params.setdefault("dataset_version", None)
-        dataset_name, dataset_version = dlt_pipeline.run_dlt_pipeline(
-            params.get("contract_id"),
-            params.get("contract_version"),
-            params.get("dataset_name"),
-            params.get("dataset_version"),
-            params.get("run_type", "infer"),
-            collect_examples=params.get("collect_examples", False),
-            examples_limit=params.get("examples_limit", 5),
-            violation_strategy=params.get("violation_strategy"),
-            enforce_contract_status=params.get("enforce_contract_status"),
-            inputs=params.get("inputs"),
-            output_adjustment=params.get("output_adjustment"),
-            data_product_flow=params.get("data_product_flow"),
-            scenario_key="ok",
+        records = pipeline.load_records()
+        assert records, "expected the run to append a dataset record"
+        last = records[-1]
+        assert last.scenario_key == scenario_key
+        output_details = (
+            last.dq_details.get("output", {})
+            if isinstance(last.dq_details, Mapping)
+            else {}
         )
-
-        assert dataset_name == "orders_enriched"
-
-        updated = pipeline.load_records()
-        last = updated[-1]
-        assert last.dataset_name == dataset_name
-        assert last.dataset_version == dataset_version
-        assert last.scenario_key == "ok"
-        output_details = last.dq_details.get("output", {})
         assert output_details.get("pipeline_engine") == "dlt"
         assert output_details.get("dlt_module_name")
         assert output_details.get("dlt_module_stub") in {True, False}
@@ -266,26 +389,46 @@ def test_demo_pipeline_dlt_mode(tmp_path: Path) -> None:
         assert isinstance(reports, list)
         assert reports
         assert all(isinstance(entry, Mapping) for entry in reports)
-        assert all(entry.get("asset") == "orders_enriched" for entry in reports)
+        asset_hint = (
+            expectation.get("dlt_asset")
+            or expectation.get("dataset")
+            or params.get("dataset_name")
+            or params.get("contract_id")
+        )
+        if asset_hint:
+            assert all(entry.get("asset") == asset_hint for entry in reports)
+
+        if "status" in expectation:
+            assert last.status == expectation["status"]
+        if "status_in" in expectation:
+            assert last.status in expectation["status_in"]
+        if expectation.get("failed_expectations"):
+            failures = output_details.get("failed_expectations", {})
+            assert failures
+        if expectation.get("schema_errors"):
+            errors = output_details.get("errors", [])
+            assert errors
+        if expectation.get("dq_reason_prefix"):
+            dq_summary = output_details.get("dq_status") or {}
+            reason = str(dq_summary.get("reason", ""))
+            assert reason.startswith(expectation["dq_reason_prefix"])
+        if expectation.get("contract_status_error"):
+            assert output_details.get("contract_status_error")
+        if expectation.get("contract_policy_allowed"):
+            policy = output_details.get("contract_status_policy") or {}
+            assert policy.get("allowed") == expectation["contract_policy_allowed"]
+        if expectation.get("dataset_version"):
+            assert last.dataset_version == expectation["dataset_version"]
+        if expectation.get("auxiliary_kinds"):
+            aux_entries = output_details.get("auxiliary_datasets", []) or []
+            kinds = {
+                entry.get("kind")
+                for entry in aux_entries
+                if isinstance(entry, Mapping)
+            }
+            assert expectation["auxiliary_kinds"].issubset(kinds)
     finally:
-        pipeline.save_records(original_records)
-        if dq_dir.exists():
-            shutil.rmtree(dq_dir)
-        if backup.exists():
-            shutil.copytree(backup, dq_dir)
-        if original_orders_version:
-            pipeline.set_active_version("orders", original_orders_version)
-        else:
-            pipeline.set_active_version("orders", "2024-01-01")
-        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
-        for ver in new_versions:
-            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
-            if draft_path.exists():
-                draft_path.unlink()
-        if dataset_name and dataset_version:
-            out_dir = Path(pipeline.DATA_DIR) / dataset_name / dataset_version
-            if out_dir.exists():
-                shutil.rmtree(out_dir, ignore_errors=True)
+        prepare_demo_workspace()
 
 
 def test_data_product_input_locator_defaults_to_latest() -> None:
