@@ -974,6 +974,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Unity Catalog table (optional)",
                         "placeholder": "main.contracts.contract_store",
                         "help": "Fully qualified Unity Catalog table name when using a managed table instead of a storage path.",
+                        "optional": True,
                     },
                     {
                         "name": "workspace_url",
@@ -1191,6 +1192,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Unity Catalog table (optional)",
                         "placeholder": "main.products.catalogue",
                         "help": "Fully qualified Unity Catalog table name when publishing to managed tables.",
+                        "optional": True,
                     },
                     {
                         "name": "workspace_url",
