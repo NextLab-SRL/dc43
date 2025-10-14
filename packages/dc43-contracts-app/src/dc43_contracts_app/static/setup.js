@@ -548,6 +548,7 @@ if (!root) {
       ext: buildNodeLabel("governance_extensions", includeDetails),
       contracts: buildNodeLabel("contracts_backend", includeDetails),
       products: buildNodeLabel("products_backend", includeDetails),
+      gov_store: buildNodeLabel("governance_store", includeDetails),
       dq: buildNodeLabel("data_quality", includeDetails),
       demo: buildNodeLabel("demo_automation", includeDetails),
     };
@@ -693,24 +694,53 @@ if (!root) {
       }
     }
 
-    const pushSubgraph = (title, moduleKeys) => {
-      const active = moduleKeys.filter((key) => hasModule(key));
+    const pushSubgraph = (title, moduleKeys, indent = "  ") => {
+      const list = Array.isArray(moduleKeys) ? moduleKeys : [];
+      const active = list.filter((key) => hasModule(key));
       if (!active.length) {
         return;
       }
-      lines.push(`  subgraph "${sanitizeLabel(title)}"`);
-      lines.push("    direction TB");
+      const safeTitle = sanitizeLabel(title || "Selection");
+      lines.push(`${indent}subgraph "${safeTitle}"`);
+      lines.push(`${indent}  direction TB`);
       for (const moduleKey of active) {
-        defineNode(moduleKey);
+        defineNode(moduleKey, `${indent}  `);
+      }
+      lines.push(`${indent}end`);
+    };
+
+    const pushGroupedSubgraphs = (groupTitle, groups) => {
+      const entries = Array.isArray(groups) ? groups : [];
+      const activeGroups = entries.filter((group) =>
+        group && Array.isArray(group.modules) && group.modules.some((moduleKey) => hasModule(moduleKey))
+      );
+      if (!activeGroups.length) {
+        return;
+      }
+      lines.push(`  subgraph "${sanitizeLabel(groupTitle || "dc43 modules")}"`);
+      lines.push("    direction TB");
+      for (const group of activeGroups) {
+        pushSubgraph(group.title, group.modules, "    ");
       }
       lines.push("  end");
     };
 
-    pushSubgraph("Interface", ["user_interface", "authentication"]);
-    pushSubgraph("Deployments", ["ui_deployment", "governance_deployment"]);
-    pushSubgraph("Governance", ["governance_service", "governance_extensions", "data_quality"]);
-    pushSubgraph("Storage", ["contracts_backend", "products_backend"]);
-    pushSubgraph("Accelerators", ["demo_automation"]);
+    pushGroupedSubgraphs("Pipeline footprint", [
+      { title: "Operator experience", modules: ["user_interface", "authentication"] },
+      {
+        title: "Orchestration & quality",
+        modules: ["governance_service", "data_quality", "governance_extensions"],
+      },
+      {
+        title: "Persistent storage",
+        modules: ["contracts_backend", "products_backend", "governance_store"],
+      },
+      { title: "Accelerators", modules: ["demo_automation"] },
+    ]);
+
+    pushGroupedSubgraphs("Remote services & hosting", [
+      { title: "Hosted deployments", modules: ["ui_deployment", "governance_deployment"] },
+    ]);
 
     if (setupState.modules && typeof setupState.modules === "object") {
       for (const [moduleKey, moduleMeta] of Object.entries(setupState.modules)) {
@@ -743,6 +773,12 @@ if (!root) {
     if (hasModule("governance_service") && hasModule("data_quality")) {
       lines.push("  gov -->|Schedules| dq");
     }
+    if (hasModule("governance_service") && hasModule("governance_store")) {
+      lines.push("  gov -->|Persists results| gov_store");
+    }
+    if (hasModule("data_quality") && hasModule("governance_store")) {
+      lines.push("  dq -->|Writes outcomes| gov_store");
+    }
     if (hasModule("governance_service") && hasModule("governance_extensions")) {
       lines.push("  gov -->|Extends via| ext");
     }
@@ -759,8 +795,14 @@ if (!root) {
       lines.push("  demo -->|Opens| ui");
     }
 
-    for (const node of externalNodeMap.values()) {
-      lines.push(`  ${node.id}["${node.label}"]`);
+    const externalNodes = Array.from(externalNodeMap.values());
+    if (externalNodes.length) {
+      lines.push(`  subgraph "${sanitizeLabel("External platforms & integrations")}"`);
+      lines.push("    direction TB");
+      for (const node of externalNodes) {
+        lines.push(`    ${node.id}["${node.label}"]`);
+      }
+      lines.push("  end");
     }
 
     for (const edge of externalEdges) {

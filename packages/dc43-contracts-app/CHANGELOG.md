@@ -16,3 +16,6 @@
   configurations.
 - Validation results storage now lives in the storage foundations step so Delta, SQL, filesystem,
   and HTTP backends are visible alongside contract and product persistence choices.
+- The setup architecture overview groups the pipeline footprint versus remote hosting, surfaces the
+  validation results store, and links quality runs back to their persistence target so operators can
+  see how governance data flows through the deployment.
