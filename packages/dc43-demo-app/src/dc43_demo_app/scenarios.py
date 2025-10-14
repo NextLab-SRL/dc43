@@ -1433,6 +1433,7 @@ def fail_on_blocked_input(
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
+            "dataset_version": "valid-ok",
             "run_type": "observe",
             "collect_examples": True,
             "examples_limit": 3,
@@ -1627,6 +1628,7 @@ def run_prefer_valid_subset(
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
+            "dataset_version": "valid-invalid",
             "run_type": "enforce",
             "collect_examples": True,
             "examples_limit": 3,
@@ -2079,6 +2081,7 @@ def run_data_product_roundtrip(
         "params": {
             "contract_id": "orders_enriched",
             "contract_version": "1.1.0",
+            "dataset_version": "override-full",
             "run_type": "observe",
             "collect_examples": True,
             "examples_limit": 3,

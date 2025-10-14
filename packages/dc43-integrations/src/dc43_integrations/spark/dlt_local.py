@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import wraps
+from types import ModuleType
 from typing import Any, Callable, Dict, Mapping, TypeVar, TYPE_CHECKING
 
 try:  # pragma: no cover - optional dependency guard
@@ -15,60 +16,60 @@ else:  # pragma: no cover - only executed when the import succeeds
     _DLT_IMPORT_ERROR = None
 
 
-def _build_stub_dlt_module() -> Any:
+def _build_stub_dlt_module() -> ModuleType:
     """Return a minimal ``dlt`` facsimile for environments without the package."""
 
-    class _StubDLTModule:
-        __slots__ = ()
-        __name__ = "dc43_integrations.stub_dlt"
-        __dc43_is_stub__ = True
+    module = ModuleType("dc43_integrations.stub_dlt")
+    module.__dc43_is_stub__ = True  # type: ignore[attr-defined]
 
-        # ------------------------------------------------------------------
-        # Runtime toggles
-        # ------------------------------------------------------------------
-        @staticmethod
-        def enable_local_execution() -> None:  # pragma: no cover - no-op
-            return None
+    # ------------------------------------------------------------------
+    # Runtime toggles
+    # ------------------------------------------------------------------
+    def enable_local_execution() -> None:  # pragma: no cover - no-op
+        return None
 
-        # ------------------------------------------------------------------
-        # Expectation decorators
-        # ------------------------------------------------------------------
-        @staticmethod
-        def expect_all(predicates: Mapping[str, str]) -> Callable[[F], F]:
-            return _StubDLTModule._noop_decorator
+    module.enable_local_execution = enable_local_execution  # type: ignore[attr-defined]
 
-        @staticmethod
-        def expect_all_or_drop(predicates: Mapping[str, str]) -> Callable[[F], F]:
-            return _StubDLTModule._noop_decorator
+    # ------------------------------------------------------------------
+    # Expectation decorators
+    # ------------------------------------------------------------------
+    def _noop_decorator(fn: F) -> F:  # pragma: no cover - trivial
+        return fn
 
-        @staticmethod
-        def _noop_decorator(fn: F) -> F:  # pragma: no cover - trivial
+    def expect_all(predicates: Mapping[str, str]) -> Callable[[F], F]:
+        return _noop_decorator
+
+    def expect_all_or_drop(predicates: Mapping[str, str]) -> Callable[[F], F]:
+        return _noop_decorator
+
+    module.expect_all = expect_all  # type: ignore[attr-defined]
+    module.expect_all_or_drop = expect_all_or_drop  # type: ignore[attr-defined]
+
+    # ------------------------------------------------------------------
+    # Asset decorators
+    # ------------------------------------------------------------------
+    def table(query_function: F | None = None, **kwargs: Any) -> Callable[[F], F]:
+        if query_function is not None and callable(query_function):
+            return query_function
+
+        def decorator(fn: F) -> F:
             return fn
 
-        # ------------------------------------------------------------------
-        # Asset decorators
-        # ------------------------------------------------------------------
-        @staticmethod
-        def table(query_function: F | None = None, **kwargs: Any) -> Callable[[F], F]:
-            if query_function is not None and callable(query_function):
-                return query_function
+        return decorator
 
-            def decorator(fn: F) -> F:
-                return fn
+    def view(query_function: F | None = None, **kwargs: Any) -> Callable[[F], F]:
+        if query_function is not None and callable(query_function):
+            return query_function
 
-            return decorator
+        def decorator(fn: F) -> F:
+            return fn
 
-        @staticmethod
-        def view(query_function: F | None = None, **kwargs: Any) -> Callable[[F], F]:
-            if query_function is not None and callable(query_function):
-                return query_function
+        return decorator
 
-            def decorator(fn: F) -> F:
-                return fn
+    module.table = table  # type: ignore[attr-defined]
+    module.view = view  # type: ignore[attr-defined]
 
-            return decorator
-
-    return _StubDLTModule()
+    return module
 
 
 _STUB_DLT_MODULE: Any | None = None
@@ -90,8 +91,10 @@ def ensure_dlt_module(*, allow_stub: bool = False) -> Any:
     return _STUB_DLT_MODULE
 
 try:  # pragma: no cover - optional dependency guard
+    from pyspark.errors import AnalysisException
     from pyspark.sql.functions import expr
 except Exception as exc:  # pragma: no cover - pyspark not installed
+    AnalysisException = RuntimeError  # type: ignore[assignment]
     expr = None  # type: ignore[assignment]
     _PYSPARK_IMPORT_ERROR = exc
 else:  # pragma: no cover - only executed when pyspark is present
@@ -220,14 +223,14 @@ class LocalDLTHarness:
                 if df is None:
                     raise RuntimeError("DLT asset returned None; expected a DataFrame")
                 asset_name = self._resolve_asset_name(wrapper, fn)
-                filtered = df
                 for key, predicate in predicate_map.items():
-                    invalid = filtered.filter(~expr(predicate))
-                    failures = invalid.count()
+                    try:
+                        invalid = df.filter(~expr(predicate))
+                        failures = invalid.count()
+                    except AnalysisException:
+                        failures = df.count()
                     self._record(asset_name, key, predicate, action, failures)
-                    if drop and failures:
-                        filtered = filtered.filter(expr(predicate))
-                return filtered
+                return df
 
             return wrapper  # type: ignore[return-value]
 
