@@ -54,6 +54,7 @@ if (!root) {
     ui_deployment: { id: "ui_dep", className: "deployment" },
     governance_service: { id: "gov", className: "runtime" },
     governance_deployment: { id: "gov_dep", className: "deployment" },
+    governance_store: { id: "gov_store", className: "storage" },
     governance_extensions: { id: "ext", className: "runtime" },
     contracts_backend: { id: "contracts", className: "storage" },
     products_backend: { id: "products", className: "storage" },

@@ -14,3 +14,5 @@
 - The setup architecture view only renders modules that have been explicitly selected or are
   required by user-driven dependencies, preventing unrelated services from appearing in fresh
   configurations.
+- Validation results storage now lives in the storage foundations step so Delta, SQL, filesystem,
+  and HTTP backends are visible alongside contract and product persistence choices.

@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from starlette.requests import Request
+
 ROOT = Path(__file__).resolve().parents[3]
 SRC_DIRS = [
     ROOT / "packages" / "dc43-service-backends" / "src",
@@ -192,3 +194,16 @@ def test_governance_store_http_configuration() -> None:
     assert store_cfg.token_scheme == "Token"
     assert store_cfg.timeout == 30.0
     assert store_cfg.headers == {"X-Org": "governance", "X-Team": "quality"}
+
+
+def test_governance_store_module_sits_with_storage_foundations() -> None:
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    state = server._default_setup_state()
+
+    context = server._build_setup_context(request, state)
+    groups = context.get("module_groups", [])
+    storage_group = next((group for group in groups if group.get("key") == "storage_foundations"), None)
+
+    assert storage_group is not None
+    module_keys = [module.get("key") for module in storage_group.get("modules", [])]
+    assert "governance_store" in module_keys

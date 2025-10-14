@@ -2640,8 +2640,8 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
     {
         "key": "storage_foundations",
         "title": "Storage foundations",
-        "summary": "Decide how contracts and product metadata are persisted before the orchestration layer is wired in.",
-        "modules": ["contracts_backend", "products_backend"],
+        "summary": "Decide how contracts, product metadata, and validation results are persisted before the orchestration layer is wired in.",
+        "modules": ["contracts_backend", "products_backend", "governance_store"],
     },
     {
         "key": "governance_runtime",
@@ -2665,7 +2665,7 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "key": "quality_extensions",
         "title": "Quality & extensions",
         "summary": "Cover the bundled data-quality engine and optional governance hooks that enrich downstream catalogs.",
-        "modules": ["data_quality", "governance_store", "governance_extensions"],
+        "modules": ["data_quality", "governance_extensions"],
     },
     {
         "key": "accelerators",
