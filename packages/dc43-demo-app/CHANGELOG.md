@@ -38,6 +38,9 @@
   exposes a richer sample script for presenters to reuse in notebooks.
 
 ### Changed
+- Contract-driven pipeline scenarios now embed tailored DLT notebook snippets and
+  the DLT-only walkthrough mirrors the same annotation-driven code shown in the
+  UI guides.
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
   contracts and the new override workflow for development runs.
 - Data-product pipeline enforces the configured expected contract version when resolving

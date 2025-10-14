@@ -4,6 +4,8 @@ from textwrap import dedent
 from typing import Any, Dict, Mapping
 import html
 
+from .dlt_snippets import get_dlt_snippet
+
 
 def _section(title: str, body: str) -> dict[str, str]:
     """Create a guide section with normalised HTML content."""
@@ -506,82 +508,7 @@ def run_orders_enriched_ok(
                 </p>
                 """,
             ),
-            _code_section(
-                "Pipeline example",
-                """
-from datetime import datetime, timezone
-import dlt
-from pyspark.sql import SparkSession
-from dc43_integrations.spark.dlt import contract_table
-from dc43_integrations.spark.dlt_local import LocalDLTHarness
-from dc43_integrations.spark.io import (
-    DefaultReadStatusStrategy,
-    StaticDatasetLocator,
-    read_from_contract,
-    write_with_contract_id,
-)
-from dc43_service_clients.contracts.client.interface import ContractServiceClient
-from dc43_service_clients.data_quality.client.interface import DataQualityServiceClient
 
-
-def run_orders_enriched_dlt(
-    spark: SparkSession,
-    *,
-    contract_service: ContractServiceClient,
-    dq_service: DataQualityServiceClient,
-) -> None:
-    '''Execute the happy-path pipeline via DLT decorators.'''
-
-    orders_df = read_from_contract(
-        spark,
-        contract_id="orders",
-        contract_service=contract_service,
-        expected_contract_version="1.1.0",
-        data_quality_service=dq_service,
-        dataset_locator=StaticDatasetLocator(dataset_version="2025-10-05__pinned"),
-        status_strategy=DefaultReadStatusStrategy(),
-        return_status=False,
-    )
-    customers_df = read_from_contract(
-        spark,
-        contract_id="customers",
-        contract_service=contract_service,
-        expected_contract_version="1.0.0",
-        data_quality_service=dq_service,
-        dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-        status_strategy=DefaultReadStatusStrategy(),
-        return_status=False,
-    )
-    enriched_df = orders_df.join(customers_df, "customer_id", "left")
-
-    with LocalDLTHarness(spark) as harness:
-
-        @contract_table(
-            dlt,
-            name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.0.0",
-        )
-        def orders_enriched() -> DataFrame:
-            return enriched_df
-
-        validated_df = harness.run_asset("orders_enriched")
-
-    run_version = datetime.now(timezone.utc).isoformat()
-    write_with_contract_id(
-        df=validated_df,
-        contract_id="orders_enriched",
-        expected_contract_version="==1.0.0",
-        contract_service=contract_service,
-        data_quality_service=dq_service,
-        dataset_locator=StaticDatasetLocator(dataset_version=run_version),
-        pipeline_context={"mode": "dlt"},
-    )
-                """,
-                "<p>Use <code>contract_table</code> and the local harness to mirror what Databricks would execute, then persist the governed dataset through the usual helpers.</p>",
-            ),
         ],
     },
     "dq": {
@@ -2948,8 +2875,18 @@ def _sanitize_identifier(value: str | None, *, fallback: str = "asset") -> str:
     return cleaned
 
 
-def _dlt_code_snippet(*, contract_id: str, contract_version: str | None, asset_name: str) -> str:
-    """Return a DLT example snippet tailored for ``contract_id``."""
+def _dlt_code_snippet(
+    *,
+    scenario_key: str,
+    contract_id: str,
+    contract_version: str | None,
+    asset_name: str,
+) -> str:
+    """Return a DLT example snippet tailored for ``scenario_key``."""
+
+    snippet = get_dlt_snippet(scenario_key)
+    if snippet:
+        return snippet
 
     expected_line = (
         f"    expected_contract_version=\"=={contract_version}\",\n" if contract_version else ""
@@ -3023,6 +2960,25 @@ def _augment_contract_scenarios() -> None:
 
         if mode == "dlt" and has_contract:
             _ensure_mode_option(mode_options, mode="dlt", label="Run with Databricks DLT")
+            guide = list(scenario.get("guide", []))
+            already_has = any(
+                isinstance(section, Mapping) and section.get("title") == "DLT equivalent"
+                for section in guide
+            )
+            if not already_has:
+                snippet = get_dlt_snippet(key)
+                if snippet:
+                    lead = dedent(
+                        """
+                        <p>
+                          The notebook snippet below mirrors what runs on Databricks, so you can
+                          keep the same <code>@dlt.table</code> definition locally while the demo
+                          harness applies the contract-derived expectations.
+                        </p>
+                        """
+                    ).strip()
+                    guide.append(_code_section("DLT equivalent", snippet, lead=lead))
+                    scenario["guide"] = guide
             scenario["mode_options"] = mode_options
             continue
 
@@ -3044,6 +3000,7 @@ def _augment_contract_scenarios() -> None:
                     or contract_id
                 )
                 snippet = _dlt_code_snippet(
+                    scenario_key=key,
                     contract_id=contract_id,
                     contract_version=contract_version,
                     asset_name=str(asset_hint or contract_id),
