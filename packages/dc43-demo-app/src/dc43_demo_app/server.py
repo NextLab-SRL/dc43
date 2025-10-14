@@ -958,11 +958,22 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         category_key, category_key.replace("-", " ").title()
     )
 
+    flash_token = request.query_params.get("flash")
+    flash_message: str | None = None
+    flash_error: str | None = None
+    if flash_token:
+        flash_message, flash_error = pop_flash(flash_token)
+    else:
+        flash_message = request.query_params.get("msg")
+        flash_error = request.query_params.get("error")
+
     context = {
         "request": request,
         "scenario_key": scenario_key,
         "scenario": scenario_cfg,
         "scenario_row": scenario_row,
+        "mode_options": list(scenario_cfg.get("mode_options", [])),
+        "default_mode": scenario_cfg.get("params", {}).get("mode"),
         "latest_record": latest_record,
         "history_entries": history_entries,
         "has_history": bool(history_entries),
@@ -974,27 +985,41 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         "scenario_params": params_cfg,
         "activate_versions": scenario_cfg.get("activate_versions", {}),
         "status_badges": STATUS_BADGES,
+        "message": flash_message,
+        "error": flash_error,
     }
     return templates.TemplateResponse("pipeline_run_detail.html", context)
 
 
 @app.post("/pipeline/run", response_class=HTMLResponse)
-async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
+async def run_pipeline_endpoint(
+    request: Request,
+    scenario: str = Form(...),
+    mode: str | None = Form(None),
+) -> HTMLResponse:
     from .pipeline import run_pipeline
 
     cfg = SCENARIOS.get(scenario)
     if not cfg:
         params = urlencode({"error": f"Unknown scenario: {scenario}"})
         return RedirectResponse(url=f"/datasets?{params}", status_code=303)
-    params_cfg = cfg["params"]
+    params_cfg = dict(cfg.get("params", {}))
+    mode_options = [
+        option
+        for option in cfg.get("mode_options", [])
+        if isinstance(option, Mapping) and option.get("mode")
+    ]
+    default_mode = params_cfg.get("mode") or (mode_options[0]["mode"] if mode_options else "pipeline")
+    selected_mode = (mode or default_mode or "pipeline").lower()
+    if selected_mode == "spark":
+        selected_mode = "pipeline"
     for dataset, version in cfg.get("activate_versions", {}).items():
         try:
             set_active_version(dataset, version)
         except FileNotFoundError:
             continue
     try:
-        mode = params_cfg.get("mode", "pipeline")
-        if mode == "streaming":
+        if selected_mode == "streaming":
             seconds = params_cfg.get("seconds", 5)
             try:
                 seconds_int = int(seconds)
@@ -1007,21 +1032,44 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
                 run_type=params_cfg.get("run_type", "observe"),
                 progress=None,
             )
+        elif selected_mode == "dlt":
+            from .dlt_pipeline import run_dlt_pipeline
+
+            call_params = dict(params_cfg)
+            call_params.pop("mode", None)
+            dataset_name, new_version = await asyncio.to_thread(
+                run_dlt_pipeline,
+                call_params.get("contract_id"),
+                call_params.get("contract_version"),
+                call_params.get("dataset_name"),
+                call_params.get("dataset_version"),
+                call_params.get("run_type", "infer"),
+                collect_examples=call_params.get("collect_examples", False),
+                examples_limit=call_params.get("examples_limit", 5),
+                violation_strategy=call_params.get("violation_strategy"),
+                enforce_contract_status=call_params.get("enforce_contract_status"),
+                inputs=call_params.get("inputs"),
+                output_adjustment=call_params.get("output_adjustment"),
+                data_product_flow=call_params.get("data_product_flow"),
+                scenario_key=scenario,
+            )
         else:
+            call_params = dict(params_cfg)
+            call_params.pop("mode", None)
             dataset_name, new_version = await asyncio.to_thread(
                 run_pipeline,
-                params_cfg.get("contract_id"),
-                params_cfg.get("contract_version"),
-                params_cfg.get("dataset_name"),
-                params_cfg.get("dataset_version"),
-                params_cfg.get("run_type", "infer"),
-                collect_examples=params_cfg.get("collect_examples", False),
-                examples_limit=params_cfg.get("examples_limit", 5),
-                violation_strategy=params_cfg.get("violation_strategy"),
-                enforce_contract_status=params_cfg.get("enforce_contract_status"),
-                inputs=params_cfg.get("inputs"),
-                output_adjustment=params_cfg.get("output_adjustment"),
-                data_product_flow=params_cfg.get("data_product_flow"),
+                call_params.get("contract_id"),
+                call_params.get("contract_version"),
+                call_params.get("dataset_name"),
+                call_params.get("dataset_version"),
+                call_params.get("run_type", "infer"),
+                collect_examples=call_params.get("collect_examples", False),
+                examples_limit=call_params.get("examples_limit", 5),
+                violation_strategy=call_params.get("violation_strategy"),
+                enforce_contract_status=call_params.get("enforce_contract_status"),
+                inputs=call_params.get("inputs"),
+                output_adjustment=call_params.get("output_adjustment"),
+                data_product_flow=call_params.get("data_product_flow"),
                 scenario_key=scenario,
             )
         label = (
@@ -1030,13 +1078,41 @@ async def run_pipeline_endpoint(scenario: str = Form(...)) -> HTMLResponse:
             or params_cfg.get("contract_id")
             or "dataset"
         )
-        token = queue_flash(message=f"Run succeeded: {label} {new_version}")
+        message = f"Run succeeded: {label} {new_version}"
+        token = queue_flash(message=message)
         params_qs = urlencode({"flash": token})
+        detail_url = f"/pipeline-runs/{scenario}?{params_qs}"
+        wants_json = "application/json" in request.headers.get("accept", "").lower()
+        if wants_json:
+            return JSONResponse(
+                {
+                    "status": "success",
+                    "message": message,
+                    "dataset_name": dataset_name,
+                    "dataset_version": new_version,
+                    "detail_url": detail_url,
+                    "mode": selected_mode,
+                }
+            )
+        return RedirectResponse(url=detail_url, status_code=303)
     except Exception as exc:  # pragma: no cover - surface pipeline errors
         logger.exception("Pipeline run failed for scenario %s", scenario)
-        token = queue_flash(error=str(exc))
+        error_message = str(exc)
+        token = queue_flash(error=error_message)
         params_qs = urlencode({"flash": token})
-    return RedirectResponse(url=f"/pipeline-runs?{params_qs}", status_code=303)
+        detail_url = f"/pipeline-runs/{scenario}?{params_qs}"
+        wants_json = "application/json" in request.headers.get("accept", "").lower()
+        if wants_json:
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": error_message,
+                    "detail_url": detail_url,
+                    "mode": selected_mode,
+                },
+                status_code=500,
+            )
+        return RedirectResponse(url=detail_url, status_code=303)
 
 
 @app.post("/pipeline/run/streaming", response_class=JSONResponse)

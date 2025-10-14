@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- DLT execution mode for the orders_enriched scenario with a shared
+  `run_dlt_pipeline` helper, LocalDLTHarness integration, and regression tests
+  that exercise the contract decorators locally.
 - Structured Streaming scenarios that demonstrate contract-enforced reads and
   writes directly inside the pipeline demo, plus a `dc43_demo_app.streaming`
   helper for triggering the healthy, reject-routing, and schema-drift flows
@@ -35,6 +38,18 @@
   exposes a richer sample script for presenters to reuse in notebooks.
 
 ### Changed
+- Pipeline scenario details now run Spark or DLT modes in place using asynchronous
+  progress indicators, Bootstrap toasts for completion status, and the JSON
+  pipeline endpoint instead of redirecting back to the scenario list.
+- The scenario list now exposes Spark and DLT run buttons for every contract walkthrough,
+  dispatches runs via AJAX so the table stays in view, and refreshes status cells once
+  the toast notification confirms completion.
+- Contract-driven pipeline scenarios now embed tailored DLT notebook snippets and
+  the DLT-only walkthrough mirrors the same annotation-driven code shown in the
+  UI guides.
+- DLT runs now resolve the ``dlt`` module through ``ensure_dlt_module``, record
+  whether the stub fallback was used, and keep the demo executable even when
+  ``databricks-dlt`` is not installed locally.
 - Updated pipeline scenarios, docs, and tests to reflect the default rejection of non-active
   contracts and the new override workflow for development runs.
 - Data-product pipeline enforces the configured expected contract version when resolving

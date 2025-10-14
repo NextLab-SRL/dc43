@@ -202,6 +202,12 @@ def scenario_run_rows(
                 "contract_id": params.get("contract_id"),
                 "contract_version": params.get("contract_version"),
                 "run_type": params.get("run_type", "infer"),
+                "mode_options": [
+                    dict(option)
+                    for option in cfg.get("mode_options", [])
+                    if isinstance(option, Mapping) and option.get("mode")
+                ],
+                "default_mode": params.get("mode"),
                 "run_count": run_count,
                 "latest": latest_record.__dict__.copy() if latest_record else None,
             }

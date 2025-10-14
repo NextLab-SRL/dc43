@@ -45,6 +45,9 @@
   pipelines when port registration produces a draft version.
 - `read_from_data_product` accepts an `expected_contract_version` argument so
   data-product reads can pin the upstream schema revision.
+- Local DLT helpers now expose ``ensure_dlt_module`` and ship an in-repo stub so
+  demo pipelines and tests keep running even when the ``databricks-dlt`` wheel
+  is not available (still recommending the official package for parity).
 
 ### Removed
 - Removed the Databricks `UnityCatalogPublisher` wrapper now that Unity Catalog
@@ -53,6 +56,8 @@
   demo application now hosts the streaming walkthrough.
 
 ### Fixed
+- Installing the ``test`` extra now pulls in ``databricks-dlt`` so the local DLT
+  harness tests execute instead of being skipped when the dependency is absent.
 - The CI workflow now installs the repository's ``dc43-service-backends``
   package before resolving the ``test`` extra so dependency checks continue to
   target ``0.18.0.0`` while avoiding missing-distribution errors during
