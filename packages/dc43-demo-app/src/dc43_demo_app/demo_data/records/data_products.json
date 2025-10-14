@@ -17,8 +17,14 @@
         "contractId": "orders",
         "description": "Canonical orders dataset aligned to contract orders:1.2.0.",
         "customProperties": [
-          {"property": "dc43.dataset.id", "value": "orders"},
-          {"property": "dc43.contract.ref", "value": "orders:1.2.0"}
+          {
+            "property": "dc43.dataset.id",
+            "value": "orders"
+          },
+          {
+            "property": "dc43.contract.ref",
+            "value": "orders:1.2.0"
+          }
         ]
       }
     ],
@@ -28,15 +34,30 @@
         "version": "1.2.0",
         "contractId": "orders",
         "customProperties": [
-          {"property": "dc43.input.dataset", "value": "orders"},
-          {"property": "dc43.input.source_data_product", "value": "dp.orders"},
-          {"property": "dc43.input.source_output_port", "value": "orders-latest"}
+          {
+            "property": "dc43.input.dataset",
+            "value": "orders"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.orders"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "orders-latest"
+          }
         ]
       }
     ],
     "customProperties": [
-      {"property": "domain", "value": "sales"},
-      {"property": "owner", "value": "commerce-platform"}
+      {
+        "property": "domain",
+        "value": "sales"
+      },
+      {
+        "property": "owner",
+        "value": "commerce-platform"
+      }
     ]
   },
   {
@@ -60,9 +81,18 @@
         "version": "1.2.0",
         "contractId": "orders",
         "customProperties": [
-          {"property": "dc43.input.dataset", "value": "orders"},
-          {"property": "dc43.input.source_data_product", "value": "dp.orders"},
-          {"property": "dc43.input.source_output_port", "value": "orders-latest"}
+          {
+            "property": "dc43.input.dataset",
+            "value": "orders"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.orders"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "orders-latest"
+          }
         ]
       }
     ],
@@ -73,15 +103,629 @@
         "contractId": "orders_enriched",
         "description": "Primary published slice with revenue metrics and customer segments.",
         "customProperties": [
-          {"property": "dc43.dataset.id", "value": "orders_enriched"},
-          {"property": "dc43.stage.contract", "value": "dp.analytics.stage:1.0.0"}
+          {
+            "property": "dc43.dataset.id",
+            "value": "orders_enriched"
+          },
+          {
+            "property": "dc43.stage.contract",
+            "value": "dp.analytics.stage:1.0.0"
+          }
         ]
       }
     ],
     "customProperties": [
-      {"property": "domain", "value": "analytics"},
-      {"property": "owner", "value": "insights-team"}
+      {
+        "property": "domain",
+        "value": "analytics"
+      },
+      {
+        "property": "owner",
+        "value": "insights-team"
+      }
     ],
-    "tags": ["gold", "pii-safe"]
+    "tags": [
+      "gold",
+      "pii-safe"
+    ]
+  },
+  {
+    "apiVersion": "1.0.0",
+    "kind": "DataProduct",
+    "id": "dp.retail-foundation",
+    "status": "active",
+    "version": "1.0.0",
+    "name": "Retail operational foundation",
+    "description": {
+      "summary": "Curated source feeds spanning POS, inventory, and merchandising master data.",
+      "usage": "Operational landing zone that standardises core feeds before they fan out.",
+      "dataContracts": [
+        "retail_pos_transactions:1.0.0",
+        "retail_inventory_snapshot:1.0.0",
+        "retail_product_catalog:1.0.0"
+      ]
+    },
+    "outputPorts": [
+      {
+        "name": "pos-transactions",
+        "version": "1.0.0",
+        "contractId": "retail_pos_transactions",
+        "description": "Raw operational feed of POS transactions by store.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_pos_transactions"
+          },
+          {
+            "property": "dc43.contract.ref",
+            "value": "retail_pos_transactions:1.0.0"
+          }
+        ]
+      },
+      {
+        "name": "inventory-snapshot",
+        "version": "1.0.0",
+        "contractId": "retail_inventory_snapshot",
+        "description": "Inventory levels per store and SKU at start of business day.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_inventory_snapshot"
+          },
+          {
+            "property": "dc43.contract.ref",
+            "value": "retail_inventory_snapshot:1.0.0"
+          }
+        ]
+      },
+      {
+        "name": "product-master",
+        "version": "1.0.0",
+        "contractId": "retail_product_catalog",
+        "description": "Merchandising master data with cost and hierarchy attributes.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_product_catalog"
+          },
+          {
+            "property": "dc43.contract.ref",
+            "value": "retail_product_catalog:1.0.0"
+          }
+        ]
+      }
+    ],
+    "customProperties": [
+      {
+        "property": "domain",
+        "value": "retail-foundation"
+      },
+      {
+        "property": "owner",
+        "value": "store-operations"
+      }
+    ],
+    "tags": [
+      "bronze",
+      "operational"
+    ]
+  },
+  {
+    "apiVersion": "1.0.0",
+    "kind": "DataProduct",
+    "id": "dp.retail-insights",
+    "status": "active",
+    "version": "1.0.0",
+    "name": "Retail star schema",
+    "description": {
+      "summary": "Snowflake model exposing the sales fact with store, product, and date dimensions.",
+      "usage": "Primary analytics layer that powers BI, data science, and downstream marts.",
+      "dataContracts": [
+        "retail_sales_fact:1.0.0",
+        "retail_store_dimension:1.0.0",
+        "retail_product_dimension:1.0.0",
+        "retail_date_dimension:1.0.0"
+      ]
+    },
+    "inputPorts": [
+      {
+        "name": "pos-transactions",
+        "version": "1.0.0",
+        "contractId": "retail_pos_transactions",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_pos_transactions"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-foundation"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "pos-transactions"
+          }
+        ]
+      },
+      {
+        "name": "inventory-snapshot",
+        "version": "1.0.0",
+        "contractId": "retail_inventory_snapshot",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_inventory_snapshot"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-foundation"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "inventory-snapshot"
+          }
+        ]
+      },
+      {
+        "name": "product-master",
+        "version": "1.0.0",
+        "contractId": "retail_product_catalog",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_product_catalog"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-foundation"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "product-master"
+          }
+        ]
+      }
+    ],
+    "outputPorts": [
+      {
+        "name": "sales-fact",
+        "version": "1.0.0",
+        "contractId": "retail_sales_fact",
+        "description": "Store and product level fact table with sales, inventory, and margin metrics.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_sales_fact"
+          },
+          {
+            "property": "tier",
+            "value": "silver"
+          }
+        ]
+      },
+      {
+        "name": "store-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_store_dimension",
+        "description": "Store attributes including region, format, and footprint.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_store_dimension"
+          }
+        ]
+      },
+      {
+        "name": "product-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_product_dimension",
+        "description": "Merchandising hierarchy and cost attributes for products.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_product_dimension"
+          }
+        ]
+      },
+      {
+        "name": "date-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_date_dimension",
+        "description": "Calendar attributes for the business date grain.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_date_dimension"
+          }
+        ]
+      }
+    ],
+    "customProperties": [
+      {
+        "property": "domain",
+        "value": "analytics"
+      },
+      {
+        "property": "owner",
+        "value": "retail-intelligence"
+      }
+    ],
+    "tags": [
+      "silver",
+      "star-schema"
+    ]
+  },
+  {
+    "apiVersion": "1.0.0",
+    "kind": "DataProduct",
+    "id": "dp.retail-intelligence",
+    "status": "active",
+    "version": "1.0.0",
+    "name": "Retail demand intelligence",
+    "description": {
+      "summary": "Feature engineering and forecasting assets that enrich planning workflows.",
+      "usage": "Produces ML-ready features and calibrated forecasts shared with experience teams.",
+      "dataContracts": [
+        "retail_demand_features:1.0.0",
+        "retail_demand_forecast:1.0.0"
+      ]
+    },
+    "inputPorts": [
+      {
+        "name": "sales-fact",
+        "version": "1.0.0",
+        "contractId": "retail_sales_fact",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_sales_fact"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "sales-fact"
+          }
+        ]
+      },
+      {
+        "name": "store-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_store_dimension",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_store_dimension"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "store-dimension"
+          }
+        ]
+      },
+      {
+        "name": "product-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_product_dimension",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_product_dimension"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "product-dimension"
+          }
+        ]
+      }
+    ],
+    "outputPorts": [
+      {
+        "name": "demand-features",
+        "version": "1.0.0",
+        "contractId": "retail_demand_features",
+        "description": "Internal feature store aggregating store/category demand signals.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_demand_features"
+          },
+          {
+            "property": "dc43.port.visibility",
+            "value": "internal"
+          }
+        ]
+      },
+      {
+        "name": "demand-forecast",
+        "version": "1.0.0",
+        "contractId": "retail_demand_forecast",
+        "description": "Predicted unit demand with associated confidence and model metadata.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_demand_forecast"
+          },
+          {
+            "property": "dc43.model.type",
+            "value": "heuristic-regression"
+          }
+        ]
+      }
+    ],
+    "customProperties": [
+      {
+        "property": "domain",
+        "value": "ml-ops"
+      },
+      {
+        "property": "owner",
+        "value": "retail-ml"
+      }
+    ],
+    "tags": [
+      "ml",
+      "prediction"
+    ]
+  },
+  {
+    "apiVersion": "1.0.0",
+    "kind": "DataProduct",
+    "id": "dp.retail-experience",
+    "status": "active",
+    "version": "1.0.0",
+    "name": "Customer experience",
+    "description": {
+      "summary": "Offer orchestration feed powering the mobile shopping experience.",
+      "usage": "Combines forecasts with marketing guardrails before publishing offers.",
+      "dataContracts": [
+        "retail_personalized_offers:1.0.0"
+      ]
+    },
+    "inputPorts": [
+      {
+        "name": "demand-forecast",
+        "version": "1.0.0",
+        "contractId": "retail_demand_forecast",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_demand_forecast"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-intelligence"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "demand-forecast"
+          }
+        ]
+      },
+      {
+        "name": "sales-fact",
+        "version": "1.0.0",
+        "contractId": "retail_sales_fact",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_sales_fact"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "sales-fact"
+          }
+        ]
+      },
+      {
+        "name": "store-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_store_dimension",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_store_dimension"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "store-dimension"
+          }
+        ]
+      }
+    ],
+    "outputPorts": [
+      {
+        "name": "personalized-offers",
+        "version": "1.0.0",
+        "contractId": "retail_personalized_offers",
+        "description": "Offer recommendations for the Altair Retail mobile app.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_personalized_offers"
+          },
+          {
+            "property": "target.consumer",
+            "value": "mobile-app"
+          }
+        ]
+      }
+    ],
+    "customProperties": [
+      {
+        "property": "domain",
+        "value": "digital-experience"
+      },
+      {
+        "property": "owner",
+        "value": "retail-marketing"
+      }
+    ],
+    "tags": [
+      "gold",
+      "consumer"
+    ]
+  },
+  {
+    "apiVersion": "1.0.0",
+    "kind": "DataProduct",
+    "id": "dp.retail-analytics",
+    "status": "active",
+    "version": "1.0.0",
+    "name": "Executive KPI mart",
+    "description": {
+      "summary": "Governed KPI mart with semantic definitions for BI tooling.",
+      "usage": "Aligns finance, operations, and merchandising on a shared metric catalogue.",
+      "dataContracts": [
+        "retail_kpi_mart:1.0.0"
+      ]
+    },
+    "inputPorts": [
+      {
+        "name": "sales-fact",
+        "version": "1.0.0",
+        "contractId": "retail_sales_fact",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_sales_fact"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "sales-fact"
+          }
+        ]
+      },
+      {
+        "name": "store-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_store_dimension",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_store_dimension"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "store-dimension"
+          }
+        ]
+      },
+      {
+        "name": "product-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_product_dimension",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_product_dimension"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "product-dimension"
+          }
+        ]
+      },
+      {
+        "name": "date-dimension",
+        "version": "1.0.0",
+        "contractId": "retail_date_dimension",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_date_dimension"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-insights"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "date-dimension"
+          }
+        ]
+      },
+      {
+        "name": "demand-forecast",
+        "version": "1.0.0",
+        "contractId": "retail_demand_forecast",
+        "customProperties": [
+          {
+            "property": "dc43.input.dataset",
+            "value": "retail_demand_forecast"
+          },
+          {
+            "property": "dc43.input.source_data_product",
+            "value": "dp.retail-intelligence"
+          },
+          {
+            "property": "dc43.input.source_output_port",
+            "value": "demand-forecast"
+          }
+        ]
+      }
+    ],
+    "outputPorts": [
+      {
+        "name": "executive-metrics",
+        "version": "1.0.0",
+        "contractId": "retail_kpi_mart",
+        "description": "Business glossary-aligned KPI mart for BI consumption.",
+        "customProperties": [
+          {
+            "property": "dc43.dataset.id",
+            "value": "retail_kpi_mart"
+          },
+          {
+            "property": "semantic.layer",
+            "value": "tabular"
+          }
+        ]
+      }
+    ],
+    "customProperties": [
+      {
+        "property": "domain",
+        "value": "executive-insights"
+      },
+      {
+        "property": "owner",
+        "value": "finance-analytics"
+      }
+    ],
+    "tags": [
+      "platinum",
+      "kpi"
+    ]
   }
 ]

@@ -7,7 +7,9 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
 2. **Validate and coerce data** using helpers from `dc43_integrations.spark.data_quality` while respecting enforcement flags.
 3. **Bridge runtime metrics** to the governance service so it can evaluate observations, record activity, and propose drafts when mismatches occur.
-4. **Expose ergonomic APIs** for pipelines (`read_with_contract`, `write_with_contract`).
+4. **Expose ergonomic APIs** for pipelines (batch: `read_with_contract`,
+   `write_with_contract`; streaming: `read_stream_with_contract`,
+   `write_stream_with_contract`).
 
 ```mermaid
 flowchart TD
@@ -25,7 +27,9 @@ flowchart TD
 
 The canonical implementation lives in [`src/dc43_integrations/spark`](../../packages/dc43-integrations/src/dc43_integrations/spark):
 
-* `io.py` — High-level `read_with_contract` and `write_with_contract` wrappers for Spark DataFrames along with dataset resolution helpers.
+* `io.py` — High-level batch (`read_with_contract`, `write_with_contract`) and
+  streaming (`read_stream_with_contract`, `write_stream_with_contract`)
+  wrappers for Spark DataFrames along with dataset resolution helpers.
 * `dlt.py` — Helpers to apply expectation predicates inside Delta Live Tables pipelines. Expectation SQL is supplied by the
   data-quality service via validation results so that Delta expectations mirror backend verdicts.
 * [`dc43_integrations.spark.data_quality`](../../packages/dc43-integrations/src/dc43_integrations/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
@@ -59,29 +63,89 @@ Keep the integration layer thin: it should delegate to the contract drafter, DQ 
 
 ### Feeding Delta Live Tables expectations
 
-Quality enforcement inside DLT notebooks should reuse the SQL predicates computed by the data-quality service. When the
-`write_with_contract` helper validates a dataset it returns a `ValidationResult` whose `details` dictionary includes an
-`expectation_predicates` mapping whenever the backend can express expectations as SQL snippets. Pipelines can forward
-this mapping directly to `apply_dlt_expectations` so that in-flight DLT expectations stay aligned with backend verdicts:
+Quality enforcement inside DLT notebooks should reuse the SQL predicates computed by the data-quality service. When a
+pipeline is declarative you can attach the contract directly to a table/view definition with
+:func:`~dc43_integrations.spark.dlt.contract_table` or :func:`~dc43_integrations.spark.dlt.contract_view`. The decorators
+resolve the requested contract, ask the data-quality service for the expectation plan, and register the resulting predicates
+with DLT while wrapping ``@dlt.table`` / ``@dlt.view``:
 
 ```python
 import dlt
-from collections.abc import Mapping
-from dc43_integrations.spark.dlt import apply_dlt_expectations
+from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_service_clients.data_quality import LocalDataQualityServiceClient
+from dc43_integrations.spark.dlt import contract_table
 
-@dlt.table
+contract_service = LocalContractServiceClient(store)
+data_quality_service = LocalDataQualityServiceClient()
+
+
+@contract_table(
+    dlt,
+    name="orders",
+    contract_id="sales.orders",
+    expected_contract_version=">=1.2.0",
+    contract_service=contract_service,
+    data_quality_service=data_quality_service,
+)
 def orders():
-    df = spark.read.table("bronze.orders_raw")
-    dq_status = write_result.details  # captured from write_with_contract(...)
-    predicates = dq_status.get("expectation_predicates")
-    if isinstance(predicates, Mapping):
-        apply_dlt_expectations(dlt, predicates)
-    return df
+    return spark.read.table("bronze.orders_raw")
 ```
 
-This approach keeps the integration layer free from contract-specific logic while still enabling Delta expectations when
-the backend surfaces SQL predicates. If a backend cannot provide predicates, the helper simply skips registering
-expectations and DLT falls back to the default behaviour.
+The decorated function keeps a ``__dc43_contract_binding__`` attribute containing the resolved contract id/version and
+the frozen expectation plan so orchestration steps can forward the metadata to governance tooling. Equivalent helpers
+exist for views (``contract_view``), and the lower-level
+:func:`~dc43_integrations.spark.dlt.expectations_from_validation_details` helper remains available when a pipeline wants
+to recycle predicates produced by :func:`~dc43_integrations.spark.io.write_with_contract` or manual evaluations; the
+returned :class:`~dc43_integrations.spark.dlt.DLTExpectations` object exposes both decorator and imperative application
+methods.
+
+### Local testing without Databricks
+
+Install [`databricks-dlt`](https://pypi.org/project/databricks-dlt/) alongside
+``pyspark`` to obtain the official Delta Live Tables notebook shims. When the
+package is missing dc43 falls back to a tiny in-repo stub so tests can still
+exercise the helpers, but installing the upstream wheel keeps the experience
+closest to production. :class:`~dc43_integrations.spark.dlt_local.LocalDLTHarness`
+then patches the ``dlt`` module to register/execute the assets and record the
+outcome of every expectation evaluation:
+
+```python
+from pyspark.sql import SparkSession
+
+from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
+
+spark = SparkSession.builder.master("local[2]").appName("demo").getOrCreate()
+dlt = ensure_dlt_module(allow_stub=True)
+
+with LocalDLTHarness(spark, module=dlt) as harness:
+
+    @contract_table(
+        dlt,
+        name="orders",
+        contract_id="demo.orders",
+        contract_service=contract_service,  # reuse the clients prepared earlier
+        data_quality_service=data_quality_service,
+    )
+    def orders():
+        return spark.read.table("bronze.orders_raw")
+
+    validated = harness.run_asset("orders")
+
+for report in harness.expectation_reports:
+    print(report.asset, report.rule, report.status, report.failed_rows)
+```
+
+A ready-to-run example lives under
+``packages/dc43-integrations/examples/dlt_contract_pipeline.py``. After
+installing the dependencies (`pip install pyspark==3.5.1 databricks-dlt` along
+with the root project), execute::
+
+    python packages/dc43-integrations/examples/dlt_contract_pipeline.py
+
+The script materialises a tiny bronze dataset, decorates a DLT table with
+``contract_table``, prints the expectation summary emitted by the harness, and
+optionally persists the validated rows when ``--output`` is provided.
 
 ## Versioned layouts and Delta time travel
 

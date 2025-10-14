@@ -1,11 +1,12 @@
 """Open Data Product Standard helpers shared across dc43 packages.
 
-This module prefers the canonical implementation that lives in ``dc43.core``
-when it is available so applications embedding the full dc43 distribution only
-have a single source of truth for the ODPS model helpers.  When the core
-package is not installed – for example when running the standalone service
-client test suite – the module falls back to a self-contained implementation so
-the clients can continue to operate.
+This module prefers the canonical implementation that lives in
+``dc43_service_backends.core`` when it is available so applications embedding
+the backend distribution share a single source of truth for the ODPS model
+helpers.  When that package (or the legacy ``dc43`` facade) is not installed –
+for example when running the standalone service client test suite – the module
+falls back to a self-contained implementation so the clients can continue to
+operate.
 """
 
 from __future__ import annotations
@@ -13,14 +14,22 @@ from __future__ import annotations
 from importlib import import_module, util as importlib_util
 
 
-try:  # pragma: no cover - exercised when dc43 is absent
-    _CORE_SPEC = importlib_util.find_spec("dc43.core.odps")
-except ModuleNotFoundError:  # pragma: no cover - guard for namespace packages
-    _CORE_SPEC = None
+_CORE_MODULES = (
+    "dc43_service_backends.core.odps",
+    "dc43.core.odps",
+)
 
-if _CORE_SPEC is not None:  # pragma: no cover - exercised when dc43 is present
-    _core = import_module("dc43.core.odps")
+_core = None
+for _module_name in _CORE_MODULES:  # pragma: no cover - exercised when core is available
+    try:
+        _spec = importlib_util.find_spec(_module_name)
+    except ModuleNotFoundError:  # pragma: no cover - guard for namespace packages
+        _spec = None
+    if _spec is not None:
+        _core = import_module(_module_name)
+        break
 
+if _core is not None:  # pragma: no cover - exercised when core is present
     DataProductInputPort = _core.DataProductInputPort
     DataProductOutputPort = _core.DataProductOutputPort
     OpenDataProductStandard = _core.OpenDataProductStandard

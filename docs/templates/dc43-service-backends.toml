@@ -64,3 +64,55 @@ root = "./contracts"
 # Optional bearer token that clients must supply via the Authorization header.
 # Leave blank to disable token authentication during development.
 token = "change-me"
+
+# ---------------------------------------------------------------------------
+# Data product store (defaults to the in-memory stub)
+# ---------------------------------------------------------------------------
+[data_product]
+type = "memory"
+# Set to a writable directory when using the filesystem backend.
+root = "./data-products"
+# Provide a Unity Catalog table name when ``type = "delta"``.
+table = ""
+
+# ---------------------------------------------------------------------------
+# Data-quality backend (defaults to the embedded engine)
+# ---------------------------------------------------------------------------
+[data_quality]
+type = "local"
+# Selects the engine used when contracts do not specify one explicitly.
+default_engine = "native"
+# Uncomment to point the built-in engine at Great Expectations or Soda metrics.
+# [data_quality.engines.great_expectations]
+# suite_path = "./expectations/orders.json"
+# metrics_key = "great_expectations"
+# [data_quality.engines.soda]
+# checks_path = "./checks/orders.yml"
+# metrics_key = "soda"
+# Uncomment when delegating to a remote observability service.
+# type = "http"
+# base_url = "https://quality.example.com"
+# token = "$DQ_SERVICE_TOKEN"
+# token_header = "Authorization"
+# token_scheme = "Bearer"
+
+[governance_store]
+type = "memory"
+# Persist governance artefacts on disk.
+# type = "filesystem"
+# root = "./governance"
+# Use SQL or Delta-backed persistence.
+# type = "sql"
+# dsn = "postgresql+psycopg://user:password@db.internal/dc43"
+# status_table = "dq_status"
+# activity_table = "dq_activity"
+# link_table = "dq_links"
+# type = "delta"
+# base_path = "./delta/governance"
+# status_table = "governance.status"
+# activity_table = "governance.activity"
+# link_table = "governance.links"
+# Delegate to a remote governance service.
+# type = "http"
+# base_url = "https://governance.example.com"
+# token = "$GOVERNANCE_TOKEN"

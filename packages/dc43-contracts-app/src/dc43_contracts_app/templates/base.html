@@ -24,6 +24,14 @@
       <a class="nav-link" href="/datasets">Datasets</a>
       <a class="nav-link" href="/data-products">Data products</a>
       <a class="nav-link" href="/integration-helper">Integration helper</a>
+      {% set needs_setup = request.state.setup_required | default(False) %}
+      <a class="nav-link{% if needs_setup %} text-danger fw-semibold{% endif %}" href="/setup">
+        {% if needs_setup %}
+        Setup required
+        {% else %}
+        Setup
+        {% endif %}
+      </a>
     </div>
   </div>
 </nav>

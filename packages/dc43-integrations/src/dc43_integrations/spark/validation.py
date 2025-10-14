@@ -13,7 +13,7 @@ except Exception:  # pragma: no cover
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.core.odcs import list_properties
+from dc43_service_backends.core.odcs import list_properties
 from .data_quality import SPARK_TYPES, spark_type_name
 
 

@@ -89,6 +89,7 @@ def test_pipeline_runs_page_lists_scenarios():
         assert cfg["label"] in resp.text
         if cfg.get("description") or cfg.get("diagram"):
             assert f'data-scenario-popover="scenario-popover-{key}"' in resp.text
+    assert "Run with Databricks DLT" in resp.text
 
 
 def test_dataset_detail_page():
@@ -177,9 +178,18 @@ def test_run_pipeline_endpoint_passes_data_product_flow(monkeypatch):
     monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
 
     client = TestClient(demo_app)
-    resp = client.post("/pipeline/run", data={"scenario": "data-product-roundtrip"}, follow_redirects=False)
+    resp = client.post(
+        "/pipeline/run",
+        data={"scenario": "data-product-roundtrip"},
+        headers={"accept": "application/json"},
+    )
 
-    assert resp.status_code == 303
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "success"
+    assert payload["mode"] == "pipeline"
+    assert payload["message"].startswith("Run succeeded: ")
+    assert payload["detail_url"].startswith("/pipeline-runs/data-product-roundtrip?flash=")
     assert captured["args"][:5] == (
         params.get("contract_id"),
         params.get("contract_version"),
@@ -196,6 +206,106 @@ def test_run_pipeline_endpoint_passes_data_product_flow(monkeypatch):
     assert kwargs["output_adjustment"] == params.get("output_adjustment")
     assert kwargs["data_product_flow"] == params.get("data_product_flow")
     assert kwargs["scenario_key"] == "data-product-roundtrip"
+
+
+def test_run_pipeline_endpoint_redirects_without_json(monkeypatch):
+    params = SCENARIOS["ok"]["params"]
+
+    def fake_run_pipeline(*args: Any, **kwargs: Any) -> tuple[str, str]:
+        return (params.get("dataset_name") or "orders_enriched", "2024-03-01T00:00:00Z")
+
+    async def fake_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("dc43_demo_app.pipeline.run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    client = TestClient(demo_app)
+    resp = client.post("/pipeline/run", data={"scenario": "ok"}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    location = resp.headers.get("location")
+    assert location and location.startswith("/pipeline-runs/ok?flash=")
+
+
+def test_run_pipeline_endpoint_streaming(monkeypatch):
+    params = SCENARIOS["streaming-valid"]["params"]
+    captured: dict[str, Any] = {}
+
+    def fake_run_streaming_scenario(
+        key: str,
+        *,
+        seconds: int,
+        run_type: str,
+        progress=None,
+    ) -> tuple[str, str]:
+        captured["key"] = key
+        captured["seconds"] = seconds
+        captured["run_type"] = run_type
+        captured["progress_type"] = type(progress).__name__ if progress else None
+        return (params.get("dataset_name") or "demo.streaming.events_processed", "2024-01-02T00:00:00Z")
+
+    async def fake_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("dc43_demo_app.streaming.run_streaming_scenario", fake_run_streaming_scenario)
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    client = TestClient(demo_app)
+    resp = client.post("/pipeline/run", data={"scenario": "streaming-valid"}, follow_redirects=False)
+
+    assert resp.status_code == 303
+    assert captured["key"] == "streaming-valid"
+    assert captured["seconds"] == int(params.get("seconds", 5))
+    assert captured["run_type"] == params.get("run_type", "observe")
+    assert captured["progress_type"] is None
+
+
+def test_streaming_run_endpoint_exposes_progress(monkeypatch):
+    client = TestClient(demo_app)
+    params = SCENARIOS["streaming-valid"]["params"]
+
+    def fake_run_streaming_scenario(
+        key: str,
+        *,
+        seconds: int,
+        run_type: str,
+        progress=None,
+    ) -> tuple[str, str]:
+        if progress is not None:
+            progress.emit(
+                {
+                    "type": "stage",
+                    "phase": "Test",
+                    "title": "Starting",
+                    "status": "info",
+                }
+            )
+            progress.emit(
+                {
+                    "type": "complete",
+                    "status": "ok",
+                    "dataset_name": params.get("dataset_name") or "demo.streaming.events_processed",
+                    "dataset_version": "test-version",
+                }
+            )
+        return (params.get("dataset_name") or "demo.streaming.events_processed", "test-version")
+
+    async def fake_to_thread(func: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("dc43_demo_app.streaming.run_streaming_scenario", fake_run_streaming_scenario)
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    resp = client.post("/pipeline/run/streaming", data={"scenario": "streaming-valid"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    run_id = payload.get("run_id")
+    assert run_id
+
+    with client.stream("GET", f"/pipeline/streaming-progress/{run_id}") as stream:
+        collected = "".join(chunk for chunk in stream.iter_text() if chunk)
+    assert "complete" in collected
 
 
 def test_scenario_rows_default_mapping():

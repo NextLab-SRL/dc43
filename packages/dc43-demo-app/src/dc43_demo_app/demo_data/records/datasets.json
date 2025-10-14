@@ -5,7 +5,12 @@
     "dataset_name": "orders",
     "dataset_version": "2024-01-01",
     "status": "ok",
-    "dq_details": {"violations": 0, "metrics": {"row_count": 2}}
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 2
+      }
+    }
   },
   {
     "contract_id": "orders",
@@ -13,7 +18,12 @@
     "dataset_name": "orders",
     "dataset_version": "2025-09-28",
     "status": "ok",
-    "dq_details": {"violations": 0, "metrics": {"row_count": 2}}
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 2
+      }
+    }
   },
   {
     "contract_id": "orders",
@@ -21,7 +31,12 @@
     "dataset_name": "orders",
     "dataset_version": "2025-10-05",
     "status": "ok",
-    "dq_details": {"violations": 0, "metrics": {"row_count": 3}}
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 3
+      }
+    }
   },
   {
     "contract_id": "orders",
@@ -29,7 +44,12 @@
     "dataset_name": "orders",
     "dataset_version": "2025-10-05",
     "status": "ok",
-    "dq_details": {"violations": 0, "metrics": {"row_count": 3}}
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 3
+      }
+    }
   },
   {
     "contract_id": "customers",
@@ -37,6 +57,198 @@
     "dataset_name": "customers",
     "dataset_version": "2024-01-01",
     "status": "ok",
-    "dq_details": {"violations": 0, "metrics": {"row_count": 5}}
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 5
+      }
+    }
+  },
+  {
+    "contract_id": "retail_pos_transactions",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_pos_transactions",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 6
+      }
+    },
+    "run_type": "ingest",
+    "data_product_id": "dp.retail-foundation",
+    "data_product_port": "pos-transactions",
+    "data_product_role": "source-output"
+  },
+  {
+    "contract_id": "retail_inventory_snapshot",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_inventory_snapshot",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 6
+      }
+    },
+    "run_type": "ingest",
+    "data_product_id": "dp.retail-foundation",
+    "data_product_port": "inventory-snapshot",
+    "data_product_role": "source-output"
+  },
+  {
+    "contract_id": "retail_product_catalog",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_product_catalog",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 3
+      }
+    },
+    "run_type": "reference",
+    "data_product_id": "dp.retail-foundation",
+    "data_product_port": "product-master",
+    "data_product_role": "reference-output"
+  },
+  {
+    "contract_id": "retail_sales_fact",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_sales_fact",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 6
+      }
+    },
+    "run_type": "enrich",
+    "data_product_id": "dp.retail-insights",
+    "data_product_port": "sales-fact",
+    "data_product_role": "modeled-output"
+  },
+  {
+    "contract_id": "retail_store_dimension",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_store_dimension",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 3
+      }
+    },
+    "run_type": "enrich",
+    "data_product_id": "dp.retail-insights",
+    "data_product_port": "store-dimension",
+    "data_product_role": "dimension-output"
+  },
+  {
+    "contract_id": "retail_product_dimension",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_product_dimension",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 3
+      }
+    },
+    "run_type": "enrich",
+    "data_product_id": "dp.retail-insights",
+    "data_product_port": "product-dimension",
+    "data_product_role": "dimension-output"
+  },
+  {
+    "contract_id": "retail_date_dimension",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_date_dimension",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 1
+      }
+    },
+    "run_type": "enrich",
+    "data_product_id": "dp.retail-insights",
+    "data_product_port": "date-dimension",
+    "data_product_role": "dimension-output"
+  },
+  {
+    "contract_id": "retail_demand_features",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_demand_features",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 6
+      }
+    },
+    "run_type": "ml-feature",
+    "data_product_id": "dp.retail-intelligence",
+    "data_product_port": "demand-features",
+    "data_product_role": "ml-feature"
+  },
+  {
+    "contract_id": "retail_demand_forecast",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_demand_forecast",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 6
+      }
+    },
+    "run_type": "ml",
+    "data_product_id": "dp.retail-intelligence",
+    "data_product_port": "demand-forecast",
+    "data_product_role": "ml-output"
+  },
+  {
+    "contract_id": "retail_personalized_offers",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_personalized_offers",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 4
+      }
+    },
+    "run_type": "publish",
+    "data_product_id": "dp.retail-experience",
+    "data_product_port": "personalized-offers",
+    "data_product_role": "consumer-output"
+  },
+  {
+    "contract_id": "retail_kpi_mart",
+    "contract_version": "1.0.0",
+    "dataset_name": "retail_kpi_mart",
+    "dataset_version": "2024-03-31",
+    "status": "ok",
+    "dq_details": {
+      "violations": 0,
+      "metrics": {
+        "row_count": 5
+      }
+    },
+    "run_type": "analytics",
+    "data_product_id": "dp.retail-analytics",
+    "data_product_port": "executive-metrics",
+    "data_product_role": "kpi-mart"
   }
 ]

@@ -188,6 +188,7 @@ def build_metrics_payload(
     validation: ValidationResult | None = None,
     include_schema: bool = True,
     expectations: ExpectationPlan | None = None,
+    collect_metrics: bool = True,
 ) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]], bool]:
     """Return ``(metrics, schema, reused)`` suitable for governance submission."""
 
@@ -201,7 +202,7 @@ def build_metrics_payload(
         if isinstance(details_plan, Iterable):
             plan = [item for item in details_plan if isinstance(item, Mapping)]
 
-    if not metrics:
+    if collect_metrics and not metrics:
         metrics = compute_metrics(df, contract, expectations=plan)
     if include_schema and not schema:
         schema = schema_snapshot(df)

@@ -1,5 +1,5 @@
 from open_data_contract_standard.model import OpenDataContractStandard, SchemaObject, SchemaProperty
-from dc43.core.odcs import as_odcs_dict, to_model
+from dc43_service_backends.core.odcs import as_odcs_dict, to_model
 
 
 def minimal_contract():

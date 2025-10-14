@@ -1,0 +1,38 @@
+[
+  {
+    "store_id": "NY-001",
+    "product_id": "SKU-TECH-1",
+    "on_hand": 14,
+    "snapshot_ts": "2024-03-31T06:00:00Z"
+  },
+  {
+    "store_id": "NY-001",
+    "product_id": "SKU-HOME-2",
+    "on_hand": 38,
+    "snapshot_ts": "2024-03-31T06:00:00Z"
+  },
+  {
+    "store_id": "SF-001",
+    "product_id": "SKU-TECH-1",
+    "on_hand": 11,
+    "snapshot_ts": "2024-03-31T06:00:00Z"
+  },
+  {
+    "store_id": "SF-001",
+    "product_id": "SKU-OUT-3",
+    "on_hand": 22,
+    "snapshot_ts": "2024-03-31T06:00:00Z"
+  },
+  {
+    "store_id": "CHI-010",
+    "product_id": "SKU-HOME-2",
+    "on_hand": 31,
+    "snapshot_ts": "2024-03-31T06:00:00Z"
+  },
+  {
+    "store_id": "CHI-010",
+    "product_id": "SKU-OUT-3",
+    "on_hand": 17,
+    "snapshot_ts": "2024-03-31T06:00:00Z"
+  }
+]

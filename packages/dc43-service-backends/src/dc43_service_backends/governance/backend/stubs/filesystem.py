@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Mapping
 from dc43_service_backends.contracts.drafting import draft_from_validation_result
 from dc43_service_backends.data_quality.backend.engine import evaluate_contract
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
-from dc43.core.odcs import contract_identity
+from dc43_service_backends.core.odcs import contract_identity
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 logger = logging.getLogger(__name__)

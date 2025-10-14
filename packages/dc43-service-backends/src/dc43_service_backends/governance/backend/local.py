@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43.core.odcs import contract_identity
+from dc43_service_backends.core.odcs import contract_identity
 from dc43_service_backends.contracts import ContractServiceBackend, ContractStore
 from dc43_service_backends.contracts.drafting import draft_from_validation_result
 from dc43_service_backends.data_quality import DataQualityServiceBackend
@@ -19,6 +19,7 @@ from dc43_service_clients.data_quality import (
 )
 
 from .interface import GovernanceServiceBackend
+from ..storage import GovernanceStore, InMemoryGovernanceStore
 from ..hooks import DatasetContractLinkHook
 from dc43_service_clients.governance.models import (
     GovernanceCredentials,
@@ -41,17 +42,16 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         dq_client: DataQualityServiceBackend | DataQualityServiceClient,
         draft_store: ContractStore | None = None,
         link_hooks: Sequence[DatasetContractLinkHook] | None = None,
+        store: GovernanceStore | None = None,
     ) -> None:
         self._contract_client = contract_client
         self._dq_client = dq_client
         self._draft_store = draft_store
         self._credentials: Optional[GovernanceCredentials] = None
-        self._status_cache: Dict[tuple[str, str, str, str], ValidationResult] = {}
-        self._activity_log: Dict[str, Dict[Optional[str], Dict[str, Any]]] = {}
-        self._dataset_links: Dict[tuple[str, Optional[str]], str] = {}
         self._link_hooks: tuple[DatasetContractLinkHook, ...] = (
             tuple(link_hooks) if link_hooks else ()
         )
+        self._store: GovernanceStore = store or InMemoryGovernanceStore()
 
     # ------------------------------------------------------------------
     # Authentication lifecycle
@@ -125,8 +125,13 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 status.schema = dict(payload.schema)
             status.details = details
 
-        cache_key = (contract_id, contract_version, dataset_id, dataset_version)
-        self._status_cache[cache_key] = status
+        self._store.save_status(
+            contract_id=contract_id,
+            contract_version=contract_version,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            status=status,
+        )
 
         effective_pipeline = merge_pipeline_context(
             context.pipeline_context if context else None,
@@ -252,7 +257,12 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         dataset_id: str,
         dataset_version: str,
     ) -> Optional[ValidationResult]:
-        return self._status_cache.get((contract_id, contract_version, dataset_id, dataset_version))
+        return self._store.load_status(
+            contract_id=contract_id,
+            contract_version=contract_version,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
 
     def link_dataset_contract(
         self,
@@ -271,9 +281,12 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 contract_version=contract_version,
             )
         link_value = f"{contract_id}:{contract_version}"
-        self._dataset_links[(dataset_id, dataset_version)] = link_value
-        if dataset_version is not None:
-            self._dataset_links.setdefault((dataset_id, None), link_value)
+        self._store.link_dataset_contract(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            contract_id=contract_id,
+            contract_version=contract_version,
+        )
         for hook in self._link_hooks:
             hook(
                 dataset_id=dataset_id,
@@ -293,15 +306,9 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             resolved = resolver(dataset_id=dataset_id, dataset_version=dataset_version)
             if resolved is not None:
                 return resolved
-        if (dataset_id, dataset_version) in self._dataset_links:
-            return self._dataset_links[(dataset_id, dataset_version)]
-        if dataset_version is not None and (dataset_id, None) in self._dataset_links:
-            return self._dataset_links[(dataset_id, None)]
-        for (linked_id, linked_version), value in self._dataset_links.items():
-            if linked_id == dataset_id:
-                if dataset_version is None or linked_version == dataset_version:
-                    return value
-        return None
+        return self._store.get_linked_contract_version(
+            dataset_id=dataset_id, dataset_version=dataset_version
+        )
 
     def get_pipeline_activity(
         self,
@@ -309,56 +316,9 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         dataset_id: str,
         dataset_version: Optional[str] = None,
     ) -> Sequence[Mapping[str, Any]]:
-        dataset_entries = self._activity_log.get(dataset_id)
-        if not dataset_entries:
-            return []
-
-        def _normalise(record: Mapping[str, Any]) -> Dict[str, Any]:
-            entry = {
-                "dataset_id": dataset_id,
-                "dataset_version": record.get("dataset_version"),
-                "contract_id": record.get("contract_id"),
-                "contract_version": record.get("contract_version"),
-                "events": [],
-            }
-            events = record.get("events")
-            if isinstance(events, list):
-                entry["events"] = [
-                    dict(event)
-                    for event in events
-                    if isinstance(event, Mapping)
-                ]
-            return entry
-
-        if dataset_version is not None:
-            record = dataset_entries.get(dataset_version)
-            if isinstance(record, Mapping):
-                return [_normalise(record)]
-            for candidate in dataset_entries.values():
-                if (
-                    isinstance(candidate, Mapping)
-                    and candidate.get("dataset_version") == dataset_version
-                ):
-                    return [_normalise(candidate)]
-            return []
-
-        entries: list[Dict[str, Any]] = []
-        for record in dataset_entries.values():
-            if isinstance(record, Mapping):
-                entries.append(_normalise(record))
-
-        def _sort_key(item: Mapping[str, Any]) -> tuple[int, str]:
-            events = item.get("events")
-            recorded_at = ""
-            if isinstance(events, list) and events:
-                last = events[-1]
-                if isinstance(last, Mapping):
-                    recorded_at = str(last.get("recorded_at", ""))
-            version_value = str(item.get("dataset_version", ""))
-            return (0 if recorded_at else 1, recorded_at or version_value)
-
-        entries.sort(key=_sort_key)
-        return entries
+        return self._store.load_pipeline_activity(
+            dataset_id=dataset_id, dataset_version=dataset_version
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -444,19 +404,6 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 entry["dq_reason"] = status.reason
             if status.details:
                 entry["dq_details"] = status.details
-        dataset_entries = self._activity_log.setdefault(dataset_id, {})
-        record = dataset_entries.get(dataset_version)
-        if not isinstance(record, dict):
-            record = {
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-                "contract_id": cid,
-                "contract_version": cver,
-                "events": [],
-            }
-        events = record.get("events")
-        if not isinstance(events, list):
-            events = []
         event = dict(entry)
         event.setdefault(
             "recorded_at",
@@ -467,10 +414,12 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             event["pipeline_context"] = dict(context_payload)
         elif context_payload is None:
             event["pipeline_context"] = {}
-        events.append(event)
-        record["events"] = events
-        record["contract_id"] = cid
-        record["contract_version"] = cver
-        dataset_entries[dataset_version] = record
+        self._store.record_pipeline_event(
+            contract_id=cid,
+            contract_version=cver,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            event=event,
+        )
 
 __all__ = ["LocalGovernanceServiceBackend"]

@@ -15,6 +15,9 @@ __all__ = [
     "BackendConfig",
     "ContractsAppConfig",
     "load_config",
+    "config_to_mapping",
+    "dumps",
+    "dump",
 ]
 
 
@@ -177,3 +180,131 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         workspace=WorkspaceConfig(root=workspace_root),
         backend=backend_config,
     )
+
+
+def _stringify_path(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        return str(path)
+    except Exception:  # pragma: no cover - defensive fallback
+        return str(path)
+
+
+def _workspace_mapping(config: WorkspaceConfig) -> dict[str, Any]:
+    mapping: dict[str, Any] = {}
+    if config.root:
+        mapping["root"] = _stringify_path(config.root)
+    return mapping
+
+
+def _process_mapping(config: BackendProcessConfig) -> dict[str, Any]:
+    mapping: dict[str, Any] = {}
+    if config.host != "127.0.0.1":
+        mapping["host"] = config.host
+    if config.port != 8001:
+        mapping["port"] = config.port
+    if config.log_level:
+        mapping["log_level"] = config.log_level
+    return mapping
+
+
+def _backend_mapping(config: BackendConfig) -> dict[str, Any]:
+    mapping: dict[str, Any] = {"mode": config.mode}
+    if config.base_url:
+        mapping["base_url"] = config.base_url
+    process_mapping = _process_mapping(config.process)
+    if process_mapping:
+        mapping["process"] = process_mapping
+    return mapping
+
+
+def config_to_mapping(config: ContractsAppConfig) -> dict[str, Any]:
+    """Return a serialisable mapping derived from ``config``."""
+
+    payload: dict[str, Any] = {}
+    workspace_mapping = _workspace_mapping(config.workspace)
+    if workspace_mapping:
+        payload["workspace"] = workspace_mapping
+    backend_mapping = _backend_mapping(config.backend)
+    if backend_mapping:
+        payload["backend"] = backend_mapping
+    return payload
+
+
+def _toml_escape(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("\b", "\\b")
+        .replace("\f", "\\f")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace('"', '\\"')
+    )
+
+
+def _format_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, Path):
+        return f'"{_toml_escape(str(value))}"'
+    if isinstance(value, str):
+        return f'"{_toml_escape(value)}"'
+    if isinstance(value, (list, tuple, set)):
+        items = ", ".join(_format_value(item) for item in value)
+        return f"[{items}]"
+    if isinstance(value, MutableMapping):
+        items = []
+        for key, item in value.items():
+            items.append(f"{key} = {_format_value(item)}")
+        return "{ " + ", ".join(items) + " }"
+    raise TypeError(f"Unsupported TOML value: {value!r}")
+
+
+def _toml_lines(mapping: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> list[str]:
+    lines: list[str] = []
+    scalars: list[tuple[str, Any]] = []
+    tables: list[tuple[str, Mapping[str, Any]]] = []
+
+    for key, value in mapping.items():
+        if isinstance(value, Mapping):
+            tables.append((key, value))
+        else:
+            scalars.append((key, value))
+
+    if prefix:
+        lines.append(f"[{'.'.join(prefix)}]")
+
+    for key, value in scalars:
+        lines.append(f"{key} = {_format_value(value)}")
+
+    for index, (key, value) in enumerate(tables):
+        sub_lines = _toml_lines(value, prefix + (key,))
+        if lines and sub_lines:
+            lines.append("")
+        elif not lines and index > 0:
+            lines.append("")
+        lines.extend(sub_lines)
+
+    return lines
+
+
+def dumps(config: ContractsAppConfig) -> str:
+    """Return a TOML string representation of ``config``."""
+
+    mapping = config_to_mapping(config)
+    if not mapping:
+        return ""
+    lines = _toml_lines(mapping)
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"
+
+
+def dump(path: str | os.PathLike[str], config: ContractsAppConfig) -> None:
+    """Write ``config`` to ``path`` in TOML format."""
+
+    Path(path).write_text(dumps(config), encoding="utf-8")

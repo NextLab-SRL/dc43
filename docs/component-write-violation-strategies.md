@@ -4,7 +4,9 @@ Write violation strategies let integration adapters choose how to persist data w
 Instead of hard-coding a single behaviour, adapters receive a `WriteViolationStrategy` implementation that can split the input
 DataFrame, surface additional datasets, or keep the legacy pass-through behaviour.
 
-The mechanism lives in `dc43_integrations.spark.violation_strategy` and is consumed by `write_with_contract` in the Spark adapter.
+The mechanism lives in `dc43_integrations.spark.violation_strategy` and is
+consumed by both `write_with_contract` and `write_stream_with_contract` in the
+Spark adapter.
 It is runtime-agnostic: other integrations can reuse the protocol to provide the same flexibility in warehouses or streaming engines.
 
 ## Why strategies?
@@ -23,7 +25,9 @@ the right strategy through configuration while reusing the same runtime orchestr
 
 ## Runtime flow
 
-The Spark adapter exposes `write_with_contract`. It first aligns the dataframe to the contract and runs a **preview validation** to
+The Spark adapter exposes `write_with_contract` for batch jobs and
+`write_stream_with_contract` for Structured Streaming. Each helper first aligns
+the dataframe to the contract and runs a **preview validation** to
 decide whether enforcement should block the write and to give strategies enough context to plan additional actions. Once the plan is
 ready the adapter executes the writes and immediately revalidates each persisted subset so that metrics and schema snapshots reflect
 the immutable dataset version produced by the run.

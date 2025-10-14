@@ -19,6 +19,22 @@ type = "memory"
 root = ""
 table = ""
 
+[data_quality]
+# Embedded engine remains the default for backwards compatibility. Switch to
+# ``http`` when delegating to an external data observability platform.
+type = "local"
+base_url = ""
+token = ""
+token_header = "Authorization"
+token_scheme = "Bearer"
+default_engine = "native"
+
+# Define data-quality execution engines keyed by the names referenced in
+# contracts. The "native" engine is always available and maps to the contract
+# driven validator shipped with dc43.
+[data_quality.engines.native]
+type = "builtin"
+
 [auth]
 # Optional bearer token required for requests to the backend API.
 token = ""
@@ -32,3 +48,17 @@ dataset_prefix = "table:"
 workspace_profile = ""
 workspace_host = ""
 workspace_token = ""
+
+[governance_store]
+# Persist governance outcomes in memory by default. Switch to ``filesystem``,
+# ``sql``, ``delta`` or ``http`` to delegate storage to alternative systems.
+type = "memory"
+root = ""
+table = ""
+status_table = ""
+activity_table = ""
+link_table = ""
+base_url = ""
+token = ""
+token_header = "Authorization"
+token_scheme = "Bearer"

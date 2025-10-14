@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "kind": "DataContract",
+  "apiVersion": "3.0.2",
+  "id": "retail_pos_transactions",
+  "name": "Point-of-sale transactions",
+  "description": {
+    "summary": "Transactional log of in-store sales for the fictitious Altair Retail company.",
+    "usage": "Operational source emitted from the registers before enrichment and ML aggregation."
+  },
+  "status": "active",
+  "servers": [
+    {
+      "server": "local",
+      "type": "filesystem",
+      "path": "data/retail_pos_transactions",
+      "format": "json",
+      "customProperties": [
+        {
+          "property": "dc43.core.versioning",
+          "value": {
+            "mode": "delta",
+            "includePriorVersions": false,
+            "subfolder": "{version}",
+            "filePattern": "transactions.json"
+          }
+        },
+        {
+          "property": "dc43.pathPattern",
+          "value": "data/retail_pos_transactions/{version}/transactions.json"
+        }
+      ]
+    }
+  ],
+  "schema": [
+    {
+      "name": "transactions",
+      "primaryKey": ["transaction_id"],
+      "properties": [
+        {"name": "transaction_id", "physicalType": "string", "required": true, "unique": true},
+        {"name": "store_id", "physicalType": "string", "required": true},
+        {"name": "product_id", "physicalType": "string", "required": true},
+        {"name": "quantity", "physicalType": "integer", "required": true, "quality": [{"mustBeGreaterThan": 0}]},
+        {"name": "unit_price", "physicalType": "double", "required": true, "quality": [{"mustBeGreaterThan": 0}]},
+        {"name": "transaction_ts", "physicalType": "string", "required": true},
+        {"name": "sales_channel", "physicalType": "string", "required": true}
+      ]
+    }
+  ]
+}

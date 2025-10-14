@@ -57,10 +57,12 @@ flows:
 - `read_from_data_product` / `write_to_data_product` resolve contracts directly
   from the data product service when a binding points at an existing port.
 
-All helpers forward to `read_with_contract` / `write_with_contract` under the
-hood so callers can mix and match parameters as needed. Passing both a binding
-and a contract id continues to pin the run to the requested contract while
-recording the port metadata.
+Batch pipelines call into `read_with_contract` / `write_with_contract` while
+streaming jobs reuse the dedicated `read_stream_with_contract` /
+`write_stream_with_contract` entry points. All helpers share the same
+contract-resolution core under the hood so callers can mix and match parameters
+as needed. Passing both a binding and a contract id continues to pin the run to
+the requested contract while recording the port metadata.
 
 Whenever a read or write registers a new input/output port the integration
 layer aborts the pipeline: the service returns a draft ODPS document and dc43
