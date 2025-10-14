@@ -972,6 +972,8 @@ async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLRespon
         "scenario_key": scenario_key,
         "scenario": scenario_cfg,
         "scenario_row": scenario_row,
+        "mode_options": list(scenario_cfg.get("mode_options", [])),
+        "default_mode": scenario_cfg.get("params", {}).get("mode"),
         "latest_record": latest_record,
         "history_entries": history_entries,
         "has_history": bool(history_entries),

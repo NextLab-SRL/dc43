@@ -16,7 +16,10 @@
 
 <form id="scenario-run-form" class="mb-4" method="post" action="/pipeline/run" data-scenario-category="{{ scenario_row.category }}">
   <input type="hidden" name="scenario" value="{{ scenario_key }}"/>
-  {% set mode_options = scenario_row.mode_options if scenario_row.mode_options else [] %}
+  {% set explicit_modes = mode_options if mode_options else [] %}
+  {% set row_modes = scenario_row.mode_options if scenario_row.mode_options else [] %}
+  {% set scenario_modes = scenario.mode_options if scenario.mode_options else [] %}
+  {% set mode_options = explicit_modes if explicit_modes else (row_modes if row_modes else scenario_modes) %}
   {% if mode_options|length > 1 %}
   <div class="btn-group" role="group" aria-label="Run modes">
     {% for option in mode_options %}

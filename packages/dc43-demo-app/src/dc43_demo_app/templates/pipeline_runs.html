@@ -317,9 +317,18 @@
       <td class="text-center">{{ scenario.run_count }}</td>
       <td class="text-end">
         <a class="btn btn-outline-secondary btn-sm me-1" href="/pipeline-runs/{{ scenario.key }}">Details</a>
-        <form class="d-inline" method="post" action="/pipeline/run">
+        <form class="d-inline run-scenario-form" method="post" action="/pipeline/run" data-scenario="{{ scenario.key }}">
           <input type="hidden" name="scenario" value="{{ scenario.key }}"/>
-          <button class="btn btn-primary btn-sm" type="submit">Run</button>
+          {% set mode_options = scenario.mode_options if scenario.mode_options else [] %}
+          {% if mode_options %}
+          <div class="btn-group btn-group-sm" role="group" aria-label="Run modes">
+            {% for option in mode_options %}
+            <button class="btn btn-primary btn-sm" type="submit" name="mode" value="{{ option.mode }}" data-run-mode="{{ option.mode }}">{{ option.label }}</button>
+            {% endfor %}
+          </div>
+          {% else %}
+          <button class="btn btn-primary btn-sm" type="submit" data-run-mode="pipeline">Run</button>
+          {% endif %}
         </form>
       </td>
     </tr>
@@ -356,40 +365,109 @@
       });
     });
 
-    const forms = document.querySelectorAll('#scenario-table form');
+    const forms = document.querySelectorAll('#scenario-table form.run-scenario-form');
     forms.forEach((form) => {
-      form.addEventListener('submit', () => {
+      form.addEventListener('submit', function (event) {
+        if (!event) { return; }
+        const submitter = event.submitter || null;
+        const mode = submitter && submitter.name === 'mode'
+          ? String(submitter.value || '').toLowerCase()
+          : (submitter && submitter.getAttribute('data-run-mode'))
+            ? String(submitter.getAttribute('data-run-mode') || '').toLowerCase()
+            : 'pipeline';
+
+        if (mode === 'streaming') {
+          return; // fall back to default behaviour so streaming opens the detail view
+        }
+
         if (form.dataset.submitting === 'true') {
+          event.preventDefault();
           return;
         }
+        event.preventDefault();
         form.dataset.submitting = 'true';
 
-        const button = form.querySelector('button[type="submit"]');
-        if (button) {
-          button.disabled = true;
-          button.innerHTML = '';
-          const spinner = document.createElement('span');
-          spinner.className = 'spinner-border spinner-border-sm me-2';
-          spinner.setAttribute('role', 'status');
-          spinner.setAttribute('aria-hidden', 'true');
-          button.appendChild(spinner);
-          const label = document.createElement('span');
-          label.textContent = 'Running…';
-          button.appendChild(label);
-        }
+        const buttons = form.querySelectorAll('button[type="submit"]');
+        buttons.forEach((btn) => {
+          btn.disabled = true;
+          if (btn === submitter) {
+            btn.dataset.originalHtml = btn.innerHTML;
+            btn.innerHTML = '';
+            const spinner = document.createElement('span');
+            spinner.className = 'spinner-border spinner-border-sm me-2';
+            spinner.setAttribute('role', 'status');
+            spinner.setAttribute('aria-hidden', 'true');
+            btn.appendChild(spinner);
+            const label = document.createElement('span');
+            label.textContent = mode === 'dlt' ? 'Running DLT…' : 'Running…';
+            btn.appendChild(label);
+          }
+        });
 
         const row = form.closest('tr');
-        if (!row) {
-          return;
-        }
-        const statusCell = row.querySelector('[data-status-cell]');
+        const statusCell = row ? row.querySelector('[data-status-cell]') : null;
+        const violationsCell = row ? row.querySelector('[data-violations-cell]') : null;
         if (statusCell) {
-          statusCell.innerHTML = '<span class="text-muted">Running…</span>';
+          statusCell.innerHTML = mode === 'dlt'
+            ? '<span class="text-muted">Running with Databricks DLT…</span>'
+            : '<span class="text-muted">Running…</span>';
         }
-        const violationsCell = row.querySelector('[data-violations-cell]');
         if (violationsCell) {
           violationsCell.innerHTML = '<span class="text-muted">—</span>';
         }
+
+        const formData = new FormData(form);
+        if (submitter && submitter.name) {
+          formData.set(submitter.name, submitter.value);
+        }
+
+        fetch('/pipeline/run', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          body: formData,
+        })
+          .then((response) => {
+            if (!response.ok) {
+              return response.json().catch(() => ({ status: 'error', message: `HTTP ${response.status}` }));
+            }
+            return response.json();
+          })
+          .then((payload) => {
+            if (!payload) {
+              throw new Error('Unexpected empty response');
+            }
+            if (payload.status !== 'success') {
+              throw new Error(payload.message || 'Run failed');
+            }
+            if (statusCell) {
+              statusCell.innerHTML = '<span class="text-success">Completed</span>';
+            }
+            if (window.dc43Toast && typeof window.dc43Toast.show === 'function') {
+              const label = payload.mode === 'dlt'
+                ? 'DLT run finished successfully.'
+                : 'Spark run finished successfully.';
+              window.dc43Toast.show(payload.message || label, 'success');
+            }
+            setTimeout(() => {
+              window.location.reload();
+            }, 1200);
+          })
+          .catch((error) => {
+            form.dataset.submitting = 'false';
+            buttons.forEach((btn) => {
+              btn.disabled = false;
+              if (btn.dataset.originalHtml !== undefined) {
+                btn.innerHTML = btn.dataset.originalHtml;
+                delete btn.dataset.originalHtml;
+              }
+            });
+            if (statusCell) {
+              statusCell.innerHTML = '<span class="text-danger">Failed</span>';
+            }
+            if (window.dc43Toast && typeof window.dc43Toast.show === 'function') {
+              window.dc43Toast.show(error.message || String(error), 'danger');
+            }
+          });
       });
     });
   });

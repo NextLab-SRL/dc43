@@ -89,6 +89,7 @@ def test_pipeline_runs_page_lists_scenarios():
         assert cfg["label"] in resp.text
         if cfg.get("description") or cfg.get("diagram"):
             assert f'data-scenario-popover="scenario-popover-{key}"' in resp.text
+    assert "Run with Databricks DLT" in resp.text
 
 
 def test_dataset_detail_page():
