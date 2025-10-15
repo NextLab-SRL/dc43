@@ -180,8 +180,28 @@ def fill_step_one(page: Page, scenario: WizardScenario, recorder: ActionRecorder
                 f"Option '{option_key}' for module '{module_key}' is disabled."
             )
 
-        expect(option_locator).to_be_visible()
-        option_locator.check()
+        input_id = option_locator.get_attribute("id")
+        target_locator: Locator
+        if option_locator.is_visible():
+            target_locator = option_locator
+        elif input_id:
+            label_locator = card.locator(f"label[for=\"{input_id}\"]").first
+            if label_locator.count() == 0:
+                raise AssertionError(
+                    "Option '{option}' for module '{module}' is hidden and lacks a visible label."
+                    .format(option=option_key, module=module_key)
+                )
+            target_locator = label_locator
+        else:
+            target_locator = option_locator
+
+        target_locator.scroll_into_view_if_needed()
+        expect(target_locator).to_be_visible()
+        if target_locator is option_locator:
+            option_locator.check()
+        else:
+            target_locator.click()
+            expect(option_locator).to_be_checked()
         recorder.record(
             "modules",
             "select_option",
