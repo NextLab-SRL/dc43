@@ -264,3 +264,78 @@ def test_pipeline_bootstrap_script_for_dlt_integration() -> None:
     assert "WorkspaceClient" in script
     assert "dc43-contract-governance" in script
     assert "DLT workspace host" in script
+
+
+def test_pipeline_example_script_for_spark_integration() -> None:
+    state = {
+        "selected_options": {
+            "pipeline_integration": "spark",
+            "contracts_backend": "delta_lake",
+            "products_backend": "delta_lake",
+            "data_quality": "native",
+            "governance_store": "delta_lake",
+        },
+        "configuration": {
+            "pipeline_integration": {
+                "runtime": "databricks job",
+                "workspace_url": "https://adb-123.example.net",
+                "workspace_profile": "pipelines",
+                "cluster_reference": "job:dc43",
+            },
+            "contracts_backend": {
+                "storage_path": "/mnt/contracts",
+                "schema": "governance",
+            },
+            "products_backend": {
+                "storage_path": "/mnt/products",
+            },
+            "governance_store": {
+                "storage_path": "/mnt/governance",
+            },
+        },
+    }
+
+    script = server._pipeline_example_script(state)
+
+    assert "build_spark_context" in script
+    assert "def review_contract_versions" in script
+    assert "def sync_data_product_catalog" in script
+    assert "replace-with-contract-id" in script
+    assert (
+        "- pipeline_integration (spark): cluster_reference=job:dc43, runtime=databricks job,"
+        " workspace_profile=pipelines, workspace_url=https://adb-123.example.net"
+        in script
+    )
+
+
+def test_pipeline_example_script_for_dlt_integration() -> None:
+    state = {
+        "selected_options": {
+            "pipeline_integration": "dlt",
+            "governance_store": "remote_http",
+        },
+        "configuration": {
+            "pipeline_integration": {
+                "workspace_url": "https://adb-456.example.net",
+                "workspace_profile": "dlt-admin",
+                "pipeline_name": "dc43-contract-governance",
+                "notebook_path": "/Repos/team/contracts/dc43_pipeline",
+                "target_schema": "main.governance",
+            },
+            "governance_store": {
+                "base_url": "https://governance.example/api",
+            },
+        },
+    }
+
+    script = server._pipeline_example_script(state)
+
+    assert "build_dlt_context" in script
+    assert "def publish_governance_updates" in script
+    assert "dc43-contract-governance" in script
+    assert (
+        "- pipeline_integration (dlt): notebook_path=/Repos/team/contracts/dc43_pipeline,"
+        " pipeline_name=dc43-contract-governance, target_schema=main.governance,"
+        " workspace_profile=dlt-admin, workspace_url=https://adb-456.example.net"
+        in script
+    )
