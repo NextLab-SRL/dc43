@@ -85,10 +85,9 @@ async function completeModuleSelection(page: Page, scenario: SetupWizardScenario
       });
     }
 
-    await Promise.all([
-      page.waitForURL('**/setup?step=2', { waitUntil: 'load' }),
-      page.getByRole('button', { name: 'Continue' }).click(),
-    ]);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await expect(page).toHaveURL('**/setup?step=2');
+    await expect(page.locator('[data-step2-wizard]')).toBeVisible();
   });
 }
 
@@ -110,10 +109,9 @@ async function fillConfiguration(page: Page, scenario: SetupWizardScenario) {
       });
     }
 
-    await Promise.all([
-      page.waitForURL('**/setup?step=3', { waitUntil: 'load' }),
-      page.getByRole('button', { name: 'Review summary' }).click(),
-    ]);
+    await page.getByRole('button', { name: 'Review summary' }).click();
+    await expect(page).toHaveURL('**/setup?step=3');
+    await expect(page.locator('[data-step3-wizard]')).toBeVisible();
   });
 }
 
