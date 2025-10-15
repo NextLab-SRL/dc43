@@ -10,15 +10,22 @@ This guide shows how to:
 
 ## 1. Run the packaged Playwright scenarios
 
-1. Prepare the contracts app just like you would for manual testing by installing dependencies and starting the FastAPI server (`uvicorn dc43_contracts_app.server:app --host 0.0.0.0 --port 8002`). The `/setup?restart=1` query parameter resets `setup_state.json` before the wizard renders so every run starts from a clean slate.
-2. Install the Node dependencies that drive the TypeScript-based Playwright suite and download the Chromium runtime:
+1. Install the Python dependencies that power the contracts application and make the packages importable:
+
+   ```bash
+   pip install -q pyspark==3.5.1 fastapi httpx uvicorn jinja2 python-multipart
+   pip install -e .
+   ```
+
+   The FastAPI server exposes `/setup` and the supporting templates when these packages are available on the Python path.
+2. Install the Node dependencies that drive the TypeScript-based Playwright suite:
 
    ```bash
    npm install
-   npx playwright install chromium
    ```
 
-3. List the available scenarios. Each Playwright test carries an `@scenario_name` tag so you can select a subset with `--grep`:
+   The `postinstall` script downloads the necessary Playwright browsers (including system dependencies) so the UI tests can run without extra setup.
+3. Run the tests. The Playwright configuration automatically starts a contracts app instance on `http://localhost:8002` before exercising any scenarios and shuts it down when the suite finishes. List the available scenarios with:
 
    ```bash
    npm run test:ui -- --list
@@ -32,7 +39,7 @@ This guide shows how to:
    npm run test:ui -- --grep @happy_path
    ```
 
-   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, and verifies the wizard reaches the Step 2 and Step 3 panels before marking the setup complete. Because the UI keeps the Step 1 panel mounted for reference, the tests assert that Step 2 is visible instead of requiring Step 1 to disappear. It finishes by checking that the browser returns to `/`. Pass `--headed` or run `npm run test:ui:headed -- --grep @happy_path` for interactive sessions.
+   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, and verifies the wizard's `data-current-step` attribute advances to Step 2 and Step 3 before marking the setup complete. Because the UI keeps the Step 1 panel mounted for reference, the tests watch the attribute instead of requiring Step 1 to disappear. It finishes by checking that the browser returns to `/`. Pass `--headed` or run `npm run test:ui:headed -- --grep @happy_path` for interactive sessions.
 
 5. Need to observe each stage or capture an audit trail? Enable Playwright's inspector or capture a trace:
 

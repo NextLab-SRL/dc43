@@ -86,7 +86,7 @@ async function completeModuleSelection(page: Page, scenario: SetupWizardScenario
     }
 
     await page.getByRole('button', { name: 'Continue' }).click();
-    await expect(page.locator('[data-step2-wizard]')).toBeVisible();
+    await expect(page.locator('#setup-root')).toHaveAttribute('data-current-step', '2');
   });
 }
 
@@ -96,6 +96,10 @@ async function fillConfiguration(page: Page, scenario: SetupWizardScenario) {
 
     for (const [fieldName, value] of Object.entries(scenario.configurationOverrides)) {
       await test.step(`Fill ${fieldName}`, async () => {
+        const [_, moduleKey] = fieldName.split('__');
+        if (moduleKey) {
+          await ensureConfigurationModuleVisible(page, moduleKey);
+        }
         const field = page.locator(`[name="${fieldName}"]`).first();
         await expect(field, `Configuration field '${fieldName}' is not present.`).toBeVisible();
 
@@ -109,8 +113,7 @@ async function fillConfiguration(page: Page, scenario: SetupWizardScenario) {
     }
 
     await page.getByRole('button', { name: 'Review summary' }).click();
-    await expect(page.locator('[data-step2-wizard]')).toBeHidden();
-    await expect(page.locator('[data-step3-wizard]')).toBeVisible();
+    await expect(page.locator('#setup-root')).toHaveAttribute('data-current-step', '3');
   });
 }
 
@@ -148,6 +151,30 @@ async function ensureModuleVisible(page: Page, moduleKey: string) {
 
   await expect(card, `Module '${moduleKey}' should be visible but is not.`).toBeVisible();
   return { card, hidden: false, permanentlyHidden: false };
+}
+
+async function ensureConfigurationModuleVisible(page: Page, moduleKey: string) {
+  const section = page.locator(`[data-module-section][data-module-key="${moduleKey}"]`).first();
+  await section.waitFor({ state: 'attached' });
+
+  if (await section.isVisible()) {
+    await section.scrollIntoViewIfNeeded();
+    return section;
+  }
+
+  const navButton = page.locator(`[data-module-target="${moduleKey}"]`).first();
+  if (await navButton.count()) {
+    await expect(navButton, `Navigation button for configuration module '${moduleKey}' is missing.`).toBeVisible();
+    await navButton.scrollIntoViewIfNeeded();
+    await navButton.click();
+  }
+
+  await expect(
+    section,
+    `Configuration module '${moduleKey}' did not become visible after activating its navigation tab.`,
+  ).toBeVisible();
+  await section.scrollIntoViewIfNeeded();
+  return section;
 }
 
 async function moduleVisibility(card: Locator) {

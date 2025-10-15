@@ -6,7 +6,9 @@
     "test:ui": "playwright test",
     "test:ui:headed": "playwright test --headed",
     "test:ui:debug": "PWDEBUG=1 playwright test --headed",
-    "codegen:setup": "playwright codegen http://localhost:8002/setup?restart=1"
+    "codegen:setup": "playwright codegen http://localhost:8002/setup?restart=1",
+    "start:contracts-app": "python -m uvicorn dc43_contracts_app.server:app --host 127.0.0.1 --port 8002",
+    "postinstall": "playwright install --with-deps"
   },
   "devDependencies": {
     "@playwright/test": "^1.43.1"
