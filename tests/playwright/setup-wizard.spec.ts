@@ -171,23 +171,53 @@ async function downloadConfigurationBundle(page: Page) {
 
 async function handoffToManualSession(page: Page) {
   await test.step('Hand off for manual validation', async () => {
-    if (!process.stdin.isTTY) {
-      console.warn('KEEP_WIZARD_OPEN=1 is set but no interactive TTY is available; finishing automation.');
+    await page.bringToFront();
+    const context = page.context();
+
+    if (process.stdin.isTTY) {
+      console.log(
+        'Contracts setup wizard automation paused. Interact with the browser, then press ENTER here to resume.',
+      );
+      process.stdin.setEncoding('utf8');
+      process.stdin.resume();
+
+      await new Promise<void>((resolve) => {
+        process.stdin.once('data', () => {
+          resolve();
+        });
+      });
+
+      process.stdin.pause();
+      console.log('Resuming automated cleanup...');
       return;
     }
 
-    await page.bringToFront();
-    console.log('Contracts setup wizard automation paused. Interact with the browser, then press ENTER here to resume.');
-    process.stdin.setEncoding('utf8');
-    process.stdin.resume();
+    console.warn(
+      'KEEP_WIZARD_OPEN=1 is set but no interactive TTY is available. Close the browser window or send SIGINT/SIGTERM to finish.',
+    );
 
     await new Promise<void>((resolve) => {
-      process.stdin.once('data', () => {
+      const cleanup = () => {
+        process.off('SIGINT', handleSignal);
+        process.off('SIGTERM', handleSignal);
+        context.off('close', handleContextClose);
+      };
+
+      const handleSignal = () => {
+        cleanup();
         resolve();
-      });
+      };
+
+      const handleContextClose = () => {
+        cleanup();
+        resolve();
+      };
+
+      process.once('SIGINT', handleSignal);
+      process.once('SIGTERM', handleSignal);
+      context.once('close', handleContextClose);
     });
 
-    process.stdin.pause();
     console.log('Resuming automated cleanup...');
   });
 }

@@ -87,7 +87,7 @@ npm run codegen:setup
 
 Walk through the wizard manually, then translate the generated actions into `moduleSelections` and `configurationOverrides` entries. The recorder is especially useful for discovering new field names whenever server-side modules introduce additional configuration.
 
-Need to take over before the suite finishes? Set `KEEP_WIZARD_OPEN=1` (or run `npm run test:ui:handoff -- --grep @databricks_jobs`) to let the automation prepare the summary screen, download the bundle, and then pause so you can continue manually. When you're ready for Playwright to clean up, press **Enter** in the terminal running the test. The browser stays open the entire time, letting you experiment with additional actions or re-run the generated scripts from the downloaded archive.
+Need to take over before the suite finishes? Set `KEEP_WIZARD_OPEN=1` (or run `npm run test:ui:handoff -- --grep @databricks_jobs`) to let the automation prepare the summary screen, download the bundle, and then pause so you can continue manually. When you're ready for Playwright to clean up, press **Enter** in the terminal running the test. If you're launching the handoff from a non-interactive terminal, close the Playwright browser window (or press <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>Ctrl</kbd>+<kbd>Break</kbd>) to resume cleanup. The browser stays open the entire time, letting you experiment with additional actions or re-run the generated scripts from the downloaded archive.
 
 ## 3. Explore the wizard from the UI
 
