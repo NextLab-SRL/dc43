@@ -86,7 +86,6 @@ async function completeModuleSelection(page: Page, scenario: SetupWizardScenario
     }
 
     await page.getByRole('button', { name: 'Continue' }).click();
-    await expect(page.locator('[data-step1-wizard]')).toBeHidden();
     await expect(page.locator('[data-step2-wizard]')).toBeVisible();
   });
 }

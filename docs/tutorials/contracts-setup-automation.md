@@ -32,7 +32,7 @@ This guide shows how to:
    npm run test:ui -- --grep @happy_path
    ```
 
-   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, and verifies the wizard reaches the Step 2 and Step 3 panels before marking the setup complete. It finishes by checking that the browser returns to `/`. Pass `--headed` or run `npm run test:ui:headed -- --grep @happy_path` for interactive sessions.
+   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, and verifies the wizard reaches the Step 2 and Step 3 panels before marking the setup complete. Because the UI keeps the Step 1 panel mounted for reference, the tests assert that Step 2 is visible instead of requiring Step 1 to disappear. It finishes by checking that the browser returns to `/`. Pass `--headed` or run `npm run test:ui:headed -- --grep @happy_path` for interactive sessions.
 
 5. Need to observe each stage or capture an audit trail? Enable Playwright's inspector or capture a trace:
 
