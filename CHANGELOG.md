@@ -4,6 +4,10 @@
 ### Added
 - Added a generated Mermaid dependency graph and supporting script so internal package
   relationships are easier to audit during releases.
+- Introduced Playwright-based contracts setup wizard UI automation, including
+  reusable scenarios, npm scripts (`test:ui`, `test:ui:handoff`), and a bundled
+  FastAPI launcher so contributors can run or extend browser tests alongside the
+  Python suite.
 
 ### Changed
 - Documented the Gitflow-based branching expectations and clarified how merges from `dev` to `main`
