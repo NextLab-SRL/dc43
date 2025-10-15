@@ -38,7 +38,7 @@ export const setupWizardScenarios: Record<string, SetupWizardScenario> = {
       data_quality: 'embedded_engine',
       governance_service: 'embedded_monolith',
       governance_deployment: 'local_python',
-      governance_extensions: 'observability',
+      governance_extensions: 'unity_catalog',
       pipeline_integration: 'spark',
       user_interface: 'local_web',
       ui_deployment: 'skip_hosting',
@@ -49,6 +49,12 @@ export const setupWizardScenarios: Record<string, SetupWizardScenario> = {
       config__contracts_backend__work_dir: '/tmp/contracts',
       config__contracts_backend__contracts_dir: '/tmp/contracts/specs',
       config__products_backend__products_dir: '/tmp/contracts/products',
+      config__governance_extensions__workspace_url:
+        'https://adb-1234567890123456.7.azuredatabricks.net',
+      config__governance_extensions__catalog: 'main',
+      config__governance_extensions__schema: 'contracts',
+      config__governance_extensions__token: '{{DATABRICKS_UC_TOKEN}}',
+      config__governance_extensions__dataset_prefix: 'table://',
     },
   },
   enterprise_oidc: {
@@ -77,7 +83,6 @@ export const setupWizardScenarios: Record<string, SetupWizardScenario> = {
       config__products_backend__client_id: 'products-service',
       config__products_backend__client_secret: '{{COLLIBRA_PRODUCTS_SECRET}}',
       config__products_backend__domain_id: 'DATA_PRODUCTS',
-      config__governance_store__schema: 'governance',
       config__governance_store__status_table: 'main.governance.dq_status',
       config__governance_store__activity_table: 'main.governance.dq_activity',
       config__governance_store__link_table:
