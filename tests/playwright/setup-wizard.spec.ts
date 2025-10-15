@@ -39,12 +39,11 @@ async function completeModuleSelection(page: Page, scenario: SetupWizardScenario
         const option = result.card.locator(`input[type="radio"][value="${optionKey}"]`).first();
         await expect(option, `Module '${moduleKey}' option '${optionKey}' is unavailable`).toHaveCount(1);
 
-        if (await option.isDisabled()) {
-          throw new Error(`Option '${optionKey}' for module '${moduleKey}' is disabled.`);
-        }
+        const optionDisabled = await option.isDisabled();
+        const optionChecked = await option.isChecked();
 
         if (result.permanentlyHidden || result.hidden) {
-          if (!(await option.isChecked())) {
+          if (!optionChecked) {
             const available = await result.card
               .locator('input[type="radio"]').evaluateAll((elements) =>
                 elements.map((element) => ({
@@ -57,6 +56,13 @@ async function completeModuleSelection(page: Page, scenario: SetupWizardScenario
                 available,
               )}`,
             );
+          }
+          return;
+        }
+
+        if (optionDisabled) {
+          if (!optionChecked) {
+            throw new Error(`Option '${optionKey}' for module '${moduleKey}' is disabled.`);
           }
           return;
         }
