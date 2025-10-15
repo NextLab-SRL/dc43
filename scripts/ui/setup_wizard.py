@@ -95,6 +95,15 @@ class ActionRecorder:
             print(" - " + "; ".join(fragments))
 
 
+class ModuleHiddenError(RuntimeError):
+    """Raised when a module card is hidden from the UI."""
+
+    def __init__(self, module_key: str, card: Locator) -> None:
+        super().__init__(f"Module '{module_key}' is hidden in the UI")
+        self.module_key = module_key
+        self.card = card
+
+
 def load_scenarios(path: Path) -> Dict[str, WizardScenario]:
     """Load scenarios from ``path`` and return them keyed by name."""
 
@@ -129,30 +138,50 @@ def _module_card(page: Page, module_key: str) -> Locator:
     return locator
 
 
+def _module_visibility(card: Locator) -> Dict[str, object]:
+    """Return visibility metadata for ``card``."""
+
+    return card.evaluate(
+        """
+        el => ({
+            hidden: Boolean(el.hidden || el.hasAttribute('hidden') || el.classList.contains('d-none')),
+            permanentlyHidden: el.getAttribute('data-module-hidden') === 'true',
+            group: el.closest('[data-step1-section]')?.getAttribute('data-step1-section') || null,
+        })
+        """
+    )
+
+
 def _ensure_module_visible(page: Page, module_key: str) -> Locator:
     """Ensure the module card for ``module_key`` is visible and return its locator."""
 
     card = _module_card(page, module_key)
-    if card.is_visible():
+    visibility = _module_visibility(card)
+
+    permanently_hidden = bool(visibility.get("permanentlyHidden"))
+    if permanently_hidden:
+        raise ModuleHiddenError(module_key, card)
+
+    hidden = bool(visibility.get("hidden"))
+    if not hidden:
         card.scroll_into_view_if_needed()
         return card
 
-    group_key = card.evaluate(
-        "el => el.closest('[data-step1-section]')?.getAttribute('data-step1-section')"
-    )
-    if group_key:
+    group_key = visibility.get("group")
+    if isinstance(group_key, str) and group_key:
         nav_button = page.locator(f"[data-step1-nav=\"{group_key}\"]").first
         if nav_button.count() == 0:
             raise AssertionError(
                 f"Could not find navigation button for module group '{group_key}' while selecting '{module_key}'."
             )
+        nav_button.scroll_into_view_if_needed()
+        expect(nav_button).to_be_visible()
         nav_button.click()
-        expect(card).to_be_visible()
+        card.wait_for(state="visible")
         card.scroll_into_view_if_needed()
         return card
 
-    # If there's no enclosing step section we still attempt to reveal the card.
-    expect(card).to_be_visible()
+    card.wait_for(state="visible")
     card.scroll_into_view_if_needed()
     return card
 
@@ -161,7 +190,43 @@ def fill_step_one(page: Page, scenario: WizardScenario, recorder: ActionRecorder
     """Select modules according to ``scenario``."""
 
     for module_key, option_key in scenario.module_selections.items():
-        card = _ensure_module_visible(page, module_key)
+        try:
+            card = _ensure_module_visible(page, module_key)
+        except ModuleHiddenError as exc:
+            card = exc.card
+            option_locator = card.locator(
+                f"input[type=\"radio\"][value=\"{option_key}\"]"
+            ).first
+
+            if option_locator.count() == 0:
+                available = card.locator("input[type=\"radio\"]").evaluate_all(
+                    "els => els.map(el => el.value)"
+                )
+                raise AssertionError(
+                    "Hidden module '{module}' has no option '{option}'. Available options: {available}."
+                    .format(module=module_key, option=option_key, available=", ".join(available))
+                ) from exc
+
+            if not option_locator.is_checked():
+                available = card.locator("input[type=\"radio\"]").evaluate_all(
+                    "els => els.map(el => ({ value: el.value, checked: el.checked }))"
+                )
+                raise AssertionError(
+                    "Module '{module}' is hidden in the UI and the desired option '{option}' is not preselected. Current selections: {available}."
+                    .format(module=module_key, option=option_key, available=available)
+                ) from exc
+
+            recorder.record(
+                "modules",
+                "skip_hidden",
+                module=module_key,
+                option=option_key,
+            )
+            continue
+
+        option_locator = card.locator(
+            f"input[type=\"radio\"][value=\"{option_key}\"]"
+        ).first
         option_locator = card.locator(
             f"input[type=\"radio\"][value=\"{option_key}\"]"
         ).first
@@ -282,7 +347,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--base-url",
-        default="http://localhost:8000",
+        default="http://localhost:8002",
         help="Root URL of the contracts app (default: %(default)s)",
     )
     parser.add_argument(
@@ -378,3 +443,4 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover - script entry point
     main()
+

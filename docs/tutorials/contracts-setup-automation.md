@@ -10,7 +10,7 @@ This guide shows how to:
 
 ## 1. Run the packaged Playwright scenarios
 
-1. Prepare the contracts app just like you would for manual testing by installing dependencies and starting the FastAPI server (`uvicorn dc43_contracts_app.server:app --host 0.0.0.0 --port 8000`). The `/setup?restart=1` query parameter resets `setup_state.json` before the wizard renders so every run starts from a clean slate.
+1. Prepare the contracts app just like you would for manual testing by installing dependencies and starting the FastAPI server (`uvicorn dc43_contracts_app.server:app --host 0.0.0.0 --port 8002`). The `/setup?restart=1` query parameter resets `setup_state.json` before the wizard renders so every run starts from a clean slate.
 2. Install Playwright's Python bindings alongside the repo and pull the Chromium runtime the script expects:
 
    ```bash
@@ -32,7 +32,7 @@ This guide shows how to:
    python scripts/ui/setup_wizard.py --scenario happy_path --headless --screenshot artifacts/setup.png
    ```
 
-   The runner loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, asserts that the summary renders, and checks that the browser is redirected back to `/` after marking the setup complete. Pass `--keep-open` when you want to watch the flow interactively instead of running headless.
+   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, asserts that the summary renders, and checks that the browser is redirected back to `/` after marking the setup complete. Pass `--keep-open` when you want to watch the flow interactively instead of running headless. Use `--base-url` if your server listens on a different host or port. When the wizard hides a module because the UI determined it is not required, the helper records the module as "skip_hidden" after confirming the expected option is already selected.
 
 5. Need to observe each stage or capture an audit trail? Combine `--step-through` with the scenario you want to validate. The runner pauses after every wizard step so you can inspect the UI before continuing, automatically keeping the browser open at the end. Pair it with `--log-actions` to persist the executed steps as JSON:
 
@@ -75,7 +75,7 @@ python scripts/ui/setup_wizard.py --scenario my_custom_flow --scenario-file /pat
 When authoring a brand-new path, use Playwright's recorder to bootstrap selectors before copying them into the JSON structure:
 
 ```bash
-playwright codegen http://localhost:8000/setup?restart=1
+playwright codegen http://localhost:8002/setup?restart=1
 ```
 
 Walk through the wizard manually, then translate the generated actions into `moduleSelections` and `configurationOverrides` entries. The recorder is especially useful for discovering new field names whenever server-side modules introduce additional configuration.
@@ -84,7 +84,7 @@ Walk through the wizard manually, then translate the generated actions into `mod
 
 Automation is helpful for regression coverage, but the contracts app UI still exposes everything you need for manual validation:
 
-1. Launch the app and open `http://localhost:8000/setup?restart=1`. Step 1 displays grouped module cards keyed by `data-module-key` attributes so you can confirm the selectors your scripts expect.
+1. Launch the app and open `http://localhost:8002/setup?restart=1`. Step 1 displays grouped module cards keyed by `data-module-key` attributes so you can confirm the selectors your scripts expect.
 2. Continue to Step 2 to fill required configuration fields. Inputs are named `config__<module_key>__<field>`; the same names appear in the JSON state embedded in the page so you can inspect available overrides while iterating on automation.
 3. Finish the wizard on Step 3. The server persists selections, redirects back to `/`, and renders the completion badge that both humans and automation rely on to verify success.
 
@@ -95,7 +95,7 @@ Refer back to the scenario JSON whenever you need a reminder of the combinations
 Prefer Cypress (or another browser runner) instead of Playwright? Target the same `data-module-key` hooks and form field names so both suites stay aligned:
 
 ```js
-cy.visit('http://localhost:8000/setup?restart=1');
+cy.visit('http://localhost:8002/setup?restart=1');
 cy.get('[data-module-key="contracts_backend"] input[value="filesystem"]').check();
 cy.contains('button', 'Continue').click();
 ```
