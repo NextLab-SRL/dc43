@@ -118,7 +118,7 @@ async function ensureModuleVisible(page: Page, moduleKey: string) {
 
   const visibility = await moduleVisibility(card);
   if (!visibility.hidden) {
-    await card.scrollIntoViewIfNeeded();
+    await expect(card, `Module '${moduleKey}' should be visible but is not.`).toBeVisible();
     return { card, hidden: false, permanentlyHidden: visibility.permanentlyHidden };
   }
 
@@ -131,13 +131,11 @@ async function ensureModuleVisible(page: Page, moduleKey: string) {
     await expect(toggle, `Missing navigation button for module group '${visibility.group}'.`).toBeVisible();
     await toggle.scrollIntoViewIfNeeded();
     await toggle.click();
-    await card.waitFor({ state: 'visible' });
-    await card.scrollIntoViewIfNeeded();
+    await expect(card, `Module '${moduleKey}' did not become visible after toggling group '${visibility.group}'.`).toBeVisible();
     return { card, hidden: false, permanentlyHidden: false };
   }
 
-  await card.waitFor({ state: 'visible' });
-  await card.scrollIntoViewIfNeeded();
+  await expect(card, `Module '${moduleKey}' is hidden without navigation metadata.`).toBeVisible();
   return { card, hidden: false, permanentlyHidden: false };
 }
 
