@@ -116,42 +116,96 @@ async function ensureModuleVisible(page: Page, moduleKey: string) {
   const card = page.locator(`[data-module-card][data-module-key="${moduleKey}"]`).first();
   await card.waitFor({ state: 'attached' });
 
-  const visibility = await moduleVisibility(card);
-  if (!visibility.hidden) {
-    await expect(card, `Module '${moduleKey}' should be visible but is not.`).toBeVisible();
-    return { card, hidden: false, permanentlyHidden: visibility.permanentlyHidden };
-  }
+  let visibility = await moduleVisibility(card);
 
   if (visibility.permanentlyHidden) {
     return { card, hidden: true, permanentlyHidden: true };
   }
 
   if (visibility.group) {
-    const toggle = page.locator(`[data-step1-nav="${visibility.group}"]`).first();
-    await expect(toggle, `Missing navigation button for module group '${visibility.group}'.`).toBeVisible();
-    await toggle.scrollIntoViewIfNeeded();
-    await toggle.click();
-    await expect(card, `Module '${moduleKey}' did not become visible after toggling group '${visibility.group}'.`).toBeVisible();
+    await ensureGroupActive(page, visibility.group);
+    visibility = await moduleVisibility(card);
+  }
+
+  if (visibility.hidden) {
+    await expect(
+      card,
+      `Module '${moduleKey}' did not become visible after activating group '${visibility.group ?? 'default'}'.`,
+    ).toBeVisible();
     return { card, hidden: false, permanentlyHidden: false };
   }
 
-  await expect(card, `Module '${moduleKey}' is hidden without navigation metadata.`).toBeVisible();
+  await expect(card, `Module '${moduleKey}' should be visible but is not.`).toBeVisible();
   return { card, hidden: false, permanentlyHidden: false };
 }
 
 async function moduleVisibility(card: Locator) {
   return card.evaluate((element) => {
-    const hidden = Boolean(
-      element.hidden ||
-        element.hasAttribute('hidden') ||
-        element.classList.contains('d-none') ||
-        getComputedStyle(element).display === 'none' ||
-        getComputedStyle(element).visibility === 'hidden',
-    );
+    const computeHidden = (node: Element | null): boolean => {
+      if (!node) {
+        return false;
+      }
+
+      const htmlElement = node as HTMLElement;
+      if (
+        htmlElement.hidden ||
+        htmlElement.hasAttribute('hidden') ||
+        htmlElement.classList.contains('d-none')
+      ) {
+        return true;
+      }
+
+      const style = getComputedStyle(htmlElement);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return true;
+      }
+
+      return computeHidden(htmlElement.parentElement);
+    };
+
+    const rect = element.getBoundingClientRect();
+    const hidden = computeHidden(element) || rect.width === 0 || rect.height === 0;
     const group = element.closest('[data-step1-section]')?.getAttribute('data-step1-section') ?? null;
     const permanentlyHidden = element.getAttribute('data-module-hidden') === 'true';
+
     return { hidden, group, permanentlyHidden };
   });
+}
+
+async function ensureGroupActive(page: Page, group: string) {
+  const toggle = page.locator(`[data-step1-nav="${group}"]`).first();
+  await expect(toggle, `Missing navigation button for module group '${group}'.`).toBeVisible();
+  await toggle.scrollIntoViewIfNeeded();
+
+  const isActive = async () =>
+    toggle.evaluate((element) => {
+      const htmlElement = element as HTMLElement;
+      const ariaPressed = htmlElement.getAttribute('aria-pressed');
+      const ariaExpanded = htmlElement.getAttribute('aria-expanded');
+      const ariaCurrent = htmlElement.getAttribute('aria-current');
+      const datasetActive = (htmlElement.dataset && htmlElement.dataset.active) ?? null;
+
+      if (
+        ariaPressed === 'true' ||
+        ariaExpanded === 'true' ||
+        ariaCurrent === 'true' ||
+        datasetActive === 'true' ||
+        htmlElement.classList.contains('active')
+      ) {
+        return true;
+      }
+
+      return false;
+    });
+
+  if (!(await isActive())) {
+    await toggle.click();
+    await expect
+      .poll(async () => await isActive(), {
+        message: `Navigation button for group '${group}' did not activate after clicking.`,
+      })
+      .toBeTruthy();
+  }
 }
 
 function trimTrailingSlash(value: string) {
