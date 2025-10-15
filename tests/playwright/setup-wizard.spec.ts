@@ -17,7 +17,8 @@ test.describe('Contracts setup wizard', () => {
 
       await test.step('Open the wizard', async () => {
         await page.goto('/setup?restart=1');
-        await expect(page.locator('form[data-setup-step="modules"]')).toBeVisible();
+        await expect(page.locator('#setup-root')).toBeVisible();
+        await expect(page.locator('[data-step1-wizard]')).toBeVisible();
       });
 
       await completeModuleSelection(page, scenario);
