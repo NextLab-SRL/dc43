@@ -85,12 +85,17 @@ async function completeModuleSelection(page: Page, scenario: SetupWizardScenario
       });
     }
 
-    await page.getByRole('button', { name: 'Continue' }).click();
+    await Promise.all([
+      page.waitForURL('**/setup?step=2', { waitUntil: 'load' }),
+      page.getByRole('button', { name: 'Continue' }).click(),
+    ]);
   });
 }
 
 async function fillConfiguration(page: Page, scenario: SetupWizardScenario) {
   await test.step('Fill configuration overrides', async () => {
+    await expect(page.locator('form').filter({ has: page.locator('button', { name: 'Review summary' }) })).toBeVisible();
+
     for (const [fieldName, value] of Object.entries(scenario.configurationOverrides)) {
       await test.step(`Fill ${fieldName}`, async () => {
         const field = page.locator(`[name="${fieldName}"]`).first();
@@ -105,7 +110,10 @@ async function fillConfiguration(page: Page, scenario: SetupWizardScenario) {
       });
     }
 
-    await page.getByRole('button', { name: 'Review summary' }).click();
+    await Promise.all([
+      page.waitForURL('**/setup?step=3', { waitUntil: 'load' }),
+      page.getByRole('button', { name: 'Review summary' }).click(),
+    ]);
   });
 }
 
