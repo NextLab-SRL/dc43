@@ -1,14 +1,24 @@
+import fs from 'node:fs/promises';
+
 import { expect, Locator, Page, test } from '@playwright/test';
 import {
   setupWizardScenarioEntries,
   SetupWizardScenario,
 } from './scenarios';
 
+const KEEP_WIZARD_OPEN = process.env.KEEP_WIZARD_OPEN === '1';
+
 test.describe('Contracts setup wizard', () => {
   for (const [scenarioName, scenario] of setupWizardScenarioEntries) {
-    test(`@${scenarioName} completes the setup wizard`, async ({ page }, testInfo) => {
+    const scenarioTags = Array.from(new Set([scenarioName, ...(scenario.tags ?? [])]));
+    const scenarioTitleTags = scenarioTags.map((tag) => `@${tag}`).join(' ');
+
+    test(`${scenarioTitleTags} completes the setup wizard`, async ({ page }, testInfo) => {
       testInfo.annotations.push({ type: 'scenario', description: scenarioName });
       testInfo.annotations.push({ type: 'description', description: scenario.description });
+      for (const tag of scenarioTags) {
+        testInfo.annotations.push({ type: 'tag', description: tag });
+      }
       testInfo.attachments.push({
         name: 'scenario.json',
         contentType: 'application/json',
@@ -120,9 +130,65 @@ async function fillConfiguration(page: Page, scenario: SetupWizardScenario) {
 async function finishWizard(page: Page, baseURL: string) {
   await test.step('Review summary and finish', async () => {
     await expect(page.locator('h2', { hasText: 'Summary' })).toBeVisible();
+
+    await downloadConfigurationBundle(page);
+
+    if (KEEP_WIZARD_OPEN) {
+      await handoffToManualSession(page);
+      return;
+    }
+
     await page.getByRole('button', { name: 'Mark setup as complete' }).click();
 
     await expect(page).toHaveURL(new RegExp(`^${escapeForRegex(trimTrailingSlash(baseURL))}/?$`));
+  });
+}
+
+async function downloadConfigurationBundle(page: Page) {
+  await test.step('Download configuration bundle', async () => {
+    const downloadLink = page.getByRole('link', { name: 'Download configuration bundle' });
+    await expect(downloadLink, 'Configuration bundle link should be visible.').toBeVisible();
+
+    const downloadPromise = page.waitForEvent('download');
+    await downloadLink.click();
+    const download = await downloadPromise;
+
+    const failure = await download.failure();
+    expect(failure, `Configuration bundle download failed: ${failure ?? ''}`).toBeNull();
+
+    const filename = download.suggestedFilename();
+    expect(filename).toMatch(/^dc43-setup-.*\.zip$/);
+
+    const downloadPath = await download.path();
+    expect(downloadPath, 'Playwright did not expose a path for the downloaded archive.').toBeTruthy();
+
+    if (downloadPath) {
+      const stats = await fs.stat(downloadPath);
+      expect(stats.size).toBeGreaterThan(0);
+    }
+  });
+}
+
+async function handoffToManualSession(page: Page) {
+  await test.step('Hand off for manual validation', async () => {
+    if (!process.stdin.isTTY) {
+      console.warn('KEEP_WIZARD_OPEN=1 is set but no interactive TTY is available; finishing automation.');
+      return;
+    }
+
+    await page.bringToFront();
+    console.log('Contracts setup wizard automation paused. Interact with the browser, then press ENTER here to resume.');
+    process.stdin.setEncoding('utf8');
+    process.stdin.resume();
+
+    await new Promise<void>((resolve) => {
+      process.stdin.once('data', () => {
+        resolve();
+      });
+    });
+
+    process.stdin.pause();
+    console.log('Resuming automated cleanup...');
   });
 }
 

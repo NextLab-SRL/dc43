@@ -6,6 +6,7 @@
     "test:ui": "playwright test",
     "test:ui:headed": "playwright test --headed",
     "test:ui:debug": "PWDEBUG=1 playwright test --headed",
+    "test:ui:handoff": "KEEP_WIZARD_OPEN=1 playwright test --headed",
     "codegen:setup": "playwright codegen http://localhost:8002/setup?restart=1",
     "start:contracts-app": "python scripts/start_contracts_app.py",
     "postinstall": "playwright install --with-deps"

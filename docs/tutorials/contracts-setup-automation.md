@@ -31,15 +31,19 @@ This guide shows how to:
    npm run test:ui -- --list
    ```
 
-   The list output mirrors the scenario catalogue defined in `tests/playwright/scenarios.ts`. The bundled `enterprise_oidc` scenario shows how to pre-populate Collibra credentials, Databricks tokens, OAuth settings, and Terraform deployment values when you need a fully managed environment baseline.
+   The list output mirrors the scenario catalogue defined in `tests/playwright/scenarios.ts`. The bundled scenarios include:
 
-4. Execute a scenario. The example below drives the `happy_path` configuration in headless mode. Add `--headed` when you want to watch the browser as it progresses through each wizard stage:
+   - `@local_only` (tagged with `@happy_path`) for self-contained workstation demos that stick to embedded services and filesystem stores.
+   - `@databricks_jobs` (tagged with `@governance_focus` and `@databricks`) for Unity Catalog-heavy pipelines where Databricks configuration is the primary concern.
+   - `@enterprise_oidc` for Collibra, Databricks, Terraform, and OIDC integrations exercised together.
+
+4. Execute a scenario. The example below drives the `local_only` configuration in headless mode. Add `--headed` when you want to watch the browser as it progresses through each wizard stage:
 
    ```bash
-   npm run test:ui -- --grep @happy_path
+   npm run test:ui -- --grep @local_only
    ```
 
-   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, and verifies the wizard's `data-current-step` attribute advances to Step 2 and Step 3 before marking the setup complete. Because the UI keeps the Step 1 panel mounted for reference, the tests watch the attribute instead of requiring Step 1 to disappear. It finishes by checking that the browser returns to `/`. Pass `--headed` or run `npm run test:ui:headed -- --grep @happy_path` for interactive sessions.
+   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, and verifies the wizard's `data-current-step` attribute advances to Step 2 and Step 3 before marking the setup complete. Because the UI keeps the Step 1 panel mounted for reference, the tests watch the attribute instead of requiring Step 1 to disappear. The summary step asserts that the **Download configuration bundle** link streams a non-empty ZIP before clicking **Mark setup as complete**. Pass `--headed` or run `npm run test:ui:headed -- --grep @local_only` for interactive sessions.
 
 5. Need to observe each stage or capture an audit trail? Enable Playwright's inspector or capture a trace:
 
@@ -83,13 +87,15 @@ npm run codegen:setup
 
 Walk through the wizard manually, then translate the generated actions into `moduleSelections` and `configurationOverrides` entries. The recorder is especially useful for discovering new field names whenever server-side modules introduce additional configuration.
 
+Need to take over before the suite finishes? Set `KEEP_WIZARD_OPEN=1` (or run `npm run test:ui:handoff -- --grep @databricks_jobs`) to let the automation prepare the summary screen, download the bundle, and then pause so you can continue manually. When you're ready for Playwright to clean up, press **Enter** in the terminal running the test. The browser stays open the entire time, letting you experiment with additional actions or re-run the generated scripts from the downloaded archive.
+
 ## 3. Explore the wizard from the UI
 
 Automation is helpful for regression coverage, but the contracts app UI still exposes everything you need for manual validation:
 
 1. Launch the app and open `http://localhost:8002/setup?restart=1`. Step 1 displays grouped module cards keyed by `data-module-key` attributes so you can confirm the selectors your scripts expect.
 2. Continue to Step 2 to fill required configuration fields. Inputs are named `config__<module_key>__<field>`; the same names appear in the JSON state embedded in the page so you can inspect available overrides while iterating on automation.
-3. Finish the wizard on Step 3. The server persists selections, redirects back to `/`, and renders the completion badge that both humans and automation rely on to verify success.
+3. Finish the wizard on Step 3. The server persists selections, redirects back to `/`, and renders the completion badge that both humans and automation rely on to verify success. The automated suite now waits for the configuration bundle download to succeed before finishing, so you can spot regressions where the export breaks even when the UI appears healthy.
 
 Refer back to the scenario definitions whenever you need a reminder of the combinations exercised by CI, then branch out manually to test edge cases such as missing configuration or invalid credentials.
 

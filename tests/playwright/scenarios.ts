@@ -2,12 +2,13 @@ export interface SetupWizardScenario {
   readonly description: string;
   readonly moduleSelections: Record<string, string>;
   readonly configurationOverrides: Record<string, string>;
+  readonly tags?: readonly string[];
 }
 
 export const setupWizardScenarios: Record<string, SetupWizardScenario> = {
-  happy_path: {
-    description:
-      'Select the embedded defaults and filesystem stores for a local demo run.',
+  local_only: {
+    description: 'Select embedded defaults and filesystem stores for local demos.',
+    tags: ['happy_path'],
     moduleSelections: {
       contracts_backend: 'filesystem',
       products_backend: 'filesystem',
@@ -28,9 +29,9 @@ export const setupWizardScenarios: Record<string, SetupWizardScenario> = {
       config__products_backend__products_dir: '/workspace/products',
     },
   },
-  governance_focus: {
-    description:
-      'Enable governance services while skipping optional automation modules.',
+  databricks_jobs: {
+    description: 'Target Databricks Unity Catalog integrations with filesystem backends.',
+    tags: ['governance_focus', 'databricks'],
     moduleSelections: {
       contracts_backend: 'filesystem',
       products_backend: 'filesystem',
@@ -60,6 +61,7 @@ export const setupWizardScenarios: Record<string, SetupWizardScenario> = {
   enterprise_oidc: {
     description:
       'Collibra-backed governance with Unity Catalog hooks, OIDC auth, and AWS Terraform deployment stubs.',
+    tags: ['enterprise'],
     moduleSelections: {
       contracts_backend: 'collibra',
       products_backend: 'collibra',
