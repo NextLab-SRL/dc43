@@ -11,71 +11,67 @@ This guide shows how to:
 ## 1. Run the packaged Playwright scenarios
 
 1. Prepare the contracts app just like you would for manual testing by installing dependencies and starting the FastAPI server (`uvicorn dc43_contracts_app.server:app --host 0.0.0.0 --port 8002`). The `/setup?restart=1` query parameter resets `setup_state.json` before the wizard renders so every run starts from a clean slate.
-2. Install Playwright's Python bindings alongside the repo and pull the Chromium runtime the script expects:
+2. Install the Node dependencies that drive the TypeScript-based Playwright suite and download the Chromium runtime:
 
    ```bash
-   pip install playwright
-   playwright install chromium
+   npm install
+   npx playwright install chromium
    ```
 
-3. Inspect the available scenarios:
+3. List the available scenarios. Each Playwright test carries an `@scenario_name` tag so you can select a subset with `--grep`:
 
    ```bash
-   python scripts/ui/setup_wizard.py --list
+   npm run test:ui -- --list
    ```
 
-   The script reads `scripts/ui/setup_wizard_scenarios.json` and prints the short descriptions you can target from CI or local runs. The bundled `enterprise_oidc` scenario shows how to pre-populate Collibra credentials, Databricks tokens, OAuth settings, and Terraform deployment values when you need a fully managed environment baseline.
+   The list output mirrors the scenario catalogue defined in `tests/playwright/scenarios.ts`. The bundled `enterprise_oidc` scenario shows how to pre-populate Collibra credentials, Databricks tokens, OAuth settings, and Terraform deployment values when you need a fully managed environment baseline.
 
-4. Execute a scenario. The example below drives the `happy_path` configuration in headless mode and captures a screenshot once the wizard lands on the home page:
+4. Execute a scenario. The example below drives the `happy_path` configuration in headless mode. Add `--headed` when you want to watch the browser as it progresses through each wizard stage:
 
    ```bash
-   python scripts/ui/setup_wizard.py --scenario happy_path --headless --screenshot artifacts/setup.png
+   npm run test:ui -- --grep @happy_path
    ```
 
-   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, asserts that the summary renders, and checks that the browser is redirected back to `/` after marking the setup complete. Pass `--keep-open` when you want to watch the flow interactively instead of running headless. Use `--base-url` if your server listens on a different host or port. When the wizard hides a module because the UI determined it is not required, the helper records the module as "skip_hidden" after confirming the expected option is already selected.
+   The runner targets `http://localhost:8002` by default, loads `/setup?restart=1`, selects the configured module options, fills any overridden form fields, asserts that the summary renders, and checks that the browser is redirected back to `/` after marking the setup complete. Pass `--headed` or run `npm run test:ui:headed -- --grep @happy_path` for interactive sessions.
 
-5. Need to observe each stage or capture an audit trail? Combine `--step-through` with the scenario you want to validate. The runner pauses after every wizard step so you can inspect the UI before continuing, automatically keeping the browser open at the end. Pair it with `--log-actions` to persist the executed steps as JSON:
+5. Need to observe each stage or capture an audit trail? Enable Playwright's inspector or capture a trace:
 
    ```bash
-   python scripts/ui/setup_wizard.py \
-     --scenario enterprise_oidc \
-     --step-through \
-     --log-actions artifacts/enterprise-oidc.json
+   npm run test:ui:debug -- --grep @enterprise_oidc
+   # or
+   npx playwright test --grep @enterprise_oidc --trace on
    ```
 
-   The JSON log lists every selector interaction and button press in order, which makes it easy to replay or audit the scenario without enabling verbose Playwright tracing.
+   The tests attach the exercised scenario as JSON to each run. Open the HTML report (`npx playwright show-report`) to review the recorded steps, download the scenario payload, or open the generated traces.
 
 Add the same command to your CI pipeline to reuse the bundled selectors without copying code. Because the helper always resets the wizard, multiple jobs can run the flow sequentially against the same server without leaking state.
 
 ## 2. Extend or override scenarios
 
-Scenarios are stored as JSON mappings of module selections and configuration overrides. Each key corresponds to the wizard's data attributes so the automation stays aligned with server-side validation. Add a new entry that mirrors the structure below when you want the script to drive a different configuration:
+Scenarios are stored in `tests/playwright/scenarios.ts` as TypeScript objects that map module selections and configuration overrides. Each key corresponds to the wizard's data attributes so the automation stays aligned with server-side validation. Add a new entry that mirrors the structure below when you want the suite to drive a different configuration:
 
-```json
-{
-  "my_custom_flow": {
-    "description": "Short explanation shown by --list.",
-    "moduleSelections": {
-      "contracts_backend": "filesystem",
-      "user_interface": "local_web"
+```ts
+export const setupWizardScenarios = {
+  ...
+  my_custom_flow: {
+    description: 'Short explanation shown in test annotations.',
+    moduleSelections: {
+      contracts_backend: 'filesystem',
+      user_interface: 'local_web',
     },
-    "configurationOverrides": {
-      "config__contracts_backend__work_dir": "/srv/contracts"
-    }
-  }
-}
+    configurationOverrides: {
+      config__contracts_backend__work_dir: '/srv/contracts',
+    },
+  },
+};
 ```
 
-Store custom definitions in a separate file and point the runner at it with `--scenario-file` to keep local experiments out of version control:
+Playwright automatically discovers the new scenario on the next run, making it available through `--grep @my_custom_flow`. If you prefer to keep local experiments out of version control, duplicate `tests/playwright/setup-wizard.spec.ts`, import your own scenario catalogue, and execute the copy from your workstation.
+
+When authoring a brand-new path, use Playwright's recorder to bootstrap selectors before copying them into the scenario definition:
 
 ```bash
-python scripts/ui/setup_wizard.py --scenario my_custom_flow --scenario-file /path/to/scenarios.json
-```
-
-When authoring a brand-new path, use Playwright's recorder to bootstrap selectors before copying them into the JSON structure:
-
-```bash
-playwright codegen http://localhost:8002/setup?restart=1
+npm run codegen:setup
 ```
 
 Walk through the wizard manually, then translate the generated actions into `moduleSelections` and `configurationOverrides` entries. The recorder is especially useful for discovering new field names whenever server-side modules introduce additional configuration.
@@ -88,7 +84,7 @@ Automation is helpful for regression coverage, but the contracts app UI still ex
 2. Continue to Step 2 to fill required configuration fields. Inputs are named `config__<module_key>__<field>`; the same names appear in the JSON state embedded in the page so you can inspect available overrides while iterating on automation.
 3. Finish the wizard on Step 3. The server persists selections, redirects back to `/`, and renders the completion badge that both humans and automation rely on to verify success.
 
-Refer back to the scenario JSON whenever you need a reminder of the combinations exercised by CI, then branch out manually to test edge cases such as missing configuration or invalid credentials.
+Refer back to the scenario definitions whenever you need a reminder of the combinations exercised by CI, then branch out manually to test edge cases such as missing configuration or invalid credentials.
 
 ## 4. Reuse the selectors in other frameworks
 

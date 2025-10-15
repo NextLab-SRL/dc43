@@ -1,0 +1,14 @@
+{
+  "name": "dc43-ui-automation",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed",
+    "test:ui:debug": "PWDEBUG=1 playwright test --headed",
+    "codegen:setup": "playwright codegen http://localhost:8002/setup?restart=1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.43.1"
+  }
+}
