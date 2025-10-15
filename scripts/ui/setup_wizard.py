@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional
 
-from playwright.sync_api import Browser, Page, expect, sync_playwright
+from playwright.sync_api import Browser, Locator, Page, expect, sync_playwright
 
 
 SCENARIO_FILE = Path(__file__).with_name("setup_wizard_scenarios.json")
@@ -119,13 +119,69 @@ def list_scenarios(scenarios: Iterable[WizardScenario]) -> str:
     return "\n".join(sorted(rows))
 
 
+def _module_card(page: Page, module_key: str) -> Locator:
+    """Return the first module card locator for ``module_key``."""
+
+    locator = page.locator(
+        f"[data-module-card][data-module-key=\"{module_key}\"]"
+    ).first
+    locator.wait_for(state="attached")
+    return locator
+
+
+def _ensure_module_visible(page: Page, module_key: str) -> Locator:
+    """Ensure the module card for ``module_key`` is visible and return its locator."""
+
+    card = _module_card(page, module_key)
+    if card.is_visible():
+        card.scroll_into_view_if_needed()
+        return card
+
+    group_key = card.evaluate(
+        "el => el.closest('[data-step1-section]')?.getAttribute('data-step1-section')"
+    )
+    if group_key:
+        nav_button = page.locator(f"[data-step1-nav=\"{group_key}\"]").first
+        if nav_button.count() == 0:
+            raise AssertionError(
+                f"Could not find navigation button for module group '{group_key}' while selecting '{module_key}'."
+            )
+        nav_button.click()
+        expect(card).to_be_visible()
+        card.scroll_into_view_if_needed()
+        return card
+
+    # If there's no enclosing step section we still attempt to reveal the card.
+    expect(card).to_be_visible()
+    card.scroll_into_view_if_needed()
+    return card
+
+
 def fill_step_one(page: Page, scenario: WizardScenario, recorder: ActionRecorder) -> None:
     """Select modules according to ``scenario``."""
 
     for module_key, option_key in scenario.module_selections.items():
-        locator = page.locator(f"[data-module-key=\"{module_key}\"] input[value=\"{option_key}\"]")
-        expect(locator.first).to_be_visible()
-        locator.first.check()
+        card = _ensure_module_visible(page, module_key)
+        option_locator = card.locator(
+            f"input[type=\"radio\"][value=\"{option_key}\"]"
+        ).first
+
+        if option_locator.count() == 0:
+            available = card.locator("input[type=\"radio\"]").evaluate_all(
+                "els => els.map(el => el.value)"
+            )
+            raise AssertionError(
+                "Module '{module}' has no option '{option}'. Available options: {available}."
+                .format(module=module_key, option=option_key, available=", ".join(available))
+            )
+
+        if option_locator.is_disabled():
+            raise AssertionError(
+                f"Option '{option_key}' for module '{module_key}' is disabled."
+            )
+
+        expect(option_locator).to_be_visible()
+        option_locator.check()
         recorder.record(
             "modules",
             "select_option",
