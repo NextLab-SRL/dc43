@@ -52,6 +52,8 @@
   `docs_chat.api_key_env` holds the name of the environment variable containing the provider key.
 - Updated docs, templates, and wizard guidance to highlight the new inline key support and the
   `dc43-demo --config/--env-file` launcher flags for local runs.
+- Reworked the docs chat question-answer prompt so responses summarise the retrieved Markdown,
+  cite file names, and guide Spark integration questions instead of defaulting to "I don't know".
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from

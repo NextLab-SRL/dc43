@@ -54,6 +54,11 @@ The launcher still honours `DC43_CONTRACTS_APP_CONFIG` if you prefer a global
 environment variable. Restart the application and open `/docs-chat` to chat with
 the Markdown guides bundled in `docs/`.
 
+Expect detailed, citation-backed answers. The assistant now grounds its replies
+in the retrieved Markdown snippets so prompts like “help me start a Spark
+integration pipeline” return step-by-step guidance, highlighted file names, and
+links to the most relevant setup sections.
+
 > ℹ️ You can skip the env file when `docs_chat.api_key` stores the secret: run
 > `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your
 > overrides automatically.

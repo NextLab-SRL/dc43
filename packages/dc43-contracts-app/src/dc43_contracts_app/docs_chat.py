@@ -85,6 +85,31 @@ _WORKSPACE: ContractsAppWorkspace | None = None
 _RUNTIME: _DocsChatRuntime | None = None
 _RUNTIME_LOCK = threading.Lock()
 
+_QA_PROMPT_TEMPLATE = """
+You are the documentation assistant for the dc43 platform. Use the Markdown
+context provided below to answer the user's question with practical guidance,
+explicit references to relevant files or headings, and concrete next steps.
+
+- Always ground your reply in the supplied context snippets. Quote or summarise
+  the most relevant passages so the reader understands how to proceed.
+- Mention the Markdown filename (for example `implementations/spark.md`) or
+  heading when you cite instructions from the context.
+- When the context does not directly answer the question, acknowledge the gap
+  and point to the closest matching guidance instead of replying with “I don't
+  know”.
+
+Conversation so far:
+{chat_history}
+
+Context snippets:
+{context}
+
+User question:
+{question}
+
+Answer:
+"""
+
 
 def _candidate_docs_roots() -> list[Path]:
     """Return possible documentation directories ordered by preference."""
@@ -314,6 +339,7 @@ def _build_runtime() -> _DocsChatRuntime:
 def _build_chain(config: DocsChatConfig, vectorstore: object) -> object:
     try:
         from langchain.chains import ConversationalRetrievalChain
+        from langchain_core.prompts import PromptTemplate
         from langchain_openai import ChatOpenAI
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
         raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
@@ -323,12 +349,31 @@ def _build_chain(config: DocsChatConfig, vectorstore: object) -> object:
         raise DocsChatError(_missing_api_key_message(config))
 
     llm = ChatOpenAI(model=config.model, openai_api_key=api_key, temperature=0.2)
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
-    return ConversationalRetrievalChain.from_llm(
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
+    qa_prompt = PromptTemplate.from_template(_QA_PROMPT_TEMPLATE)
+    chain = ConversationalRetrievalChain.from_llm(
         llm,
         retriever=retriever,
         return_source_documents=True,
     )
+    _apply_prompt_override(chain, qa_prompt)
+    return chain
+
+
+def _apply_prompt_override(chain: object, prompt: object) -> None:
+    """Best-effort override of the QA prompt for the retrieval chain."""
+
+    combine_chain = getattr(chain, "combine_docs_chain", None)
+    if combine_chain is None:
+        return
+
+    llm_chain = getattr(combine_chain, "llm_chain", None)
+    if llm_chain is not None and hasattr(llm_chain, "prompt"):
+        llm_chain.prompt = prompt  # type: ignore[assignment]
+        return
+
+    if hasattr(combine_chain, "prompt"):
+        combine_chain.prompt = prompt  # type: ignore[assignment]
 
 
 def _load_vectorstore(index_dir: Path, config: DocsChatConfig) -> object:
