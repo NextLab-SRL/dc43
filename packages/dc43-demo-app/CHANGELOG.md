@@ -76,6 +76,8 @@
   hand-offs highlight which assets are contract-backed versus tracked without a contract.
 - Adopted the demo pipeline, UI, and streaming regression tests into the package so its
   distribution validates the bundled scenarios directly during CI runs.
+- `dc43-demo` now logs the resolved contracts-app configuration path and docs-chat summary
+  during startup to aid debugging and deployment validation.
 
 ### Fixed
 - Respect exported `DC43_CONTRACTS_APP_CONFIG` files when launching `dc43-demo`

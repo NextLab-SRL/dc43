@@ -1,3 +1,4 @@
+import logging
 import os
 import textwrap
 from pathlib import Path
@@ -10,7 +11,16 @@ def write_config(path: Path, content: str) -> str:
     return str(path)
 
 
-def test_build_contracts_config_merges_docs_chat(tmp_path: Path) -> None:
+def _log_messages(caplog) -> str:
+    return "\n".join(
+        record.message
+        for record in caplog.records
+        if record.name == "dc43_demo_app.runner"
+    )
+
+
+def test_build_contracts_config_merges_docs_chat(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="dc43_demo_app.runner")
     config_path = tmp_path / "contracts.toml"
     override = write_config(
         config_path,
@@ -38,9 +48,11 @@ def test_build_contracts_config_merges_docs_chat(tmp_path: Path) -> None:
     assert str(config.workspace.root) == str((tmp_path / "workspace"))
     assert config.backend.base_url == "http://127.0.0.1:9999"
     assert config.backend.process.log_level == "info"
+    assert "docs_chat=enabled provider=openai" in _log_messages(caplog)
 
 
-def test_build_contracts_config_without_override(tmp_path: Path) -> None:
+def test_build_contracts_config_without_override(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="dc43_demo_app.runner")
     config = runner._build_contracts_config(  # type: ignore[attr-defined]
         workspace_root=tmp_path / "workspace",
         backend_host="127.0.0.1",
@@ -53,6 +65,7 @@ def test_build_contracts_config_without_override(tmp_path: Path) -> None:
     assert config.docs_chat.enabled is False
     assert str(config.workspace.root) == str((tmp_path / "workspace"))
     assert config.backend.process.log_level is None
+    assert "docs_chat=disabled" in _log_messages(caplog)
 
 
 def test_load_env_file(tmp_path: Path, monkeypatch) -> None:

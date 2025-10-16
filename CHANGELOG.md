@@ -36,6 +36,8 @@
   secret-bearing environment variable.
 - Updated docs and templates to highlight the new launcher flags, `.env` support, and the
   optional `docs_chat.api_key` field for storing secrets outside environment variables.
+- Logged the resolved contracts-app configuration path and docs-chat status during
+  `dc43-demo` startup to make local troubleshooting easier.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

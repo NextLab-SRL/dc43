@@ -35,6 +35,30 @@ def _toml_string(value: str) -> str:
     return json.dumps(value)
 
 
+def _describe_docs_chat(config: DocsChatConfig) -> str:
+    if not config.enabled:
+        return "disabled"
+
+    key_sources: list[str] = []
+    if config.api_key:
+        key_sources.append("inline")
+    if config.api_key_env:
+        key_sources.append(f"env:{config.api_key_env}")
+    key_source = ", ".join(key_sources) if key_sources else "unset"
+
+    docs_path = config.docs_path.as_posix() if config.docs_path else "default"
+    index_path = config.index_path.as_posix() if config.index_path else "workspace"
+
+    return (
+        "enabled "
+        f"provider={config.provider} "
+        f"model={config.model} "
+        f"key_source={key_source} "
+        f"docs_path={docs_path} "
+        f"index_path={index_path}"
+    )
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="dc43-demo",
@@ -124,6 +148,7 @@ def _build_contracts_config(
                 override_path,
             )
     else:
+        logger.info("No user contracts app configuration supplied; using demo defaults.")
         base_config = ContractsAppConfig()
 
     base_config.workspace = WorkspaceConfig(root=workspace_root)
@@ -140,6 +165,12 @@ def _build_contracts_config(
     # Preserve docs chat toggles from the user configuration when provided.
     if override_path is None:
         base_config.docs_chat = DocsChatConfig()
+
+    logger.info(
+        "Prepared contracts app configuration (source=%s, docs_chat=%s)",
+        override_path or "demo defaults",
+        _describe_docs_chat(base_config.docs_chat),
+    )
 
     return base_config
 
@@ -167,6 +198,9 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - conve
     """Run the pipeline demo alongside the contracts app and backend."""
 
     import uvicorn
+
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     args = _parse_args(argv)
     if args.env_file:
@@ -208,6 +242,11 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - conve
         override_contracts_config,
     )
     dump_contracts_config(contracts_config_path, contracts_config)
+    logger.info(
+        "Contracts app configuration written to %s (%s)",
+        contracts_config_path,
+        _describe_docs_chat(contracts_config.docs_chat),
+    )
 
     previous_backend_config = os.getenv("DC43_SERVICE_BACKENDS_CONFIG")
     previous_demo_backend_url = os.getenv("DC43_DEMO_BACKEND_URL")
