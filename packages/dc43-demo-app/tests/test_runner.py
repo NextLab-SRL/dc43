@@ -1,3 +1,4 @@
+import os
 import textwrap
 from pathlib import Path
 
@@ -52,3 +53,29 @@ def test_build_contracts_config_without_override(tmp_path: Path) -> None:
     assert config.docs_chat.enabled is False
     assert str(config.workspace.root) == str((tmp_path / "workspace"))
     assert config.backend.process.log_level is None
+
+
+def test_load_env_file(tmp_path: Path, monkeypatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        textwrap.dedent(
+            """
+            # sample configuration
+            OPENAI_API_KEY = sk-demo
+            QUOTED="value"
+            EMPTY=
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("QUOTED", raising=False)
+    monkeypatch.delenv("EMPTY", raising=False)
+
+    runner._load_env_file(str(env_file))  # type: ignore[attr-defined]
+
+    assert os.environ["OPENAI_API_KEY"] == "sk-demo"
+    assert os.environ["QUOTED"] == "value"
+    assert os.environ["EMPTY"] == ""

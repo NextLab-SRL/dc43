@@ -61,6 +61,7 @@ class DocsChatConfig:
     model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
     api_key_env: str = "OPENAI_API_KEY"
+    api_key: str | None = None
     docs_path: Path | None = None
     index_path: Path | None = None
 
@@ -194,6 +195,13 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if isinstance(docs_chat_section, MutableMapping)
         else "OPENAI_API_KEY"
     ) or "OPENAI_API_KEY"
+    docs_chat_api_key = None
+    if isinstance(docs_chat_section, MutableMapping):
+        raw_value = docs_chat_section.get("api_key")
+        if raw_value is not None:
+            value_text = str(raw_value).strip()
+            docs_chat_api_key = value_text or None
+
     docs_chat_docs_path = (
         _coerce_path(docs_chat_section.get("docs_path"))
         if isinstance(docs_chat_section, MutableMapping)
@@ -250,6 +258,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if env_docs_api_key_env:
             docs_chat_api_key_env = env_docs_api_key_env.strip() or docs_chat_api_key_env
 
+        env_docs_api_key = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY")
+        if env_docs_api_key is not None:
+            docs_chat_api_key = env_docs_api_key.strip() or None
+
         env_docs_path = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_PATH")
         if env_docs_path:
             docs_chat_docs_path = _coerce_path(env_docs_path)
@@ -274,6 +286,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         model=docs_chat_model,
         embedding_model=docs_chat_embedding_model,
         api_key_env=docs_chat_api_key_env,
+        api_key=docs_chat_api_key,
         docs_path=docs_chat_docs_path,
         index_path=docs_chat_index_path,
     )
@@ -334,6 +347,8 @@ def _docs_chat_mapping(config: DocsChatConfig) -> dict[str, Any]:
         mapping["embedding_model"] = config.embedding_model
     if config.api_key_env != "OPENAI_API_KEY":
         mapping["api_key_env"] = config.api_key_env
+    if config.api_key is not None:
+        mapping["api_key"] = config.api_key
     if config.docs_path:
         mapping["docs_path"] = _stringify_path(config.docs_path)
     if config.index_path:

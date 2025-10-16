@@ -288,14 +288,15 @@ log_level = "info"
 | `docs_chat` | `model` | Chat completion model requested from the provider (`DC43_CONTRACTS_APP_DOCS_CHAT_MODEL`). |
 | `docs_chat` | `embedding_model` | Embedding model used to build the Markdown index (`DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL`). |
 | `docs_chat` | `api_key_env` | Environment variable that stores the provider key (`DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV`). |
+| `docs_chat` | `api_key` | Optional inline provider key stored directly in the configuration (keep the file outside version control). |
 | `docs_chat` | `docs_path` | Optional override pointing at the directory that stores Markdown documentation (`DC43_CONTRACTS_APP_DOCS_CHAT_PATH`). |
 | `docs_chat` | `index_path` | Directory used to persist the LangChain/FAISS index (`DC43_CONTRACTS_APP_DOCS_CHAT_INDEX`). |
 
 `api_key_env` records the *name* of the variable that contains your secret—load
-the key separately (for example by exporting `OPENAI_API_KEY` or using `.env`
-tooling). Remember to `export DC43_CONTRACTS_APP_CONFIG=/path/to/file.toml`
-before launching the app; setting the variable without `export` keeps it local
-to the shell and the demo falls back to defaults.
+the key separately (for example by exporting `OPENAI_API_KEY`, pointing the demo
+at a `.env` file with `dc43-demo --env-file`, or using `direnv`). Prefer keeping
+credentials outside source control? populate `docs_chat.api_key` in a private
+TOML file and launch the demo with `dc43-demo --config /path/to/contracts-app.toml`.
 
 When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
 `/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install

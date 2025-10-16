@@ -26,6 +26,8 @@
   defaults, a Gradio-mounted UI, and a REST endpoint for programmatic access.
 - Introduced a documentation assistant module in the setup wizard so exported bundles capture the
   docs chat configuration alongside other deployment metadata.
+- Extended docs chat configuration with an optional inline `api_key` field so private TOML files can
+  store credentials directly when environment variables are impractical.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are
@@ -48,3 +50,5 @@
   pointed contributors at the single-command workflow.
 - Clarified that docs chat configuration requires exporting `DC43_CONTRACTS_APP_CONFIG` and that
   `docs_chat.api_key_env` holds the name of the environment variable containing the provider key.
+- Updated docs, templates, and wizard guidance to highlight the new inline key support and the
+  `dc43-demo --config/--env-file` launcher flags for local runs.

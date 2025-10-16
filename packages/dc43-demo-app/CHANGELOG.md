@@ -36,6 +36,8 @@
 - Altair Retail timeline replay that simulates each pipeline step, highlights the exact rule
   failures and reject slices, drives status banners across the activation/dashboard tabs, and
   exposes a richer sample script for presenters to reuse in notebooks.
+- Added `--config` and `--env-file` flags to the `dc43-demo` launcher so personal TOML overrides and
+  `.env` secrets can be loaded without pre-exporting environment variables.
 
 ### Changed
 - Pipeline scenario details now run Spark or DLT modes in place using asynchronous

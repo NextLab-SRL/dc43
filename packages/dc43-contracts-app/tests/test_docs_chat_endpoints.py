@@ -23,7 +23,7 @@ def test_docs_chat_api_not_ready(monkeypatch):
     with TestClient(server.app) as client:
         response = client.post("/api/docs-chat/messages", json={"message": "help"})
     assert response.status_code == 400
-    assert "missing api key" in response.json()["detail"].lower()
+    assert "api key" in response.json()["detail"].lower()
 
 
 def test_docs_chat_api_success(monkeypatch):

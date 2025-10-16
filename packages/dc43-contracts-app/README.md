@@ -32,7 +32,8 @@ maintain bespoke chat widgets. To enable it:
    editable install and then invoking the PyPI extra) causes pip to report
    conflicting requirements because they reference the same local package.
 2. Provide an API key via the configured environment variable (defaults to
-   `OPENAI_API_KEY`).
+   `OPENAI_API_KEY`) or set an inline secret with `docs_chat.api_key` in a
+   private TOML file.
 3. Toggle the feature in `contracts-app.toml`:
    ```toml
    [docs_chat]
@@ -41,15 +42,19 @@ maintain bespoke chat widgets. To enable it:
    model = "gpt-4o-mini"
    embedding_model = "text-embedding-3-small"
    api_key_env = "OPENAI_API_KEY"
+   # api_key = "sk-your-api-key" # optional inline secret stored outside git
    ```
-   `api_key_env` records the *name* of the variable that stores your API key;
-   load the secret separately (for example via `direnv`, `dotenv`, or a shell
+   `api_key_env` records the *name* of the variable that stores your API key.
+   Load the secret separately (for example via `direnv`, `dotenv`, a
+   `.env` file passed to `dc43-demo --env-file`, or a shell
    `export OPENAI_API_KEY=...`).
-4. Export the config path before launching the app so the loader picks up your
+4. Pass the config path to the demo launcher so the loader picks up your
    changes:
    ```bash
-   export DC43_CONTRACTS_APP_CONFIG=/path/to/contracts-app.toml
+   dc43-demo --config /path/to/contracts-app.toml
    ```
+   The legacy `export DC43_CONTRACTS_APP_CONFIG=/path/to/contracts-app.toml`
+   workflow still works when you prefer a global environment variable.
 5. Restart the dc43 app. The assistant indexes Markdown under `docs/` by
    default; override `docs_chat.docs_path` or `docs_chat.index_path` when the
    repository lives elsewhere.
@@ -73,6 +78,7 @@ HTML entry point lives at `/docs-chat`.
 | `DC43_CONTRACTS_APP_DOCS_CHAT_MODEL` | Chat completion model to request. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL` | Embedding model used to build the vector index. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV` | Name of the environment variable that stores the provider API key. |
+| `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY` | Inline provider API key used when you prefer not to rely on environment variables. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_PATH` | Override the directory that contains Markdown documentation. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX` | Directory where the LangChain/FAISS index is stored. |
 

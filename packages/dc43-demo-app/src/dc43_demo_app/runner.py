@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import json
 import logging
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Sequence
 
 import httpx
 
@@ -31,6 +33,52 @@ logger = logging.getLogger(__name__)
 
 def _toml_string(value: str) -> str:
     return json.dumps(value)
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="dc43-demo",
+        description="Launch the dc43 demo application with optional configuration overrides.",
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        dest="contracts_config",
+        help="Path to a dc43-contracts-app TOML file that should be merged into the demo defaults.",
+    )
+    parser.add_argument(
+        "--env-file",
+        dest="env_file",
+        help="Load environment variables from a .env-style file before starting the services.",
+    )
+    return parser.parse_args(list(argv) if argv is not None else None)
+
+
+def _load_env_file(path: str) -> None:
+    file_path = Path(path).expanduser()
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("Environment file %s was not found; skipping.", file_path)
+        return
+    except OSError as exc:  # pragma: no cover - defensive logging around unreadable files
+        logger.warning("Unable to read environment file %s (%s); skipping.", file_path, exc)
+        return
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        os.environ[key] = value
 
 
 def _write_backend_config(path: Path, contracts_dir: Path, token: str | None) -> None:
@@ -115,10 +163,14 @@ def _wait_for_backend(base_url: str, *, timeout: float = 30.0) -> None:
     raise RuntimeError(f"Service at {base_url} is not responding")
 
 
-def main() -> None:  # pragma: no cover - convenience runner
+def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - convenience runner
     """Run the pipeline demo alongside the contracts app and backend."""
 
     import uvicorn
+
+    args = _parse_args(argv)
+    if args.env_file:
+        _load_env_file(args.env_file)
 
     prepare_demo_workspace()
 
@@ -144,6 +196,7 @@ def main() -> None:  # pragma: no cover - convenience runner
     _write_backend_config(backend_config_path, workspace.contracts_dir, backend_token)
 
     previous_contracts_config = os.getenv("DC43_CONTRACTS_APP_CONFIG")
+    override_contracts_config = args.contracts_config or previous_contracts_config
 
     contracts_config_path = config_dir / "contracts_app.toml"
     contracts_config = _build_contracts_config(
@@ -152,7 +205,7 @@ def main() -> None:  # pragma: no cover - convenience runner
         backend_port,
         backend_url,
         backend_log_level,
-        previous_contracts_config,
+        override_contracts_config,
     )
     dump_contracts_config(contracts_config_path, contracts_config)
 

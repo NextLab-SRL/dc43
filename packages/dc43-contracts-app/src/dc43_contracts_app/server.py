@@ -4107,6 +4107,7 @@ def _contracts_app_config_from_state(
         model = _clean_str(docs_module.get("model")) or "gpt-4o-mini"
         embedding_model = _clean_str(docs_module.get("embedding_model")) or "text-embedding-3-small"
         api_key_env = _clean_str(docs_module.get("api_key_env")) or "OPENAI_API_KEY"
+        api_key_value = _clean_str(docs_module.get("api_key"))
 
         docs_path_text = _clean_str(docs_module.get("docs_path"))
         index_path_text = _clean_str(docs_module.get("index_path"))
@@ -4120,6 +4121,7 @@ def _contracts_app_config_from_state(
             model=model,
             embedding_model=embedding_model,
             api_key_env=api_key_env,
+            api_key=api_key_value,
             docs_path=docs_path,
             index_path=index_path,
         )

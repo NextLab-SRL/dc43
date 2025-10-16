@@ -139,7 +139,7 @@ def status() -> DocsChatStatus:
         return DocsChatStatus(
             enabled=True,
             ready=False,
-            message=f"Set the {config.api_key_env} environment variable to allow the assistant to call the configured model.",
+            message=_missing_api_key_message(config),
             ui_available=_check_ui_dependencies()[0],
         )
 
@@ -281,9 +281,7 @@ def _build_chain(config: DocsChatConfig, vectorstore: object) -> object:
 
     api_key = _resolve_api_key(config)
     if not api_key:
-        raise DocsChatError(
-            f"Set the {config.api_key_env} environment variable to allow the assistant to reach the configured provider."
-        )
+        raise DocsChatError(_missing_api_key_message(config))
 
     llm = ChatOpenAI(model=config.model, openai_api_key=api_key, temperature=0.2)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
@@ -303,9 +301,7 @@ def _load_vectorstore(index_dir: Path, config: DocsChatConfig) -> object:
 
     api_key = _resolve_api_key(config)
     if not api_key:
-        raise DocsChatError(
-            f"Set the {config.api_key_env} environment variable to allow the assistant to reach the configured provider."
-        )
+        raise DocsChatError(_missing_api_key_message(config))
 
     embeddings = OpenAIEmbeddings(model=config.embedding_model, openai_api_key=api_key)
     return FAISS.load_local(
@@ -327,9 +323,7 @@ def _build_vectorstore(config: DocsChatConfig, documents: Sequence[object]) -> o
     splits = splitter.split_documents(documents)
     api_key = _resolve_api_key(config)
     if not api_key:
-        raise DocsChatError(
-            f"Set the {config.api_key_env} environment variable to allow the assistant to reach the configured provider."
-        )
+        raise DocsChatError(_missing_api_key_message(config))
 
     embeddings = OpenAIEmbeddings(model=config.embedding_model, openai_api_key=api_key)
     return FAISS.from_documents(splits, embeddings)
@@ -404,7 +398,19 @@ def _resolve_index_dir(config: DocsChatConfig, workspace: ContractsAppWorkspace)
     return workspace.root / "docs_chat" / "index"
 
 
+def _missing_api_key_message(config: DocsChatConfig) -> str:
+    env_name = config.api_key_env.strip() if config.api_key_env else ""
+    if env_name:
+        return (
+            "Provide an API key via docs_chat.api_key or set the "
+            f"{env_name} environment variable before retrying."
+        )
+    return "Provide an API key via docs_chat.api_key before retrying."
+
+
 def _resolve_api_key(config: DocsChatConfig) -> str | None:
+    if config.api_key:
+        return config.api_key.strip() or None
     if not config.api_key_env:
         return None
     value = os.getenv(config.api_key_env)

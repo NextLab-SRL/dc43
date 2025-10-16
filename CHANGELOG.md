@@ -13,6 +13,9 @@
   the bundled Markdown guides.
 - Extended the setup wizard with a documentation assistant module so docs-chat settings
   flow into exported configuration bundles and UI automation scenarios.
+- Allowed the demo launcher to accept `--config`/`--env-file` arguments and taught the
+  contracts configuration about an inline `docs_chat.api_key` so local runs can avoid
+  manual `export` steps when working from private TOML files.
 
 ### Changed
 - Updated the release automation to tag the contracts-app and HTTP backend Docker
@@ -31,6 +34,8 @@
 - Documented that `DC43_CONTRACTS_APP_CONFIG` must be exported for the docs assistant to
   load custom TOML files and clarified that `docs_chat.api_key_env` stores the name of the
   secret-bearing environment variable.
+- Updated docs and templates to highlight the new launcher flags, `.env` support, and the
+  optional `docs_chat.api_key` field for storing secrets outside environment variables.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

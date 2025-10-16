@@ -20,5 +20,7 @@ provider = "openai"
 model = "gpt-4o-mini"
 embedding_model = "text-embedding-3-small"
 api_key_env = "OPENAI_API_KEY"
+# Inline API key support is available for private configs; leave empty in shared deployments.
+api_key = ""
 docs_path = ""
 index_path = ""

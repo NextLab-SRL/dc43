@@ -27,37 +27,36 @@ pip install --no-cache-dir -e ".[demo]"
 # `dc43-contracts-app[docs-chat]` install – the meta package pulls the
 # assistant dependencies automatically.
 
-export OPENAI_API_KEY="sk-your-api-key"
-
-cat <<'TOML' > ~/dc43/contracts-app.toml
+cat <<'TOML' > ~/.dc43/contracts-app.toml
 [docs_chat]
 enabled = true
 provider = "openai"
 model = "gpt-4o-mini"
 embedding_model = "text-embedding-3-small"
-api_key_env = "OPENAI_API_KEY"
+api_key_env = "OPENAI_API_KEY" # rename when you prefer a different env var
+# Keep secrets out of git-tracked files? add them to a private env file.
+# Prefer storing the key alongside the config? set `api_key = "sk-..."` instead.
 TOML
 
-# Make the config visible to the demo launcher (export once per shell or load it
-# via your preferred `.env` tooling).
-export DC43_CONTRACTS_APP_CONFIG="$HOME/dc43/contracts-app.toml"
-
-# `api_key_env` stores the *name* of the environment variable that contains your
-# secret. Populate it separately, e.g. with `direnv`, `dotenv`, or a manual
-# `export OPENAI_API_KEY=...` before starting the app.
+# Optionally capture secrets in a lightweight env file so you can avoid manual
+# `export` commands.
+cat <<'ENV' > ~/.dc43/docs-chat.env
+OPENAI_API_KEY=sk-your-api-key
+ENV
 
 # Launch the demo. The runner copies your docs_chat overrides into its generated
-# configuration so the workspace/backend defaults stay intact.
-dc43-demo
+# configuration so the workspace/backend defaults stay intact and loads the env
+# file before spawning subprocesses.
+dc43-demo --config ~/.dc43/contracts-app.toml --env-file ~/.dc43/docs-chat.env
 ```
 
-Mount the config via `DC43_CONTRACTS_APP_CONFIG` or copy the snippet into your existing TOML file.
-Restart the application and open `/docs-chat` to chat with the Markdown guides bundled in `docs/`.
+The launcher still honours `DC43_CONTRACTS_APP_CONFIG` if you prefer a global
+environment variable. Restart the application and open `/docs-chat` to chat with
+the Markdown guides bundled in `docs/`.
 
-> ℹ️ Prefer a one-liner? Use `DC43_CONTRACTS_APP_CONFIG=$HOME/dc43/contracts-app.toml dc43-demo`
-> (without chaining via `&&`). The shell must export the variable for the launcher to
-> see it—otherwise the docs assistant falls back to the disabled defaults and reminds
-> you to enable `[docs_chat]`.
+> ℹ️ You can skip the env file when `docs_chat.api_key` stores the secret: run
+> `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your
+> overrides automatically.
 
 > ⚠️ pip treats `pip install --no-cache-dir -e ".[demo]"` and a follow-up
 > `pip install "dc43-contracts-app[docs-chat]"` as competing requirements when
