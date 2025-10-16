@@ -39,12 +39,7 @@ def _describe_docs_chat(config: DocsChatConfig) -> str:
     if not config.enabled:
         return "disabled"
 
-    key_sources: list[str] = []
-    if config.api_key:
-        key_sources.append("inline")
-    if config.api_key_env:
-        key_sources.append(f"env:{config.api_key_env}")
-    key_source = ", ".join(key_sources) if key_sources else "unset"
+    credentials_state = "present" if (config.api_key or config.api_key_env) else "missing"
 
     docs_path = config.docs_path.as_posix() if config.docs_path else "default"
     index_path = config.index_path.as_posix() if config.index_path else "workspace"
@@ -53,7 +48,7 @@ def _describe_docs_chat(config: DocsChatConfig) -> str:
         "enabled "
         f"provider={config.provider} "
         f"model={config.model} "
-        f"key_source={key_source} "
+        f"credentials={credentials_state} "
         f"docs_path={docs_path} "
         f"index_path={index_path}"
     )

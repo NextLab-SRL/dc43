@@ -86,6 +86,45 @@ _RUNTIME: _DocsChatRuntime | None = None
 _RUNTIME_LOCK = threading.Lock()
 
 
+def _candidate_docs_roots() -> list[Path]:
+    """Return possible documentation directories ordered by preference."""
+
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _remember(path: Path) -> None:
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(path)
+
+    def _extend_from(base: Path) -> None:
+        for parent in (base,) + tuple(base.parents):
+            if parent.name == "docs":
+                _remember(parent)
+            else:
+                _remember(parent / "docs")
+
+    module_base = Path(__file__).resolve().parent
+    _extend_from(module_base)
+
+    cwd = Path.cwd()
+    _extend_from(cwd)
+
+    try:
+        import dc43  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover - optional dependency
+        pass
+    else:
+        _extend_from(Path(dc43.__file__).resolve().parent)  # type: ignore[attr-defined]
+
+    return candidates
+
+
 def configure(config: DocsChatConfig, workspace: ContractsAppWorkspace) -> None:
     """Store the active configuration and reset cached state."""
 
@@ -388,6 +427,11 @@ def _manifest_matches(runtime: _DocsChatRuntime) -> bool:
 def _resolve_docs_root(config: DocsChatConfig) -> Path:
     if config.docs_path:
         return Path(config.docs_path).expanduser()
+
+    for candidate in _candidate_docs_roots():
+        if candidate.exists():
+            return candidate
+
     package_root = Path(__file__).resolve().parents[4]
     return package_root / "docs"
 

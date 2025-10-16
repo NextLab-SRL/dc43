@@ -53,3 +53,6 @@
 - Updated the `dc43-demo` launcher to merge any exported `DC43_CONTRACTS_APP_CONFIG`
   file into the generated workspace configuration so docs-chat overrides stay
   active instead of being reset to the default template.
+- Prevented the docs assistant from logging credential sources and taught it to
+  locate repository Markdown when running from editable installs so local demos
+  no longer report missing documentation directories.

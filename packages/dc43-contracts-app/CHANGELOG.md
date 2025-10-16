@@ -52,3 +52,7 @@
   `docs_chat.api_key_env` holds the name of the environment variable containing the provider key.
 - Updated docs, templates, and wizard guidance to highlight the new inline key support and the
   `dc43-demo --config/--env-file` launcher flags for local runs.
+
+### Fixed
+- Adjusted the documentation assistant to discover repository Markdown when running from
+  editable installs so the chat surface no longer reports missing documentation directories.

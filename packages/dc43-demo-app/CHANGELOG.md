@@ -83,6 +83,9 @@
 - Respect exported `DC43_CONTRACTS_APP_CONFIG` files when launching `dc43-demo`
   by merging their overrides (such as `[docs_chat]` settings) into the generated
   workspace configuration instead of overwriting them.
+- Stop including credential-source hints in docs-chat startup logs and report
+  repository documentation directories when present so editable installs avoid
+  missing-docs warnings.
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware
   inventory snapshots with the freshness reference checkpoint.
 - Ensure the Altair Retail flow and dataset lineage tabs render their Mermaid diagrams reliably
