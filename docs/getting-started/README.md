@@ -58,6 +58,11 @@ the Markdown guides bundled in `docs/`.
 > `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your
 > overrides automatically.
 
+> 💡 Paste a token into `docs_chat.api_key_env` by mistake? The loader now treats
+> values that do not look like environment variable names (for example strings
+> containing `-` characters such as `sk-...`) as inline secrets, so the assistant
+> still starts. Update your config to use the dedicated `api_key` field for clarity.
+
 > ⚠️ pip treats `pip install --no-cache-dir -e ".[demo]"` and a follow-up
 > `pip install "dc43-contracts-app[docs-chat]"` as competing requirements when
 > they point at the same checkout. Pick the single command that matches your

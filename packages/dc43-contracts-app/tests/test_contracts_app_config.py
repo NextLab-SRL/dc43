@@ -53,6 +53,27 @@ def test_docs_chat_env_overrides(monkeypatch, tmp_path):
     assert docs_chat.index_path == index_path
 
 
+def test_docs_chat_coerces_inline_api_key_from_env_field(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[docs_chat]
+enabled = true
+api_key_env = "sk-example-token"
+""".strip()
+    )
+
+    monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV", raising=False)
+    monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY", raising=False)
+
+    config = load_config(config_path)
+    docs_chat = config.docs_chat
+
+    assert docs_chat.enabled is True
+    assert docs_chat.api_key == "sk-example-token"
+    assert docs_chat.api_key_env == "OPENAI_API_KEY"
+
+
 def test_wizard_state_enables_docs_chat():
     state = {
         "configuration": {

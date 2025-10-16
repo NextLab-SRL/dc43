@@ -56,3 +56,5 @@
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from
   editable installs so the chat surface no longer reports missing documentation directories.
+- Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured
+  installs do not block the documentation assistant with missing-key warnings.

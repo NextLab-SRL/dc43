@@ -56,3 +56,6 @@
 - Prevented the docs assistant from logging credential sources and taught it to
   locate repository Markdown when running from editable installs so local demos
   no longer report missing documentation directories.
+- Coerce docs-chat secrets that are accidentally pasted into `docs_chat.api_key_env`
+  into the dedicated `api_key` field so the assistant starts without confusing
+  missing-key warnings.

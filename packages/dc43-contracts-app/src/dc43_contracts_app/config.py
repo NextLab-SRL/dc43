@@ -127,6 +127,18 @@ def _coerce_bool(value: Any, default: bool) -> bool:
     return default
 
 
+def _looks_like_env_var_name(value: str) -> bool:
+    if not value:
+        return False
+    first = value[0]
+    if not (first.isalpha() or first == "_"):
+        return False
+    for char in value[1:]:
+        if not (char.isalnum() or char == "_"):
+            return False
+    return True
+
+
 def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfig:
     """Load configuration from ``path`` or fall back to defaults."""
 
@@ -269,6 +281,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         env_docs_index = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_INDEX")
         if env_docs_index:
             docs_chat_index_path = _coerce_path(env_docs_index)
+
+    if docs_chat_api_key is None and docs_chat_api_key_env:
+        if not _looks_like_env_var_name(docs_chat_api_key_env):
+            docs_chat_api_key = docs_chat_api_key_env
+            docs_chat_api_key_env = "OPENAI_API_KEY"
 
     backend_config = BackendConfig(
         mode="remote" if backend_mode == "remote" else "embedded",

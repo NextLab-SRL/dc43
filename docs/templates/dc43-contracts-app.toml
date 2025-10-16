@@ -33,6 +33,8 @@ model = "gpt-4o-mini"
 embedding_model = "text-embedding-3-small"
 # Environment variable that stores the API key for the provider.
 api_key_env = "OPENAI_API_KEY"
+# Dropped a token here by mistake? the loader falls back to treating the value as
+# `api_key`, but keeping the secret in `api_key` (or an env var) is clearer.
 # Optional inline API key (useful for private configs that are not tracked in git).
 api_key = ""
 # Override when documentation lives outside the repository checkout.
