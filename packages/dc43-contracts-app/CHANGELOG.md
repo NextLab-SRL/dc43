@@ -41,3 +41,5 @@
   pipeline integration node.
 - Rebranded the UI to the "dc43 app", added a docs chat navigation entry, and documented the
   configuration knobs required to enable the assistant in deployments.
+- Clarified installation guidance for the docs chat assistant so source checkouts and PyPI
+  consumers know which pip command enables the optional dependencies.

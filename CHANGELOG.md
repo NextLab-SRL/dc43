@@ -22,6 +22,9 @@
   trigger automated releases in the release guide.
 - Relaxed internal package pins in `setup.py` to resolve pip conflicts when installing extras
   that pull from local editable copies.
+- Added a `docs-chat` extra to the meta package and documented the single editable install
+  command so local demos can enable the documentation assistant without juggling multiple
+  pip invocations.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

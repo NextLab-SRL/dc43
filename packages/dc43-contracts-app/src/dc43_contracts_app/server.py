@@ -2453,7 +2453,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 "label": "Gradio assistant (OpenAI)",
                 "description": "Use the LangChain + Gradio powered docs assistant backed by OpenAI models.",
                 "installation": [
-                    "Install the docs-chat extra: `pip install \"dc43-contracts-app[docs-chat]\"`.",
+                    "Install the docs-chat extra: `pip install -e \".[docs-chat]\"` (or `pip install \"dc43-contracts-app[docs-chat]\"`).",
                     "Expose the configured API key environment variable before starting the UI.",
                 ],
                 "configuration_notes": [

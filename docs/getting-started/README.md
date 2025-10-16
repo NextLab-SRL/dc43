@@ -21,7 +21,10 @@ The dc43 app can expose a docs-first chat experience using LangChain and Gradio.
 dependencies and enable the feature in your configuration:
 
 ```bash
-pip install "dc43-contracts-app[docs-chat]"
+pip install -e ".[docs-chat]"
+
+# Planning to run the bundled demo? install both extras:
+# pip install -e ".[demo,docs-chat]"
 
 export OPENAI_API_KEY="sk-your-api-key"
 

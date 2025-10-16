@@ -70,6 +70,14 @@ class _DocsChatRuntime:
 
 
 _GRADIO_MOUNT_PATH = "/docs-chat/assistant"
+_INSTALL_EXTRA_HINT = (
+    "Install the docs-chat extra (pip install -e \".[docs-chat]\" for source checkouts, "
+    "or pip install 'dc43-contracts-app[docs-chat]' from PyPI) to use the assistant."
+)
+_INSTALL_GRADIO_HINT = (
+    "Install Gradio via the docs-chat extra (pip install -e \".[docs-chat]\" or "
+    "pip install 'dc43-contracts-app[docs-chat]') to use the embedded UI."
+)
 
 _CONFIG: DocsChatConfig | None = None
 _WORKSPACE: ContractsAppWorkspace | None = None
@@ -268,9 +276,7 @@ def _build_chain(config: DocsChatConfig, vectorstore: object) -> object:
         from langchain.chains import ConversationalRetrievalChain
         from langchain_openai import ChatOpenAI
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
-        raise DocsChatError(
-            "Install the docs-chat extra (pip install 'dc43-contracts-app[docs-chat]') to use the assistant."
-        ) from exc
+        raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
 
     api_key = _resolve_api_key(config)
     if not api_key:
@@ -292,9 +298,7 @@ def _load_vectorstore(index_dir: Path, config: DocsChatConfig) -> object:
         from langchain_community.vectorstores import FAISS
         from langchain_openai import OpenAIEmbeddings
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
-        raise DocsChatError(
-            "Install the docs-chat extra (pip install 'dc43-contracts-app[docs-chat]') to use the assistant."
-        ) from exc
+        raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
 
     api_key = _resolve_api_key(config)
     if not api_key:
@@ -316,9 +320,7 @@ def _build_vectorstore(config: DocsChatConfig, documents: Sequence[object]) -> o
         from langchain_openai import OpenAIEmbeddings
         from langchain_text_splitters import RecursiveCharacterTextSplitter
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
-        raise DocsChatError(
-            "Install the docs-chat extra (pip install 'dc43-contracts-app[docs-chat]') to use the assistant."
-        ) from exc
+        raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)
     splits = splitter.split_documents(documents)
@@ -343,9 +345,7 @@ def _load_documents(docs_root: Path) -> Sequence[object]:
     try:
         from langchain_community.document_loaders import DirectoryLoader, TextLoader
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
-        raise DocsChatError(
-            "Install the docs-chat extra (pip install 'dc43-contracts-app[docs-chat]') to use the assistant."
-        ) from exc
+        raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
 
     loader = DirectoryLoader(
         str(docs_root),
@@ -466,10 +466,7 @@ def _check_core_dependencies() -> tuple[bool, str | None]:
         import langchain_openai  # noqa: F401
         import langchain_text_splitters  # noqa: F401
     except ModuleNotFoundError:
-        return (
-            False,
-            "Install the docs-chat extra (pip install 'dc43-contracts-app[docs-chat]') to enable the documentation assistant.",
-        )
+        return (False, _INSTALL_EXTRA_HINT)
     return True, None
 
 
@@ -477,10 +474,7 @@ def _check_ui_dependencies() -> tuple[bool, str | None]:
     try:
         import gradio  # noqa: F401
     except ModuleNotFoundError:
-        return (
-            False,
-            "Install Gradio via the docs-chat extra (pip install 'dc43-contracts-app[docs-chat]') to use the embedded UI.",
-        )
+        return (False, _INSTALL_GRADIO_HINT)
     return True, None
 
 

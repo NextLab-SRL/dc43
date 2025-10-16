@@ -22,6 +22,9 @@ maintain bespoke chat widgets. To enable it:
 1. Install the optional extra:
    ```bash
    pip install "dc43-contracts-app[docs-chat]"
+
+   # Working from a source checkout? use the meta package extra instead:
+   # pip install -e ".[docs-chat]"
    ```
 2. Provide an API key via the configured environment variable (defaults to
    `OPENAI_API_KEY`).
