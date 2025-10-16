@@ -66,7 +66,7 @@
   harness tests execute instead of being skipped when the dependency is absent.
 - The CI workflow now installs the repository's ``dc43-service-backends``
   package before resolving the ``test`` extra so dependency checks continue to
-  target ``0.19.0.0`` while avoiding missing-distribution errors during
+  target ``0.20.0.0`` while avoiding missing-distribution errors during
   integration runs.
 - Installing the ``test`` extra now pulls in ``dc43-service-backends`` with its
   SQL dependencies and ``httpx`` so the integration suite runs without tweaking
