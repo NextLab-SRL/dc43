@@ -10,6 +10,9 @@
   Python suite.
 
 ### Changed
+- Updated the release automation to tag the contracts-app and HTTP backend Docker
+  images with their package versions, documented the ECR setup flow, and added a
+  manual smoke publish path for validating AWS credentials.
 - Documented the Gitflow-based branching expectations and clarified how merges from `dev` to `main`
   trigger automated releases in the release guide.
 - Relaxed internal package pins in `setup.py` to resolve pip conflicts when installing extras

@@ -350,3 +350,83 @@ jobs:
           tag_name: ${{ needs.determine.outputs.contracts_app_tag }}
           files: release-artifacts/dc43-contracts-app/*
           generate_release_notes: true
+
+  docker-images:
+    name: Build and publish Docker images
+    needs:
+      - release
+      - determine
+    if: needs.determine.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CONTRACTS_APP_TAG: ${{ needs.determine.outputs.contracts_app_tag }}
+      SERVICE_BACKENDS_TAG: ${{ needs.determine.outputs.service_backends_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push release images
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          CONTRACTS_REPOSITORY: ${{ secrets.AWS_ECR_CONTRACTS_APP_REPOSITORY }}
+          BACKEND_REPOSITORY: ${{ secrets.AWS_ECR_HTTP_BACKEND_REPOSITORY }}
+        run: |
+          set -euo pipefail
+
+          build_and_push() {
+            local image_name=$1
+            local dockerfile=$2
+            local repository=$3
+            local version=$4
+
+            echo "::group::Building ${image_name} image"
+            docker build -f "$dockerfile" -t "$REGISTRY/$repository:$version" .
+            docker push "$REGISTRY/$repository:$version"
+            docker tag "$REGISTRY/$repository:$version" "$REGISTRY/$repository:latest"
+            docker push "$REGISTRY/$repository:latest"
+            echo "::endgroup::"
+          }
+
+          trim_prefix() {
+            local tag=$1
+            local prefix=$2
+
+            if [[ -z "$tag" ]]; then
+              echo ""
+              return
+            fi
+
+            if [[ $tag != ${prefix}* ]]; then
+              echo "::error::Tag '$tag' does not start with expected prefix '$prefix'" >&2
+              exit 1
+            fi
+
+            echo "${tag:${#prefix}}"
+          }
+
+          contracts_version=$(trim_prefix "${CONTRACTS_APP_TAG:-}" "dc43-contracts-app-v")
+          backend_version=$(trim_prefix "${SERVICE_BACKENDS_TAG:-}" "dc43-service-backends-v")
+
+          if [[ -n "$contracts_version" ]]; then
+            build_and_push "contracts-app" "deploy/contracts-app/Dockerfile" "$CONTRACTS_REPOSITORY" "$contracts_version"
+          else
+            echo "Contracts app package not part of this release; skipping Docker publish."
+          fi
+
+          if [[ -n "$backend_version" ]]; then
+            build_and_push "http-backend" "deploy/http-backend/Dockerfile" "$BACKEND_REPOSITORY" "$backend_version"
+          else
+            echo "HTTP backend package not part of this release; skipping Docker publish."
+          fi

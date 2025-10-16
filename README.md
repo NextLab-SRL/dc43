@@ -457,6 +457,24 @@ pytest -q tests packages/dc43-service-clients/tests \
   packages/dc43-service-backends/tests packages/dc43-integrations/tests
 ```
 
+# Continuous integration
+
+- The GitHub Actions release workflow at `.github/workflows/release.yml` builds
+  the contracts app and HTTP backend Docker images after the release pipeline
+  finishes and publishes them to Amazon ECR using the released package versions
+  as image tags (alongside `latest`).
+- Trigger the `ci` workflow manually with **Publish Docker images to Amazon ECR**
+  enabled to run a smoke test that builds and pushes both images without waiting
+  for a release.
+- Configure the following repository secrets so the workflows can assume an AWS
+  role and push to your registries:
+  - `AWS_REGION`
+  - `AWS_ROLE_TO_ASSUME`
+  - `AWS_ECR_CONTRACTS_APP_REPOSITORY`
+  - `AWS_ECR_HTTP_BACKEND_REPOSITORY`
+- See [`docs/aws-ecr-setup.md`](docs/aws-ecr-setup.md) for full AWS and GitHub
+  configuration guidance.
+
 # Publishing
 
 - Push a tag `v*` on a commit in `main`.
