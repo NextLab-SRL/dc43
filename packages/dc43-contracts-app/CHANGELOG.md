@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 ### Added
+- Setup bundle archives now ship a ready-to-run `requirements.txt`, cross-platform
+  environment bootstrap scripts, and Docker build/publish helpers so teams can
+  stand up virtual environments or prebuilt images without manual packaging.
+- Setup bundle exports now include full Spark and Delta Live Tables example
+  projects (code modules, README, and ops helpers) alongside the
+  `examples/pipeline_stub.py` entrypoint so teams can start from a realistic
+  integration scaffold.
+- Pipeline bundle generator now loads integration-provided pipeline stub
+  fragments so Spark, Delta Live Tables, and future runtimes ship their own
+  helper code without modifying the contracts app.
 - Documented contract status guardrails in the integration helper stub and notes so generated Spark
   snippets explain how to opt into draft or deprecated contracts safely.
 - Introduced a grouped, accessibility-friendly setup wizard with step badges, reset controls, and a

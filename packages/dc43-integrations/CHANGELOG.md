@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 ### Added
+- Spark and Delta Live Tables setup-bundle providers now export complete
+  example projects (pipeline modules, README files, and operational helpers)
+  so the wizard's archive contains runnable scaffolds for each integration.
+- Published setup bundle pipeline stub providers for Spark and Delta Live
+  Tables so the setup wizard can assemble integration-specific helper scripts
+  directly from the runtime packages.
 - Added explicit streaming read/write helpers (``read_stream_with_contract``,
   ``read_stream_from_contract``, ``read_stream_from_data_product``,
   ``write_stream_with_contract``, and ``write_stream_to_data_product``) so
