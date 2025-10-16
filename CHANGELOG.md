@@ -4,8 +4,15 @@
 ### Added
 - Added a generated Mermaid dependency graph and supporting script so internal package
   relationships are easier to audit during releases.
+- Introduced Playwright-based contracts setup wizard UI automation, including
+  reusable scenarios, npm scripts (`test:ui`, `test:ui:handoff`), and a bundled
+  FastAPI launcher so contributors can run or extend browser tests alongside the
+  Python suite.
 
 ### Changed
+- Updated the release automation to tag the contracts-app and HTTP backend Docker
+  images with their package versions, documented the ECR setup flow, and added a
+  manual smoke publish path for validating AWS credentials.
 - Documented the Gitflow-based branching expectations and clarified how merges from `dev` to `main`
   trigger automated releases in the release guide.
 - Relaxed internal package pins in `setup.py` to resolve pip conflicts when installing extras

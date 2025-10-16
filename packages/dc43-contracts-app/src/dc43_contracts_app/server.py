@@ -28,12 +28,14 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable, Callable, Set
 from uuid import uuid4
 from threading import Lock
 import threading
 import json
+import importlib.metadata as importlib_metadata
 import os
 import re
 import shutil
@@ -58,7 +60,9 @@ from dc43_service_backends.config import (
     AuthConfig as BackendAuthConfig,
     ContractStoreConfig as BackendContractStoreConfig,
     DataProductStoreConfig as BackendDataProductStoreConfig,
+    DataQualityBackendConfig as BackendDataQualityConfig,
     GovernanceConfig as BackendGovernanceConfig,
+    GovernanceStoreConfig as BackendGovernanceStoreConfig,
     ServiceBackendsConfig,
     UnityCatalogConfig as BackendUnityCatalogConfig,
     dumps as dump_service_backends_config,
@@ -78,6 +82,7 @@ from .config import (
     dumps as dump_contracts_app_config,
     load_config,
 )
+from .setup_bundle import PipelineExample, render_pipeline_stub
 from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
     CustomProperty,
@@ -956,14 +961,44 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 ],
                 "configuration_notes": [
                     "Set `DC43_CONTRACTS_BACKEND=delta` to enable the Delta implementation.",
-                    "Point the storage location below to a managed table path or external location with ACID support.",
+                    "Provide either the Unity Catalog table name or an external Delta storage location; leave the storage location blank when using managed tables.",
+                    "Populate `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (or a Databricks CLI profile) so the service can negotiate with Unity Catalog.",
                 ],
                 "fields": [
                     {
                         "name": "storage_path",
                         "label": "Delta storage location",
                         "placeholder": "s3://contracts-lake/contracts",
-                        "help": "URI or catalog path where the Delta table is stored.",
+                        "help": "External Delta location (S3/ABFS/etc.). Leave blank when referencing a Unity-managed table below.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "table_name",
+                        "label": "Unity Catalog table (optional)",
+                        "placeholder": "main.contracts.contract_store",
+                        "help": "Fully qualified Unity Catalog table name when using a managed table instead of a storage path.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL (optional)",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL of the Databricks workspace that hosts the Delta catalog.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile name from databricks.cfg when using profile-based auth instead of a static token.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_token",
+                        "label": "Workspace personal access token (optional)",
+                        "placeholder": "dapi...",
+                        "help": "PAT stored as `DATABRICKS_TOKEN` for Spark sessions that connect to Unity Catalog.",
+                        "optional": True,
                     },
                     {
                         "name": "catalog",
@@ -1144,14 +1179,44 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 ],
                 "configuration_notes": [
                     "Set `DC43_PRODUCTS_BACKEND=delta` to keep the configuration consistent with contracts.",
-                    "Use the same catalog/schema pair as the contracts backend when sharing infrastructure.",
+                    "Provide either the Unity Catalog table name or an external Delta storage location; leave the storage location blank when using managed tables.",
+                    "Provide `DATABRICKS_HOST`/`DATABRICKS_TOKEN` or a CLI profile so publishing jobs can reach the workspace.",
                 ],
                 "fields": [
                     {
                         "name": "storage_path",
                         "label": "Delta storage location",
                         "placeholder": "s3://contracts-lake/products",
-                        "help": "URI or catalog path where the product Delta table lives.",
+                        "help": "External Delta location (S3/ABFS/etc.). Leave blank when referencing a Unity-managed table below.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "table_name",
+                        "label": "Unity Catalog table (optional)",
+                        "placeholder": "main.products.catalogue",
+                        "help": "Fully qualified Unity Catalog table name when publishing to managed tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL (optional)",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL of the Databricks workspace backing the Delta tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile configured in databricks.cfg when avoiding inline PATs.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_token",
+                        "label": "Workspace personal access token (optional)",
+                        "placeholder": "dapi...",
+                        "help": "Token exported as `DATABRICKS_TOKEN` for Spark or REST clients.",
+                        "optional": True,
                     },
                     {
                         "name": "catalog",
@@ -1188,6 +1253,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
     "data_quality": {
         "title": "Data quality service",
         "summary": "Select the engine that evaluates expectations against your datasets.",
+        "default_option": "embedded_engine",
         "options": {
             "embedded_engine": {
                 "label": "Embedded local engine",
@@ -1216,7 +1282,461 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "optional": True,
                     },
                 ],
-            }
+            },
+            "remote_http": {
+                "label": "Remote data-quality API",
+                "description": "Delegate expectation evaluation to an external observability service that persists validation results in your chosen storage backend.",
+                "installation": [
+                    "Deploy the dc43 data-quality backend (or a compatible API) near the storage system that should hold validation outcomes.",
+                    "Expose the HTTPS endpoint to the contracts UI container or automation environment.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_DATA_QUALITY_BACKEND_TYPE=http` so backends use the HTTP delegate.",
+                    "Provide the service URL and credentials via `DC43_DATA_QUALITY_BACKEND_URL` and `DC43_DATA_QUALITY_BACKEND_TOKEN` (plus optional header/scheme overrides).",
+                    "Include any static headers your observability platform requires (for example organisation or workspace identifiers).",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Service base URL",
+                        "placeholder": "https://quality.example.com",
+                        "help": "HTTPS endpoint for the remote data-quality API.",
+                    },
+                    {
+                        "name": "api_token",
+                        "label": "API token (optional)",
+                        "placeholder": "quality-token",
+                        "help": "Bearer or PAT credential presented to the remote data-quality service.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_header",
+                        "label": "Token header (optional)",
+                        "placeholder": "Authorization",
+                        "help": "Override the HTTP header used to pass the token (defaults to Authorization).",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_scheme",
+                        "label": "Token scheme (optional)",
+                        "placeholder": "Bearer",
+                        "help": "Override the scheme/prefix that precedes the token value.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "default_engine",
+                        "label": "Default expectation engine (optional)",
+                        "placeholder": "soda",
+                        "help": "Engine identifier requested when contracts omit an explicit engine.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "extra_headers",
+                        "label": "Additional headers (optional)",
+                        "placeholder": "X-Org=governance,X-Team=data-quality",
+                        "help": "Comma or newline separated key=value pairs appended to every request.",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
+    "governance_store": {
+        "title": "Validation results storage",
+        "summary": "Select the persistence layer for validation statuses, dataset links, and pipeline activity.",
+        "default_option": "embedded_memory",
+        "options": {
+            "embedded_memory": {
+                "label": "In-memory cache (demo)",
+                "description": "Keep validation results inside the application process. Recommended only for local demos.",
+                "installation": [
+                    "No additional dependencies required – data is discarded when the process restarts.",
+                ],
+                "configuration_notes": [
+                    "Leave `governance_store.type` unset (defaults to `memory`).",
+                    "Suitable for proof-of-concept environments where durability is not required.",
+                ],
+                "fields": [],
+            },
+            "filesystem": {
+                "label": "Filesystem archive",
+                "description": "Persist validation history as JSON files on a mounted volume that pipelines can inspect.",
+                "installation": [
+                    "Provision a durable volume (for example an NFS export or cloud file share).",
+                    "Mount the volume into the container running the governance services.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=filesystem` to activate the JSON archive.",
+                    "Point the directory below at a shared location accessible to operators and pipelines.",
+                ],
+                "fields": [
+                    {
+                        "name": "storage_path",
+                        "label": "Governance storage directory",
+                        "placeholder": "/workspace/governance",
+                        "help": "Root folder that will contain status, link, and pipeline activity subdirectories.",
+                        "default_factory": lambda workspace: str(workspace.root / "governance"),
+                    },
+                ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "governance_store_filesystem",
+                            "label": "Validation archive (filesystem)",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "governance_store",
+                                    "to": "governance_store_filesystem",
+                                    "label": "Persists history",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            "sql": {
+                "label": "SQL database",
+                "description": "Write validation outcomes and pipeline activity to relational tables via SQLAlchemy.",
+                "installation": [
+                    "Provision a PostgreSQL, MySQL, or compatible database reachable from the governance services.",
+                    "Create tables or grant schema ownership so the connector can manage them automatically.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=sql` and export the DSN via `DC43_GOVERNANCE_STORE_DSN`.",
+                    "Override table names if the default `dq_status`, `dq_activity`, and link tables already exist.",
+                ],
+                "fields": [
+                    {
+                        "name": "connection_uri",
+                        "label": "Database connection URI",
+                        "placeholder": "postgresql+psycopg://governance:secret@db.example.com/dc43",
+                        "help": "SQLAlchemy-compatible DSN used to create the governance tables.",
+                    },
+                    {
+                        "name": "schema",
+                        "label": "Schema (optional)",
+                        "placeholder": "governance",
+                        "help": "Schema or database namespace used for the governance tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "status_table",
+                        "label": "Status table (optional)",
+                        "placeholder": "dq_status",
+                        "help": "Table that stores the latest validation status for each dataset version.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "activity_table",
+                        "label": "Activity table (optional)",
+                        "placeholder": "dq_activity",
+                        "help": "Table that records pipeline activity and validation history.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "link_table",
+                        "label": "Dataset link table (optional)",
+                        "placeholder": "dq_dataset_contract_links",
+                        "help": "Table that maps dataset versions to governed contract versions.",
+                        "optional": True,
+                    },
+                ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "governance_store_sql",
+                            "label": "Governance SQL schema",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "governance_store",
+                                    "to": "governance_store_sql",
+                                    "label": "Writes validation results",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            "delta_lake": {
+                "label": "Delta Lake",
+                "description": "Persist validation artefacts to Delta tables so Unity Catalog and lakehouse tooling can query them.",
+                "installation": [
+                    "Ensure the deployment environment has access to the target Delta Lake or Unity Catalog workspace.",
+                    "Grant the service principal permission to write to the Delta location or managed tables.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=delta` so the governance services use the Spark connector.",
+                    "Provide either a base storage path for external tables or the fully qualified Unity table names below.",
+                    "Populate `DATABRICKS_HOST`/`DATABRICKS_TOKEN` (or profile) to allow Spark to reach Unity Catalog.",
+                ],
+                "fields": [
+                    {
+                        "name": "storage_path",
+                        "label": "Delta storage location (optional)",
+                        "placeholder": "s3://governance/validation",
+                        "help": "Base folder for Delta tables when not using managed Unity Catalog tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "status_table",
+                        "label": "Status table name (optional)",
+                        "placeholder": "main.governance.dq_status",
+                        "help": "Fully qualified Unity Catalog table for validation status records.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "activity_table",
+                        "label": "Activity table name (optional)",
+                        "placeholder": "main.governance.dq_activity",
+                        "help": "Unity Catalog table that captures pipeline activity events.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "link_table",
+                        "label": "Dataset link table (optional)",
+                        "placeholder": "main.governance.dq_dataset_contract_links",
+                        "help": "Unity Catalog table mapping dataset versions to contract versions.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL (optional)",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL of the Databricks workspace hosting the Delta catalog.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile from databricks.cfg when authenticating without inline PATs.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_token",
+                        "label": "Workspace personal access token (optional)",
+                        "placeholder": "dapi...",
+                        "help": "PAT stored as `DATABRICKS_TOKEN` so Spark can authenticate against Unity Catalog.",
+                        "optional": True,
+                    },
+                ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "governance_store_delta",
+                            "label": "Validation Delta tables",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "governance_store",
+                                    "to": "governance_store_delta",
+                                    "label": "Stores outcomes",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            "remote_http": {
+                "label": "Remote governance API",
+                "description": "Proxy validation storage to an external observability service over HTTPS.",
+                "installation": [
+                    "Deploy a dc43-compatible governance API or integrate with an existing observability platform.",
+                    "Expose the HTTPS endpoint and credentials to the contracts application environment.",
+                ],
+                "configuration_notes": [
+                    "Set `DC43_GOVERNANCE_STORE_TYPE=http` to activate the HTTP persistence delegate.",
+                    "Provide the base URL, token, and any additional headers required by the remote API.",
+                ],
+                "fields": [
+                    {
+                        "name": "base_url",
+                        "label": "Service base URL",
+                        "placeholder": "https://governance.example.com",
+                        "help": "HTTPS endpoint for the remote governance persistence API.",
+                    },
+                    {
+                        "name": "api_token",
+                        "label": "API token (optional)",
+                        "placeholder": "governance-token",
+                        "help": "Bearer or PAT credential presented to the remote governance service.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_header",
+                        "label": "Token header (optional)",
+                        "placeholder": "Authorization",
+                        "help": "Override the HTTP header that carries the authentication token.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "token_scheme",
+                        "label": "Token scheme (optional)",
+                        "placeholder": "Bearer",
+                        "help": "Override the scheme/prefix applied to the token value.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "timeout",
+                        "label": "Request timeout (seconds, optional)",
+                        "placeholder": "10",
+                        "help": "Override the HTTP client timeout when the remote service has higher latency.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "extra_headers",
+                        "label": "Additional headers (optional)",
+                        "placeholder": "X-Org=governance,X-Team=quality",
+                        "help": "Comma or newline separated key=value pairs appended to every request.",
+                        "optional": True,
+                    },
+                ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "governance_store_remote",
+                            "label": "External governance API",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "governance_store",
+                                    "to": "governance_store_remote",
+                                    "label": "Delegates persistence",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        },
+    },
+    "pipeline_integration": {
+        "title": "Pipeline integration",
+        "summary": "Document the orchestration technology that will load dc43 backends and drive contract-aware pipelines.",
+        "options": {
+            "spark": {
+                "label": "Apache Spark",
+                "description": "Run notebooks or jobs that manage Spark sessions and call dc43 integrations from PySpark.",
+                "installation": [
+                    "Install `pyspark` and `dc43-integrations[spark]` alongside the dc43 service clients.",
+                    "Ensure the runtime can reach the same storage locations selected in the storage foundations step.",
+                ],
+                "configuration_notes": [
+                    "Point the script below at the exported TOML so Spark jobs reuse the configured backends.",
+                    "Set `DATABRICKS_HOST`/`DATABRICKS_TOKEN` or configure the CLI profile when targeting Databricks clusters.",
+                ],
+                "fields": [
+                    {
+                        "name": "runtime",
+                        "label": "Execution environment (optional)",
+                        "placeholder": "local[*], yarn, databricks job",
+                        "help": "Describe where Spark runs so operators provision the matching cluster or session.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL (optional)",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Base URL for Databricks jobs that execute the Spark pipelines.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "pipelines",
+                        "help": "CLI/SDK profile used by Spark jobs when authenticating without inline PATs.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "cluster_reference",
+                        "label": "Cluster or job identifier (optional)",
+                        "placeholder": "job:dc43-governance",
+                        "help": "Record the cluster name, job ID, or workspace path that will execute Spark pipelines.",
+                        "optional": True,
+                    },
+                ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "pipeline_integration_spark",
+                            "label": "Spark runtime",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "pipeline_integration",
+                                    "to": "pipeline_integration_spark",
+                                    "label": "Runs contracts pipelines",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            "dlt": {
+                "label": "Databricks Delta Live Tables",
+                "description": "Drive contract-aware workloads through managed DLT pipelines that call the dc43 clients.",
+                "installation": [
+                    "Enable the Delta Live Tables workspace features for the recorded environment.",
+                    "Grant the service principal permission to manage the target DLT pipeline and destination schema.",
+                ],
+                "configuration_notes": [
+                    "Use the exported script to seed notebooks with the correct client wiring.",
+                    "Store access tokens in Databricks secret scopes and reference them via environment variables.",
+                ],
+                "fields": [
+                    {
+                        "name": "workspace_url",
+                        "label": "Databricks workspace URL",
+                        "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
+                        "help": "Workspace that hosts the DLT pipeline.",
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "dlt-admin",
+                        "help": "CLI/SDK profile used when authenticating without inline PATs.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "pipeline_name",
+                        "label": "DLT pipeline name",
+                        "placeholder": "dc43-contract-governance",
+                        "help": "Human-friendly name for the DLT pipeline that will orchestrate contracts.",
+                    },
+                    {
+                        "name": "notebook_path",
+                        "label": "Notebook path (optional)",
+                        "placeholder": "/Repos/team/contracts/dc43_pipeline",
+                        "help": "Workspace notebook that loads the generated helper and defines DLT tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "target_schema",
+                        "label": "Target schema (optional)",
+                        "placeholder": "main.governance",
+                        "help": "Unity Catalog target schema configured for the DLT pipeline output.",
+                        "optional": True,
+                    },
+                ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "pipeline_integration_dlt",
+                            "label": "DLT managed pipeline",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "pipeline_integration",
+                                    "to": "pipeline_integration_dlt",
+                                    "label": "Schedules tables",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
         },
     },
     "governance_service": {
@@ -1739,6 +2259,20 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                 ],
                 "fields": [
                     {
+                        "name": "dataset_prefix",
+                        "label": "Dataset prefix",
+                        "placeholder": "table:",
+                        "help": "Prefix added to contract dataset identifiers before tagging Unity tables.",
+                        "optional": True,
+                    },
+                    {
+                        "name": "workspace_profile",
+                        "label": "Databricks CLI profile (optional)",
+                        "placeholder": "unity-admin",
+                        "help": "Profile name from databricks.cfg when using profile-based authentication instead of host/token.",
+                        "optional": True,
+                    },
+                    {
                         "name": "workspace_url",
                         "label": "Workspace URL",
                         "placeholder": "https://adb-1234567890123456.7.azuredatabricks.net",
@@ -1762,7 +2296,30 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "placeholder": "dapi...",
                         "help": "Databricks PAT used by the governance hook.",
                     },
+                    {
+                        "name": "static_properties",
+                        "label": "Static table properties (optional)",
+                        "placeholder": "owner=governance-team,environment=prod",
+                        "help": "Comma or newline separated key=value pairs applied to every Unity table update.",
+                        "optional": True,
+                    },
                 ],
+                "diagram": {
+                    "nodes": [
+                        {
+                            "id": "unity_catalog_tables",
+                            "label": "Unity Catalog tables",
+                            "class": "external",
+                            "edges": [
+                                {
+                                    "from": "governance_extensions",
+                                    "to": "unity_catalog_tables",
+                                    "label": "Applies tags",
+                                }
+                            ],
+                        }
+                    ]
+                },
             },
             "custom_module": {
                 "label": "Custom Python module",
@@ -2295,14 +2852,20 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
     {
         "key": "storage_foundations",
         "title": "Storage foundations",
-        "summary": "Decide how contracts and product metadata are persisted before the orchestration layer is wired in.",
-        "modules": ["contracts_backend", "products_backend"],
+        "summary": "Decide how contracts, product metadata, and validation results are persisted before the orchestration layer is wired in.",
+        "modules": ["contracts_backend", "products_backend", "governance_store"],
     },
     {
-        "key": "governance_runtime",
-        "title": "Governance runtime",
-        "summary": "Pair the governance interface model with the matching deployment approach so runtime and automation stay in sync.",
-        "modules": ["governance_service", "governance_deployment"],
+        "key": "pipeline_runtime",
+        "title": "Pipeline runtime",
+        "summary": "Wire the integration layer, orchestration services, and quality hooks that local pipelines rely on.",
+        "modules": ["pipeline_integration", "governance_service", "data_quality", "governance_extensions"],
+    },
+    {
+        "key": "service_hosting",
+        "title": "Service hosting",
+        "summary": "Capture how the governance services are deployed so automation scripts can be generated per environment.",
+        "modules": ["governance_deployment"],
     },
     {
         "key": "user_experience",
@@ -2315,12 +2878,6 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "title": "Access & security",
         "summary": "Specify how users authenticate with the UI and downstream services.",
         "modules": ["authentication"],
-    },
-    {
-        "key": "quality_extensions",
-        "title": "Quality & extensions",
-        "summary": "Cover the bundled data-quality engine and optional governance hooks that enrich downstream catalogs.",
-        "modules": ["data_quality", "governance_extensions"],
     },
     {
         "key": "accelerators",
@@ -3111,7 +3668,56 @@ def _service_backends_config_from_state(
         except (TypeError, ValueError):  # pragma: no cover - safety
             return None
 
+    def parse_static_properties(value: Any) -> dict[str, str]:
+        properties: dict[str, str] = {}
+        if isinstance(value, Mapping):
+            for key, raw in value.items():
+                name = _clean_str(key)
+                if not name:
+                    continue
+                properties[name] = _clean_str(raw) or ""
+            return properties
+
+        text = _clean_str(value)
+        if not text:
+            return properties
+
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, Mapping):
+            for key, raw in parsed.items():
+                name = _clean_str(key)
+                if not name:
+                    continue
+                properties[name] = _clean_str(raw) or ""
+            if properties:
+                return properties
+
+        for token in re.split(r"[\n,]", text):
+            candidate = token.strip()
+            if not candidate:
+                continue
+            separator: str | None = None
+            for sep in ("=", ":"):
+                if sep in candidate:
+                    separator = sep
+                    break
+            if not separator:
+                continue
+            key_part, value_part = candidate.split(separator, 1)
+            name = key_part.strip()
+            if not name:
+                continue
+            properties[name] = value_part.strip()
+
+        return properties
+
     contract_option = selected.get("contracts_backend")
+    databricks_hosts: list[str] = []
+    databricks_profiles: list[str] = []
+    databricks_tokens: list[str] = []
     contract_cfg = BackendContractStoreConfig()
     if contract_option:
         option = contract_option.strip().lower()
@@ -3132,6 +3738,18 @@ def _service_backends_config_from_state(
             contract_cfg.type = "delta"
             contract_cfg.base_path = path_from(module.get("storage_path"))
             contract_cfg.schema = _clean_str(module.get("schema"))
+            table_name = _clean_str(module.get("table_name"))
+            if table_name:
+                contract_cfg.table = table_name
+            host_value = _clean_str(module.get("workspace_url"))
+            if host_value:
+                databricks_hosts.append(host_value)
+            profile_value = _clean_str(module.get("workspace_profile"))
+            if profile_value:
+                databricks_profiles.append(profile_value)
+            token_value = _clean_str(module.get("workspace_token"))
+            if token_value:
+                databricks_tokens.append(token_value)
         elif option == "collibra":
             contract_cfg.type = "collibra_http"
             contract_cfg.base_url = _clean_str(module.get("base_url"))
@@ -3154,9 +3772,106 @@ def _service_backends_config_from_state(
             product_cfg.base_path = path_from(module.get("storage_path"))
             product_cfg.schema = _clean_str(module.get("schema"))
             product_cfg.catalog = _clean_str(module.get("catalog"))
+            table_name = _clean_str(module.get("table_name"))
+            if table_name:
+                product_cfg.table = table_name
+            host_value = _clean_str(module.get("workspace_url"))
+            if host_value:
+                databricks_hosts.append(host_value)
+            profile_value = _clean_str(module.get("workspace_profile"))
+            if profile_value:
+                databricks_profiles.append(profile_value)
+            token_value = _clean_str(module.get("workspace_token"))
+            if token_value:
+                databricks_tokens.append(token_value)
         elif option == "collibra":
             product_cfg.type = "collibra_stub"
             product_cfg.base_url = _clean_str(module.get("base_url"))
+
+    dq_option = selected.get("data_quality")
+    dq_cfg = BackendDataQualityConfig()
+    if dq_option:
+        option = dq_option.strip().lower()
+        module = module_config("data_quality")
+        if option == "embedded_engine":
+            dq_cfg.type = "local"
+            default_engine = _clean_str(module.get("default_engine"))
+            if default_engine:
+                dq_cfg.default_engine = default_engine
+        elif option == "remote_http":
+            dq_cfg.type = "http"
+            dq_cfg.base_url = _clean_str(module.get("base_url"))
+            dq_cfg.token = _clean_str(module.get("api_token"))
+            header_value = _clean_str(module.get("token_header"))
+            if header_value:
+                dq_cfg.token_header = header_value
+            scheme_value = _clean_str(module.get("token_scheme"))
+            if scheme_value:
+                dq_cfg.token_scheme = scheme_value
+            default_engine = _clean_str(module.get("default_engine"))
+            if default_engine:
+                dq_cfg.default_engine = default_engine
+            headers_value = _parse_key_value_pairs(module.get("extra_headers"))
+            if headers_value:
+                dq_cfg.headers = headers_value
+
+    store_option = selected.get("governance_store")
+    governance_store_cfg = BackendGovernanceStoreConfig()
+    if store_option:
+        option = store_option.strip().lower()
+        module = module_config("governance_store")
+        if option in {"embedded_memory", "memory", "local"}:
+            governance_store_cfg.type = "memory"
+        elif option == "filesystem":
+            governance_store_cfg.type = "filesystem"
+            governance_store_cfg.root = path_from(
+                module.get("storage_path") or module.get("base_path")
+            )
+        elif option == "sql":
+            governance_store_cfg.type = "sql"
+            governance_store_cfg.dsn = _clean_str(module.get("connection_uri"))
+            governance_store_cfg.schema = _clean_str(module.get("schema"))
+            governance_store_cfg.status_table = _clean_str(module.get("status_table"))
+            governance_store_cfg.activity_table = _clean_str(
+                module.get("activity_table")
+            )
+            governance_store_cfg.link_table = _clean_str(module.get("link_table"))
+        elif option == "delta_lake":
+            governance_store_cfg.type = "delta"
+            governance_store_cfg.base_path = path_from(module.get("storage_path"))
+            governance_store_cfg.status_table = _clean_str(module.get("status_table"))
+            governance_store_cfg.activity_table = _clean_str(
+                module.get("activity_table")
+            )
+            governance_store_cfg.link_table = _clean_str(module.get("link_table"))
+            host_value = _clean_str(module.get("workspace_url"))
+            if host_value:
+                databricks_hosts.append(host_value)
+            profile_value = _clean_str(module.get("workspace_profile"))
+            if profile_value:
+                databricks_profiles.append(profile_value)
+            token_value = _clean_str(module.get("workspace_token"))
+            if token_value:
+                databricks_tokens.append(token_value)
+        elif option == "remote_http":
+            governance_store_cfg.type = "http"
+            governance_store_cfg.base_url = _clean_str(module.get("base_url"))
+            governance_store_cfg.token = _clean_str(module.get("api_token"))
+            header_value = _clean_str(module.get("token_header"))
+            if header_value:
+                governance_store_cfg.token_header = header_value
+            scheme_value = _clean_str(module.get("token_scheme"))
+            if scheme_value:
+                governance_store_cfg.token_scheme = scheme_value
+            timeout_value = _clean_number(module.get("timeout"))
+            if timeout_value is not None:
+                try:
+                    governance_store_cfg.timeout = float(timeout_value)
+                except (TypeError, ValueError):  # pragma: no cover - defensive
+                    pass
+            headers_value = _parse_key_value_pairs(module.get("extra_headers"))
+            if headers_value:
+                governance_store_cfg.headers = headers_value
 
     governance_option = selected.get("governance_extensions")
     unity_cfg = BackendUnityCatalogConfig()
@@ -3164,14 +3879,18 @@ def _service_backends_config_from_state(
     if governance_option == "unity_catalog":
         module = module_config("governance_extensions")
         unity_cfg.enabled = True
+        prefix_value = _clean_str(module.get("dataset_prefix"))
+        if prefix_value:
+            unity_cfg.dataset_prefix = prefix_value
+        unity_cfg.workspace_profile = _clean_str(module.get("workspace_profile"))
         unity_cfg.workspace_host = _clean_str(module.get("workspace_url"))
         unity_cfg.workspace_token = _clean_str(module.get("token"))
         catalog_value = _clean_str(module.get("catalog"))
         schema_value = _clean_str(module.get("schema"))
-        notes: dict[str, str] = {}
-        if catalog_value:
+        notes = parse_static_properties(module.get("static_properties"))
+        if catalog_value and "catalog" not in notes:
             notes["catalog"] = catalog_value
-        if schema_value:
+        if schema_value and "schema" not in notes:
             notes["schema"] = schema_value
         if notes:
             unity_cfg.static_properties = notes
@@ -3181,6 +3900,22 @@ def _service_backends_config_from_state(
         if module_path:
             governance_builders = (module_path,)
 
+    if not unity_cfg.workspace_host:
+        for host in databricks_hosts:
+            if host:
+                unity_cfg.workspace_host = host
+                break
+    if not unity_cfg.workspace_profile:
+        for profile in databricks_profiles:
+            if profile:
+                unity_cfg.workspace_profile = profile
+                break
+    if not unity_cfg.workspace_token:
+        for token in databricks_tokens:
+            if token:
+                unity_cfg.workspace_token = token
+                break
+
     auth_cfg = BackendAuthConfig()
     if selected.get("governance_service") == "remote_api":
         module = module_config("governance_service")
@@ -3189,11 +3924,13 @@ def _service_backends_config_from_state(
     config = ServiceBackendsConfig(
         contract_store=contract_cfg,
         data_product_store=product_cfg,
+        data_quality=dq_cfg,
         auth=auth_cfg,
         unity_catalog=unity_cfg,
         governance=BackendGovernanceConfig(
             dataset_contract_link_builders=governance_builders,
         ),
+        governance_store=governance_store_cfg,
     )
 
     return config
@@ -3259,56 +3996,597 @@ def _contracts_app_toml(state: Mapping[str, Any]) -> str | None:
     return toml_text or None
 
 
-def _pipeline_bootstrap_script() -> str:
+def _pipeline_example_assets(state: Mapping[str, Any]) -> PipelineExample:
+    """Return integration-aware pipeline example assets."""
+
+    return render_pipeline_stub(state, clean_str=_clean_str)
+
+
+def _integration_selection(state: Mapping[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    """Return the selected pipeline integration and its configuration."""
+
+    selected = state.get("selected_options") if isinstance(state, Mapping) else {}
+    if not isinstance(selected, Mapping):
+        selected = {}
+
+    configuration = state.get("configuration") if isinstance(state, Mapping) else {}
+    if not isinstance(configuration, Mapping):
+        configuration = {}
+
+    integration_key = str(selected.get("pipeline_integration") or "")
+    integration_config_raw = configuration.get("pipeline_integration", {})
+    integration_config = (
+        dict(integration_config_raw)
+        if isinstance(integration_config_raw, Mapping)
+        else {}
+    )
+    return integration_key, integration_config
+
+
+def _pipeline_bootstrap_script(state: Mapping[str, Any]) -> str:
     """Return the helper script that loads the generated configuration."""
 
-    return textwrap.dedent(
-        """\
-        #!/usr/bin/env python3
-        '''Bootstrap dc43 service backends for pipeline orchestration.
+    integration_key, integration_config = _integration_selection(state)
 
-        This script loads the generated dc43-service-backends TOML file and
-        instantiates the contract and data product backends. Replace the
-        placeholder print statements with the logic that wires the backends
-        into your orchestration framework.
-        '''
+    spark_runtime = _clean_str(integration_config.get("runtime"))
+    spark_workspace_url = _clean_str(integration_config.get("workspace_url"))
+    spark_workspace_profile = _clean_str(integration_config.get("workspace_profile"))
+    spark_cluster = _clean_str(integration_config.get("cluster_reference"))
 
-        from pathlib import Path
+    dlt_workspace_url = _clean_str(integration_config.get("workspace_url"))
+    dlt_workspace_profile = _clean_str(integration_config.get("workspace_profile"))
+    dlt_pipeline_name = _clean_str(integration_config.get("pipeline_name"))
+    dlt_notebook_path = _clean_str(integration_config.get("notebook_path"))
+    dlt_target_schema = _clean_str(integration_config.get("target_schema"))
 
-        from dc43_service_backends.bootstrap import build_backends
-        from dc43_service_backends.config import load_config
+    lines: List[str] = [
+        "#!/usr/bin/env python3",
+        "'''Bootstrap dc43 service backends for pipeline orchestration.",
+        "",
+        "This script loads the generated dc43-service-backends TOML file and",
+        "exposes helpers tailored to the integration runtime you captured in",
+        "the setup wizard.",
+        "'''",
+        "",
+        "import os",
+        "from pathlib import Path",
+        "",
+        "from dc43_service_backends.bootstrap import build_backends",
+        "from dc43_service_backends.config import load_config",
+        "",
+        "",
+        "def load_backends():",
+        "    \"\"\"Load the dc43 backends declared in the exported TOML file.\"\"\"",
+        "    bundle_root = Path(__file__).resolve().parent.parent",
+        "    config_path = bundle_root / \"config\" / \"dc43-service-backends.toml\"",
+        "    config = load_config(config_path)",
+        "    return build_backends(config)",
+    ]
 
-
-        def main() -> None:
-            bundle_root = Path(__file__).resolve().parent.parent
-            config_path = bundle_root / "config" / "dc43-service-backends.toml"
-            config = load_config(config_path)
-            suite = build_backends(config)
-            contract_backend, data_product_backend = suite
-            dq_backend = suite.data_quality
-
-            print(
-                "Contract backend initialised:",
-                contract_backend.__class__.__name__,
-            )
-            print(
-                "Data product backend initialised:",
-                data_product_backend.__class__.__name__,
-            )
-            print(
-                "Data-quality backend initialised:",
-                dq_backend.__class__.__name__,
-            )
-            print(
-                "Integrate these instances into your pipeline or notebooks to"
-                " publish contracts, data products, and validation payloads programmatically.",
-            )
-
-
-        if __name__ == "__main__":
-            main()
-        """
+    if integration_key == "spark":
+        lines.extend(
+            [
+                "",
+                "def build_spark_context(app_name=\"dc43-pipeline\"):",
+                "    \"\"\"Return Spark session and dc43 backends for PySpark jobs.\"\"\"",
+                "    suite = load_backends()",
+                "    try:",
+                "        from pyspark.sql import SparkSession",
+                "    except ModuleNotFoundError as exc:",
+                "        raise RuntimeError(\"Install pyspark to run the Spark integration.\") from exc",
+                "    spark = SparkSession.builder.appName(app_name).getOrCreate()",
+                "    return {",
+                "        \"spark\": spark,",
+                "        \"contract_backend\": suite.contract,",
+                "        \"data_product_backend\": suite.data_product,",
+                "        \"data_quality_backend\": suite.data_quality,",
+                "        \"governance_store\": suite.governance_store,",
+                "    }",
+            ]
         )
+
+    if integration_key == "dlt":
+        host_literal = repr(dlt_workspace_url)
+        profile_literal = repr(dlt_workspace_profile)
+        pipeline_literal = repr(dlt_pipeline_name)
+        notebook_literal = repr(dlt_notebook_path)
+        target_literal = repr(dlt_target_schema)
+        lines.extend(
+            [
+                "",
+                "def build_dlt_context():",
+                "    \"\"\"Return Databricks workspace handles and dc43 backends for DLT.\"\"\"",
+                "    suite = load_backends()",
+                "    try:",
+                "        from databricks.sdk import WorkspaceClient",
+                "    except ModuleNotFoundError as exc:",
+                "        raise RuntimeError(\"Install databricks-sdk to drive Delta Live Tables.\") from exc",
+                "    client_kwargs = {}",
+                f"    host = {host_literal}",
+                "    if host:",
+                "        client_kwargs['host'] = host",
+                f"    profile = {profile_literal}",
+                "    if profile:",
+                "        client_kwargs['config_profile'] = profile",
+                "    token = os.getenv(\"DATABRICKS_TOKEN\")",
+                "    if token:",
+                "        client_kwargs.setdefault('token', token)",
+                "    workspace = WorkspaceClient(**client_kwargs)",
+                "    return {",
+                "        \"workspace\": workspace,",
+                "        \"contract_backend\": suite.contract,",
+                "        \"data_product_backend\": suite.data_product,",
+                "        \"data_quality_backend\": suite.data_quality,",
+                "        \"governance_store\": suite.governance_store,",
+                f"        \"pipeline_name\": {pipeline_literal}",
+                f"        \"notebook_path\": {notebook_literal}",
+                f"        \"target_schema\": {target_literal}",
+                "    }",
+            ]
+        )
+
+    spark_runtime_literal = repr(spark_runtime)
+    spark_workspace_literal = repr(spark_workspace_url)
+    spark_profile_literal = repr(spark_workspace_profile)
+    spark_cluster_literal = repr(spark_cluster)
+    lines.extend(
+        [
+            "",
+            "def main() -> None:",
+            "    suite = load_backends()",
+            "    print(\"Contract backend initialised:\", suite.contract.__class__.__name__)",
+            "    print(\"Data product backend initialised:\", suite.data_product.__class__.__name__)",
+            "    print(\"Data-quality backend initialised:\", suite.data_quality.__class__.__name__)",
+            "    integration = \"" + integration_key + "\"",
+            "    if integration == 'spark':",
+            "        context = build_spark_context()",
+            f"        runtime_hint = {spark_runtime_literal}",
+            "        if runtime_hint:",
+            "            print(\"Spark runtime hint:\", runtime_hint)",
+            f"        workspace_hint = {spark_workspace_literal}",
+            "        if workspace_hint:",
+            "            print(\"Databricks workspace:\", workspace_hint)",
+            f"        profile_hint = {spark_profile_literal}",
+            "        if profile_hint:",
+            "            print(\"Databricks CLI profile:\", profile_hint)",
+            f"        cluster_hint = {spark_cluster_literal}",
+            "        if cluster_hint:",
+            "            print(\"Spark cluster reference:\", cluster_hint)",
+            "        print(\"Spark session ready:\", context['spark'])",
+            "    elif integration == 'dlt':",
+            "        context = build_dlt_context()",
+            "        workspace = context.get('workspace')",
+            "        host = getattr(getattr(workspace, 'config', None), 'host', None)",
+            "        if host:",
+            "            print(\"DLT workspace host:\", host)",
+            "        pipeline_name = context.get('pipeline_name')",
+            "        if pipeline_name:",
+            "            print(\"DLT pipeline name:\", pipeline_name)",
+            "        notebook_path = context.get('notebook_path')",
+            "        if notebook_path:",
+            "            print(\"DLT notebook path:\", notebook_path)",
+            "        target_schema = context.get('target_schema')",
+            "        if target_schema:",
+            "            print(\"DLT target schema:\", target_schema)",
+            "    else:",
+            "        print(\"No pipeline integration selected in the setup wizard.\")",
+            "",
+            "",
+            "if __name__ == '__main__':",
+            "    main()",
+            "",
+        ]
+    )
+
+    return "\n".join(lines)
+
+@lru_cache(maxsize=None)
+def _bundle_package_version(package_key: str) -> str | None:
+    """Return the version string for ``package_key`` from the repository."""
+
+    root = Path(__file__).resolve().parents[4]
+    version_path = root / package_key / "VERSION"
+    try:
+        return version_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        try:
+            return importlib_metadata.version(package_key)
+        except importlib_metadata.PackageNotFoundError:
+            return None
+
+
+def _bundle_requirement_spec(
+    package: str,
+    *,
+    version: str | None = None,
+    extras: str | None = None,
+) -> str:
+    """Return a pip requirement specifier with optional extras and version."""
+
+    spec = package
+    if extras:
+        spec += f"[{extras}]"
+    if version:
+        spec += f"=={version}"
+    return spec
+
+
+def _bundle_requirements_text(state: Mapping[str, Any]) -> str:
+    """Render a ``requirements.txt`` tailored to the selected integration."""
+
+    integration_key, _ = _integration_selection(state)
+
+    requirements: List[str] = [
+        _bundle_requirement_spec(
+            "dc43-service-clients",
+            version=_bundle_package_version("dc43-service-clients"),
+        ),
+        _bundle_requirement_spec(
+            "dc43-service-backends",
+            extras="http",
+            version=_bundle_package_version("dc43-service-backends"),
+        ),
+        _bundle_requirement_spec(
+            "dc43-contracts-app",
+            version=_bundle_package_version("dc43-contracts-app"),
+        ),
+        _bundle_requirement_spec(
+            "dc43-integrations",
+            version=_bundle_package_version("dc43-integrations"),
+        ),
+        "uvicorn[standard]>=0.24",
+        "boto3>=1.28",
+    ]
+
+    if integration_key == "spark":
+        requirements.append("pyspark>=3.4")
+    if integration_key == "dlt":
+        requirements.append("databricks-sdk>=0.12")
+        requirements.append("databricks-dlt>=0.3")
+
+    ordered = list(dict.fromkeys(item for item in requirements if item))
+    header = [
+        "# Requirements generated by the dc43 setup wizard",
+        "# Run scripts/bootstrap_environment.sh (or .ps1 on Windows) to install them.",
+        "",
+    ]
+    return "\n".join([*header, *ordered, ""])
+
+
+def _bootstrap_environment_shell_script() -> str:
+    """Return the POSIX shell helper that bootstraps a virtualenv."""
+
+    return (
+        textwrap.dedent(
+            """
+            #!/usr/bin/env bash
+            set -euo pipefail
+
+            ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+            VENV_DIR="${VENV_DIR:-$ROOT/.venv}"
+
+            echo "[dc43] Creating virtual environment at $VENV_DIR"
+            python3 -m venv "$VENV_DIR"
+
+            # shellcheck source=/dev/null
+            source "$VENV_DIR/bin/activate"
+            python -m pip install --upgrade pip
+            python -m pip install -r "$ROOT/requirements.txt"
+
+            echo "[dc43] Environment ready. Activate it with 'source \"$VENV_DIR/bin/activate\"'."
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _bootstrap_environment_powershell_script() -> str:
+    """Return the PowerShell helper that bootstraps a virtualenv on Windows."""
+
+    return (
+        textwrap.dedent(
+            """
+            Param(
+                [string]$VenvDir
+            )
+
+            $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+            if (-not $VenvDir) {
+                $VenvDir = Join-Path $Root '.venv'
+            }
+
+            Write-Host "[dc43] Creating virtual environment at $VenvDir"
+            python -m venv $VenvDir
+
+            $Python = Join-Path $VenvDir 'Scripts\\python.exe'
+            & $Python -m pip install --upgrade pip
+            & $Python -m pip install -r (Join-Path $Root 'requirements.txt')
+
+            Write-Host "[dc43] Environment ready. Activate it with & $VenvDir\\Scripts\\Activate.ps1"
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _environment_setup_files(state: Mapping[str, Any]) -> List[Tuple[str, str, bool]]:
+    """Return files that bootstrap a Python environment for the bundle."""
+
+    return [
+        ("dc43-setup/requirements.txt", _bundle_requirements_text(state), False),
+        (
+            "dc43-setup/scripts/bootstrap_environment.sh",
+            _bootstrap_environment_shell_script(),
+            True,
+        ),
+        (
+            "dc43-setup/scripts/bootstrap_environment.ps1",
+            _bootstrap_environment_powershell_script(),
+            True,
+        ),
+    ]
+
+
+def _contracts_app_dockerfile() -> str:
+    """Return a Dockerfile that installs the contracts UI from PyPI."""
+
+    clients_spec = _bundle_requirement_spec(
+        "dc43-service-clients",
+        version=_bundle_package_version("dc43-service-clients"),
+    )
+    backends_spec = _bundle_requirement_spec(
+        "dc43-service-backends",
+        extras="http",
+        version=_bundle_package_version("dc43-service-backends"),
+    )
+    contracts_spec = _bundle_requirement_spec(
+        "dc43-contracts-app",
+        version=_bundle_package_version("dc43-contracts-app"),
+    )
+
+    return (
+        textwrap.dedent(
+            f"""
+            # syntax=docker/dockerfile:1
+            FROM python:3.11-slim AS runtime
+
+            ENV PYTHONUNBUFFERED=1 \
+                PIP_DISABLE_PIP_VERSION_CHECK=1 \
+                DC43_CONTRACTS_APP_BACKEND_MODE=remote
+
+            WORKDIR /app
+
+            RUN pip install --no-cache-dir \
+                \"{clients_spec}\" \
+                \"{backends_spec}\" \
+                \"{contracts_spec}\" \
+                \"uvicorn[standard]>=0.24\"
+
+            EXPOSE 8000
+
+            CMD [\"uvicorn\", \"dc43_contracts_app.server:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _service_backends_dockerfile() -> str:
+    """Return a Dockerfile that installs the service backends from PyPI."""
+
+    clients_spec = _bundle_requirement_spec(
+        "dc43-service-clients",
+        version=_bundle_package_version("dc43-service-clients"),
+    )
+    backends_spec = _bundle_requirement_spec(
+        "dc43-service-backends",
+        extras="http",
+        version=_bundle_package_version("dc43-service-backends"),
+    )
+
+    return (
+        textwrap.dedent(
+            f"""
+            # syntax=docker/dockerfile:1
+            FROM python:3.11-slim AS runtime
+
+            ENV PYTHONUNBUFFERED=1 \
+                PIP_DISABLE_PIP_VERSION_CHECK=1 \
+                DC43_SERVICE_BACKENDS_CONFIG=/app/config/dc43-service-backends.toml
+
+            WORKDIR /app
+
+            RUN pip install --no-cache-dir \
+                \"{clients_spec}\" \
+                \"{backends_spec}\" \
+                \"uvicorn[standard]>=0.24\"
+
+            EXPOSE 8001
+
+            CMD [\"uvicorn\", \"dc43_service_backends.webapp:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8001\"]
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _docker_build_script() -> str:
+    """Return a helper that builds Docker images from the bundled Dockerfiles."""
+
+    return (
+        textwrap.dedent(
+            """
+            #!/usr/bin/env bash
+            set -euo pipefail
+
+            ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+            TAG="${1:-latest}"
+
+            docker build -t "dc43/contracts-app:${TAG}" -f "$ROOT/docker/contracts-app/Dockerfile" "$ROOT"
+            docker build -t "dc43/service-backends:${TAG}" -f "$ROOT/docker/service-backends/Dockerfile" "$ROOT"
+
+            echo "[dc43] Built images dc43/contracts-app:${TAG} and dc43/service-backends:${TAG}."
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _docker_publish_script() -> str:
+    """Return a helper that pushes the Docker images to AWS ECR."""
+
+    return (
+        textwrap.dedent(
+            """
+            #!/usr/bin/env python3
+            \"\"\"Publish dc43 Docker images to an AWS Elastic Container Registry.\"\"\"
+
+            from __future__ import annotations
+
+            import argparse
+            import base64
+            import subprocess
+            import sys
+
+            try:  # pragma: no cover - optional dependency guard
+                import boto3
+            except Exception as exc:  # pragma: no cover - surfaced to the caller
+                boto3 = None  # type: ignore[assignment]
+                _BOTO_IMPORT_ERROR = exc
+            else:  # pragma: no cover - executed when boto3 is present
+                _BOTO_IMPORT_ERROR = None
+
+            IMAGES: dict[str, str] = {
+                "contracts-app": "dc43/contracts-app",
+                "service-backends": "dc43/service-backends",
+            }
+
+
+            def _ensure_repository(client, name: str) -> None:
+                try:
+                    client.describe_repositories(repositoryNames=[name])
+                except client.exceptions.RepositoryNotFoundException:
+                    client.create_repository(repositoryName=name)
+
+
+            def _docker(command: list[str], *, input_text: str | None = None) -> None:
+                subprocess.run(
+                    command,
+                    input=input_text,
+                    text=input_text is not None,
+                    check=True,
+                )
+
+
+            def main() -> None:
+                if boto3 is None:
+                    raise SystemExit(
+                        "Install boto3 (pip install boto3) before running publish_docker_images.py"
+                    ) from _BOTO_IMPORT_ERROR
+
+                parser = argparse.ArgumentParser(
+                    description="Create ECR repositories and push the dc43 Docker images.",
+                )
+                parser.add_argument(
+                    "--region",
+                    default="us-east-1",
+                    help="AWS region for the ECR registry (default: us-east-1).",
+                )
+                parser.add_argument(
+                    "--profile",
+                    help="Optional named AWS profile to use for authentication.",
+                )
+                parser.add_argument(
+                    "--account-id",
+                    help="AWS account ID. When omitted the caller identity is used.",
+                )
+                parser.add_argument(
+                    "--repository-prefix",
+                    default="dc43",
+                    help="Prefix used for the ECR repositories (default: dc43).",
+                )
+                parser.add_argument(
+                    "--tag",
+                    default="latest",
+                    help="Image tag to push (default: latest).",
+                )
+                args = parser.parse_args()
+
+                session_kwargs: dict[str, str] = {"region_name": args.region}
+                if args.profile:
+                    session_kwargs["profile_name"] = args.profile
+                session = boto3.Session(**session_kwargs)
+                ecr = session.client("ecr")
+                sts = session.client("sts")
+
+                account_id = args.account_id or sts.get_caller_identity()["Account"]
+                repositories = {
+                    key: f"{args.repository_prefix}/{key}" for key in IMAGES.keys()
+                }
+
+                for repository in repositories.values():
+                    print(f"[dc43] Ensuring ECR repository '{repository}' exists in {args.region}.")
+                    _ensure_repository(ecr, repository)
+
+                auth = ecr.get_authorization_token(registryIds=[account_id])["authorizationData"][0]
+                token = base64.b64decode(auth["authorizationToken"]).decode("utf-8")
+                username, password = token.split(":", 1)
+                endpoint = auth["proxyEndpoint"]
+                print(f"[dc43] Logging in to {endpoint}.")
+                _docker(
+                    ["docker", "login", "-u", username, "--password-stdin", endpoint],
+                    input_text=password,
+                )
+
+                for key, local_image in IMAGES.items():
+                    repository = repositories[key]
+                    remote = f"{account_id}.dkr.ecr.{args.region}.amazonaws.com/{repository}:{args.tag}"
+                    local = f"{local_image}:{args.tag}"
+                    print(f"[dc43] Tagging {local} as {remote}.")
+                    _docker(["docker", "tag", local, remote])
+                    print(f"[dc43] Pushing {remote}.")
+                    _docker(["docker", "push", remote])
+
+                print("[dc43] Done. Update your deployment manifests to use the pushed tags.")
+
+
+            if __name__ == "__main__":  # pragma: no cover - helper entry point
+                try:
+                    main()
+                except subprocess.CalledProcessError as exc:
+                    raise SystemExit(exc.returncode) from exc
+
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _docker_bundle_files(state: Mapping[str, Any]) -> List[Tuple[str, str, bool]]:
+    """Return Docker-related assets for the setup bundle."""
+
+    return [
+        (
+            "dc43-setup/docker/contracts-app/Dockerfile",
+            _contracts_app_dockerfile(),
+            False,
+        ),
+        (
+            "dc43-setup/docker/service-backends/Dockerfile",
+            _service_backends_dockerfile(),
+            False,
+        ),
+        (
+            "dc43-setup/scripts/build_docker_images.sh",
+            _docker_build_script(),
+            True,
+        ),
+        (
+            "dc43-setup/scripts/publish_docker_images.py",
+            _docker_publish_script(),
+            True,
+        ),
+    ]
 
 
 def _start_stack_script() -> str:
@@ -3470,15 +4748,23 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- config/dc43-service-backends.toml — drop-in configuration for the backend services.",
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
+        "- examples/ — integration-aware starter projects provided by each integration.",
+        "- requirements.txt — pinned Python dependencies for the starter projects and tooling.",
+        "- scripts/bootstrap_environment.sh / scripts/bootstrap_environment.ps1 — create a virtual environment and install requirements.",
         "- scripts/run_local_stack.py — start the local UI and backend services for quick testing.",
+        "- docker/contracts-app/Dockerfile — container image definition for the contracts UI.",
+        "- docker/service-backends/Dockerfile — container image definition for the governance and product services.",
+        "- scripts/build_docker_images.sh — build the Docker images without recreating the Dockerfiles manually.",
+        "- scripts/publish_docker_images.py — push the Docker images to AWS Elastic Container Registry (ECR).",
         "- terraform/governance/<provider>/ — Terraform templates and generated variables for governance deployments (when selected).",
         "- terraform/ui/<provider>/ — Terraform variable stubs for UI hosting (when selected).",
         "",
         "How to use:",
-        "1. Copy the TOML files into your deployment repository or configuration management system.",
-        "2. Update any commented placeholders (for example Unity Catalog tables or secrets).",
-        "3. Execute `scripts/run_local_stack.py` to launch the local stack or `scripts/bootstrap_pipeline.py` inside orchestration jobs.",
-        "4. Follow the installation and configuration notes in each module to finish provisioning.",
+        "1. Run `scripts/bootstrap_environment.sh` (or `.ps1` on Windows) to create a `.venv` with the required Python packages and activate it before running the helpers.",
+        "2. Copy the TOML files into your deployment repository or configuration management system.",
+        "3. Update any commented placeholders (for example Unity Catalog tables or secrets).",
+        "4. Execute `scripts/run_local_stack.py` to launch the local stack or `scripts/bootstrap_pipeline.py` inside orchestration jobs using the prepared environment.",
+        "5. Use `scripts/build_docker_images.sh` to build container images locally or `scripts/publish_docker_images.py` to create and push AWS ECR repositories when you need prebuilt containers.",
         "",
         "Modules exported:",
     ]
@@ -3539,10 +4825,36 @@ def _build_setup_bundle(state: Mapping[str, Any]) -> Tuple[io.BytesIO, Dict[str,
                 contracts_app_toml,
             )
 
-        bootstrap_script = _pipeline_bootstrap_script()
+        bootstrap_script = _pipeline_bootstrap_script(state)
         script_info = zipfile.ZipInfo("dc43-setup/scripts/bootstrap_pipeline.py")
         script_info.external_attr = 0o755 << 16  # Mark the script as executable.
         archive.writestr(script_info, bootstrap_script)
+
+        example_assets = _pipeline_example_assets(state)
+        example_path = f"dc43-setup/{example_assets.entrypoint_path}".replace("//", "/")
+        example_info = zipfile.ZipInfo(example_path)
+        entry_mode = 0o755 if example_assets.entrypoint_executable else 0o644
+        example_info.external_attr = entry_mode << 16
+        archive.writestr(example_info, example_assets.entrypoint_content)
+
+        for support in example_assets.support_files:
+            support_path = f"dc43-setup/{support.path}".replace("//", "/")
+            support_info = zipfile.ZipInfo(support_path)
+            support_mode = 0o755 if support.executable else 0o644
+            support_info.external_attr = support_mode << 16
+            archive.writestr(support_info, support.content)
+
+        for relative_path, content, executable in _environment_setup_files(state):
+            env_info = zipfile.ZipInfo(relative_path)
+            env_mode = 0o755 if executable else 0o644
+            env_info.external_attr = env_mode << 16
+            archive.writestr(env_info, content)
+
+        for relative_path, content, executable in _docker_bundle_files(state):
+            docker_info = zipfile.ZipInfo(relative_path)
+            docker_mode = 0o755 if executable else 0o644
+            docker_info.external_attr = docker_mode << 16
+            archive.writestr(docker_info, content)
 
         start_script = _start_stack_script()
         start_info = zipfile.ZipInfo("dc43-setup/scripts/run_local_stack.py")

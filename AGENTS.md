@@ -32,8 +32,16 @@
   files. Update their metadata and changelogs alongside code changes.
 
 ## Testing & quality
-- `pytest -q` runs the test suite. Some tests write temporary artifacts under
-  `test_temp_files/`; the directory is cleaned automatically by pytest.
+- `pytest -q` runs the Python test suite. Some tests write temporary artifacts
+  under `test_temp_files/`; the directory is cleaned automatically by pytest.
+- Playwright UI tests for the contracts setup wizard live under
+  `tests/playwright`. Install Node dependencies with `npm install` (which also
+  downloads the Playwright browsers) and run `npm run test:ui` to execute the
+  suite. The configured `webServer` starts the contracts app automatically via
+  `scripts/start_contracts_app.py`.
+- Use `npm run test:ui:handoff` to keep the browser open for manual validation
+  after automation completes, or `npm run test:ui:debug` to launch Playwright
+  Inspector for step-by-step execution.
 - Linting is handled via reviewers; no automated linter is configured in this
   repository, so keep style consistent with existing code (PEP 8-ish).
 - For local manual validation of the demo application, start the FastAPI server

@@ -7,6 +7,14 @@ on:
       - main
       - dev
   workflow_dispatch:
+    inputs:
+      publish_docker_images:
+        description: "Build and push the release Docker images to Amazon ECR"
+        type: boolean
+        default: false
+      docker_image_tag:
+        description: "Tag to apply when pushing Docker images (defaults to commit SHA)"
+        required: false
 
 jobs:
   tests:
@@ -74,3 +82,50 @@ jobs:
 
       - name: Run tests
         run: ${{ matrix.test_command }}
+
+  docker-ecr-smoke:
+    name: Docker image smoke publish
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_docker_images == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE_TAG: ${{ github.event.inputs.docker_image_tag || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push smoke-test images
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          CONTRACTS_REPOSITORY: ${{ secrets.AWS_ECR_CONTRACTS_APP_REPOSITORY }}
+          BACKEND_REPOSITORY: ${{ secrets.AWS_ECR_HTTP_BACKEND_REPOSITORY }}
+        run: |
+          set -euo pipefail
+
+          build_and_push() {
+            local image_name=$1
+            local dockerfile=$2
+            local repository=$3
+
+            echo "::group::Building ${image_name} image"
+            docker build -f "$dockerfile" -t "$REGISTRY/$repository:$IMAGE_TAG" .
+            docker push "$REGISTRY/$repository:$IMAGE_TAG"
+            docker tag "$REGISTRY/$repository:$IMAGE_TAG" "$REGISTRY/$repository:latest"
+            docker push "$REGISTRY/$repository:latest"
+            echo "::endgroup::"
+          }
+
+          build_and_push "contracts-app" "deploy/contracts-app/Dockerfile" "$CONTRACTS_REPOSITORY"
+          build_and_push "http-backend" "deploy/http-backend/Dockerfile" "$BACKEND_REPOSITORY"
+
