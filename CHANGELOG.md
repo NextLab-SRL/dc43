@@ -41,3 +41,8 @@
   its test suite without duplicating runs.
 - Ensured the demo-app CI lane installs `open-data-contract-standard` so the demo pipeline
   and UI tests can exercise the backend helpers without missing dependencies.
+
+### Fixed
+- Updated the `dc43-demo` launcher to merge any exported `DC43_CONTRACTS_APP_CONFIG`
+  file into the generated workspace configuration so docs-chat overrides stay
+  active instead of being reset to the default template.

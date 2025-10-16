@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -12,7 +13,20 @@ from pathlib import Path
 
 import httpx
 
+from dc43_contracts_app.config import (
+    BackendConfig,
+    BackendProcessConfig,
+    ContractsAppConfig,
+    DocsChatConfig,
+    WorkspaceConfig,
+    dump as dump_contracts_config,
+    load_config as load_contracts_config,
+)
+
 from .contracts_workspace import current_workspace, prepare_demo_workspace
+
+
+logger = logging.getLogger(__name__)
 
 
 def _toml_string(value: str) -> str:
@@ -35,29 +49,51 @@ def _write_backend_config(path: Path, contracts_dir: Path, token: str | None) ->
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _write_contracts_config(
-    path: Path,
+def _build_contracts_config(
     workspace_root: Path,
     backend_host: str,
     backend_port: int,
     backend_url: str,
     backend_log_level: str | None,
-) -> None:
-    lines = [
-        "[workspace]",
-        f"root = {_toml_string(workspace_root.as_posix())}",
-        "",
-        "[backend]",
-        "mode = \"remote\"",
-        f"base_url = {_toml_string(backend_url)}",
-        "",
-        "[backend.process]",
-        f"host = {_toml_string(backend_host)}",
-        f"port = {backend_port}",
-    ]
-    if backend_log_level:
-        lines.append(f"log_level = {_toml_string(backend_log_level)}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    override_path: str | None,
+) -> ContractsAppConfig:
+    """Return the contracts app configuration for the demo run."""
+
+    base_config: ContractsAppConfig
+    if override_path:
+        try:
+            base_config = load_contracts_config(override_path)
+        except Exception as exc:  # pragma: no cover - defensive guard around custom files
+            logger.warning(
+                "Failed to load user-supplied contracts app config %s (%s); falling back to defaults.",
+                override_path,
+                exc,
+            )
+            base_config = ContractsAppConfig()
+        else:
+            logger.info(
+                "Merging user contracts app configuration from %s into demo defaults.",
+                override_path,
+            )
+    else:
+        base_config = ContractsAppConfig()
+
+    base_config.workspace = WorkspaceConfig(root=workspace_root)
+    base_config.backend = BackendConfig(
+        mode="remote",
+        base_url=backend_url,
+        process=BackendProcessConfig(
+            host=backend_host,
+            port=backend_port,
+            log_level=backend_log_level,
+        ),
+    )
+
+    # Preserve docs chat toggles from the user configuration when provided.
+    if override_path is None:
+        base_config.docs_chat = DocsChatConfig()
+
+    return base_config
 
 
 def _wait_for_backend(base_url: str, *, timeout: float = 30.0) -> None:
@@ -107,17 +143,19 @@ def main() -> None:  # pragma: no cover - convenience runner
     backend_config_path = config_dir / "service_backends.toml"
     _write_backend_config(backend_config_path, workspace.contracts_dir, backend_token)
 
+    previous_contracts_config = os.getenv("DC43_CONTRACTS_APP_CONFIG")
+
     contracts_config_path = config_dir / "contracts_app.toml"
-    _write_contracts_config(
-        contracts_config_path,
+    contracts_config = _build_contracts_config(
         workspace.root,
         backend_host,
         backend_port,
         backend_url,
         backend_log_level,
+        previous_contracts_config,
     )
+    dump_contracts_config(contracts_config_path, contracts_config)
 
-    previous_contracts_config = os.getenv("DC43_CONTRACTS_APP_CONFIG")
     previous_backend_config = os.getenv("DC43_SERVICE_BACKENDS_CONFIG")
     previous_demo_backend_url = os.getenv("DC43_DEMO_BACKEND_URL")
     previous_demo_work_dir = os.getenv("DC43_DEMO_WORK_DIR")

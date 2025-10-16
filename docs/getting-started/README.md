@@ -45,10 +45,19 @@ export DC43_CONTRACTS_APP_CONFIG="$HOME/dc43/contracts-app.toml"
 # `api_key_env` stores the *name* of the environment variable that contains your
 # secret. Populate it separately, e.g. with `direnv`, `dotenv`, or a manual
 # `export OPENAI_API_KEY=...` before starting the app.
+
+# Launch the demo. The runner copies your docs_chat overrides into its generated
+# configuration so the workspace/backend defaults stay intact.
+dc43-demo
 ```
 
 Mount the config via `DC43_CONTRACTS_APP_CONFIG` or copy the snippet into your existing TOML file.
 Restart the application and open `/docs-chat` to chat with the Markdown guides bundled in `docs/`.
+
+> ℹ️ Prefer a one-liner? Use `DC43_CONTRACTS_APP_CONFIG=$HOME/dc43/contracts-app.toml dc43-demo`
+> (without chaining via `&&`). The shell must export the variable for the launcher to
+> see it—otherwise the docs assistant falls back to the disabled defaults and reminds
+> you to enable `[docs_chat]`.
 
 > ⚠️ pip treats `pip install --no-cache-dir -e ".[demo]"` and a follow-up
 > `pip install "dc43-contracts-app[docs-chat]"` as competing requirements when
