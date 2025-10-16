@@ -14,3 +14,26 @@ material when you want to dive deeper.
 
 The guides assume you have a working Python 3.11 environment. When you work from a source checkout run `pip install -e .` from the
 repository root so editable installs pick up sibling packages.
+
+## Documentation assistant
+
+The dc43 app can expose a docs-first chat experience using LangChain and Gradio. Install the optional
+dependencies and enable the feature in your configuration:
+
+```bash
+pip install "dc43-contracts-app[docs-chat]"
+
+export OPENAI_API_KEY="sk-your-api-key"
+
+cat <<'TOML' > ~/dc43/contracts-app.toml
+[docs_chat]
+enabled = true
+provider = "openai"
+model = "gpt-4o-mini"
+embedding_model = "text-embedding-3-small"
+api_key_env = "OPENAI_API_KEY"
+TOML
+```
+
+Mount the config via `DC43_CONTRACTS_APP_CONFIG` or copy the snippet into your existing TOML file.
+Restart the application and open `/docs-chat` to chat with the Markdown guides bundled in `docs/`.

@@ -13,6 +13,10 @@
   When updating documentation, integration tests, or packaging metadata, ensure
   references use the `dc43_demo_app` import path and include the dedicated
   package in release metadata where relevant.
+- Any UX-facing change (pages, templates, docs chat, setup wizard, etc.) must
+  include updates to the relevant guides under `docs/` and add entries to both
+  the root and package-specific changelogs. The documentation assistant relies
+  on Markdown accuracy, so keep guidance current when behaviour changes.
 
 ## Release process
 - Package release automation reads package definitions from `scripts/_packages.py`.

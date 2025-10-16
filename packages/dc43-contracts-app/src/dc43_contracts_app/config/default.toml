@@ -11,3 +11,14 @@ mode = "embedded"
 host = "127.0.0.1"
 port = 8001
 log_level = ""
+
+[docs_chat]
+# Documentation chat is disabled by default. Set ``enabled = true`` and provide
+# an API key environment variable when you are ready to use it.
+enabled = false
+provider = "openai"
+model = "gpt-4o-mini"
+embedding_model = "text-embedding-3-small"
+api_key_env = "OPENAI_API_KEY"
+docs_path = ""
+index_path = ""

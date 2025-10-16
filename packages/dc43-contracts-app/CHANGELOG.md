@@ -22,6 +22,8 @@
 - Added a pipeline integration module covering Spark and Delta Live Tables runtimes so the wizard
   captures orchestration credentials and the exported helper script shows how to initialise the
   chosen engine alongside the dc43 backends.
+- Added a documentation chat experience powered by LangChain and Gradio, including configuration
+  defaults, a Gradio-mounted UI, and a REST endpoint for programmatic access.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are
@@ -35,3 +37,5 @@
 - Architecture groupings now distinguish local runtime choices from hosted deployments so the
   diagram no longer lists local Python orchestration under remote hosting and highlights the new
   pipeline integration node.
+- Rebranded the UI to the "dc43 app", added a docs chat navigation entry, and documented the
+  configuration knobs required to enable the assistant in deployments.

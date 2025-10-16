@@ -8,6 +8,9 @@
   reusable scenarios, npm scripts (`test:ui`, `test:ui:handoff`), and a bundled
   FastAPI launcher so contributors can run or extend browser tests alongside the
   Python suite.
+- Added a LangChain + Gradio powered documentation assistant to the dc43 app with
+  configuration knobs, deployment guidance, and docs updates so teams can chat with
+  the bundled Markdown guides.
 
 ### Changed
 - Updated the release automation to tag the contracts-app and HTTP backend Docker

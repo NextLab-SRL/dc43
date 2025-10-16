@@ -47,7 +47,7 @@ import zipfile
 
 import httpx
 from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
@@ -82,6 +82,7 @@ from .config import (
     dumps as dump_contracts_app_config,
     load_config,
 )
+from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
 from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
@@ -761,6 +762,7 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
     workspace, _ = workspace_from_env(default_root=default_root)
     configure_workspace(workspace)
     configure_backend(config=config.backend)
+    docs_chat.configure(config.docs_chat, workspace)
     return _set_active_config(config)
 
 
@@ -798,6 +800,46 @@ async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[st
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+@router.get("/docs-chat", response_class=HTMLResponse)
+async def docs_chat_view(request: Request) -> HTMLResponse:
+    status_payload = docs_chat.status()
+    context = {
+        "request": request,
+        "docs_chat_status": status_payload,
+        "gradio_path": docs_chat.GRADIO_MOUNT_PATH,
+    }
+    return templates.TemplateResponse("docs_chat.html", context)
+
+
+@router.post("/api/docs-chat/messages")
+async def docs_chat_message(payload: dict[str, Any]) -> JSONResponse:
+    message = payload.get("message") if isinstance(payload, Mapping) else None
+    if not isinstance(message, str) or not message.strip():
+        raise HTTPException(status_code=422, detail="Provide a question so the assistant can help.")
+
+    history_raw = payload.get("history") if isinstance(payload, Mapping) else None
+    history: list[Any]
+    if isinstance(history_raw, list):
+        history = history_raw
+    else:
+        history = []
+
+    status_payload = docs_chat.status()
+    if not status_payload.enabled:
+        detail = status_payload.message or "Docs chat is disabled in the current configuration."
+        raise HTTPException(status_code=400, detail=detail)
+    if not status_payload.ready:
+        detail = status_payload.message or "Docs chat is not ready yet."
+        raise HTTPException(status_code=400, detail=detail)
+
+    try:
+        reply = await run_in_threadpool(docs_chat.generate_reply, message, history)
+    except docs_chat.DocsChatError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse({"message": reply.answer, "sources": reply.sources})
 
 
 SETUP_MODULES: Dict[str, Dict[str, Any]] = {
@@ -8238,10 +8280,16 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
 def create_app() -> FastAPI:
     """Return a FastAPI application serving contract and dataset views."""
 
-    application = FastAPI(title="DC43 Contracts App")
+    application = FastAPI(title="dc43 app")
 
     @application.middleware("http")
     async def setup_guard(request: Request, call_next):  # type: ignore[override]
+        docs_status = docs_chat.status()
+        request.state.docs_chat_status = docs_status
+        request.state.docs_chat_enabled = docs_status.enabled
+        request.state.docs_chat_ready = docs_status.ready
+        request.state.docs_chat_message = docs_status.message
+
         path = request.url.path
         exempt_paths = {"/openapi.json"}
         exempt_prefixes = ("/setup", "/static", "/docs", "/redoc")
@@ -8261,6 +8309,7 @@ def create_app() -> FastAPI:
         name="static",
     )
     application.include_router(router)
+    docs_chat.mount_gradio_app(application, path=docs_chat.GRADIO_MOUNT_PATH)
     return application
 
 

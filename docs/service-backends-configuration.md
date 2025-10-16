@@ -259,7 +259,7 @@ request.
 
 ## Contracts app configuration
 
-The contracts UI reads two tables: `workspace` and `backend`.
+The contracts UI reads three tables: `workspace`, `backend`, and `docs_chat`.
 
 ```toml
 [workspace]
@@ -283,6 +283,18 @@ log_level = "info"
 | `backend.process` | `host` | Hostname to bind when running the embedded backend (`DC43_CONTRACTS_APP_BACKEND_HOST`). |
 | `backend.process` | `port` | TCP port for the embedded backend (`DC43_CONTRACTS_APP_BACKEND_PORT`). |
 | `backend.process` | `log_level` | Optional log level forwarded to the embedded backend (`DC43_CONTRACTS_APP_BACKEND_LOG`). |
+| `docs_chat` | `enabled` | Toggle the documentation assistant (`DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED`). |
+| `docs_chat` | `provider` | LLM provider identifier (currently `openai`). Override via `DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER`. |
+| `docs_chat` | `model` | Chat completion model requested from the provider (`DC43_CONTRACTS_APP_DOCS_CHAT_MODEL`). |
+| `docs_chat` | `embedding_model` | Embedding model used to build the Markdown index (`DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL`). |
+| `docs_chat` | `api_key_env` | Environment variable that stores the provider key (`DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV`). |
+| `docs_chat` | `docs_path` | Optional override pointing at the directory that stores Markdown documentation (`DC43_CONTRACTS_APP_DOCS_CHAT_PATH`). |
+| `docs_chat` | `index_path` | Directory used to persist the LangChain/FAISS index (`DC43_CONTRACTS_APP_DOCS_CHAT_INDEX`). |
+
+When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
+`/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install
+the `docs-chat` optional dependency (`pip install "dc43-contracts-app[docs-chat]"`) and supply the
+configured API key variable before enabling the feature.
 
 ## Templates
 

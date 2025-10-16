@@ -1,8 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>DC43 Demo</h1>
+<h1 class="mb-3">Welcome to the dc43 app</h1>
+<p class="text-muted">
+  Explore governance assets, generate integration helpers, and chat with the documentation set that ships with dc43.
+  Each section below links to a dedicated workflow.
+</p>
 <div class="list-group">
-  <a class="list-group-item list-group-item-action" href="/contracts">Browse Contracts</a>
-  <a class="list-group-item list-group-item-action" href="/datasets">Datasets</a>
+  <a class="list-group-item list-group-item-action" href="/contracts">Browse contracts</a>
+  <a class="list-group-item list-group-item-action" href="/datasets">Review datasets</a>
+  <a class="list-group-item list-group-item-action" href="/data-products">Discover data products</a>
+  <a class="list-group-item list-group-item-action" href="/integration-helper">Generate integration helper bundles</a>
+  <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href="/docs-chat">
+    <span>Chat with the dc43 docs assistant</span>
+    <span class="badge bg-info text-dark">New</span>
+  </a>
 </div>
 {% endblock %}

@@ -18,3 +18,19 @@ host = "127.0.0.1"
 port = 8001
 # Optional log level forwarded to the embedded backend (e.g. "info").
 log_level = ""
+
+[docs_chat]
+# Enable when you want to expose the embedded documentation assistant in the dc43 app.
+enabled = false
+# The provider powering the chat experience ("openai" is currently supported).
+provider = "openai"
+# Chat completion model requested from the provider.
+model = "gpt-4o-mini"
+# Embedding model used to vectorise Markdown documentation.
+embedding_model = "text-embedding-3-small"
+# Environment variable that stores the API key for the provider.
+api_key_env = "OPENAI_API_KEY"
+# Override when documentation lives outside the repository checkout.
+docs_path = ""
+# Override to persist the vector index in a custom directory.
+index_path = ""
