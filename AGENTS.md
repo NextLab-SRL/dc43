@@ -39,7 +39,7 @@
 - `pytest -q` runs the Python test suite. Some tests write temporary artifacts
   under `test_temp_files/`; the directory is cleaned automatically by pytest.
 - Playwright UI tests for the contracts setup wizard live under
-  `tests/playwright`. Install Node dependencies with `npm install` (which also
+  `packages/dc43-contracts-app/tests/playwright`. Install Node dependencies with `npm install` (which also
   downloads the Playwright browsers) and run `npm run test:ui` to execute the
   suite. The configured `webServer` starts the contracts app automatically via
   `scripts/start_contracts_app.py`.
