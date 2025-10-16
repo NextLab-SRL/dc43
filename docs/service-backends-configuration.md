@@ -293,9 +293,12 @@ log_level = "info"
 
 When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
 `/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install
-the `docs-chat` optional dependency (`pip install -e ".[docs-chat]"` for source
-checkouts, or `pip install "dc43-contracts-app[docs-chat]"` from PyPI) and supply
-the configured API key variable before enabling the feature.
+the `docs-chat` optional dependency (`pip install --no-cache-dir -e ".[demo]"`
+from a source checkout, or `pip install "dc43-contracts-app[docs-chat]"` from
+PyPI) and supply the configured API key variable before enabling the feature.
+Avoid chaining both commands in the same environment—pip treats the editable and
+wheel installs as conflicting requirements when they target the same local
+package.
 
 ## Templates
 

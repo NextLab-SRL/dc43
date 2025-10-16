@@ -43,3 +43,6 @@
   configuration knobs required to enable the assistant in deployments.
 - Clarified installation guidance for the docs chat assistant so source checkouts and PyPI
   consumers know which pip command enables the optional dependencies.
+- Documented that mixing the meta package demo extra with a direct
+  `dc43-contracts-app[docs-chat]` install in the same environment leads to pip conflicts, and
+  pointed contributors at the single-command workflow.

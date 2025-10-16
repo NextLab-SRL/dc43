@@ -9,9 +9,10 @@
     bundled guides.
   </div>
   <p>
-    Install the optional extra (<code>pip install -e ".[docs-chat]"</code> from a source checkout, or
+    Install the optional extra (<code>pip install --no-cache-dir -e ".[demo]"</code> from a source checkout, or
     <code>pip install "dc43-contracts-app[docs-chat]"</code> from PyPI) and provide an API key via the
-    <code>OPENAI_API_KEY</code> environment variable (or customise <code>docs_chat.api_key_env</code>) when you are ready.
+    <code>OPENAI_API_KEY</code> environment variable (or customise <code>docs_chat.api_key_env</code>) when you are ready. Skip
+    chaining both commands in the same environment to avoid pip dependency conflicts.
   </p>
 {% elif not status.ready %}
   <div class="alert alert-warning" role="alert">

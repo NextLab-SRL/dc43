@@ -23,9 +23,14 @@ maintain bespoke chat widgets. To enable it:
    ```bash
    pip install "dc43-contracts-app[docs-chat]"
 
-   # Working from a source checkout? use the meta package extra instead:
-   # pip install -e ".[docs-chat]"
+   # Working from a source checkout? the root demo extra already pulls the
+   # assistant stack – run `pip install --no-cache-dir -e ".[demo]"` once and
+   # skip additional `dc43-contracts-app[docs-chat]` installs to avoid pip
+   # dependency conflicts.
    ```
+   Mixing both commands in the same environment (for example running the
+   editable install and then invoking the PyPI extra) causes pip to report
+   conflicting requirements because they reference the same local package.
 2. Provide an API key via the configured environment variable (defaults to
    `OPENAI_API_KEY`).
 3. Toggle the feature in `contracts-app.toml`:

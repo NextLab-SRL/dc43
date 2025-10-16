@@ -25,6 +25,9 @@
 - Added a `docs-chat` extra to the meta package and documented the single editable install
   command so local demos can enable the documentation assistant without juggling multiple
   pip invocations.
+- Clarified docs-chat installation notes so contributors avoid mixing the meta extra with
+  direct `dc43-contracts-app[docs-chat]` installs, which pip treats as conflicting
+  requirements in a single environment.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

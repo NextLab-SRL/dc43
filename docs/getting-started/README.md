@@ -21,10 +21,11 @@ The dc43 app can expose a docs-first chat experience using LangChain and Gradio.
 dependencies and enable the feature in your configuration:
 
 ```bash
-pip install -e ".[docs-chat]"
+pip install --no-cache-dir -e ".[demo]"
 
-# Planning to run the bundled demo? install both extras:
-# pip install -e ".[demo,docs-chat]"
+# Already installed the demo extras? you do not need a second
+# `dc43-contracts-app[docs-chat]` install – the meta package pulls the
+# assistant dependencies automatically.
 
 export OPENAI_API_KEY="sk-your-api-key"
 
@@ -40,6 +41,11 @@ TOML
 
 Mount the config via `DC43_CONTRACTS_APP_CONFIG` or copy the snippet into your existing TOML file.
 Restart the application and open `/docs-chat` to chat with the Markdown guides bundled in `docs/`.
+
+> ⚠️ pip treats `pip install --no-cache-dir -e ".[demo]"` and a follow-up
+> `pip install "dc43-contracts-app[docs-chat]"` as competing requirements when
+> they point at the same checkout. Pick the single command that matches your
+> environment to avoid the resolution error shown above.
 
 Prefer a guided experience? The contracts setup wizard now includes a **Documentation assistant**
 module under the *User experience* group. Selecting the Gradio assistant option captures the same

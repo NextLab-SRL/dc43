@@ -71,11 +71,12 @@ class _DocsChatRuntime:
 
 _GRADIO_MOUNT_PATH = "/docs-chat/assistant"
 _INSTALL_EXTRA_HINT = (
-    "Install the docs-chat extra (pip install -e \".[docs-chat]\" for source checkouts, "
-    "or pip install 'dc43-contracts-app[docs-chat]' from PyPI) to use the assistant."
+    "Install the docs-chat extra (pip install --no-cache-dir -e \".[demo]\" from a source checkout, "
+    "or pip install 'dc43-contracts-app[docs-chat]' from PyPI) to use the assistant. Avoid combining both commands in the same "
+    "environment—pip will treat them as conflicting installs."
 )
 _INSTALL_GRADIO_HINT = (
-    "Install Gradio via the docs-chat extra (pip install -e \".[docs-chat]\" or "
+    "Install Gradio via the docs-chat extra (pip install --no-cache-dir -e \".[demo]\" or "
     "pip install 'dc43-contracts-app[docs-chat]') to use the embedded UI."
 )
 
