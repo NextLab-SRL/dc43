@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- Setup bundle archives now ship a ready-to-run `requirements.txt`, cross-platform
+  environment bootstrap scripts, and Docker build/publish helpers so teams can
+  stand up virtual environments or prebuilt images without manual packaging.
 - Setup bundle exports now include full Spark and Delta Live Tables example
   projects (code modules, README, and ops helpers) alongside the
   `examples/pipeline_stub.py` entrypoint so teams can start from a realistic

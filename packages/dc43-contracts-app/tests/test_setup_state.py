@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -392,3 +393,78 @@ def test_pipeline_example_assets_use_integration_provider_hook() -> None:
         support.path
         for support in example.support_files
     } == {"examples/custom_project/__init__.py"}
+
+
+def _minimal_setup_state(pipeline: str) -> dict[str, object]:
+    return {
+        "selected_options": {
+            "pipeline_integration": pipeline,
+        },
+        "configuration": {
+            "pipeline_integration": {},
+        },
+    }
+
+
+def test_setup_bundle_includes_environment_bootstrap_files() -> None:
+    buffer, payload = server._build_setup_bundle(_minimal_setup_state("spark"))
+    assert payload["modules"]
+
+    with zipfile.ZipFile(buffer) as archive:
+        names = set(archive.namelist())
+        assert "dc43-setup/requirements.txt" in names
+        assert "dc43-setup/scripts/bootstrap_environment.sh" in names
+        assert "dc43-setup/scripts/bootstrap_environment.ps1" in names
+
+        requirements = archive.read("dc43-setup/requirements.txt").decode("utf-8")
+        assert "dc43-contracts-app==" in requirements
+        assert "boto3" in requirements
+
+        bootstrap_sh = archive.read(
+            "dc43-setup/scripts/bootstrap_environment.sh"
+        ).decode("utf-8")
+        assert "python3 -m venv" in bootstrap_sh
+        assert "pip install -r" in bootstrap_sh
+
+
+def test_setup_bundle_includes_docker_helpers() -> None:
+    buffer, _ = server._build_setup_bundle(_minimal_setup_state("spark"))
+
+    with zipfile.ZipFile(buffer) as archive:
+        docker_app = archive.read(
+            "dc43-setup/docker/contracts-app/Dockerfile"
+        ).decode("utf-8")
+        assert "dc43-contracts-app" in docker_app
+
+        docker_backend = archive.read(
+            "dc43-setup/docker/service-backends/Dockerfile"
+        ).decode("utf-8")
+        assert "dc43-service-backends" in docker_backend
+
+        build_script = archive.read(
+            "dc43-setup/scripts/build_docker_images.sh"
+        ).decode("utf-8")
+        assert "docker build -t \"dc43/contracts-app" in build_script
+
+        publish_script = archive.read(
+            "dc43-setup/scripts/publish_docker_images.py"
+        ).decode("utf-8")
+        assert "boto3" in publish_script
+        assert "docker" in publish_script
+
+
+def test_setup_bundle_requirements_include_dlt_dependencies() -> None:
+    state = _minimal_setup_state("dlt")
+    state["configuration"] = {
+        "pipeline_integration": {
+            "workspace_url": "https://adb.example.net",
+            "pipeline_name": "demo",
+        }
+    }
+
+    buffer, _ = server._build_setup_bundle(state)
+
+    with zipfile.ZipFile(buffer) as archive:
+        requirements = archive.read("dc43-setup/requirements.txt").decode("utf-8")
+    assert "databricks-sdk" in requirements
+    assert "databricks-dlt" in requirements
