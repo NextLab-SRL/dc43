@@ -461,7 +461,8 @@ pytest -q tests packages/dc43-service-clients/tests \
 
 - The GitHub Actions release workflow at `.github/workflows/release.yml` builds
   the contracts app and HTTP backend Docker images after the release pipeline
-  finishes and publishes them to Amazon ECR.
+  finishes and publishes them to Amazon ECR using the released package versions
+  as image tags (alongside `latest`).
 - Trigger the `ci` workflow manually with **Publish Docker images to Amazon ECR**
   enabled to run a smoke test that builds and pushes both images without waiting
   for a release.

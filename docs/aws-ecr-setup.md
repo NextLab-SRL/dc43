@@ -13,9 +13,11 @@ Provision two repositories in the AWS account that will host your images:
 | Contracts UI (`deploy/contracts-app/Dockerfile`) | `dc43-contracts-app` | `AWS_ECR_CONTRACTS_APP_REPOSITORY` |
 | HTTP service backends (`deploy/http-backend/Dockerfile`) | `dc43-http-backend` | `AWS_ECR_HTTP_BACKEND_REPOSITORY` |
 
-Both repositories must allow pushes for arbitrary semantic tags. The workflows
-publish an immutable `${GITHUB_SHA}` tag for each run and also update a mutable
-`latest` tag.
+Both repositories must allow pushes for arbitrary semantic tags. The release
+workflow publishes each image using the package version reported by the
+corresponding tag (for example `1.4.0`) and also updates a mutable `latest`
+tag. The CI smoke test can still push ad-hoc tags (defaults to the commit SHA)
+when you manually dispatch it.
 
 ## 2. Configure IAM with GitHub OIDC
 
