@@ -20,13 +20,33 @@ class PipelineStubProvider(Protocol):
 
 
 @dataclass(frozen=True)
+class PipelineFile:
+    """Description of an example file contributed to the bundle."""
+
+    path: str
+    content: str
+    executable: bool = False
+
+
+@dataclass(frozen=True)
+class PipelineProject:
+    """A miniature project shipped alongside the setup bundle."""
+
+    root: str
+    entrypoint: str
+    files: Sequence[PipelineFile]
+
+
+@dataclass(frozen=True)
 class PipelineStub:
     """Structured fragments for composing pipeline example scripts."""
 
     bootstrap_imports: Sequence[str] = ()
+    additional_imports: Sequence[str] = ()
     helper_functions: Sequence[str] = ()
     main_lines: Sequence[str] = ()
     tail_lines: Sequence[str] = ()
+    project: PipelineProject | None = None
 
 
 PIPELINE_STUB_PROVIDERS: Dict[str, PipelineStubProvider] = {}
@@ -55,6 +75,8 @@ def get_pipeline_stub(
 
 __all__ = [
     "PIPELINE_STUB_PROVIDERS",
+    "PipelineFile",
+    "PipelineProject",
     "PipelineStub",
     "get_pipeline_stub",
     "register_pipeline_stub",

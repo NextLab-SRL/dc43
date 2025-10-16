@@ -80,7 +80,7 @@ from .config import (
     dumps as dump_contracts_app_config,
     load_config,
 )
-from .setup_bundle import render_pipeline_stub
+from .setup_bundle import PipelineExample, render_pipeline_stub
 from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
     CustomProperty,
@@ -3994,8 +3994,8 @@ def _contracts_app_toml(state: Mapping[str, Any]) -> str | None:
     return toml_text or None
 
 
-def _pipeline_example_script(state: Mapping[str, Any]) -> str:
-    """Return an integration-aware pipeline stub script."""
+def _pipeline_example_assets(state: Mapping[str, Any]) -> PipelineExample:
+    """Return integration-aware pipeline example assets."""
 
     return render_pipeline_stub(state, clean_str=_clean_str)
 
@@ -4325,7 +4325,7 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- config/dc43-service-backends.toml — drop-in configuration for the backend services.",
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
-        "- examples/pipeline_stub.py — integration-aware starter for orchestrating pipelines.",
+        "- examples/ — integration-aware starter projects provided by each integration.",
         "- scripts/run_local_stack.py — start the local UI and backend services for quick testing.",
         "- terraform/governance/<provider>/ — Terraform templates and generated variables for governance deployments (when selected).",
         "- terraform/ui/<provider>/ — Terraform variable stubs for UI hosting (when selected).",
@@ -4400,10 +4400,19 @@ def _build_setup_bundle(state: Mapping[str, Any]) -> Tuple[io.BytesIO, Dict[str,
         script_info.external_attr = 0o755 << 16  # Mark the script as executable.
         archive.writestr(script_info, bootstrap_script)
 
-        example_script = _pipeline_example_script(state)
-        example_info = zipfile.ZipInfo("dc43-setup/examples/pipeline_stub.py")
-        example_info.external_attr = 0o755 << 16
-        archive.writestr(example_info, example_script)
+        example_assets = _pipeline_example_assets(state)
+        example_path = f"dc43-setup/{example_assets.entrypoint_path}".replace("//", "/")
+        example_info = zipfile.ZipInfo(example_path)
+        entry_mode = 0o755 if example_assets.entrypoint_executable else 0o644
+        example_info.external_attr = entry_mode << 16
+        archive.writestr(example_info, example_assets.entrypoint_content)
+
+        for support in example_assets.support_files:
+            support_path = f"dc43-setup/{support.path}".replace("//", "/")
+            support_info = zipfile.ZipInfo(support_path)
+            support_mode = 0o755 if support.executable else 0o644
+            support_info.external_attr = support_mode << 16
+            archive.writestr(support_info, support.content)
 
         start_script = _start_stack_script()
         start_info = zipfile.ZipInfo("dc43-setup/scripts/run_local_stack.py")

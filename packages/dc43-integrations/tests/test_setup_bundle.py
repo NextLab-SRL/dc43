@@ -28,6 +28,14 @@ def test_spark_pipeline_stub_includes_runtime_hints() -> None:
     assert "Spark session initialised" in rendered
     assert "databricks job" in rendered
     assert "https://adb-123.example.net" in rendered
+    assert any(import_line.startswith("from spark_pipeline") for import_line in stub.additional_imports)
+    assert stub.project is not None
+    assert stub.project.root == "spark_pipeline"
+    project_paths = {file.path for file in stub.project.files}
+    assert {"README.md", "main.py", "io.py", "quality.py", "transformations.py", "governance.py"}.issubset(project_paths)
+    main_file = next(file for file in stub.project.files if file.path == "main.py")
+    assert "read_contract_dataset" in main_file.content
+    assert "write_contract_outputs" in main_file.content
 
 
 def test_dlt_pipeline_stub_exposes_workspace_details() -> None:
@@ -48,6 +56,14 @@ def test_dlt_pipeline_stub_exposes_workspace_details() -> None:
     assert "Workspace client initialised" in rendered
     assert "dc43-contract-governance" in rendered
     assert "main.governance" in rendered
+    assert stub.project is not None
+    assert stub.project.root == "dlt_pipeline"
+    project_paths = {file.path for file in stub.project.files}
+    assert {"README.md", "pipeline.py", "ops.py"}.issubset(project_paths)
+    pipeline_module = next(file for file in stub.project.files if file.path == "pipeline.py")
+    assert "@contract_table" in pipeline_module.content
+    ops_module = next(file for file in stub.project.files if file.path == "ops.py")
+    assert "register_output_port" in ops_module.content
 
 
 def test_unknown_pipeline_stub_returns_none() -> None:

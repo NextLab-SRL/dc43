@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 ### Added
+- Setup bundle exports now include full Spark and Delta Live Tables example
+  projects (code modules, README, and ops helpers) alongside the
+  `examples/pipeline_stub.py` entrypoint so teams can start from a realistic
+  integration scaffold.
 - Pipeline bundle generator now loads integration-provided pipeline stub
   fragments so Spark, Delta Live Tables, and future runtimes ship their own
   helper code without modifying the contracts app.

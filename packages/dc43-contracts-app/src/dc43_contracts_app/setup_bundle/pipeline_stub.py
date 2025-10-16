@@ -10,6 +10,24 @@ CleanStr = Callable[[Any], str | None]
 
 
 @dataclass(frozen=True)
+class _ProjectFile:
+    """Description of an additional example file provided by an integration."""
+
+    path: str
+    content: str
+    executable: bool = False
+
+
+@dataclass(frozen=True)
+class _IntegrationProject:
+    """Collection of support files shipped alongside the main stub."""
+
+    root: str
+    entrypoint: str
+    files: Sequence[_ProjectFile]
+
+
+@dataclass(frozen=True)
 class _ModuleSelection:
     key: str
     option: str
@@ -161,6 +179,43 @@ def _coerce_lines(raw: Any) -> List[str]:
     return [str(raw)]
 
 
+def _coerce_project_file(raw: Any) -> _ProjectFile | None:
+    if raw is None:
+        return None
+    if isinstance(raw, Mapping):
+        path = raw.get("path")
+        content = raw.get("content")
+        executable = bool(raw.get("executable"))
+    else:
+        path = getattr(raw, "path", None)
+        content = getattr(raw, "content", None)
+        executable = bool(getattr(raw, "executable", False))
+    if not path or content is None:
+        return None
+    return _ProjectFile(path=str(path), content=str(content), executable=executable)
+
+
+def _coerce_project(raw: Any) -> _IntegrationProject | None:
+    if raw is None:
+        return None
+    if isinstance(raw, Mapping):
+        root = raw.get("root")
+        entrypoint = raw.get("entrypoint")
+        files_raw = raw.get("files", [])
+    else:
+        root = getattr(raw, "root", None)
+        entrypoint = getattr(raw, "entrypoint", None)
+        files_raw = getattr(raw, "files", [])
+    if not root or not entrypoint:
+        return None
+    files: List[_ProjectFile] = []
+    for item in files_raw or []:
+        file = _coerce_project_file(item)
+        if file is not None:
+            files.append(file)
+    return _IntegrationProject(root=str(root), entrypoint=str(entrypoint), files=tuple(files))
+
+
 def _normalise_stub(result: Any) -> _IntegrationStub | None:
     if result is None:
         return None
@@ -172,22 +227,30 @@ def _normalise_stub(result: Any) -> _IntegrationStub | None:
         helper_functions = _coerce_lines(result.get("helper_functions"))
         main_lines = _coerce_lines(result.get("main_lines"))
         tail_lines = _coerce_lines(result.get("tail_lines"))
+        additional_imports = _coerce_lines(result.get("additional_imports"))
+        project = _coerce_project(result.get("project"))
         return _IntegrationStub(
             bootstrap_imports=tuple(bootstrap_imports),
             helper_functions=tuple(helper_functions),
             main_lines=tuple(main_lines),
             tail_lines=tuple(tail_lines),
+            additional_imports=tuple(additional_imports),
+            project=project,
         )
 
     bootstrap_imports = _coerce_lines(getattr(result, "bootstrap_imports", ()))
     helper_functions = _coerce_lines(getattr(result, "helper_functions", ()))
     main_lines = _coerce_lines(getattr(result, "main_lines", ()))
     tail_lines = _coerce_lines(getattr(result, "tail_lines", ()))
+    additional_imports = _coerce_lines(getattr(result, "additional_imports", ()))
+    project = _coerce_project(getattr(result, "project", None))
     return _IntegrationStub(
         bootstrap_imports=tuple(bootstrap_imports),
         helper_functions=tuple(helper_functions),
         main_lines=tuple(main_lines),
         tail_lines=tuple(tail_lines),
+        additional_imports=tuple(additional_imports),
+        project=project,
     )
 
 
@@ -324,8 +387,8 @@ def render_pipeline_stub(
     state: Mapping[str, Any],
     *,
     clean_str: CleanStr,
-) -> str:
-    """Return an integration-aware pipeline stub script."""
+) -> PipelineExample:
+    """Return the integration-aware pipeline example assets."""
 
     configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
     selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
@@ -358,6 +421,9 @@ def render_pipeline_stub(
         )
     ]
 
+    flags = _integration_flags(selected)
+    stub = get_integration_stub(integration_key, hints=hints, flags=flags)
+
     contract_id_literal = json.dumps("replace-with-contract-id")
     contract_version_literal = json.dumps("replace-with-contract-version")
     data_product_id_literal = json.dumps("replace-with-data-product-id")
@@ -373,14 +439,24 @@ def render_pipeline_stub(
         docstring_lines.extend(f"    {line}" for line in module_summaries)
     else:
         docstring_lines.append("    (no module selections were recorded)")
-    docstring_lines.extend(
+    docstring_tail: List[str] = [""]
+    if stub.project is not None:
+        docstring_tail.extend(
+            [
+                "This stub wires in the integration-owned example project located under",
+                f"`examples/{stub.project.root}`. Explore the modules in that folder to",
+                "customise transformations, IO strategies, and service interactions.",
+                "",
+            ]
+        )
+    docstring_tail.extend(
         [
-            "",
             "Update the placeholder identifiers inside :func:`main` before running the",
             "pipeline so that it targets your datasets and contracts.",
             '"""',
         ]
     )
+    docstring_lines.extend(docstring_tail)
 
     lines: List[str] = ["#!/usr/bin/env python3", ""]
     lines.extend(docstring_lines)
@@ -394,13 +470,21 @@ def render_pipeline_stub(
             "",
             "BUNDLE_ROOT = Path(__file__).resolve().parent.parent",
             "sys.path.insert(0, str(BUNDLE_ROOT / \"scripts\"))",
-            "",
         ]
     )
+    if stub.project is not None:
+        lines.extend(
+            [
+                f"PIPELINE_ROOT = BUNDLE_ROOT / 'examples' / {json.dumps(stub.project.root)}",
+                "sys.path.insert(0, str(PIPELINE_ROOT))",
+            ]
+        )
+    lines.append("")
 
-    flags = _integration_flags(selected)
-
-    stub = get_integration_stub(integration_key, hints=hints, flags=flags)
+    if stub.additional_imports:
+        lines.extend(stub.additional_imports)
+        if lines[-1] != "":
+            lines.append("")
 
     import_parts: List[str] = ["load_backends"]
     for name in stub.bootstrap_imports:
@@ -564,7 +648,25 @@ def render_pipeline_stub(
         ]
     )
 
-    return "\n".join(lines)
+    support_files: List[PipelineExampleFile] = []
+    if stub.project is not None:
+        for project_file in stub.project.files:
+            relative = f"examples/{stub.project.root}/{project_file.path}".replace("//", "/")
+            support_files.append(
+                PipelineExampleFile(
+                    path=relative,
+                    content=project_file.content,
+                    executable=project_file.executable,
+                )
+            )
+
+    script_text = "\n".join(lines)
+    return PipelineExample(
+        entrypoint_path="examples/pipeline_stub.py",
+        entrypoint_content=script_text,
+        entrypoint_executable=True,
+        support_files=tuple(support_files),
+    )
 @dataclass(frozen=True)
 class _IntegrationStub:
     """Structured fragments contributed by integration providers."""
@@ -573,4 +675,25 @@ class _IntegrationStub:
     helper_functions: Sequence[str] = ()
     main_lines: Sequence[str] = ()
     tail_lines: Sequence[str] = ()
+    additional_imports: Sequence[str] = ()
+    project: _IntegrationProject | None = None
+
+
+@dataclass(frozen=True)
+class PipelineExampleFile:
+    """File included in the setup bundle example project."""
+
+    path: str
+    content: str
+    executable: bool = False
+
+
+@dataclass(frozen=True)
+class PipelineExample:
+    """Entrypoint script and associated files for the example pipeline."""
+
+    entrypoint_path: str
+    entrypoint_content: str
+    entrypoint_executable: bool = True
+    support_files: Sequence[PipelineExampleFile] = ()
 

@@ -268,7 +268,7 @@ def test_pipeline_bootstrap_script_for_dlt_integration() -> None:
     assert "DLT workspace host" in script
 
 
-def test_pipeline_example_script_for_spark_integration() -> None:
+def test_pipeline_example_assets_for_spark_integration() -> None:
     state = {
         "selected_options": {
             "pipeline_integration": "spark",
@@ -297,7 +297,10 @@ def test_pipeline_example_script_for_spark_integration() -> None:
         },
     }
 
-    script = server._pipeline_example_script(state)
+    example = server._pipeline_example_assets(state)
+    assert example.entrypoint_path == "examples/pipeline_stub.py"
+
+    script = example.entrypoint_content
 
     assert "build_spark_context" in script
     assert "def review_contract_versions" in script
@@ -310,7 +313,7 @@ def test_pipeline_example_script_for_spark_integration() -> None:
     )
 
 
-def test_pipeline_example_script_for_dlt_integration() -> None:
+def test_pipeline_example_assets_for_dlt_integration() -> None:
     state = {
         "selected_options": {
             "pipeline_integration": "dlt",
@@ -330,7 +333,10 @@ def test_pipeline_example_script_for_dlt_integration() -> None:
         },
     }
 
-    script = server._pipeline_example_script(state)
+    example = server._pipeline_example_assets(state)
+    assert example.entrypoint_path == "examples/pipeline_stub.py"
+
+    script = example.entrypoint_content
 
     assert "build_dlt_context" in script
     assert "def publish_governance_updates" in script
@@ -342,7 +348,7 @@ def test_pipeline_example_script_for_dlt_integration() -> None:
         in script
     )
 
-def test_pipeline_example_script_uses_integration_provider_hook() -> None:
+def test_pipeline_example_assets_use_integration_provider_hook() -> None:
     state = {
         "selected_options": {
             "pipeline_integration": "spark",
@@ -355,15 +361,34 @@ def test_pipeline_example_script_uses_integration_provider_hook() -> None:
         helper_functions=("def custom_helper():", "    return 'ok'", ""),
         main_lines=("    if integration:", "        print(custom_helper())"),
         tail_lines=("    # custom tail",),
+        additional_imports=("from custom_project import pipeline",),
+        project=pipeline_stub._IntegrationProject(
+            root="custom_project",
+            entrypoint="__init__.py",
+            files=(
+                pipeline_stub._ProjectFile(
+                    path="__init__.py",
+                    content="print('hello from project')\n",
+                    executable=False,
+                ),
+            ),
+        ),
     )
 
     with mock.patch.object(
         pipeline_stub, "_load_external_stub", return_value=custom_stub
     ) as load_stub:
-        script = server._pipeline_example_script(state)
+        example = server._pipeline_example_assets(state)
 
     load_stub.assert_called_once()
+    script = example.entrypoint_content
     assert "custom_context" in script
     assert "def custom_helper" in script
     assert "print(custom_helper())" in script
     assert "# custom tail" in script
+    assert "from custom_project import pipeline" in script
+    assert example.support_files
+    assert {
+        support.path
+        for support in example.support_files
+    } == {"examples/custom_project/__init__.py"}
