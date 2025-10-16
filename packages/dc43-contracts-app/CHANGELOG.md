@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- Pipeline bundle generator now loads integration-provided pipeline stub
+  fragments so Spark, Delta Live Tables, and future runtimes ship their own
+  helper code without modifying the contracts app.
 - Documented contract status guardrails in the integration helper stub and notes so generated Spark
   snippets explain how to opt into draft or deprecated contracts safely.
 - Introduced a grouped, accessibility-friendly setup wizard with step badges, reset controls, and a
