@@ -1,6 +1,9 @@
 # Example configuration for the dc43 contracts application.
 # Copy this file next to your deployment (e.g. /etc/dc43/contracts-app.toml)
-# and update the paths to match your environment.
+# and update the paths to match your environment. Export the file path via
+# `DC43_CONTRACTS_APP_CONFIG=/path/to/contracts-app.toml` before launching the
+# demo so the app picks it up, and remember that `docs_chat.api_key_env`
+# contains the *name* of the environment variable that stores your secret.
 
 [workspace]
 # Location where draft contracts and attachments are stored.

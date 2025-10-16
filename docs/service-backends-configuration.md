@@ -291,6 +291,12 @@ log_level = "info"
 | `docs_chat` | `docs_path` | Optional override pointing at the directory that stores Markdown documentation (`DC43_CONTRACTS_APP_DOCS_CHAT_PATH`). |
 | `docs_chat` | `index_path` | Directory used to persist the LangChain/FAISS index (`DC43_CONTRACTS_APP_DOCS_CHAT_INDEX`). |
 
+`api_key_env` records the *name* of the variable that contains your secret—load
+the key separately (for example by exporting `OPENAI_API_KEY` or using `.env`
+tooling). Remember to `export DC43_CONTRACTS_APP_CONFIG=/path/to/file.toml`
+before launching the app; setting the variable without `export` keeps it local
+to the shell and the demo falls back to defaults.
+
 When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
 `/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install
 the `docs-chat` optional dependency (`pip install --no-cache-dir -e ".[demo]"`

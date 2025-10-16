@@ -28,6 +28,9 @@
 - Clarified docs-chat installation notes so contributors avoid mixing the meta extra with
   direct `dc43-contracts-app[docs-chat]` installs, which pip treats as conflicting
   requirements in a single environment.
+- Documented that `DC43_CONTRACTS_APP_CONFIG` must be exported for the docs assistant to
+  load custom TOML files and clarified that `docs_chat.api_key_env` stores the name of the
+  secret-bearing environment variable.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

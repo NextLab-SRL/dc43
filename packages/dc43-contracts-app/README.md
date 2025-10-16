@@ -42,7 +42,15 @@ maintain bespoke chat widgets. To enable it:
    embedding_model = "text-embedding-3-small"
    api_key_env = "OPENAI_API_KEY"
    ```
-4. Restart the dc43 app. The assistant indexes Markdown under `docs/` by
+   `api_key_env` records the *name* of the variable that stores your API key;
+   load the secret separately (for example via `direnv`, `dotenv`, or a shell
+   `export OPENAI_API_KEY=...`).
+4. Export the config path before launching the app so the loader picks up your
+   changes:
+   ```bash
+   export DC43_CONTRACTS_APP_CONFIG=/path/to/contracts-app.toml
+   ```
+5. Restart the dc43 app. The assistant indexes Markdown under `docs/` by
    default; override `docs_chat.docs_path` or `docs_chat.index_path` when the
    repository lives elsewhere.
 

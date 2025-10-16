@@ -37,6 +37,14 @@ model = "gpt-4o-mini"
 embedding_model = "text-embedding-3-small"
 api_key_env = "OPENAI_API_KEY"
 TOML
+
+# Make the config visible to the demo launcher (export once per shell or load it
+# via your preferred `.env` tooling).
+export DC43_CONTRACTS_APP_CONFIG="$HOME/dc43/contracts-app.toml"
+
+# `api_key_env` stores the *name* of the environment variable that contains your
+# secret. Populate it separately, e.g. with `direnv`, `dotenv`, or a manual
+# `export OPENAI_API_KEY=...` before starting the app.
 ```
 
 Mount the config via `DC43_CONTRACTS_APP_CONFIG` or copy the snippet into your existing TOML file.

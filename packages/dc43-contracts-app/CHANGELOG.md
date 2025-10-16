@@ -46,3 +46,5 @@
 - Documented that mixing the meta package demo extra with a direct
   `dc43-contracts-app[docs-chat]` install in the same environment leads to pip conflicts, and
   pointed contributors at the single-command workflow.
+- Clarified that docs chat configuration requires exporting `DC43_CONTRACTS_APP_CONFIG` and that
+  `docs_chat.api_key_env` holds the name of the environment variable containing the provider key.
