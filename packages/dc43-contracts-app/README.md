@@ -38,6 +38,10 @@ maintain bespoke chat widgets. To enable it:
    default; override `docs_chat.docs_path` or `docs_chat.index_path` when the
    repository lives elsewhere.
 
+The contracts setup wizard mirrors these settings via the **Documentation assistant** module. Pick
+the Gradio option under the *User experience* group to populate `[docs_chat]` in the exported
+`dc43-contracts-app.toml` and surface the assistant alongside other deployment assets.
+
 Programmatic callers can POST to `/api/docs-chat/messages` with a JSON payload
 (`{"message": "...", "history": [...]}`) and receive answers plus cited
 sources. The embedded Gradio UI is mounted at `/docs-chat/assistant` and the

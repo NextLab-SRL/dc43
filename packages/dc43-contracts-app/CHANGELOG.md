@@ -24,6 +24,8 @@
   chosen engine alongside the dc43 backends.
 - Added a documentation chat experience powered by LangChain and Gradio, including configuration
   defaults, a Gradio-mounted UI, and a REST endpoint for programmatic access.
+- Introduced a documentation assistant module in the setup wizard so exported bundles capture the
+  docs chat configuration alongside other deployment metadata.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are

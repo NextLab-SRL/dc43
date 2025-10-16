@@ -78,6 +78,7 @@ from .config import (
     BackendConfig,
     BackendProcessConfig,
     ContractsAppConfig,
+    DocsChatConfig,
     WorkspaceConfig,
     dumps as dump_contracts_app_config,
     load_config,
@@ -2431,6 +2432,75 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
             },
         },
     },
+    "docs_assistant": {
+        "title": "Documentation assistant",
+        "summary": "Enable the bundled docs chat so operators can query dc43 guides without leaving the app.",
+        "default_option": "disabled",
+        "options": {
+            "disabled": {
+                "label": "Disabled",
+                "description": "Skip the documentation chat experience for now.",
+                "installation": [
+                    "Leave the docs assistant turned off until credentials and dependencies are available.",
+                ],
+                "configuration_notes": [
+                    "Re-run the wizard later to capture docs chat settings once the assistant should be exposed.",
+                ],
+                "fields": [],
+                "skip_configuration": True,
+            },
+            "openai_embedded": {
+                "label": "Gradio assistant (OpenAI)",
+                "description": "Use the LangChain + Gradio powered docs assistant backed by OpenAI models.",
+                "installation": [
+                    "Install the docs-chat extra: `pip install \"dc43-contracts-app[docs-chat]\"`.",
+                    "Expose the configured API key environment variable before starting the UI.",
+                ],
+                "configuration_notes": [
+                    "The assistant indexes Markdown under `docs/` by default and persists a FAISS index alongside the workspace.",
+                    "Override paths when bundling custom documentation or sharing an index across environments.",
+                ],
+                "fields": [
+                    {
+                        "name": "provider",
+                        "label": "Provider ID",
+                        "placeholder": "openai",
+                        "default": "openai",
+                    },
+                    {
+                        "name": "model",
+                        "label": "Chat model",
+                        "placeholder": "gpt-4o-mini",
+                        "default": "gpt-4o-mini",
+                    },
+                    {
+                        "name": "embedding_model",
+                        "label": "Embedding model",
+                        "placeholder": "text-embedding-3-small",
+                        "default": "text-embedding-3-small",
+                    },
+                    {
+                        "name": "api_key_env",
+                        "label": "API key environment variable",
+                        "placeholder": "OPENAI_API_KEY",
+                        "default": "OPENAI_API_KEY",
+                    },
+                    {
+                        "name": "docs_path",
+                        "label": "Documentation directory override",
+                        "placeholder": "~/dc43/docs",
+                        "optional": True,
+                    },
+                    {
+                        "name": "index_path",
+                        "label": "Vector index directory override",
+                        "placeholder": "~/dc43/docs-index",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
     "ui_deployment": {
         "title": "User interface deployment",
         "summary": "Document how the contracts UI is hosted so deployment scripts and Terraform variables can be generated per environment.",
@@ -2913,7 +2983,7 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "key": "user_experience",
         "title": "User experience",
         "summary": "Choose how operators reach the contracts UI and how that interface is hosted or automated.",
-        "modules": ["user_interface", "ui_deployment"],
+        "modules": ["user_interface", "docs_assistant", "ui_deployment"],
     },
     {
         "key": "access_security",
@@ -4025,7 +4095,39 @@ def _contracts_app_config_from_state(
         process=BackendProcessConfig(),
     )
 
-    return ContractsAppConfig(workspace=workspace_cfg, backend=backend_cfg)
+    docs_option = selected.get("docs_assistant")
+    docs_chat_cfg = DocsChatConfig()
+    if docs_option == "openai_embedded":
+        docs_module = configuration.get("docs_assistant", {})
+        if not isinstance(docs_module, Mapping):
+            docs_module = {}
+
+        provider = _clean_str(docs_module.get("provider")) or "openai"
+        model = _clean_str(docs_module.get("model")) or "gpt-4o-mini"
+        embedding_model = _clean_str(docs_module.get("embedding_model")) or "text-embedding-3-small"
+        api_key_env = _clean_str(docs_module.get("api_key_env")) or "OPENAI_API_KEY"
+
+        docs_path_text = _clean_str(docs_module.get("docs_path"))
+        index_path_text = _clean_str(docs_module.get("index_path"))
+
+        docs_path = Path(docs_path_text).expanduser() if docs_path_text else None
+        index_path = Path(index_path_text).expanduser() if index_path_text else None
+
+        docs_chat_cfg = DocsChatConfig(
+            enabled=True,
+            provider=provider,
+            model=model,
+            embedding_model=embedding_model,
+            api_key_env=api_key_env,
+            docs_path=docs_path,
+            index_path=index_path,
+        )
+
+    return ContractsAppConfig(
+        workspace=workspace_cfg,
+        backend=backend_cfg,
+        docs_chat=docs_chat_cfg,
+    )
 
 
 def _contracts_app_toml(state: Mapping[str, Any]) -> str | None:

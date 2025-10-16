@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from dc43_contracts_app import server
 from dc43_contracts_app.config import load_config
 
 
@@ -45,3 +48,43 @@ def test_docs_chat_env_overrides(monkeypatch, tmp_path):
     assert docs_chat.api_key_env == "MY_CUSTOM_KEY"
     assert docs_chat.docs_path == docs_path
     assert docs_chat.index_path == index_path
+
+
+def test_wizard_state_enables_docs_chat():
+    state = {
+        "configuration": {
+            "contracts_backend": {"work_dir": "/tmp/workspace"},
+            "docs_assistant": {
+                "provider": "openai",
+                "model": "gpt-4.1-mini",
+                "embedding_model": "text-embedding-3-large",
+                "api_key_env": "TEAM_OPENAI_KEY",
+                "docs_path": "~/shared-docs",
+                "index_path": "~/shared-index",
+            },
+        },
+        "selected_options": {
+            "docs_assistant": "openai_embedded",
+        },
+    }
+
+    config = server._contracts_app_config_from_state(state)
+    docs_chat = config.docs_chat
+
+    assert docs_chat.enabled is True
+    assert docs_chat.provider == "openai"
+    assert docs_chat.model == "gpt-4.1-mini"
+    assert docs_chat.embedding_model == "text-embedding-3-large"
+    assert docs_chat.api_key_env == "TEAM_OPENAI_KEY"
+    assert docs_chat.docs_path == Path("~/shared-docs").expanduser()
+    assert docs_chat.index_path == Path("~/shared-index").expanduser()
+
+
+def test_wizard_state_defaults_to_disabled_docs_chat():
+    config = server._contracts_app_config_from_state({
+        "configuration": {},
+        "selected_options": {},
+    })
+
+    docs_chat = config.docs_chat
+    assert docs_chat.enabled is False

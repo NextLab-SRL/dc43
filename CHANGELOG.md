@@ -11,6 +11,8 @@
 - Added a LangChain + Gradio powered documentation assistant to the dc43 app with
   configuration knobs, deployment guidance, and docs updates so teams can chat with
   the bundled Markdown guides.
+- Extended the setup wizard with a documentation assistant module so docs-chat settings
+  flow into exported configuration bundles and UI automation scenarios.
 
 ### Changed
 - Updated the release automation to tag the contracts-app and HTTP backend Docker

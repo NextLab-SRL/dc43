@@ -37,3 +37,8 @@ TOML
 
 Mount the config via `DC43_CONTRACTS_APP_CONFIG` or copy the snippet into your existing TOML file.
 Restart the application and open `/docs-chat` to chat with the Markdown guides bundled in `docs/`.
+
+Prefer a guided experience? The contracts setup wizard now includes a **Documentation assistant**
+module under the *User experience* group. Selecting the Gradio assistant option captures the same
+`[docs_chat]` settings (provider, models, key environment variable, and optional path overrides) so
+the exported bundle and configuration downloads are ready to deploy without manual edits.
