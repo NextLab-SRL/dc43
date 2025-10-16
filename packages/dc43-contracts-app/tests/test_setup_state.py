@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest import mock
 
 from starlette.requests import Request
 
@@ -17,6 +18,7 @@ for src_dir in SRC_DIRS:
             sys.path.insert(0, str_path)
 
 from dc43_contracts_app import server
+from dc43_contracts_app.setup_bundle import pipeline_stub
 
 
 def test_delta_databricks_values_fill_unity_config() -> None:
@@ -339,3 +341,29 @@ def test_pipeline_example_script_for_dlt_integration() -> None:
         " workspace_profile=dlt-admin, workspace_url=https://adb-456.example.net"
         in script
     )
+
+def test_pipeline_example_script_uses_integration_provider_hook() -> None:
+    state = {
+        "selected_options": {
+            "pipeline_integration": "spark",
+        },
+        "configuration": {},
+    }
+
+    custom_stub = pipeline_stub._IntegrationStub(
+        bootstrap_imports=("custom_context",),
+        helper_functions=("def custom_helper():", "    return 'ok'", ""),
+        main_lines=("    if integration:", "        print(custom_helper())"),
+        tail_lines=("    # custom tail",),
+    )
+
+    with mock.patch.object(
+        pipeline_stub, "_load_external_stub", return_value=custom_stub
+    ) as load_stub:
+        script = server._pipeline_example_script(state)
+
+    load_stub.assert_called_once()
+    assert "custom_context" in script
+    assert "def custom_helper" in script
+    assert "print(custom_helper())" in script
+    assert "# custom tail" in script

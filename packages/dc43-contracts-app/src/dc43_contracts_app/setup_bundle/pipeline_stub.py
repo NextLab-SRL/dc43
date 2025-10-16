@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import json
-from typing import Any, Callable, Dict, List, Mapping
+from typing import Any, Callable, Dict, List, Mapping, Sequence
 
 CleanStr = Callable[[Any], str | None]
 
@@ -153,6 +153,173 @@ def _integration_flags(selected: Mapping[str, str]) -> Dict[str, bool]:
     }
 
 
+def _coerce_lines(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return [str(item) for item in raw]
+    return [str(raw)]
+
+
+def _normalise_stub(result: Any) -> _IntegrationStub | None:
+    if result is None:
+        return None
+    if isinstance(result, _IntegrationStub):
+        return result
+
+    if isinstance(result, Mapping):
+        bootstrap_imports = _coerce_lines(result.get("bootstrap_imports"))
+        helper_functions = _coerce_lines(result.get("helper_functions"))
+        main_lines = _coerce_lines(result.get("main_lines"))
+        tail_lines = _coerce_lines(result.get("tail_lines"))
+        return _IntegrationStub(
+            bootstrap_imports=tuple(bootstrap_imports),
+            helper_functions=tuple(helper_functions),
+            main_lines=tuple(main_lines),
+            tail_lines=tuple(tail_lines),
+        )
+
+    bootstrap_imports = _coerce_lines(getattr(result, "bootstrap_imports", ()))
+    helper_functions = _coerce_lines(getattr(result, "helper_functions", ()))
+    main_lines = _coerce_lines(getattr(result, "main_lines", ()))
+    tail_lines = _coerce_lines(getattr(result, "tail_lines", ()))
+    return _IntegrationStub(
+        bootstrap_imports=tuple(bootstrap_imports),
+        helper_functions=tuple(helper_functions),
+        main_lines=tuple(main_lines),
+        tail_lines=tuple(tail_lines),
+    )
+
+
+def _load_external_stub(
+    key: str,
+    *,
+    hints: _IntegrationHints,
+    flags: Mapping[str, bool],
+) -> _IntegrationStub | None:
+    try:
+        from dc43_integrations import setup_bundle as integration_setup_bundle  # type: ignore
+    except Exception:
+        return None
+
+    get_pipeline_stub = getattr(integration_setup_bundle, "get_pipeline_stub", None)
+    if not callable(get_pipeline_stub):
+        return None
+
+    hints_payload = asdict(hints)
+    try:
+        external = get_pipeline_stub(  # type: ignore[misc]
+            key,
+            hints=hints_payload,
+            flags=dict(flags),
+            json_literal=_IntegrationHints.json_literal,
+        )
+    except Exception:
+        return None
+
+    return _normalise_stub(external)
+
+
+def _spark_stub(hints: _IntegrationHints) -> _IntegrationStub:
+    runtime_hint = _IntegrationHints.json_literal(hints.spark_runtime)
+    workspace_hint = _IntegrationHints.json_literal(hints.spark_workspace_url)
+    profile_hint = _IntegrationHints.json_literal(hints.spark_workspace_profile)
+    cluster_hint = _IntegrationHints.json_literal(hints.spark_cluster)
+
+    lines = [
+        "    if integration == 'spark':",
+        "        context = build_spark_context(app_name=\"dc43-pipeline-example\")",
+        "        spark = context.get('spark')",
+        "        if spark is not None:",
+        "            print(\"[spark] Spark session initialised:\", spark)",
+        f"        runtime_hint = {runtime_hint}",
+        "        if runtime_hint and runtime_hint is not None:",
+        "            print(\"[spark] Runtime configured in setup:\", runtime_hint)",
+        f"        workspace_hint = {workspace_hint}",
+        "        if workspace_hint and workspace_hint is not None:",
+        "            print(\"[spark] Workspace URL:\", workspace_hint)",
+        f"        profile_hint = {profile_hint}",
+        "        if profile_hint and profile_hint is not None:",
+        "            print(\"[spark] CLI profile:\", profile_hint)",
+        f"        cluster_hint = {cluster_hint}",
+        "        if cluster_hint and cluster_hint is not None:",
+        "            print(\"[spark] Cluster reference:\", cluster_hint)",
+        "        contract_backend = context.get('contract_backend', contract_backend)",
+        "        data_product_backend = context.get('data_product_backend', data_product_backend)",
+        "        data_quality_backend = context.get('data_quality_backend', data_quality_backend)",
+        "        governance_store = context.get('governance_store', governance_store)",
+    ]
+
+    return _IntegrationStub(
+        bootstrap_imports=("build_spark_context",),
+        main_lines=tuple(lines),
+    )
+
+
+def _dlt_stub(hints: _IntegrationHints) -> _IntegrationStub:
+    workspace_hint = _IntegrationHints.json_literal(hints.dlt_workspace_url)
+    profile_hint = _IntegrationHints.json_literal(hints.dlt_workspace_profile)
+    pipeline_name = _IntegrationHints.json_literal(hints.dlt_pipeline_name)
+    notebook_hint = _IntegrationHints.json_literal(hints.dlt_notebook_path)
+    target_hint = _IntegrationHints.json_literal(hints.dlt_target_schema)
+
+    lines = [
+        "    if integration == 'dlt':",
+        "        context = build_dlt_context()",
+        "        workspace = context.get('workspace')",
+        "        if workspace is not None:",
+        "            print(\"[dlt] Workspace client initialised:\", workspace)",
+        f"        workspace_hint = {workspace_hint}",
+        "        if workspace_hint and workspace_hint is not None:",
+        "            print(\"[dlt] Workspace host:\", workspace_hint)",
+        f"        profile_hint = {profile_hint}",
+        "        if profile_hint and profile_hint is not None:",
+        "            print(\"[dlt] CLI profile:\", profile_hint)",
+        f"        pipeline_name = {pipeline_name}",
+        "        if pipeline_name and pipeline_name is not None:",
+        "            print(\"[dlt] Pipeline name:\", pipeline_name)",
+        f"        notebook_hint = {notebook_hint}",
+        "        if notebook_hint and notebook_hint is not None:",
+        "            print(\"[dlt] Notebook path:\", notebook_hint)",
+        f"        target_hint = {target_hint}",
+        "        if target_hint and target_hint is not None:",
+        "            print(\"[dlt] Target schema:\", target_hint)",
+        "        contract_backend = context.get('contract_backend', contract_backend)",
+        "        data_product_backend = context.get('data_product_backend', data_product_backend)",
+        "        data_quality_backend = context.get('data_quality_backend', data_quality_backend)",
+        "        governance_store = context.get('governance_store', governance_store)",
+    ]
+
+    return _IntegrationStub(
+        bootstrap_imports=("build_dlt_context",),
+        main_lines=tuple(lines),
+    )
+
+
+def _fallback_stub(
+    key: str,
+    *,
+    hints: _IntegrationHints,
+) -> _IntegrationStub:
+    if key == "spark":
+        return _spark_stub(hints)
+    if key == "dlt":
+        return _dlt_stub(hints)
+    return _IntegrationStub()
+
+
+def get_integration_stub(
+    key: str,
+    *,
+    hints: _IntegrationHints,
+    flags: Mapping[str, bool],
+) -> _IntegrationStub:
+    stub = _load_external_stub(key, hints=hints, flags=flags)
+    if stub is not None:
+        return stub
+    return _fallback_stub(key, hints=hints)
+
+
 def render_pipeline_stub(
     state: Mapping[str, Any],
     *,
@@ -231,15 +398,16 @@ def render_pipeline_stub(
         ]
     )
 
+    flags = _integration_flags(selected)
+
+    stub = get_integration_stub(integration_key, hints=hints, flags=flags)
+
     import_parts: List[str] = ["load_backends"]
-    if hints.key == "spark":
-        import_parts.append("build_spark_context")
-    elif hints.key == "dlt":
-        import_parts.append("build_dlt_context")
+    for name in stub.bootstrap_imports:
+        if name not in import_parts:
+            import_parts.append(name)
     lines.append(f"from bootstrap_pipeline import {', '.join(import_parts)}")
     lines.append("")
-
-    flags = _integration_flags(selected)
 
     if flags["contracts"]:
         lines.extend(
@@ -324,68 +492,37 @@ def render_pipeline_stub(
             ]
         )
 
-    lines.extend(
+    if stub.helper_functions:
+        if not lines or lines[-1] != "":
+            lines.append("")
+        lines.extend(stub.helper_functions)
+
+    if not lines or lines[-1] != "":
+        lines.append("")
+
+    main_lines: List[str] = [
+        "def main() -> None:",
+        "    \"\"\"Entry-point for the generated pipeline stub.\"\"\"",
+        "    suite = load_backends()",
+        "    contract_backend = suite.contract",
+        "    data_product_backend = suite.data_product",
+        "    data_quality_backend = suite.data_quality",
+        "    governance_store = suite.governance_store",
+        f"    integration = {json.dumps(hints.key)}",
+        "    print(\"[bundle] Configuration root:\", BUNDLE_ROOT)",
+        "    if integration:",
+        "        print(\"[bundle] Pipeline integration from setup:\", integration)",
+        "    else:",
+        "        print(\"[bundle] No pipeline integration was selected in the wizard.\")",
+    ]
+
+    if stub.main_lines:
+        if main_lines[-1] != "":
+            main_lines.append("")
+        main_lines.extend(list(stub.main_lines))
+
+    main_lines.extend(
         [
-            "",
-            "def main() -> None:",
-            "    \"\"\"Entry-point for the generated pipeline stub.\"\"\"",
-            "    suite = load_backends()",
-            "    contract_backend = suite.contract",
-            "    data_product_backend = suite.data_product",
-            "    data_quality_backend = suite.data_quality",
-            "    governance_store = suite.governance_store",
-            f"    integration = {json.dumps(hints.key)}",
-            "    print(\"[bundle] Configuration root:\", BUNDLE_ROOT)",
-            "    if integration:",
-            "        print(\"[bundle] Pipeline integration from setup:\", integration)",
-            "    else:",
-            "        print(\"[bundle] No pipeline integration was selected in the wizard.\")",
-            "",
-            "    if integration == 'spark':",
-            "        context = build_spark_context(app_name=\"dc43-pipeline-example\")",
-            "        spark = context.get('spark')",
-            "        if spark is not None:",
-            "            print(\"[spark] Spark session initialised:\", spark)",
-            f"        runtime_hint = {_IntegrationHints.json_literal(hints.spark_runtime)}",
-            "        if runtime_hint and runtime_hint is not None:",
-            "            print(\"[spark] Runtime configured in setup:\", runtime_hint)",
-            f"        workspace_hint = {_IntegrationHints.json_literal(hints.spark_workspace_url)}",
-            "        if workspace_hint and workspace_hint is not None:",
-            "            print(\"[spark] Workspace URL:\", workspace_hint)",
-            f"        profile_hint = {_IntegrationHints.json_literal(hints.spark_workspace_profile)}",
-            "        if profile_hint and profile_hint is not None:",
-            "            print(\"[spark] CLI profile:\", profile_hint)",
-            f"        cluster_hint = {_IntegrationHints.json_literal(hints.spark_cluster)}",
-            "        if cluster_hint and cluster_hint is not None:",
-            "            print(\"[spark] Cluster reference:\", cluster_hint)",
-            "        contract_backend = context.get('contract_backend', contract_backend)",
-            "        data_product_backend = context.get('data_product_backend', data_product_backend)",
-            "        data_quality_backend = context.get('data_quality_backend', data_quality_backend)",
-            "        governance_store = context.get('governance_store', governance_store)",
-            "    elif integration == 'dlt':",
-            "        context = build_dlt_context()",
-            "        workspace = context.get('workspace')",
-            "        if workspace is not None:",
-            "            print(\"[dlt] Workspace client initialised:\", workspace)",
-            f"        workspace_hint = {_IntegrationHints.json_literal(hints.dlt_workspace_url)}",
-            "        if workspace_hint and workspace_hint is not None:",
-            "            print(\"[dlt] Workspace host:\", workspace_hint)",
-            f"        profile_hint = {_IntegrationHints.json_literal(hints.dlt_workspace_profile)}",
-            "        if profile_hint and profile_hint is not None:",
-            "            print(\"[dlt] CLI profile:\", profile_hint)",
-            f"        pipeline_name = {_IntegrationHints.json_literal(hints.dlt_pipeline_name)}",
-            "        if pipeline_name and pipeline_name is not None:",
-            "            print(\"[dlt] Pipeline name:\", pipeline_name)",
-            f"        notebook_hint = {_IntegrationHints.json_literal(hints.dlt_notebook_path)}",
-            "        if notebook_hint and notebook_hint is not None:",
-            "            print(\"[dlt] Notebook path:\", notebook_hint)",
-            f"        target_hint = {_IntegrationHints.json_literal(hints.dlt_target_schema)}",
-            "        if target_hint and target_hint is not None:",
-            "            print(\"[dlt] Target schema:\", target_hint)",
-            "        contract_backend = context.get('contract_backend', contract_backend)",
-            "        data_product_backend = context.get('data_product_backend', data_product_backend)",
-            "        data_quality_backend = context.get('data_quality_backend', data_quality_backend)",
-            "        governance_store = context.get('governance_store', governance_store)",
             "",
             "    print(\"[suite] Contract backend:\", contract_backend.__class__.__name__)",
             "    print(\"[suite] Data product backend:\", data_product_backend.__class__.__name__)",
@@ -395,19 +532,31 @@ def render_pipeline_stub(
         ]
     )
 
-    if flags["contracts"]:
-        lines.append("    review_contract_versions(contract_backend)")
-    if flags["products"]:
-        lines.append("    sync_data_product_catalog(data_product_backend)")
-    if flags["quality"]:
-        lines.append("    run_quality_checks(data_quality_backend, contract_backend)")
-    if flags["governance"]:
-        lines.append("    publish_governance_updates(governance_store)")
+    if stub.tail_lines:
+        if main_lines[-1] != "":
+            main_lines.append("")
+        main_lines.extend(list(stub.tail_lines))
 
-    lines.extend(
+    if flags["contracts"]:
+        main_lines.append("    review_contract_versions(contract_backend)")
+    if flags["products"]:
+        main_lines.append("    sync_data_product_catalog(data_product_backend)")
+    if flags["quality"]:
+        main_lines.append("    run_quality_checks(data_quality_backend, contract_backend)")
+    if flags["governance"]:
+        main_lines.append("    publish_governance_updates(governance_store)")
+
+    main_lines.extend(
         [
             "",
             "    print(\"[done] Stub completed. Replace the placeholders with real identifiers.\")",
+        ]
+    )
+
+    lines.extend(main_lines)
+
+    lines.extend(
+        [
             "",
             "if __name__ == '__main__':",
             "    main()",
@@ -416,3 +565,12 @@ def render_pipeline_stub(
     )
 
     return "\n".join(lines)
+@dataclass(frozen=True)
+class _IntegrationStub:
+    """Structured fragments contributed by integration providers."""
+
+    bootstrap_imports: Sequence[str] = ()
+    helper_functions: Sequence[str] = ()
+    main_lines: Sequence[str] = ()
+    tail_lines: Sequence[str] = ()
+
