@@ -67,11 +67,12 @@ maintain bespoke chat widgets. To enable it:
    assistant at large documentation or source directories without juggling
    manual chunk sizes.
 
-   The FastAPI application now blocks on the documentation index warm-up when it
+   The FastAPI application now kicks off the documentation index warm-up as it
    loads the configuration so the one-off downloads and FAISS persistence happen
-   before the UI starts listening. Cached manifests are reused across restarts
-   until the docs or code change, and if a prompt arrives mid warm-up the chat
-   surface explains that it is waiting for the cached index to finish building.
+   in the background while the UI comes online. Cached manifests are reused
+   across restarts until the docs or code change, and if a prompt arrives mid
+   warm-up the chat surface explains that it is waiting for the cached index to
+   finish building before continuing.
 
    While users wait for an answer the chat UI streams progress updates—loading
    documentation, embedding batches, and querying OpenAI—before presenting the

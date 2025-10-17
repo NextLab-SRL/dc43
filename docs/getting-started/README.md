@@ -83,14 +83,13 @@ initial index build so OpenAI's embeddings endpoint never receives a request
 that exceeds its 300k-token limit. You can point the assistant at broad
 projects without manually tuning chunk sizes.
 
-The demo runner now warms the knowledge base as part of its startup flow and
-waits for the process to finish before the FastAPI apps start listening.
-Downloading model metadata, scanning Markdown, and persisting the FAISS index
-happens once when the app boots so the first chat question returns immediately
-instead of triggering a long “first run” pause. If the warm-up is still running
-when a chat request arrives, the UI shows a “waiting for warm-up” status until
-the cache is ready. Subsequent restarts reuse the cached index unless the docs
-or code change.
+The demo runner now kicks off the knowledge base warm-up as part of its startup
+flow while the FastAPI apps boot. Downloading model metadata, scanning
+Markdown, and persisting the FAISS index happens in the background so the
+services come online quickly. If a chat request lands before the warm-up
+completes, the UI streams a “waiting for warm-up” status until the cache is
+ready and then continues with retrieval. Subsequent restarts reuse the cached
+index unless the docs or code change.
 
 While a response is being generated the chat UI streams progress updates such
 as “embedding documentation” or “querying OpenAI”, so users always know which

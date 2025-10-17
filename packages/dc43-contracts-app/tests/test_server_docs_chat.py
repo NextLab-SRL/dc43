@@ -28,5 +28,5 @@ def test_configure_from_config_warms_docs_chat(monkeypatch):
     result = server.configure_from_config(config)
 
     assert result is config
-    assert warm_calls and warm_calls[0][0] is True
+    assert warm_calls and warm_calls[0][0] is False
     assert callable(warm_calls[0][1])

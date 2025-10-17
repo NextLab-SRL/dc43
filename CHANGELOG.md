@@ -45,10 +45,10 @@
   questions return context-rich guidance grounded in both docs and code.
 - Added a dc43-only guardrail to the docs assistant so off-topic prompts receive a polite
   reminder that the chat surface focuses on project setup and usage guidance.
-- Warmed the docs assistant synchronously during application startup, cached the vector
-  index between runs, and streamed progress updates (with an explicit warm-up wait message
-  also exposed via the API `steps` field) so users can see which stage is running before
-  the final answer appears.
+- Kicked off docs assistant warm-up in the background during application startup, cached
+  the vector index between runs, and streamed progress updates (with an explicit warm-up
+  wait message also exposed via the API `steps` field) so users can see which stage is
+  running before the final answer appears without delaying service start-up.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.
