@@ -108,10 +108,13 @@ completes, the UI streams the queued warm-up steps (including the initial
 retrieval, and the same progress shows up in the server logs for debugging.
 Subsequent restarts reuse the cached index unless the docs or code change.
 
-While a response is being generated the chat UI streams progress updates such
-as “embedding documentation” or “querying OpenAI”, so users always know which
-stage of the retrieval-and-generation pipeline is running. The final answer
-includes the same step list alongside the cited sources for future reference.
+While a response is being generated the chat UI streams succinct progress
+updates (for example “embedding documentation” or “querying OpenAI”) so users
+know which stage of the retrieval-and-generation pipeline is running without a
+wall of status text pushing the answer out of view. Once the response is ready,
+the assistant renders the answer first and tucks the complete step list into a
+collapsible **Processing steps** summary underneath the citations for future
+reference.
 
 > ℹ️ You can skip the env file when `docs_chat.api_key` stores the secret: run
 > `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your

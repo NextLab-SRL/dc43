@@ -69,6 +69,9 @@
 - Accepted hyphenated `code-path` keys in docs chat TOML configuration and taught the
   offline index CLI to echo the resolved sources and providers before warm-up so
   misconfigurations are easier to spot during cache builds.
+- Streamed docs chat progress as concise updates and moved the full step history
+  into a collapsible summary beneath completed answers so the UI keeps the
+  response visible while still exposing detailed processing logs.
 - Added a dc43-specific guardrail to the docs chat runtime so off-topic prompts get a polite
   reminder that the assistant is limited to project documentation and helper workflows.
 - Triggered the docs chat runtime warm-up in the background during app startup, cached the

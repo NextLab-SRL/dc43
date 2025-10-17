@@ -211,6 +211,22 @@ def _emit_progress(callback: ProgressCallback | None, message: str) -> None:
         logger.debug("Docs chat progress callback failed", exc_info=True)
 
 
+def _render_progress_update(step: str, count: int) -> str:
+    suffix = "step" if count == 1 else "steps"
+    return f"**Working…**\n\n{step}\n\n_{count} {suffix} logged so far._"
+
+
+def _append_progress_summary(markdown: str, steps: Sequence[str]) -> str:
+    bullet_lines = "\n".join(f"- {entry}" for entry in steps)
+    summary = (
+        "\n\n---\n"
+        "<details><summary>Processing steps</summary>\n\n"
+        f"{bullet_lines}\n\n"
+        "</details>"
+    )
+    return f"{markdown}{summary}"
+
+
 def _consume_warmup_messages(
     queue: Queue[object] | None,
     progress: ProgressCallback | None,
@@ -627,8 +643,8 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
             kind, payload = progress_queue.get()
             if kind == "progress":
                 progress_entries.append(str(payload))
-                summary = "\n".join(f"- {entry}" for entry in progress_entries)
-                yield f"**Working…**\n\n{summary}"
+                step = progress_entries[-1]
+                yield _render_progress_update(step, len(progress_entries))
                 continue
             if kind == "error":
                 yield f"⚠️ {payload}"
@@ -636,9 +652,14 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
             if kind == "result":
                 reply = payload
                 if isinstance(reply, DocsChatReply):
-                    yield reply.render_markdown()
+                    final_markdown = reply.render_markdown()
                 else:  # pragma: no cover - defensive fallback
-                    yield str(payload)
+                    final_markdown = str(payload)
+
+                if progress_entries:
+                    final_markdown = _append_progress_summary(final_markdown, progress_entries)
+
+                yield final_markdown
                 continue
             if kind == "done":
                 break

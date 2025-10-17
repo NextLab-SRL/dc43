@@ -54,6 +54,9 @@
 - Taught the docs chat configuration loader to accept hyphenated `code-path`
   keys and updated the offline index CLI to echo the resolved sources and
   providers before warm-up so misconfigurations are easier to spot.
+- Streamed docs chat progress as concise updates and moved the detailed step log
+  into a collapsible summary beneath each answer so results stay visible without
+  scrolling through status messages.
 - Tuned the docs assistant prompt so answers lean on retrieved Markdown, cite relevant
   files, and provide actionable integration steps instead of replying with "I don't know".
 - Extended the docs assistant to index repository source files, honour configurable
