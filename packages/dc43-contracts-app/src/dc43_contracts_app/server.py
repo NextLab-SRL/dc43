@@ -764,7 +764,11 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
     configure_workspace(workspace)
     configure_backend(config=config.backend)
     docs_chat.configure(config.docs_chat, workspace)
-    docs_chat.warm_up()
+
+    def _log_warmup(detail: str) -> None:
+        logger.info("Docs chat warm-up: %s", detail)
+
+    docs_chat.warm_up(block=True, progress=_log_warmup)
     return _set_active_config(config)
 
 

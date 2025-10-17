@@ -67,3 +67,27 @@ def test_warm_up_async_runs_once(monkeypatch):
     docs_chat.warm_up()
 
     assert starts == ["run"]
+
+
+def test_ensure_runtime_reports_warmup_wait(monkeypatch):
+    sentinel = object()
+
+    class _Status:
+        enabled = True
+        ready = True
+        message = None
+
+    def _record(message):
+        messages.append(message)
+
+    messages: list[str] = []
+
+    monkeypatch.setattr(docs_chat, "status", lambda: _Status())
+    monkeypatch.setattr(docs_chat, "_manifest_matches", lambda runtime: True)
+    monkeypatch.setattr(docs_chat, "_RUNTIME", sentinel, raising=False)
+    monkeypatch.setattr(docs_chat, "_WARMUP_THREAD", SimpleNamespace(is_alive=lambda: True), raising=False)
+
+    runtime = docs_chat._ensure_runtime(progress=_record)
+
+    assert runtime is sentinel
+    assert any("warm-up" in message for message in messages)

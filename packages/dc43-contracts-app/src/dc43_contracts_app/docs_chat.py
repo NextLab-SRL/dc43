@@ -514,6 +514,11 @@ def _ensure_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntim
     if not status_payload.ready:
         raise DocsChatError(status_payload.message or "Docs chat is not ready yet.")
 
+    with _WARMUP_GUARD:
+        warm_thread = _WARMUP_THREAD
+    if warm_thread is not None and warm_thread.is_alive():
+        _emit_progress(progress, "⏳ Waiting for the documentation index warm-up to finish…")
+
     with _RUNTIME_LOCK:
         global _RUNTIME
         runtime = _RUNTIME
