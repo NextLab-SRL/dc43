@@ -67,3 +67,5 @@
   installs do not block the documentation assistant with missing-key warnings.
 - Added the `chardet` dependency to the docs-chat optional extras so documentation indexing
   works out of the box without requiring manual module installs.
+- Batched documentation embeddings during vector index creation so large Markdown and code
+  trees no longer trigger OpenAI "max tokens per request" errors when the assistant starts.

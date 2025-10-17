@@ -78,6 +78,11 @@ answers by switching `docs_chat.model` to `o4-mini` and providing a
 `docs_chat.reasoning_effort` value (`"medium"` or `"high"` depending on
 latency/cost trade-offs).
 
+Large documentation or source trees are embedded in small batches during the
+initial index build so OpenAI's embeddings endpoint never receives a request
+that exceeds its 300k-token limit. You can point the assistant at broad
+projects without manually tuning chunk sizes.
+
 > ℹ️ You can skip the env file when `docs_chat.api_key` stores the secret: run
 > `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your
 > overrides automatically.

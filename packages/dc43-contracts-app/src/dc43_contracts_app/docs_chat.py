@@ -119,6 +119,8 @@ _WORKSPACE: ContractsAppWorkspace | None = None
 _RUNTIME: _DocsChatRuntime | None = None
 _RUNTIME_LOCK = threading.Lock()
 
+_EMBEDDING_BATCH_SIZE = 32
+
 _QA_PROMPT_TEMPLATE = """
 You are the documentation assistant for the dc43 platform. Use the Markdown
 and source code context provided below to answer the user's question with
@@ -549,7 +551,27 @@ def _build_vectorstore(config: DocsChatConfig, documents: Sequence[object]) -> o
         raise DocsChatError(_missing_api_key_message(config))
 
     embeddings = OpenAIEmbeddings(model=config.embedding_model, openai_api_key=api_key)
-    return FAISS.from_documents(splits, embeddings)
+    if not splits:
+        raise DocsChatError(
+            "No documentation content was loaded; confirm docs_chat paths point to Markdown or code."
+        )
+
+    vectorstore = None
+    for start in range(0, len(splits), _EMBEDDING_BATCH_SIZE):
+        batch = splits[start : start + _EMBEDDING_BATCH_SIZE]
+        if not batch:
+            continue
+        if vectorstore is None:
+            vectorstore = FAISS.from_documents(batch, embeddings)
+        else:
+            vectorstore.add_documents(batch)
+
+    if vectorstore is None:
+        raise DocsChatError(
+            "Failed to build the documentation index after batching embeddings."
+        )
+
+    return vectorstore
 
 
 def _save_vectorstore(index_dir: Path, vectorstore: object) -> None:

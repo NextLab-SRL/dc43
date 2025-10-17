@@ -62,6 +62,11 @@ maintain bespoke chat widgets. To enable it:
    `docs_chat.docs_path`, `docs_chat.code_paths`, or `docs_chat.index_path` when
    the repository lives elsewhere.
 
+   Embeddings are requested in small batches during the initial index build so
+   the OpenAI API never sees more tokens than its per-request limit. Point the
+   assistant at large documentation or source directories without juggling
+   manual chunk sizes.
+
 The contracts setup wizard mirrors these settings via the **Documentation assistant** module. Pick
 the Gradio option under the *User experience* group to populate `[docs_chat]` in the exported
 `dc43-contracts-app.toml` and surface the assistant alongside other deployment assets.

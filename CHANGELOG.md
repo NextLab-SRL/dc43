@@ -68,3 +68,5 @@
   missing-key warnings.
 - Added the `chardet` dependency to the docs-chat optional install so LangChain's
   Markdown loader runs without missing-module errors during documentation indexing.
+- Batch docs assistant embedding requests so large repositories stay under OpenAI's
+  per-request token limits instead of failing with 400 errors during index builds.
