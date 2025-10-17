@@ -32,6 +32,9 @@
   FAISS cache using the same configuration as the FastAPI deployment.
 - Updated the docs-chat index CLI to validate configuration readiness before warming up and to
   print a summary of the indexed sources when the cache build succeeds.
+- Switched the default docs chat embedding provider to Hugging Face so cache builds run locally by
+  default while leaving OpenAI as an opt-in for hosted embeddings; templates and docs reflect the
+  new default values.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are

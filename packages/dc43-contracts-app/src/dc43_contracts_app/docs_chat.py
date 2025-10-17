@@ -1029,8 +1029,8 @@ def _missing_api_key_message(config: DocsChatConfig) -> str:
 
 
 def _normalise_embedding_provider(config: DocsChatConfig) -> str:
-    value = (config.embedding_provider or "openai").strip().lower()
-    return value or "openai"
+    value = (config.embedding_provider or "huggingface").strip().lower()
+    return value or "huggingface"
 
 
 def _resolve_embedding_model(config: DocsChatConfig) -> str:

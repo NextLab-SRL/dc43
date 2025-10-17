@@ -55,7 +55,10 @@ def test_build_vectorstore_batches_embedding_requests(monkeypatch):
     total = docs_chat._EMBEDDING_BATCH_SIZE * 3 + 5
     documents = [document(page_content=f"doc {idx}", metadata={}) for idx in range(total)]
 
-    store = docs_chat._build_vectorstore(DocsChatConfig(enabled=True), documents)  # type: ignore[attr-defined]
+    store = docs_chat._build_vectorstore(
+        DocsChatConfig(enabled=True, embedding_provider="openai"),
+        documents,
+    )  # type: ignore[attr-defined]
     assert isinstance(store, _StubFAISS)
 
     assert len(batches) == math.ceil(total / docs_chat._EMBEDDING_BATCH_SIZE)

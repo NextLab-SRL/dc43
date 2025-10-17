@@ -42,8 +42,8 @@ maintain bespoke chat widgets. To enable it:
    enabled = true
    provider = "openai"
    model = "gpt-4o-mini"
-   embedding_provider = "openai" # Switch to "huggingface" for offline embeddings.
-   embedding_model = "text-embedding-3-small"
+   embedding_provider = "huggingface" # Opt into "openai" to reuse hosted embeddings.
+   embedding_model = "" # Defaults to sentence-transformers/all-MiniLM-L6-v2.
    api_key_env = "OPENAI_API_KEY"
    # api_key = "sk-your-api-key" # optional inline secret stored outside git
    # code_paths = ["~/project/sibling-module"] # optional extra source directories
@@ -67,12 +67,14 @@ maintain bespoke chat widgets. To enable it:
    the repository lives elsewhere.
 
    Embeddings are requested in small batches during the initial index build so
-   the OpenAI API never sees more tokens than its per-request limit. Point the
-   assistant at large documentation or source directories without juggling
-   manual chunk sizes. Prefer to stay offline? set `embedding_provider = "huggingface"`
-   (the docs-chat extra already installs `langchain-huggingface` and
-   `sentence-transformers`) and leave `embedding_model` empty to fall back to
-   `sentence-transformers/all-MiniLM-L6-v2`.
+   the default Hugging Face workflow runs locally without tripping OpenAI's
+   token limits. Point the assistant at large documentation or source
+   directories without juggling manual chunk sizes. Prefer managed embeddings?
+   set `embedding_provider = "openai"` and specify a compatible
+   `embedding_model`. The docs-chat extra already installs
+   `langchain-huggingface` and `sentence-transformers`, so leaving
+   `embedding_model` empty keeps the `sentence-transformers/all-MiniLM-L6-v2`
+   default.
 
    The FastAPI application now kicks off the documentation index warm-up as it
    loads the configuration so the one-off downloads and FAISS persistence happen

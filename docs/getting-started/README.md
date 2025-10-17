@@ -32,8 +32,8 @@ cat <<'TOML' > ~/.dc43/contracts-app.toml
 enabled = true
 provider = "openai"
 model = "gpt-4o-mini"
-embedding_provider = "openai"  # Switch to "huggingface" for offline embeddings.
-embedding_model = "text-embedding-3-small"
+embedding_provider = "huggingface"  # Opt into "openai" if you prefer remote embeddings.
+embedding_model = ""  # Defaults to sentence-transformers/all-MiniLM-L6-v2 when blank.
 api_key_env = "OPENAI_API_KEY" # rename when you prefer a different env var
 # Keep secrets out of git-tracked files? add them to a private env file.
 # Prefer storing the key alongside the config? set `api_key = "sk-..."` instead.
@@ -90,10 +90,10 @@ answers by switching `docs_chat.model` to `o4-mini` and providing a
 latency/cost trade-offs).
 
 Large documentation or source trees are embedded in small batches during the
-initial index build so OpenAI's embeddings endpoint never receives a request
-that exceeds its 300k-token limit. When you prefer to stay entirely offline—or
-want to avoid OpenAI rate limits while indexing large codebases—switch
-`embedding_provider` to `huggingface`. The docs-chat extra already installs
+initial index build so the default Hugging Face workflow can run locally
+without exhausting OpenAI's 300k-token request limit. If you would rather reuse
+OpenAI embeddings, set `embedding_provider` to `openai` and choose an
+appropriate `embedding_model`. The docs-chat extra already installs
 `langchain-huggingface` and `sentence-transformers`, and the assistant falls
 back to `sentence-transformers/all-MiniLM-L6-v2` unless you provide a custom
 `embedding_model`. Run `dc43-docs-chat-index` after tweaking your configuration

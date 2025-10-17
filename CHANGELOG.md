@@ -36,6 +36,9 @@
 - Let the docs assistant target Hugging Face embeddings as well as OpenAI so large
   repositories can be indexed offline; templates and guides now cover the new
   `embedding_provider` option and the persisted cache workflow.
+- Defaulted docs chat embeddings to the Hugging Face backend so local warm-ups
+  avoid OpenAI rate limits; templates, generated configs, and guides now call
+  out how to opt back into the OpenAI embedding API when needed.
 - Clarified docs-chat installation notes so contributors avoid mixing the meta extra with
   direct `dc43-contracts-app[docs-chat]` installs, which pip treats as conflicting
   requirements in a single environment.

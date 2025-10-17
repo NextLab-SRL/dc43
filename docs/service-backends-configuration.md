@@ -286,7 +286,7 @@ log_level = "info"
 | `docs_chat` | `enabled` | Toggle the documentation assistant (`DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED`). |
 | `docs_chat` | `provider` | LLM provider identifier (currently `openai`). Override via `DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER`. |
 | `docs_chat` | `model` | Chat completion model requested from the provider (`DC43_CONTRACTS_APP_DOCS_CHAT_MODEL`). |
-| `docs_chat` | `embedding_provider` | Embedding backend used to build the FAISS index (for example `openai` or `huggingface`). Override via `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER`. |
+| `docs_chat` | `embedding_provider` | Embedding backend used to build the FAISS index (defaults to `huggingface`; set to `openai` to reuse hosted embeddings). Override via `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER`. |
 | `docs_chat` | `embedding_model` | Embedding model used to build the Markdown index (`DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL`). Leave empty when `embedding_provider = "huggingface"` to use the bundled `sentence-transformers/all-MiniLM-L6-v2` default. |
 | `docs_chat` | `api_key_env` | Environment variable that stores the provider key (`DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV`). |
 | `docs_chat` | `api_key` | Optional inline provider key stored directly in the configuration (keep the file outside version control). |
@@ -316,13 +316,14 @@ with reasoning-capable OpenAI models can
 set `model = "o4-mini"` (for example) and provide a `reasoning_effort` string
 (`"medium"` or `"high"`) to balance quality versus latency.
 
-Switch `embedding_provider` to `huggingface` when you prefer offline embeddings
-or want to avoid OpenAI's embeddings rate limits. The docs-chat extra already
-includes `langchain-huggingface` and `sentence-transformers`, so leaving
-`embedding_model` empty falls back to `sentence-transformers/all-MiniLM-L6-v2`.
-Run `dc43-docs-chat-index --config /path/to/contracts-app.toml` after updating
-your configuration to pre-compute the FAISS cache and reuse it across
-deployments.
+Hugging Face embeddings are enabled by default so local warm-ups avoid OpenAI's
+token limits. When you prefer OpenAI-managed embeddings, set
+`embedding_provider = "openai"` and choose a compatible `embedding_model`. The
+docs-chat extra already includes `langchain-huggingface` and
+`sentence-transformers`, so leaving `embedding_model` empty keeps the
+`sentence-transformers/all-MiniLM-L6-v2` default. Run
+`dc43-docs-chat-index --config /path/to/contracts-app.toml` after updating your
+configuration to pre-compute the FAISS cache and reuse it across deployments.
 
 ## Templates
 

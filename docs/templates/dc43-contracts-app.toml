@@ -29,11 +29,12 @@ enabled = false
 provider = "openai"
 # Chat completion model requested from the provider.
 model = "gpt-4o-mini"
-# Embedding provider used to vectorise documentation ("openai" or "huggingface").
-embedding_provider = "openai"
-# Embedding model used to vectorise Markdown documentation. When ``embedding_provider = "huggingface"``
-# omit this value to fall back to ``sentence-transformers/all-MiniLM-L6-v2``.
-embedding_model = "text-embedding-3-small"
+# Embedding provider used to vectorise documentation. Defaults to the local Hugging Face flow.
+embedding_provider = "huggingface"
+# Embedding model used to vectorise Markdown documentation. Leave empty to fall back to
+# ``sentence-transformers/all-MiniLM-L6-v2`` when using Hugging Face embeddings, or specify an OpenAI
+# embedding when you opt into ``embedding_provider = "openai"``.
+embedding_model = ""
 # Environment variable that stores the API key for the provider.
 api_key_env = "OPENAI_API_KEY"
 # Dropped a token here by mistake? the loader falls back to treating the value as

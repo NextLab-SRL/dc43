@@ -24,8 +24,8 @@ def test_docs_chat_defaults(monkeypatch):
     assert docs_chat.enabled is False
     assert docs_chat.provider == "openai"
     assert docs_chat.model == "gpt-4o-mini"
-    assert docs_chat.embedding_provider == "openai"
-    assert docs_chat.embedding_model == "text-embedding-3-small"
+    assert docs_chat.embedding_provider == "huggingface"
+    assert docs_chat.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
     assert docs_chat.api_key_env == "OPENAI_API_KEY"
     assert docs_chat.api_key is None
     assert docs_chat.docs_path is None

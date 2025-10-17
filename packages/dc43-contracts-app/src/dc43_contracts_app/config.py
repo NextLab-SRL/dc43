@@ -59,7 +59,7 @@ class DocsChatConfig:
     enabled: bool = False
     provider: str = "openai"
     model: str = "gpt-4o-mini"
-    embedding_provider: str = "openai"
+    embedding_provider: str = "huggingface"
     embedding_model: str = "text-embedding-3-small"
     api_key_env: str = "OPENAI_API_KEY"
     api_key: str | None = None
@@ -227,10 +227,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         else "gpt-4o-mini"
     ) or "gpt-4o-mini"
     docs_chat_embedding_provider = (
-        str(docs_chat_section.get("embedding_provider", "openai")).strip()
+        str(docs_chat_section.get("embedding_provider", "huggingface")).strip()
         if isinstance(docs_chat_section, MutableMapping)
-        else "openai"
-    ) or "openai"
+        else "huggingface"
+    ) or "huggingface"
     docs_chat_embedding_model = (
         str(docs_chat_section.get("embedding_model", "text-embedding-3-small")).strip()
         if isinstance(docs_chat_section, MutableMapping)
@@ -425,7 +425,7 @@ def _docs_chat_mapping(config: DocsChatConfig) -> dict[str, Any]:
         mapping["provider"] = config.provider
     if config.model != "gpt-4o-mini":
         mapping["model"] = config.model
-    if config.embedding_provider != "openai":
+    if config.embedding_provider != "huggingface":
         mapping["embedding_provider"] = config.embedding_provider
     if config.embedding_model != "text-embedding-3-small":
         mapping["embedding_model"] = config.embedding_model

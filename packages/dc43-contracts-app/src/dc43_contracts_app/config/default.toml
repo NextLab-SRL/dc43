@@ -18,8 +18,8 @@ log_level = ""
 enabled = false
 provider = "openai"
 model = "gpt-4o-mini"
-embedding_provider = "openai"
-embedding_model = "text-embedding-3-small"
+embedding_provider = "huggingface"
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 api_key_env = "OPENAI_API_KEY"
 # Inline API key support is available for private configs; leave empty in shared deployments.
 api_key = ""

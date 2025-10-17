@@ -44,10 +44,13 @@ def _describe_docs_chat(config: DocsChatConfig) -> str:
     docs_path = config.docs_path.as_posix() if config.docs_path else "default"
     index_path = config.index_path.as_posix() if config.index_path else "workspace"
 
+    embedding_provider = (config.embedding_provider or "huggingface").strip() or "huggingface"
+
     return (
         "enabled "
         f"provider={config.provider} "
         f"model={config.model} "
+        f"embeddings={embedding_provider} "
         f"credentials={credentials_state} "
         f"docs_path={docs_path} "
         f"index_path={index_path}"

@@ -48,7 +48,9 @@ def test_build_contracts_config_merges_docs_chat(tmp_path: Path, caplog) -> None
     assert str(config.workspace.root) == str((tmp_path / "workspace"))
     assert config.backend.base_url == "http://127.0.0.1:9999"
     assert config.backend.process.log_level == "info"
-    assert "docs_chat=enabled provider=openai" in _log_messages(caplog)
+    log_output = _log_messages(caplog)
+    assert "docs_chat=enabled provider=openai" in log_output
+    assert "embeddings=huggingface" in log_output
 
 
 def test_build_contracts_config_without_override(tmp_path: Path, caplog) -> None:
