@@ -764,6 +764,7 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
     configure_workspace(workspace)
     configure_backend(config=config.backend)
     docs_chat.configure(config.docs_chat, workspace)
+    docs_chat.warm_up()
     return _set_active_config(config)
 
 
@@ -840,7 +841,7 @@ async def docs_chat_message(payload: dict[str, Any]) -> JSONResponse:
     except docs_chat.DocsChatError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return JSONResponse({"message": reply.answer, "sources": reply.sources})
+    return JSONResponse({"message": reply.answer, "sources": reply.sources, "steps": reply.steps})
 
 
 SETUP_MODULES: Dict[str, Dict[str, Any]] = {

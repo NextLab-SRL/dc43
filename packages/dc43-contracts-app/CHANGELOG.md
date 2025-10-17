@@ -59,6 +59,9 @@
   complex integration prompts with code-backed answers.
 - Added a dc43-specific guardrail to the docs chat runtime so off-topic prompts get a polite
   reminder that the assistant is limited to project documentation and helper workflows.
+- Pre-warmed the docs chat runtime during app startup, cached the FAISS index between runs,
+  and streamed progress steps (also returned from the REST API) so operators see the
+  retrieval/generation pipeline status before the final answer appears.
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from

@@ -83,6 +83,17 @@ initial index build so OpenAI's embeddings endpoint never receives a request
 that exceeds its 300k-token limit. You can point the assistant at broad
 projects without manually tuning chunk sizes.
 
+The demo runner now warms the knowledge base as part of its startup flow.
+Downloading model metadata, scanning Markdown, and persisting the FAISS index
+happens once when the app boots so the first chat question returns immediately
+instead of triggering a long “first run” pause. Subsequent restarts reuse the
+cached index unless the docs or code change.
+
+While a response is being generated the chat UI streams progress updates such
+as “embedding documentation” or “querying OpenAI”, so users always know which
+stage of the retrieval-and-generation pipeline is running. The final answer
+includes the same step list alongside the cited sources for future reference.
+
 > ℹ️ You can skip the env file when `docs_chat.api_key` stores the secret: run
 > `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your
 > overrides automatically.

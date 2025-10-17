@@ -2,12 +2,14 @@ from __future__ import annotations
 
 """Documentation-driven chat assistant for the dc43 app."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, List, Mapping, Sequence, Tuple, Literal
+from typing import Callable, Iterable, List, Mapping, Sequence, Tuple, Literal
 import json
 import logging
 import os
+import math
+from queue import Queue
 import threading
 
 from .config import DocsChatConfig
@@ -24,6 +26,7 @@ __all__ = [
     "generate_reply",
     "mount_gradio_app",
     "status",
+    "warm_up",
     "GRADIO_MOUNT_PATH",
 ]
 
@@ -44,14 +47,18 @@ class DocsChatReply:
 
     answer: str
     sources: List[str]
+    steps: List[str] = field(default_factory=list)
 
-    def render_markdown(self) -> str:
+    def render_markdown(self, include_steps: bool = True) -> str:
         """Return a Markdown representation of the reply including sources."""
 
-        if not self.sources:
-            return self.answer
-        lines = [self.answer.rstrip(), "", "**Sources**:"]
-        lines.extend(f"- {source}" for source in self.sources)
+        lines = [self.answer.rstrip()]
+        if self.sources:
+            lines.extend(("", "**Sources**:"))
+            lines.extend(f"- {source}" for source in self.sources)
+        if include_steps and self.steps:
+            lines.extend(("", "**Progress**:"))
+            lines.extend(f"- {step}" for step in self.steps)
         return "\n".join(lines)
 
 
@@ -118,6 +125,8 @@ _CONFIG: DocsChatConfig | None = None
 _WORKSPACE: ContractsAppWorkspace | None = None
 _RUNTIME: _DocsChatRuntime | None = None
 _RUNTIME_LOCK = threading.Lock()
+_WARMUP_GUARD = threading.Lock()
+_WARMUP_THREAD: threading.Thread | None = None
 
 _EMBEDDING_BATCH_SIZE = 32
 
@@ -155,6 +164,15 @@ _OUT_OF_SCOPE_MESSAGE = (
     "I can help with dc43 setup, architecture, and usage questions only. "
     "Please share a dc43-specific task or topic so I can look up the right guidance."
 )
+
+
+def _emit_progress(callback: ProgressCallback | None, message: str) -> None:
+    if not callback:
+        return
+    try:
+        callback(message)
+    except Exception:  # pragma: no cover - progress is best-effort
+        logger.debug("Docs chat progress callback failed", exc_info=True)
 
 
 def _candidate_docs_roots() -> list[Path]:
@@ -265,14 +283,46 @@ def _resolve_content_sources(config: DocsChatConfig) -> list[_ContentSource]:
     return sources
 
 
+ProgressCallback = Callable[[str], None]
+
+
 def configure(config: DocsChatConfig, workspace: ContractsAppWorkspace) -> None:
     """Store the active configuration and reset cached state."""
 
-    global _CONFIG, _WORKSPACE, _RUNTIME
+    global _CONFIG, _WORKSPACE, _RUNTIME, _WARMUP_THREAD
     with _RUNTIME_LOCK:
         _CONFIG = config
         _WORKSPACE = workspace
         _RUNTIME = None
+    with _WARMUP_GUARD:
+        _WARMUP_THREAD = None
+
+
+def warm_up(block: bool = False, progress: ProgressCallback | None = None) -> None:
+    """Ensure the runtime is ready, optionally warming the cache asynchronously."""
+
+    def _build() -> None:
+        try:
+            _ensure_runtime(progress=progress)
+        except DocsChatError as exc:
+            logger.warning("Docs chat warm-up skipped: %s", exc)
+
+    status_payload = status()
+    if not status_payload.enabled or not status_payload.ready:
+        return
+
+    if block:
+        _build()
+        return
+
+    global _WARMUP_THREAD
+    with _WARMUP_GUARD:
+        existing = _WARMUP_THREAD
+        if existing and existing.is_alive():
+            return
+        thread = threading.Thread(target=_build, name="dc43-docs-chat-warmup", daemon=True)
+        _WARMUP_THREAD = thread
+        thread.start()
 
 
 def status() -> DocsChatStatus:
@@ -339,25 +389,40 @@ def status() -> DocsChatStatus:
     return DocsChatStatus(enabled=True, ready=True, message=None, ui_available=ui_ready)
 
 
-def generate_reply(message: str, history: Sequence[Tuple[str, str]] | Sequence[Mapping[str, str]]) -> DocsChatReply:
+def generate_reply(
+    message: str,
+    history: Sequence[Tuple[str, str]] | Sequence[Mapping[str, str]],
+    progress: ProgressCallback | None = None,
+) -> DocsChatReply:
     """Return an assistant response for ``message`` using ``history`` for context."""
 
     if not message.strip():
         raise DocsChatError("Provide a question so the assistant can look up matching documentation snippets.")
 
-    runtime = _ensure_runtime()
+    steps: list[str] = []
+
+    def _step(detail: str) -> None:
+        steps.append(detail)
+        _emit_progress(progress, detail)
+
+    _step("🔄 Preparing the dc43 documentation assistant…")
+
+    runtime = _ensure_runtime(progress=_step)
     chat_history = _normalise_history(history)
+    _step("🔎 Retrieving the most relevant dc43 guides…")
     try:
         result = runtime.chain({"question": message, "chat_history": chat_history})
     except Exception as exc:  # pragma: no cover - defensive guard around provider errors
         raise DocsChatError(str(exc)) from exc
 
+    _step("🧠 Generating an answer with cited documentation…")
     sources = _extract_sources(result, runtime)
     if not sources:
         answer_text = _OUT_OF_SCOPE_MESSAGE
     else:
         answer_text = _extract_answer_text(result)
-    return DocsChatReply(answer=answer_text, sources=sources)
+    _step("✅ Response ready.")
+    return DocsChatReply(answer=answer_text, sources=sources, steps=steps)
 
 
 def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
@@ -373,12 +438,46 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
         logger.warning("Gradio is not installed; the docs chat UI will not be mounted.")
         return False
 
-    def _respond(message: str, history: list[tuple[str, str]]) -> str:
-        try:
-            reply = generate_reply(message, history)
-            return reply.render_markdown()
-        except DocsChatError as exc:
-            return f"⚠️ {exc}"
+    def _respond(message: str, history: list[tuple[str, str]]):
+        progress_queue: "Queue[tuple[str, object | None]]" = Queue()
+        progress_entries: list[str] = []
+
+        def _progress(step: str) -> None:
+            progress_queue.put(("progress", step))
+
+        def _worker() -> None:
+            try:
+                reply = generate_reply(message, history, progress=_progress)
+            except DocsChatError as exc:
+                progress_queue.put(("error", str(exc)))
+            except Exception as exc:  # pragma: no cover - defensive provider guard
+                progress_queue.put(("error", str(exc)))
+            else:
+                progress_queue.put(("result", reply))
+            finally:
+                progress_queue.put(("done", None))
+
+        threading.Thread(target=_worker, name="dc43-docs-chat-query", daemon=True).start()
+
+        while True:
+            kind, payload = progress_queue.get()
+            if kind == "progress":
+                progress_entries.append(str(payload))
+                summary = "\n".join(f"- {entry}" for entry in progress_entries)
+                yield f"**Working…**\n\n{summary}"
+                continue
+            if kind == "error":
+                yield f"⚠️ {payload}"
+                continue
+            if kind == "result":
+                reply = payload
+                if isinstance(reply, DocsChatReply):
+                    yield reply.render_markdown()
+                else:  # pragma: no cover - defensive fallback
+                    yield str(payload)
+                continue
+            if kind == "done":
+                break
 
     interface = gr.ChatInterface(
         fn=_respond,
@@ -408,7 +507,7 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
     return True
 
 
-def _ensure_runtime() -> _DocsChatRuntime:
+def _ensure_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntime:
     status_payload = status()
     if not status_payload.enabled:
         raise DocsChatError(status_payload.message or "Docs chat is disabled in the current configuration.")
@@ -419,14 +518,15 @@ def _ensure_runtime() -> _DocsChatRuntime:
         global _RUNTIME
         runtime = _RUNTIME
         if runtime is not None and _manifest_matches(runtime):
+            _emit_progress(progress, "📦 Reusing cached documentation index.")
             return runtime
 
-        runtime = _build_runtime()
+        runtime = _build_runtime(progress=progress)
         _RUNTIME = runtime
         return runtime
 
 
-def _build_runtime() -> _DocsChatRuntime:
+def _build_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntime:
     config = _CONFIG
     workspace = _WORKSPACE
     if config is None or workspace is None:
@@ -442,8 +542,9 @@ def _build_runtime() -> _DocsChatRuntime:
     if manifest_path.exists() and (index_dir / "index.faiss").exists():
         stored = _load_manifest(manifest_path)
         if stored == manifest:
+            _emit_progress(progress, "📚 Loaded existing documentation manifest.")
             vectorstore = _load_vectorstore(index_dir, config)
-            chain = _build_chain(config, vectorstore)
+            chain = _build_chain(config, vectorstore, progress=progress)
             return _DocsChatRuntime(
                 config=config,
                 docs_root=docs_root,
@@ -454,11 +555,14 @@ def _build_runtime() -> _DocsChatRuntime:
                 content_sources=tuple(content_sources),
             )
 
-    documents = _load_documents(content_sources)
-    vectorstore = _build_vectorstore(config, documents)
+    _emit_progress(progress, "📚 Indexing dc43 documentation and source code…")
+    documents = _load_documents(content_sources, progress=progress)
+    _emit_progress(progress, f"🧾 Loaded {len(documents)} documents from the workspace.")
+    vectorstore = _build_vectorstore(config, documents, progress=progress)
+    _emit_progress(progress, "🗂️ Persisting the refreshed documentation index…")
     _save_vectorstore(index_dir, vectorstore)
     _write_manifest(manifest_path, manifest)
-    chain = _build_chain(config, vectorstore)
+    chain = _build_chain(config, vectorstore, progress=progress)
     return _DocsChatRuntime(
         config=config,
         docs_root=docs_root,
@@ -470,7 +574,11 @@ def _build_runtime() -> _DocsChatRuntime:
     )
 
 
-def _build_chain(config: DocsChatConfig, vectorstore: object) -> object:
+def _build_chain(
+    config: DocsChatConfig,
+    vectorstore: object,
+    progress: ProgressCallback | None = None,
+) -> object:
     try:
         from langchain.chains import ConversationalRetrievalChain
         from langchain_core.prompts import PromptTemplate
@@ -489,7 +597,9 @@ def _build_chain(config: DocsChatConfig, vectorstore: object) -> object:
     }
     if config.reasoning_effort:
         llm_kwargs["model_kwargs"] = {"reasoning": {"effort": config.reasoning_effort}}
+    _emit_progress(progress, "🤝 Connecting to the OpenAI chat model…")
     llm = ChatOpenAI(**llm_kwargs)
+    _emit_progress(progress, "🔁 Preparing the retrieval chain…")
     retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
     qa_prompt = PromptTemplate.from_template(_QA_PROMPT_TEMPLATE)
     chain = ConversationalRetrievalChain.from_llm(
@@ -536,7 +646,11 @@ def _load_vectorstore(index_dir: Path, config: DocsChatConfig) -> object:
     )
 
 
-def _build_vectorstore(config: DocsChatConfig, documents: Sequence[object]) -> object:
+def _build_vectorstore(
+    config: DocsChatConfig,
+    documents: Sequence[object],
+    progress: ProgressCallback | None = None,
+) -> object:
     try:
         from langchain_community.vectorstores import FAISS
         from langchain_openai import OpenAIEmbeddings
@@ -556,11 +670,14 @@ def _build_vectorstore(config: DocsChatConfig, documents: Sequence[object]) -> o
             "No documentation content was loaded; confirm docs_chat paths point to Markdown or code."
         )
 
+    total_batches = max(1, math.ceil(len(splits) / _EMBEDDING_BATCH_SIZE))
+    _emit_progress(progress, f"🧠 Embedding {len(splits)} content chunks ({total_batches} batches)…")
     vectorstore = None
-    for start in range(0, len(splits), _EMBEDDING_BATCH_SIZE):
+    for batch_index, start in enumerate(range(0, len(splits), _EMBEDDING_BATCH_SIZE), start=1):
         batch = splits[start : start + _EMBEDDING_BATCH_SIZE]
         if not batch:
             continue
+        _emit_progress(progress, f"🧠 Embedding batch {batch_index}/{total_batches}…")
         if vectorstore is None:
             vectorstore = FAISS.from_documents(batch, embeddings)
         else:
@@ -581,7 +698,10 @@ def _save_vectorstore(index_dir: Path, vectorstore: object) -> None:
         raise DocsChatError(f"Failed to persist the documentation index: {exc}") from exc
 
 
-def _load_documents(content_sources: Sequence[_ContentSource]) -> Sequence[object]:
+def _load_documents(
+    content_sources: Sequence[_ContentSource],
+    progress: ProgressCallback | None = None,
+) -> Sequence[object]:
     try:
         from langchain_community.document_loaders import DirectoryLoader, TextLoader
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
@@ -593,6 +713,7 @@ def _load_documents(content_sources: Sequence[_ContentSource]) -> Sequence[objec
         if not source.root.exists():
             continue
 
+        _emit_progress(progress, f"📥 Loading {source.kind} content from {source.root}")
         if source.kind == "docs":
             loader = DirectoryLoader(
                 str(source.root),

@@ -54,4 +54,6 @@ docker run --rm \
 
 Mount a contracts directory under `/contracts` and set `DC43_CONTRACT_STORE` if you run in
 embedded mode and need persistent drafts. When docs chat is enabled you can persist the vector
-index by mounting a volume and pointing `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX` at it.
+index by mounting a volume and pointing `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX` at it. The server
+warms the documentation index during startup, so the required OpenAI metadata downloads and
+FAISS persistence happen once before the first chat request.

@@ -67,6 +67,16 @@ maintain bespoke chat widgets. To enable it:
    assistant at large documentation or source directories without juggling
    manual chunk sizes.
 
+   The FastAPI application warms the documentation index when it loads the
+   configuration so the one-off downloads and FAISS persistence happen at
+   startup rather than during the first user query. Cached manifests are reused
+   across restarts until the docs or code change.
+
+   While users wait for an answer the chat UI streams progress updates—loading
+   documentation, embedding batches, and querying OpenAI—before presenting the
+   final, cited response. Programmatic callers receive the same step list in the
+   JSON payload under a new `steps` field.
+
 The contracts setup wizard mirrors these settings via the **Documentation assistant** module. Pick
 the Gradio option under the *User experience* group to populate `[docs_chat]` in the exported
 `dc43-contracts-app.toml` and surface the assistant alongside other deployment assets.

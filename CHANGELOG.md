@@ -45,6 +45,9 @@
   questions return context-rich guidance grounded in both docs and code.
 - Added a dc43-only guardrail to the docs assistant so off-topic prompts receive a polite
   reminder that the chat surface focuses on project setup and usage guidance.
+- Warmed the docs assistant at application startup, cached the vector index between runs,
+  and streamed progress updates (also exposed via the API `steps` field) so users can see
+  which retrieval/generation stage is running before the final answer appears.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

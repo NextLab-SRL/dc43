@@ -37,7 +37,9 @@ def test_docs_chat_api_success(monkeypatch):
     monkeypatch.setattr(
         docs_chat,
         "generate_reply",
-        lambda message, history: docs_chat.DocsChatReply(answer="Hello there", sources=["guide.md"]),
+        lambda message, history, progress=None: docs_chat.DocsChatReply(
+            answer="Hello there", sources=["guide.md"], steps=["step one", "step two"]
+        ),
     )
 
     with TestClient(server.app) as client:
@@ -46,7 +48,11 @@ def test_docs_chat_api_success(monkeypatch):
             json={"message": "hello", "history": [["human", "assistant"]]},
         )
     assert response.status_code == 200
-    assert response.json() == {"message": "Hello there", "sources": ["guide.md"]}
+    assert response.json() == {
+        "message": "Hello there",
+        "sources": ["guide.md"],
+        "steps": ["step one", "step two"],
+    }
 
 
 def test_docs_chat_view_instructions():
