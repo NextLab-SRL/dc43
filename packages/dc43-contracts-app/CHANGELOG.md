@@ -69,9 +69,9 @@
 - Accepted hyphenated `code-path` keys in docs chat TOML configuration and taught the
   offline index CLI to echo the resolved sources and providers before warm-up so
   misconfigurations are easier to spot during cache builds.
-- Streamed docs chat progress as concise updates, kept answers in their own chat
-  bubble, and moved the full step history into a separate collapsible message so
-  the UI keeps results visible while still exposing detailed processing logs.
+- Streamed docs chat progress as concise updates and now normalise Gradio
+  message payloads so answers render in their own chat bubble while the full
+  processing log appears in a separate collapsible message.
 - Added a dc43-specific guardrail to the docs chat runtime so off-topic prompts get a polite
   reminder that the assistant is limited to project documentation and helper workflows.
 - Triggered the docs chat runtime warm-up in the background during app startup, cached the

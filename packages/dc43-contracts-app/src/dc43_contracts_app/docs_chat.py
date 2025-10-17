@@ -154,6 +154,84 @@ def _detect_repository_root() -> Path | None:
 
 _REPOSITORY_ROOT = _detect_repository_root()
 
+
+def _coerce_message_content(content: object) -> str:
+    """Return a string representation of chat message content."""
+
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, (bytes, bytearray)):
+        try:
+            return content.decode()
+        except Exception:
+            return ""
+    if isinstance(content, Sequence):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+    return str(content)
+
+
+def _coerce_chat_prompt(message: object) -> str:
+    """Extract the user prompt from ChatInterface inputs."""
+
+    if isinstance(message, str):
+        return message
+    role = getattr(message, "role", None)
+    content = getattr(message, "content", None)
+    if role is not None or content is not None:
+        return _coerce_message_content(content)
+    if isinstance(message, dict):
+        return _coerce_message_content(message.get("content"))
+    return _coerce_message_content(message)
+
+
+def _coerce_chat_history(history: Sequence[object]) -> list[tuple[str, str]]:
+    """Convert ChatInterface history payloads into (user, assistant) tuples."""
+
+    if not history:
+        return []
+
+    pairs: list[tuple[str, str]] = []
+    pending_user: str | None = None
+
+    for entry in history:
+        if isinstance(entry, (tuple, list)) and len(entry) == 2:
+            user_message = _coerce_message_content(entry[0])
+            assistant_message = _coerce_message_content(entry[1])
+            pairs.append((user_message, assistant_message))
+            pending_user = None
+            continue
+
+        role = getattr(entry, "role", None)
+        content = getattr(entry, "content", None)
+        if isinstance(entry, dict):
+            role = entry.get("role", role)
+            content = entry.get("content", content)
+
+        if role == "user":
+            pending_user = _coerce_message_content(content)
+        elif role == "assistant":
+            assistant_text = _coerce_message_content(content)
+            if pending_user is None:
+                pending_user = ""
+            pairs.append((pending_user, assistant_text))
+            pending_user = None
+
+    return pairs
+
 _CONFIG: DocsChatConfig | None = None
 _WORKSPACE: ContractsAppWorkspace | None = None
 _RUNTIME: _DocsChatRuntime | None = None
@@ -618,7 +696,15 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
         logger.warning("Gradio is not installed; the docs chat UI will not be mounted.")
         return False
 
-    def _respond(message: str, history: list[tuple[str, str]]):
+    def _respond(message: object, history: list[object]):
+        try:
+            from gradio import ChatMessage as GradioChatMessage  # type: ignore
+        except ImportError:  # pragma: no cover - optional dependency guard
+            GradioChatMessage = None  # type: ignore[assignment]
+
+        prompt = _coerce_chat_prompt(message)
+        normalised_history = _coerce_chat_history(history)
+
         progress_queue: "Queue[tuple[str, object | None]]" = Queue()
         progress_entries: list[str] = []
 
@@ -627,7 +713,7 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
 
         def _worker() -> None:
             try:
-                reply = generate_reply(message, history, progress=_progress)
+                reply = generate_reply(prompt, normalised_history, progress=_progress)
             except DocsChatError as exc:
                 progress_queue.put(("error", str(exc)))
             except Exception as exc:  # pragma: no cover - defensive provider guard
@@ -656,11 +742,20 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
                 else:  # pragma: no cover - defensive fallback
                     final_markdown = str(payload)
 
-                yield final_markdown
-
-                if progress_entries:
-                    summary_markdown = _build_progress_summary(progress_entries)
-                    yield summary_markdown
+                if GradioChatMessage is not None:
+                    yield GradioChatMessage(role="assistant", content=final_markdown)
+                    if progress_entries:
+                        summary_markdown = _build_progress_summary(progress_entries)
+                        yield GradioChatMessage(
+                            role="assistant",
+                            content=summary_markdown,
+                            metadata={"variant": "secondary", "title": "Processing log"},
+                        )
+                else:
+                    yield final_markdown
+                    if progress_entries:
+                        summary_markdown = _build_progress_summary(progress_entries)
+                        yield summary_markdown
                 continue
             if kind == "done":
                 break
@@ -678,6 +773,7 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
             "Which guides describe the Spark integration helpers?",
         ],
         cache_examples=False,
+        type="messages",
     )
 
     try:

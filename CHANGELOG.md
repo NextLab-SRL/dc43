@@ -39,6 +39,9 @@
 - Defaulted docs chat embeddings to the Hugging Face backend so local warm-ups
   avoid OpenAI rate limits; templates, generated configs, and guides now call
   out how to opt back into the OpenAI embedding API when needed.
+- Ensured docs chat answers render in their own chat bubble while the
+  processing log appears in a separate collapsible message so streaming
+  updates no longer hide the response.
 - Clarified docs-chat installation notes so contributors avoid mixing the meta extra with
   direct `dc43-contracts-app[docs-chat]` installs, which pip treats as conflicting
   requirements in a single environment.
