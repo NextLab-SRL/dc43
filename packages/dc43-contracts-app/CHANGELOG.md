@@ -65,3 +65,5 @@
   editable installs so the chat surface no longer reports missing documentation directories.
 - Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured
   installs do not block the documentation assistant with missing-key warnings.
+- Added the `chardet` dependency to the docs-chat optional extras so documentation indexing
+  works out of the box without requiring manual module installs.

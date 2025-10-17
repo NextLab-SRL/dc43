@@ -66,3 +66,5 @@
 - Coerce docs-chat secrets that are accidentally pasted into `docs_chat.api_key_env`
   into the dedicated `api_key` field so the assistant starts without confusing
   missing-key warnings.
+- Added the `chardet` dependency to the docs-chat optional install so LangChain's
+  Markdown loader runs without missing-module errors during documentation indexing.
