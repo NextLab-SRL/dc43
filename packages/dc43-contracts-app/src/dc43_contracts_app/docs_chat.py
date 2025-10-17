@@ -216,15 +216,15 @@ def _render_progress_update(step: str, count: int) -> str:
     return f"**Working…**\n\n{step}\n\n_{count} {suffix} logged so far._"
 
 
-def _append_progress_summary(markdown: str, steps: Sequence[str]) -> str:
+def _build_progress_summary(steps: Sequence[str]) -> str:
     bullet_lines = "\n".join(f"- {entry}" for entry in steps)
     summary = (
-        "\n\n---\n"
-        "<details><summary>Processing steps</summary>\n\n"
+        "**Processing log**\n\n"
+        "<details><summary>Expand processing steps</summary>\n\n"
         f"{bullet_lines}\n\n"
         "</details>"
     )
-    return f"{markdown}{summary}"
+    return summary
 
 
 def _consume_warmup_messages(
@@ -656,10 +656,11 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
                 else:  # pragma: no cover - defensive fallback
                     final_markdown = str(payload)
 
-                if progress_entries:
-                    final_markdown = _append_progress_summary(final_markdown, progress_entries)
-
                 yield final_markdown
+
+                if progress_entries:
+                    summary_markdown = _build_progress_summary(progress_entries)
+                    yield summary_markdown
                 continue
             if kind == "done":
                 break

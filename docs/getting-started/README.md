@@ -112,9 +112,9 @@ While a response is being generated the chat UI streams succinct progress
 updates (for example “embedding documentation” or “querying OpenAI”) so users
 know which stage of the retrieval-and-generation pipeline is running without a
 wall of status text pushing the answer out of view. Once the response is ready,
-the assistant renders the answer first and tucks the complete step list into a
-collapsible **Processing steps** summary underneath the citations for future
-reference.
+the assistant renders the answer first and then posts a separate
+collapsible **Processing log** message underneath it so the step-by-step
+summary stays available without crowding the result.
 
 > ℹ️ You can skip the env file when `docs_chat.api_key` stores the secret: run
 > `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your
