@@ -60,3 +60,22 @@ def test_build_vectorstore_batches_embedding_requests(monkeypatch):
 
     assert len(batches) == math.ceil(total / docs_chat._EMBEDDING_BATCH_SIZE)
     assert max(len(batch) for batch in batches) <= docs_chat._EMBEDDING_BATCH_SIZE
+
+
+def test_create_huggingface_embeddings(monkeypatch):
+    class _StubHFEmbeddings:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    fake_hf = types.SimpleNamespace(HuggingFaceEmbeddings=_StubHFEmbeddings)
+    monkeypatch.setitem(sys.modules, "langchain_huggingface", fake_hf)
+    monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(__name__="sentence_transformers"))
+    monkeypatch.setattr(docs_chat, "_resolve_api_key", lambda config: (_ for _ in ()).throw(AssertionError("not used")))
+
+    embeddings = docs_chat._create_embeddings(
+        DocsChatConfig(enabled=True, embedding_provider="huggingface", embedding_model="mini-model")
+    )
+
+    assert isinstance(embeddings, _StubHFEmbeddings)
+    assert embeddings.kwargs.get("model_name") == "mini-model"

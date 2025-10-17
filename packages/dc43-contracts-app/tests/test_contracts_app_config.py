@@ -11,6 +11,7 @@ def test_docs_chat_defaults(monkeypatch):
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED", raising=False)
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER", raising=False)
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_MODEL", raising=False)
+    monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER", raising=False)
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL", raising=False)
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV", raising=False)
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_PATH", raising=False)
@@ -23,6 +24,7 @@ def test_docs_chat_defaults(monkeypatch):
     assert docs_chat.enabled is False
     assert docs_chat.provider == "openai"
     assert docs_chat.model == "gpt-4o-mini"
+    assert docs_chat.embedding_provider == "openai"
     assert docs_chat.embedding_model == "text-embedding-3-small"
     assert docs_chat.api_key_env == "OPENAI_API_KEY"
     assert docs_chat.api_key is None
@@ -39,7 +41,8 @@ def test_docs_chat_env_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED", "1")
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER", "openai")
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_MODEL", "gpt-4.1-mini")
-    monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL", "text-embedding-3-large")
+    monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER", "huggingface")
+    monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L12-v2")
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV", "MY_CUSTOM_KEY")
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY", "super-secret")
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_PATH", str(docs_path))
@@ -52,7 +55,8 @@ def test_docs_chat_env_overrides(monkeypatch, tmp_path):
     assert docs_chat.enabled is True
     assert docs_chat.provider == "openai"
     assert docs_chat.model == "gpt-4.1-mini"
-    assert docs_chat.embedding_model == "text-embedding-3-large"
+    assert docs_chat.embedding_provider == "huggingface"
+    assert docs_chat.embedding_model == "sentence-transformers/all-MiniLM-L12-v2"
     assert docs_chat.api_key_env == "MY_CUSTOM_KEY"
     assert docs_chat.api_key == "super-secret"
     assert docs_chat.docs_path == docs_path
@@ -89,7 +93,8 @@ def test_wizard_state_enables_docs_chat():
             "docs_assistant": {
                 "provider": "openai",
                 "model": "gpt-4.1-mini",
-                "embedding_model": "text-embedding-3-large",
+                "embedding_provider": "huggingface",
+                "embedding_model": "sentence-transformers/all-MiniLM-L12-v2",
                 "api_key_env": "TEAM_OPENAI_KEY",
                 "api_key": "inline-secret",
                 "docs_path": "~/shared-docs",
@@ -109,7 +114,8 @@ def test_wizard_state_enables_docs_chat():
     assert docs_chat.enabled is True
     assert docs_chat.provider == "openai"
     assert docs_chat.model == "gpt-4.1-mini"
-    assert docs_chat.embedding_model == "text-embedding-3-large"
+    assert docs_chat.embedding_provider == "huggingface"
+    assert docs_chat.embedding_model == "sentence-transformers/all-MiniLM-L12-v2"
     assert docs_chat.api_key_env == "TEAM_OPENAI_KEY"
     assert docs_chat.api_key == "inline-secret"
     assert docs_chat.docs_path == Path("~/shared-docs").expanduser()

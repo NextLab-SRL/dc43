@@ -16,6 +16,8 @@
 - Allowed the demo launcher to accept `--config`/`--env-file` arguments and taught the
   contracts configuration about an inline `docs_chat.api_key` so local runs can avoid
   manual `export` steps when working from private TOML files.
+- Added a `dc43-docs-chat-index` CLI so operators can pre-build the documentation
+  assistant's FAISS cache using the same configuration that powers the FastAPI app.
 
 ### Changed
 - Updated the release automation to tag the contracts-app and HTTP backend Docker
@@ -28,6 +30,9 @@
 - Added a `docs-chat` extra to the meta package and documented the single editable install
   command so local demos can enable the documentation assistant without juggling multiple
   pip invocations.
+- Let the docs assistant target Hugging Face embeddings as well as OpenAI so large
+  repositories can be indexed offline; templates and guides now cover the new
+  `embedding_provider` option and the persisted cache workflow.
 - Clarified docs-chat installation notes so contributors avoid mixing the meta extra with
   direct `dc43-contracts-app[docs-chat]` installs, which pip treats as conflicting
   requirements in a single environment.

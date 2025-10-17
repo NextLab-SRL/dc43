@@ -28,6 +28,8 @@
   docs chat configuration alongside other deployment metadata.
 - Extended docs chat configuration with an optional inline `api_key` field so private TOML files can
   store credentials directly when environment variables are impractical.
+- Added a `dc43-docs-chat-index` CLI so operators can pre-compute the documentation assistant's
+  FAISS cache using the same configuration as the FastAPI deployment.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are
@@ -66,6 +68,9 @@
   application logs (including the explicit warm-up wait message returned from the REST API)
   so operators can follow each stage even when the cache build starts before the first
   question, all without blocking the server from starting.
+- Added Hugging Face embedding support alongside OpenAI so large repositories can be indexed
+  offline; templates, environment references, and getting-started guides now highlight the
+  `embedding_provider` option and the persisted index workflow.
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from

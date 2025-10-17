@@ -78,6 +78,9 @@
   distribution validates the bundled scenarios directly during CI runs.
 - `dc43-demo` now logs the resolved contracts-app configuration path and docs-chat summary
   during startup to aid debugging and deployment validation.
+- Documented the docs-chat embedding provider options and the new
+  `dc43-docs-chat-index` helper so demos can pre-build the assistant cache and
+  opt into offline Hugging Face embeddings when needed.
 
 ### Fixed
 - Respect exported `DC43_CONTRACTS_APP_CONFIG` files when launching `dc43-demo`

@@ -39,6 +39,8 @@ Set the following environment variables when starting the container:
   spawn the in-process backend instead of dialing a remote service.
 - `DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED` – set to `1`/`true` to expose the documentation chat assistant
   (requires the `docs-chat` optional dependency).
+- `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER` – pick the embedding backend used to build the
+  FAISS index (`openai` by default, set to `huggingface` for offline embeddings).
 - `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV` – rename the environment variable that contains your LLM provider key
   (defaults to `OPENAI_API_KEY`). Ensure the referenced variable is present in the container environment.
 
@@ -54,6 +56,8 @@ docker run --rm \
 
 Mount a contracts directory under `/contracts` and set `DC43_CONTRACT_STORE` if you run in
 embedded mode and need persistent drafts. When docs chat is enabled you can persist the vector
-index by mounting a volume and pointing `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX` at it. The server
-warms the documentation index during startup, so the required OpenAI metadata downloads and
-FAISS persistence happen once before the first chat request.
+index by mounting a volume and pointing `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX` at it. Consider
+running `dc43-docs-chat-index --config /etc/dc43/contracts-app.toml` as part of your build or
+release pipeline so the FAISS cache is present before the container starts. Switching the
+embedding provider to `huggingface` keeps the entire indexing workflow offline and avoids
+OpenAI rate limits during the warm-up step.

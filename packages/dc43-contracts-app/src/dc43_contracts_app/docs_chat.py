@@ -79,6 +79,7 @@ class _DocsChatRuntime:
     index_dir: Path
     manifest: Mapping[str, object]
     chain: object
+    embeddings_provider: str
     embeddings_model: str
     content_sources: tuple[_ContentSource, ...]
 
@@ -89,10 +90,18 @@ _INSTALL_EXTRA_HINT = (
     "or pip install 'dc43-contracts-app[docs-chat]' from PyPI) to use the assistant. Avoid combining both commands in the same "
     "environment—pip will treat them as conflicting installs."
 )
+_INSTALL_HUGGINGFACE_HINT = (
+    "Install langchain-huggingface and sentence-transformers via the docs-chat extra "
+    "(pip install --no-cache-dir -e \".[demo]\" or pip install 'dc43-contracts-app[docs-chat]') "
+    "to use Hugging Face embeddings."
+)
 _INSTALL_GRADIO_HINT = (
     "Install Gradio via the docs-chat extra (pip install --no-cache-dir -e \".[demo]\" or "
     "pip install 'dc43-contracts-app[docs-chat]') to use the embedded UI."
 )
+
+_SUPPORTED_EMBEDDING_PROVIDERS = {"openai", "huggingface"}
+_DEFAULT_HUGGINGFACE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 _DEFAULT_CODE_DIR_NAMES = ("src", "packages")
 _CODE_FILE_PATTERNS = (
@@ -457,7 +466,17 @@ def status() -> DocsChatStatus:
             ui_available=_check_ui_dependencies()[0],
         )
 
-    core_ready, dependency_message = _check_core_dependencies()
+    embedding_provider = _normalise_embedding_provider(config)
+    if embedding_provider not in _SUPPORTED_EMBEDDING_PROVIDERS:
+        supported = ", ".join(sorted(_SUPPORTED_EMBEDDING_PROVIDERS))
+        return DocsChatStatus(
+            enabled=True,
+            ready=False,
+            message=f"Unsupported docs chat embedding provider: {config.embedding_provider}. Supported values: {supported}.",
+            ui_available=_check_ui_dependencies()[0],
+        )
+
+    core_ready, dependency_message = _check_core_dependencies(embedding_provider)
     if not core_ready:
         return DocsChatStatus(
             enabled=True,
@@ -664,7 +683,8 @@ def _build_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntime
                 index_dir=index_dir,
                 manifest=manifest,
                 chain=chain,
-                embeddings_model=config.embedding_model,
+                embeddings_provider=_normalise_embedding_provider(config),
+                embeddings_model=_resolve_embedding_model(config),
                 content_sources=tuple(content_sources),
             )
 
@@ -682,7 +702,8 @@ def _build_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntime
         index_dir=index_dir,
         manifest=manifest,
         chain=chain,
-        embeddings_model=config.embedding_model,
+        embeddings_provider=_normalise_embedding_provider(config),
+        embeddings_model=_resolve_embedding_model(config),
         content_sources=tuple(content_sources),
     )
 
@@ -743,15 +764,10 @@ def _apply_prompt_override(chain: object, prompt: object) -> None:
 def _load_vectorstore(index_dir: Path, config: DocsChatConfig) -> object:
     try:
         from langchain_community.vectorstores import FAISS
-        from langchain_openai import OpenAIEmbeddings
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
         raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
 
-    api_key = _resolve_api_key(config)
-    if not api_key:
-        raise DocsChatError(_missing_api_key_message(config))
-
-    embeddings = OpenAIEmbeddings(model=config.embedding_model, openai_api_key=api_key)
+    embeddings = _create_embeddings(config)
     return FAISS.load_local(
         str(index_dir),
         embeddings,
@@ -766,18 +782,14 @@ def _build_vectorstore(
 ) -> object:
     try:
         from langchain_community.vectorstores import FAISS
-        from langchain_openai import OpenAIEmbeddings
         from langchain_text_splitters import RecursiveCharacterTextSplitter
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
         raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)
     splits = splitter.split_documents(documents)
-    api_key = _resolve_api_key(config)
-    if not api_key:
-        raise DocsChatError(_missing_api_key_message(config))
 
-    embeddings = OpenAIEmbeddings(model=config.embedding_model, openai_api_key=api_key)
+    embeddings = _create_embeddings(config)
     if not splits:
         raise DocsChatError(
             "No documentation content was loaded; confirm docs_chat paths point to Markdown or code."
@@ -908,7 +920,8 @@ def _current_manifest_payload(
         "content_roots": roots_payload,
         "provider": config.provider,
         "model": config.model,
-        "embedding_model": config.embedding_model,
+        "embedding_provider": _normalise_embedding_provider(config),
+        "embedding_model": _resolve_embedding_model(config),
     }
 
 
@@ -960,6 +973,19 @@ def _missing_api_key_message(config: DocsChatConfig) -> str:
     return "Provide an API key via docs_chat.api_key before retrying."
 
 
+def _normalise_embedding_provider(config: DocsChatConfig) -> str:
+    value = (config.embedding_provider or "openai").strip().lower()
+    return value or "openai"
+
+
+def _resolve_embedding_model(config: DocsChatConfig) -> str:
+    provider = _normalise_embedding_provider(config)
+    model = (config.embedding_model or "").strip()
+    if provider != "openai" and (not model or model == "text-embedding-3-small"):
+        return _DEFAULT_HUGGINGFACE_MODEL
+    return model or "text-embedding-3-small"
+
+
 def _resolve_api_key(config: DocsChatConfig) -> str | None:
     if config.api_key:
         return config.api_key.strip() or None
@@ -969,6 +995,37 @@ def _resolve_api_key(config: DocsChatConfig) -> str | None:
     if value:
         return value.strip() or None
     return None
+
+
+def _create_embeddings(config: DocsChatConfig) -> object:
+    provider = _normalise_embedding_provider(config)
+    model_name = _resolve_embedding_model(config)
+
+    if provider == "openai":
+        try:
+            from langchain_openai import OpenAIEmbeddings
+        except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
+            raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
+
+        api_key = _resolve_api_key(config)
+        if not api_key:
+            raise DocsChatError(_missing_api_key_message(config))
+
+        return OpenAIEmbeddings(model=model_name, openai_api_key=api_key)
+
+    if provider == "huggingface":
+        try:
+            from langchain_huggingface import HuggingFaceEmbeddings
+        except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
+            raise DocsChatError(_INSTALL_HUGGINGFACE_HINT) from exc
+
+        return HuggingFaceEmbeddings(model_name=model_name)
+
+    raise DocsChatError(
+        "Unsupported docs chat embedding provider: "
+        f"{config.embedding_provider or provider}. Supported providers: "
+        f"{', '.join(sorted(_SUPPORTED_EMBEDDING_PROVIDERS))}."
+    )
 
 
 def _normalise_history(history: Sequence[Tuple[str, str]] | Sequence[Mapping[str, str]]) -> List[Tuple[str, str]]:
@@ -1053,7 +1110,7 @@ def _format_source_display(root: Path, relative: str) -> str:
     return prefix
 
 
-def _check_core_dependencies() -> tuple[bool, str | None]:
+def _check_core_dependencies(embedding_provider: str) -> tuple[bool, str | None]:
     try:
         import langchain  # noqa: F401
         import langchain_community  # noqa: F401
@@ -1061,6 +1118,12 @@ def _check_core_dependencies() -> tuple[bool, str | None]:
         import langchain_text_splitters  # noqa: F401
     except ModuleNotFoundError:
         return (False, _INSTALL_EXTRA_HINT)
+    if embedding_provider == "huggingface":
+        try:
+            import langchain_huggingface  # noqa: F401
+            import sentence_transformers  # noqa: F401
+        except ModuleNotFoundError:
+            return (False, _INSTALL_HUGGINGFACE_HINT)
     return True, None
 
 

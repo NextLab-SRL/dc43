@@ -36,7 +36,12 @@ docs-chat = [
   "langchain-text-splitters>=0.0.1",
   "chardet>=5.0",
   "faiss-cpu>=1.7.4",
+  "langchain-huggingface>=0.1.2",
+  "sentence-transformers>=2.2",
 ]
+
+[project.scripts]
+dc43-docs-chat-index = "dc43_contracts_app.docs_chat_index:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

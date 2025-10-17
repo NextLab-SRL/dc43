@@ -59,6 +59,7 @@ class DocsChatConfig:
     enabled: bool = False
     provider: str = "openai"
     model: str = "gpt-4o-mini"
+    embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-small"
     api_key_env: str = "OPENAI_API_KEY"
     api_key: str | None = None
@@ -225,6 +226,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if isinstance(docs_chat_section, MutableMapping)
         else "gpt-4o-mini"
     ) or "gpt-4o-mini"
+    docs_chat_embedding_provider = (
+        str(docs_chat_section.get("embedding_provider", "openai")).strip()
+        if isinstance(docs_chat_section, MutableMapping)
+        else "openai"
+    ) or "openai"
     docs_chat_embedding_model = (
         str(docs_chat_section.get("embedding_model", "text-embedding-3-small")).strip()
         if isinstance(docs_chat_section, MutableMapping)
@@ -301,6 +307,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if env_docs_model:
             docs_chat_model = env_docs_model.strip() or docs_chat_model
 
+        env_docs_embedding_provider = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER")
+        if env_docs_embedding_provider:
+            docs_chat_embedding_provider = env_docs_embedding_provider.strip() or docs_chat_embedding_provider
+
         env_docs_embedding = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL")
         if env_docs_embedding:
             docs_chat_embedding_model = env_docs_embedding.strip() or docs_chat_embedding_model
@@ -330,6 +340,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
             value_text = env_docs_reasoning.strip()
             docs_chat_reasoning_effort = value_text or None
 
+    embedding_provider_normalized = docs_chat_embedding_provider.lower()
+    if embedding_provider_normalized != "openai" and docs_chat_embedding_model == "text-embedding-3-small":
+        docs_chat_embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+
     if docs_chat_api_key is None and docs_chat_api_key_env:
         if not _looks_like_env_var_name(docs_chat_api_key_env):
             docs_chat_api_key = docs_chat_api_key_env
@@ -349,6 +363,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         enabled=docs_chat_enabled,
         provider=docs_chat_provider,
         model=docs_chat_model,
+        embedding_provider=docs_chat_embedding_provider,
         embedding_model=docs_chat_embedding_model,
         api_key_env=docs_chat_api_key_env,
         api_key=docs_chat_api_key,
@@ -410,6 +425,8 @@ def _docs_chat_mapping(config: DocsChatConfig) -> dict[str, Any]:
         mapping["provider"] = config.provider
     if config.model != "gpt-4o-mini":
         mapping["model"] = config.model
+    if config.embedding_provider != "openai":
+        mapping["embedding_provider"] = config.embedding_provider
     if config.embedding_model != "text-embedding-3-small":
         mapping["embedding_model"] = config.embedding_model
     if config.api_key_env != "OPENAI_API_KEY":

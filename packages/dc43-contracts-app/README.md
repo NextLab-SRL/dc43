@@ -33,13 +33,16 @@ maintain bespoke chat widgets. To enable it:
    conflicting requirements because they reference the same local package.
 2. Provide an API key via the configured environment variable (defaults to
    `OPENAI_API_KEY`) or set an inline secret with `docs_chat.api_key` in a
-   private TOML file.
+   private TOML file. When you rely on `embedding_provider = "huggingface"` the
+   same OpenAI key is still used for chat completions, but embeddings no longer
+   require an external service.
 3. Toggle the feature in `contracts-app.toml`:
    ```toml
    [docs_chat]
    enabled = true
    provider = "openai"
    model = "gpt-4o-mini"
+   embedding_provider = "openai" # Switch to "huggingface" for offline embeddings.
    embedding_model = "text-embedding-3-small"
    api_key_env = "OPENAI_API_KEY"
    # api_key = "sk-your-api-key" # optional inline secret stored outside git
@@ -66,7 +69,10 @@ maintain bespoke chat widgets. To enable it:
    Embeddings are requested in small batches during the initial index build so
    the OpenAI API never sees more tokens than its per-request limit. Point the
    assistant at large documentation or source directories without juggling
-   manual chunk sizes.
+   manual chunk sizes. Prefer to stay offline? set `embedding_provider = "huggingface"`
+   (the docs-chat extra already installs `langchain-huggingface` and
+   `sentence-transformers`) and leave `embedding_model` empty to fall back to
+   `sentence-transformers/all-MiniLM-L6-v2`.
 
    The FastAPI application now kicks off the documentation index warm-up as it
    loads the configuration so the one-off downloads and FAISS persistence happen
@@ -79,6 +85,12 @@ maintain bespoke chat widgets. To enable it:
    documentation, embedding batches, and querying OpenAI—before presenting the
    final, cited response. Programmatic callers receive the same step list in the
    JSON payload under a new `steps` field.
+
+   For deployments that want the index ready before the app starts, run
+   `dc43-docs-chat-index --config /path/to/contracts-app.toml` as part of your
+   build pipeline. The CLI shares the same configuration loader and writes the
+   FAISS cache to `docs_chat.index_path` (or the workspace default) so runtime
+   warm-ups immediately reuse the persisted manifest.
 
 The contracts setup wizard mirrors these settings via the **Documentation assistant** module. Pick
 the Gradio option under the *User experience* group to populate `[docs_chat]` in the exported
@@ -101,7 +113,8 @@ HTML entry point lives at `/docs-chat`.
 | `DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED` | Override the `docs_chat.enabled` flag (`1`, `true`, etc.). |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER` | Provider identifier (currently `openai`). |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_MODEL` | Chat completion model to request. |
-| `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL` | Embedding model used to build the vector index. |
+| `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER` | Embedding backend used to build the FAISS index (`openai` or `huggingface`). |
+| `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL` | Embedding model used to build the vector index. Leave empty when relying on the default Hugging Face model. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV` | Name of the environment variable that stores the provider API key. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY` | Inline provider API key used when you prefer not to rely on environment variables. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_PATH` | Override the directory that contains Markdown documentation. |

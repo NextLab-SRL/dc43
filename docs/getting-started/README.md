@@ -32,6 +32,7 @@ cat <<'TOML' > ~/.dc43/contracts-app.toml
 enabled = true
 provider = "openai"
 model = "gpt-4o-mini"
+embedding_provider = "openai"  # Switch to "huggingface" for offline embeddings.
 embedding_model = "text-embedding-3-small"
 api_key_env = "OPENAI_API_KEY" # rename when you prefer a different env var
 # Keep secrets out of git-tracked files? add them to a private env file.
@@ -54,6 +55,10 @@ ENV
 # configuration so the workspace/backend defaults stay intact and loads the env
 # file before spawning subprocesses.
 dc43-demo --config ~/.dc43/contracts-app.toml --env-file ~/.dc43/docs-chat.env
+
+# Optional: pre-build the documentation index (reuses the same configuration and
+# stores the FAISS cache under the configured workspace).
+dc43-docs-chat-index --config ~/.dc43/contracts-app.toml --workspace-root ~/dc43/workspace
 ```
 
 The launcher still honours `DC43_CONTRACTS_APP_CONFIG` if you prefer a global
@@ -83,8 +88,13 @@ latency/cost trade-offs).
 
 Large documentation or source trees are embedded in small batches during the
 initial index build so OpenAI's embeddings endpoint never receives a request
-that exceeds its 300k-token limit. You can point the assistant at broad
-projects without manually tuning chunk sizes.
+that exceeds its 300k-token limit. When you prefer to stay entirely offline—or
+want to avoid OpenAI rate limits while indexing large codebases—switch
+`embedding_provider` to `huggingface`. The docs-chat extra already installs
+`langchain-huggingface` and `sentence-transformers`, and the assistant falls
+back to `sentence-transformers/all-MiniLM-L6-v2` unless you provide a custom
+`embedding_model`. Run `dc43-docs-chat-index` after tweaking your configuration
+to persist the updated FAISS cache before redeploying the app.
 
 The demo runner now kicks off the knowledge base warm-up as part of its startup
 flow while the FastAPI apps boot. Downloading model metadata, scanning
