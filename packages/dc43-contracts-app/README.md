@@ -43,6 +43,8 @@ maintain bespoke chat widgets. To enable it:
    embedding_model = "text-embedding-3-small"
    api_key_env = "OPENAI_API_KEY"
    # api_key = "sk-your-api-key" # optional inline secret stored outside git
+   # code_paths = ["~/project/sibling-module"] # optional extra source directories
+   # reasoning_effort = "medium" # use with OpenAI `o4-*` models
    ```
    `api_key_env` records the *name* of the variable that stores your API key.
    Load the secret separately (for example via `direnv`, `dotenv`, a
@@ -55,9 +57,10 @@ maintain bespoke chat widgets. To enable it:
    ```
    The legacy `export DC43_CONTRACTS_APP_CONFIG=/path/to/contracts-app.toml`
    workflow still works when you prefer a global environment variable.
-5. Restart the dc43 app. The assistant indexes Markdown under `docs/` by
-   default; override `docs_chat.docs_path` or `docs_chat.index_path` when the
-   repository lives elsewhere.
+5. Restart the dc43 app. The assistant indexes Markdown under `docs/` and the
+   source trees in `src/`/`packages/` by default; override
+   `docs_chat.docs_path`, `docs_chat.code_paths`, or `docs_chat.index_path` when
+   the repository lives elsewhere.
 
 The contracts setup wizard mirrors these settings via the **Documentation assistant** module. Pick
 the Gradio option under the *User experience* group to populate `[docs_chat]` in the exported
@@ -81,6 +84,8 @@ HTML entry point lives at `/docs-chat`.
 | `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY` | Inline provider API key used when you prefer not to rely on environment variables. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_PATH` | Override the directory that contains Markdown documentation. |
 | `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX` | Directory where the LangChain/FAISS index is stored. |
+| `DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS` | Comma/`:` separated list of extra source directories to index. |
+| `DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT` | Reasoning hint (`low`/`medium`/`high`) for OpenAI `o4`/`o1` models. |
 
 Combine these overrides with existing workspace and backend settings to tailor
 the dc43 app to your deployment environment.

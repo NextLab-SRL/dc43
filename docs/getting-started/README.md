@@ -36,6 +36,11 @@ embedding_model = "text-embedding-3-small"
 api_key_env = "OPENAI_API_KEY" # rename when you prefer a different env var
 # Keep secrets out of git-tracked files? add them to a private env file.
 # Prefer storing the key alongside the config? set `api_key = "sk-..."` instead.
+# Want to expand the knowledge base beyond the default `src/` and `packages/` directories?
+# Populate `code_paths` with extra folders (for example a mono-repo integration module).
+code_paths = []
+# Enabling OpenAI reasoning models such as `o4-mini`? set `reasoning_effort = "medium"` (or `"high"`).
+reasoning_effort = ""
 TOML
 
 # Optionally capture secrets in a lightweight env file so you can avoid manual
@@ -55,9 +60,17 @@ environment variable. Restart the application and open `/docs-chat` to chat with
 the Markdown guides bundled in `docs/`.
 
 Expect detailed, citation-backed answers. The assistant now grounds its replies
-in the retrieved Markdown snippets so prompts like “help me start a Spark
-integration pipeline” return step-by-step guidance, highlighted file names, and
-links to the most relevant setup sections.
+in the retrieved Markdown and code snippets so prompts like “help me start a Spark
+integration pipeline” return step-by-step guidance, highlighted file names from
+`docs/` and `src/`, and links to the most relevant setup sections.
+
+By default the assistant indexes the repository `docs/`, `src/`, and `packages/`
+trees. Set `docs_chat.code_paths` when you want to add additional modules (for
+example a sibling integration repo) or trim the scope to specific directories.
+Teams experimenting with OpenAI's reasoning models can opt into higher-depth
+answers by switching `docs_chat.model` to `o4-mini` and providing a
+`docs_chat.reasoning_effort` value (`"medium"` or `"high"` depending on
+latency/cost trade-offs).
 
 > ℹ️ You can skip the env file when `docs_chat.api_key` stores the secret: run
 > `dc43-demo --config ~/.dc43/contracts-app.toml` and the launcher will merge your

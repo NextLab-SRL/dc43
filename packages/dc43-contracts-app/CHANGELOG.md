@@ -54,6 +54,9 @@
   `dc43-demo --config/--env-file` launcher flags for local runs.
 - Reworked the docs chat question-answer prompt so responses summarise the retrieved Markdown,
   cite file names, and guide Spark integration questions instead of defaulting to "I don't know".
+- Expanded the docs chat helper to index repository source code, respect configurable
+  `code_paths`, and forward OpenAI reasoning effort hints so the assistant can tackle
+  complex integration prompts with code-backed answers.
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from

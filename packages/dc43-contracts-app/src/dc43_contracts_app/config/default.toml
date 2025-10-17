@@ -24,3 +24,7 @@ api_key_env = "OPENAI_API_KEY"
 api_key = ""
 docs_path = ""
 index_path = ""
+# Provide additional source directories to index (defaults to repository ``src`` and ``packages`` folders).
+code_paths = []
+# Request OpenAI reasoning models by setting ``reasoning_effort`` (for example "medium" when using ``o4-mini``).
+reasoning_effort = ""

@@ -15,6 +15,8 @@ def test_docs_chat_defaults(monkeypatch):
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV", raising=False)
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_PATH", raising=False)
     monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_INDEX", raising=False)
+    monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS", raising=False)
+    monkeypatch.delenv("DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT", raising=False)
 
     config = load_config()
     docs_chat = config.docs_chat
@@ -26,6 +28,8 @@ def test_docs_chat_defaults(monkeypatch):
     assert docs_chat.api_key is None
     assert docs_chat.docs_path is None
     assert docs_chat.index_path is None
+    assert docs_chat.code_paths == ()
+    assert docs_chat.reasoning_effort is None
 
 
 def test_docs_chat_env_overrides(monkeypatch, tmp_path):
@@ -40,6 +44,8 @@ def test_docs_chat_env_overrides(monkeypatch, tmp_path):
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY", "super-secret")
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_PATH", str(docs_path))
     monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_INDEX", str(index_path))
+    monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS", ":".join([str(tmp_path / "src"), str(tmp_path / "pkg")] ))
+    monkeypatch.setenv("DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT", "medium")
 
     config = load_config()
     docs_chat = config.docs_chat
@@ -51,6 +57,8 @@ def test_docs_chat_env_overrides(monkeypatch, tmp_path):
     assert docs_chat.api_key == "super-secret"
     assert docs_chat.docs_path == docs_path
     assert docs_chat.index_path == index_path
+    assert docs_chat.code_paths == (tmp_path / "src", tmp_path / "pkg")
+    assert docs_chat.reasoning_effort == "medium"
 
 
 def test_docs_chat_coerces_inline_api_key_from_env_field(tmp_path, monkeypatch):
@@ -86,6 +94,8 @@ def test_wizard_state_enables_docs_chat():
                 "api_key": "inline-secret",
                 "docs_path": "~/shared-docs",
                 "index_path": "~/shared-index",
+                "code_paths": ["~/shared-src", "~/shared-packages"],
+                "reasoning_effort": "high",
             },
         },
         "selected_options": {
@@ -104,6 +114,11 @@ def test_wizard_state_enables_docs_chat():
     assert docs_chat.api_key == "inline-secret"
     assert docs_chat.docs_path == Path("~/shared-docs").expanduser()
     assert docs_chat.index_path == Path("~/shared-index").expanduser()
+    assert docs_chat.code_paths == (
+        Path("~/shared-src").expanduser(),
+        Path("~/shared-packages").expanduser(),
+    )
+    assert docs_chat.reasoning_effort == "high"
 
 
 def test_wizard_state_defaults_to_disabled_docs_chat():

@@ -4115,6 +4115,24 @@ def _contracts_app_config_from_state(
         docs_path = Path(docs_path_text).expanduser() if docs_path_text else None
         index_path = Path(index_path_text).expanduser() if index_path_text else None
 
+        code_paths_value = docs_module.get("code_paths")
+        code_path_entries: list[str] = []
+        if isinstance(code_paths_value, (list, tuple, set)):
+            for item in code_paths_value:
+                if not isinstance(item, str):
+                    item = str(item)
+                item = item.strip()
+                if item:
+                    code_path_entries.append(item)
+        elif isinstance(code_paths_value, str):
+            candidate = code_paths_value.strip()
+            if candidate:
+                parts = [part.strip() for part in candidate.replace(";", ",").split(",")]
+                code_path_entries.extend(part for part in parts if part)
+
+        code_paths = tuple(Path(entry).expanduser() for entry in code_path_entries)
+        reasoning_effort = _clean_str(docs_module.get("reasoning_effort")) or None
+
         docs_chat_cfg = DocsChatConfig(
             enabled=True,
             provider=provider,
@@ -4124,6 +4142,8 @@ def _contracts_app_config_from_state(
             api_key=api_key_value,
             docs_path=docs_path,
             index_path=index_path,
+            code_paths=code_paths,
+            reasoning_effort=reasoning_effort,
         )
 
     return ContractsAppConfig(

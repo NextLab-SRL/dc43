@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Mapping, Sequence, Tuple
+from typing import Iterable, List, Mapping, Sequence, Tuple, Literal
 import json
 import logging
 import os
@@ -60,6 +60,12 @@ class DocsChatError(RuntimeError):
 
 
 @dataclass(slots=True)
+class _ContentSource:
+    root: Path
+    kind: Literal["docs", "code"]
+
+
+@dataclass(slots=True)
 class _DocsChatRuntime:
     config: DocsChatConfig
     docs_root: Path
@@ -67,6 +73,7 @@ class _DocsChatRuntime:
     manifest: Mapping[str, object]
     chain: object
     embeddings_model: str
+    content_sources: tuple[_ContentSource, ...]
 
 
 _GRADIO_MOUNT_PATH = "/docs-chat/assistant"
@@ -80,6 +87,33 @@ _INSTALL_GRADIO_HINT = (
     "pip install 'dc43-contracts-app[docs-chat]') to use the embedded UI."
 )
 
+_DEFAULT_CODE_DIR_NAMES = ("src", "packages")
+_CODE_FILE_PATTERNS = (
+    "*.py",
+    "*.pyi",
+    "*.ts",
+    "*.tsx",
+    "*.js",
+    "*.jsx",
+    "*.sql",
+    "*.scala",
+    "*.yaml",
+    "*.yml",
+    "*.json",
+    "*.toml",
+)
+_EXCLUDED_DIR_NAMES = {
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "dist",
+    "build",
+    "__snapshots__",
+}
+_EXCLUDED_GLOBS = tuple(f"**/{name}/**" for name in _EXCLUDED_DIR_NAMES)
+
 _CONFIG: DocsChatConfig | None = None
 _WORKSPACE: ContractsAppWorkspace | None = None
 _RUNTIME: _DocsChatRuntime | None = None
@@ -87,13 +121,15 @@ _RUNTIME_LOCK = threading.Lock()
 
 _QA_PROMPT_TEMPLATE = """
 You are the documentation assistant for the dc43 platform. Use the Markdown
-context provided below to answer the user's question with practical guidance,
-explicit references to relevant files or headings, and concrete next steps.
+and source code context provided below to answer the user's question with
+practical guidance, explicit references to relevant files or headings, and
+concrete next steps.
 
 - Always ground your reply in the supplied context snippets. Quote or summarise
   the most relevant passages so the reader understands how to proceed.
-- Mention the Markdown filename (for example `implementations/spark.md`) or
-  heading when you cite instructions from the context.
+- Mention the filename (for example `docs/implementations/spark.md` or
+  `packages/dc43-contracts-app/src/...`) or heading when you cite instructions
+  from the context.
 - When the context does not directly answer the question, acknowledge the gap
   and point to the closest matching guidance instead of replying with “I don't
   know”.
@@ -150,6 +186,75 @@ def _candidate_docs_roots() -> list[Path]:
     return candidates
 
 
+def _candidate_code_paths() -> list[Path]:
+    """Return likely source directories that should be indexed."""
+
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    def _remember(path: Path) -> None:
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            return
+        if not path.exists() or not path.is_dir():
+            return
+        seen.add(key)
+        candidates.append(path)
+
+    def _extend_from(base: Path) -> None:
+        for parent in (base,) + tuple(base.parents):
+            for name in _DEFAULT_CODE_DIR_NAMES:
+                _remember(parent / name)
+
+    module_base = Path(__file__).resolve().parent
+    _extend_from(module_base)
+
+    cwd = Path.cwd()
+    _extend_from(cwd)
+
+    try:
+        import dc43  # type: ignore[import-not-found]
+    except Exception:  # pragma: no cover - optional dependency
+        pass
+    else:
+        _extend_from(Path(dc43.__file__).resolve().parent)  # type: ignore[attr-defined]
+
+    return candidates
+
+
+def _resolve_code_paths(config: DocsChatConfig) -> list[Path]:
+    if config.code_paths:
+        resolved: list[Path] = []
+        for path in config.code_paths:
+            if path and path.exists() and path.is_dir():
+                resolved.append(path)
+        return resolved
+    return _candidate_code_paths()
+
+
+def _resolve_content_sources(config: DocsChatConfig) -> list[_ContentSource]:
+    docs_root = _resolve_docs_root(config)
+    sources: list[_ContentSource] = [_ContentSource(root=docs_root, kind="docs")]
+    seen: set[Path] = set()
+    try:
+        seen.add(docs_root.resolve())
+    except OSError:
+        seen.add(docs_root)
+    for path in _resolve_code_paths(config):
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append(_ContentSource(root=path, kind="code"))
+    return sources
+
+
 def configure(config: DocsChatConfig, workspace: ContractsAppWorkspace) -> None:
     """Store the active configuration and reset cached state."""
 
@@ -180,6 +285,19 @@ def status() -> DocsChatStatus:
             message=f"Documentation directory not found: {docs_root}",
             ui_available=False,
         )
+
+    if config.code_paths:
+        missing_code_dirs = [path for path in config.code_paths if not path.exists()]
+        if len(missing_code_dirs) == len(config.code_paths):
+            missing = ", ".join(str(path) for path in config.code_paths)
+            return DocsChatStatus(
+                enabled=True,
+                ready=False,
+                message=f"Code directories not found: {missing}",
+                ui_available=_check_ui_dependencies()[0],
+            )
+        if missing_code_dirs:
+            logger.warning("Skipping missing docs chat code directories: %s", ", ".join(str(path) for path in missing_code_dirs))
 
     if config.provider.lower() != "openai":
         return DocsChatStatus(
@@ -225,7 +343,7 @@ def generate_reply(message: str, history: Sequence[Tuple[str, str]] | Sequence[M
         raise DocsChatError(str(exc)) from exc
 
     answer_text = _extract_answer_text(result)
-    sources = _extract_sources(result, runtime.docs_root)
+    sources = _extract_sources(result, runtime)
     return DocsChatReply(answer=answer_text, sources=sources)
 
 
@@ -301,11 +419,12 @@ def _build_runtime() -> _DocsChatRuntime:
     if config is None or workspace is None:
         raise DocsChatError("Docs chat has not been initialised with a workspace.")
 
-    docs_root = _resolve_docs_root(config)
+    content_sources = _resolve_content_sources(config)
+    docs_root = content_sources[0].root
     index_dir = _resolve_index_dir(config, workspace)
     index_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = _current_manifest_payload(config, docs_root)
+    manifest = _current_manifest_payload(config, content_sources)
     manifest_path = index_dir / "manifest.json"
     if manifest_path.exists() and (index_dir / "index.faiss").exists():
         stored = _load_manifest(manifest_path)
@@ -319,9 +438,10 @@ def _build_runtime() -> _DocsChatRuntime:
                 manifest=manifest,
                 chain=chain,
                 embeddings_model=config.embedding_model,
+                content_sources=tuple(content_sources),
             )
 
-    documents = _load_documents(docs_root)
+    documents = _load_documents(content_sources)
     vectorstore = _build_vectorstore(config, documents)
     _save_vectorstore(index_dir, vectorstore)
     _write_manifest(manifest_path, manifest)
@@ -333,6 +453,7 @@ def _build_runtime() -> _DocsChatRuntime:
         manifest=manifest,
         chain=chain,
         embeddings_model=config.embedding_model,
+        content_sources=tuple(content_sources),
     )
 
 
@@ -348,7 +469,14 @@ def _build_chain(config: DocsChatConfig, vectorstore: object) -> object:
     if not api_key:
         raise DocsChatError(_missing_api_key_message(config))
 
-    llm = ChatOpenAI(model=config.model, openai_api_key=api_key, temperature=0.2)
+    llm_kwargs: dict[str, object] = {
+        "model": config.model,
+        "openai_api_key": api_key,
+        "temperature": 0.2,
+    }
+    if config.reasoning_effort:
+        llm_kwargs["model_kwargs"] = {"reasoning": {"effort": config.reasoning_effort}}
+    llm = ChatOpenAI(**llm_kwargs)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
     qa_prompt = PromptTemplate.from_template(_QA_PROMPT_TEMPLATE)
     chain = ConversationalRetrievalChain.from_llm(
@@ -420,33 +548,97 @@ def _save_vectorstore(index_dir: Path, vectorstore: object) -> None:
         raise DocsChatError(f"Failed to persist the documentation index: {exc}") from exc
 
 
-def _load_documents(docs_root: Path) -> Sequence[object]:
+def _load_documents(content_sources: Sequence[_ContentSource]) -> Sequence[object]:
     try:
         from langchain_community.document_loaders import DirectoryLoader, TextLoader
     except ModuleNotFoundError as exc:  # pragma: no cover - safeguarded by ``status``
         raise DocsChatError(_INSTALL_EXTRA_HINT) from exc
 
-    loader = DirectoryLoader(
-        str(docs_root),
-        glob="**/*.md",
-        loader_cls=TextLoader,
-        show_progress=True,
-        use_multithreading=True,
-    )
-    return loader.load()
+    documents: list[object] = []
 
-
-def _current_manifest_payload(config: DocsChatConfig, docs_root: Path) -> Mapping[str, object]:
-    files: list[tuple[str, float]] = []
-    for path in sorted(docs_root.rglob("*.md")):
-        try:
-            timestamp = path.stat().st_mtime
-        except OSError:
+    for source in content_sources:
+        if not source.root.exists():
             continue
-        files.append((str(path.relative_to(docs_root)), float(timestamp)))
+
+        if source.kind == "docs":
+            loader = DirectoryLoader(
+                str(source.root),
+                glob="**/*.md",
+                loader_cls=TextLoader,
+                show_progress=True,
+                use_multithreading=True,
+                exclude=_EXCLUDED_GLOBS,
+                loader_kwargs={"autodetect_encoding": True},
+            )
+            loaded = loader.load()
+        else:
+            loaded = []
+            for pattern in _CODE_FILE_PATTERNS:
+                loader = DirectoryLoader(
+                    str(source.root),
+                    glob=f"**/{pattern}",
+                    loader_cls=TextLoader,
+                    show_progress=False,
+                    use_multithreading=True,
+                    exclude=_EXCLUDED_GLOBS,
+                    loader_kwargs={"autodetect_encoding": True},
+                )
+                loaded.extend(loader.load())
+
+        for document in loaded:
+            metadata = getattr(document, "metadata", None)
+            if isinstance(metadata, dict):
+                metadata.setdefault("root_path", str(source.root))
+                metadata.setdefault("source_kind", source.kind)
+                source_path = metadata.get("source")
+                relative_value: str | None = None
+                if isinstance(source_path, str):
+                    try:
+                        relative_path = Path(source_path).resolve().relative_to(source.root.resolve())
+                    except Exception:
+                        try:
+                            relative_path = Path(source_path).relative_to(source.root)
+                        except Exception:
+                            relative_path = Path(source_path).name
+                    relative_value = str(relative_path).replace(os.sep, "/")
+                if relative_value:
+                    metadata.setdefault("relative_path", relative_value)
+            documents.append(document)
+
+    return documents
+
+
+def _current_manifest_payload(
+    config: DocsChatConfig, content_sources: Sequence[_ContentSource]
+) -> Mapping[str, object]:
+    roots_payload: list[Mapping[str, object]] = []
+
+    for source in content_sources:
+        files: list[tuple[str, float]] = []
+        patterns = ["*.md"] if source.kind == "docs" else list(_CODE_FILE_PATTERNS)
+        for pattern in patterns:
+            for path in sorted(source.root.rglob(pattern)):
+                if _is_excluded(path):
+                    continue
+                try:
+                    timestamp = path.stat().st_mtime
+                except OSError:
+                    continue
+                try:
+                    relative = path.relative_to(source.root)
+                except ValueError:
+                    relative = Path(path.name)
+                files.append((str(relative).replace(os.sep, "/"), float(timestamp)))
+        roots_payload.append(
+            {
+                "kind": source.kind,
+                "path": str(source.root),
+                "files": files,
+            }
+        )
+
     return {
-        "docs_root": str(docs_root),
-        "files": files,
+        "content_roots": roots_payload,
         "provider": config.provider,
         "model": config.model,
         "embedding_model": config.embedding_model,
@@ -465,8 +657,12 @@ def _write_manifest(path: Path, payload: Mapping[str, object]) -> None:
 
 
 def _manifest_matches(runtime: _DocsChatRuntime) -> bool:
-    current = _current_manifest_payload(runtime.config, runtime.docs_root)
+    current = _current_manifest_payload(runtime.config, list(runtime.content_sources))
     return current == runtime.manifest
+
+
+def _is_excluded(path: Path) -> bool:
+    return any(part in _EXCLUDED_DIR_NAMES for part in path.parts)
 
 
 def _resolve_docs_root(config: DocsChatConfig) -> Path:
@@ -529,7 +725,7 @@ def _extract_answer_text(result: Mapping[str, object]) -> str:
     return "I could not find a relevant answer in the documentation."  # pragma: no cover - fallback path
 
 
-def _extract_sources(result: Mapping[str, object], docs_root: Path) -> List[str]:
+def _extract_sources(result: Mapping[str, object], runtime: _DocsChatRuntime) -> List[str]:
     raw_sources = result.get("source_documents")
     if not isinstance(raw_sources, Iterable):
         return []
@@ -540,19 +736,54 @@ def _extract_sources(result: Mapping[str, object], docs_root: Path) -> List[str]
             metadata = getattr(item, "metadata", {})
         except Exception:  # pragma: no cover - defensive fallback
             metadata = {}
+        if isinstance(metadata, Mapping):
+            display = _source_display_from_metadata(metadata, runtime)
+            if display and display not in seen:
+                seen.add(display)
+                sources.append(display)
+                continue
         source_path = metadata.get("source") if isinstance(metadata, Mapping) else None
         if not isinstance(source_path, str):
             continue
         path = Path(source_path)
-        try:
-            relative = path.resolve().relative_to(docs_root.resolve())
-        except Exception:
-            relative = Path(source_path).name
-        value = str(relative).replace(os.sep, "/")
+        value = _source_display_from_path(path, runtime.content_sources)
         if value not in seen:
             seen.add(value)
             sources.append(value)
     return sources
+
+
+def _source_display_from_metadata(metadata: Mapping[str, object], runtime: _DocsChatRuntime) -> str | None:
+    root_hint = metadata.get("root_path")
+    relative_hint = metadata.get("relative_path")
+    if isinstance(root_hint, str) and isinstance(relative_hint, str):
+        return _format_source_display(Path(root_hint), relative_hint)
+    return None
+
+
+def _source_display_from_path(path: Path, content_sources: Sequence[_ContentSource]) -> str:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    for source in content_sources:
+        try:
+            relative = resolved.relative_to(source.root.resolve())
+        except Exception:
+            try:
+                relative = resolved.relative_to(source.root)
+            except Exception:
+                continue
+        return _format_source_display(source.root, str(relative))
+    return path.name
+
+
+def _format_source_display(root: Path, relative: str) -> str:
+    clean_relative = relative.replace("\\", "/").lstrip("./")
+    prefix = root.name or root.as_posix()
+    if clean_relative:
+        return f"{prefix}/{clean_relative}"
+    return prefix
 
 
 def _check_core_dependencies() -> tuple[bool, str | None]:

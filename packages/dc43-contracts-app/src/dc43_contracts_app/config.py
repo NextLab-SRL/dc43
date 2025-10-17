@@ -64,6 +64,8 @@ class DocsChatConfig:
     api_key: str | None = None
     docs_path: Path | None = None
     index_path: Path | None = None
+    code_paths: tuple[Path, ...] = ()
+    reasoning_effort: str | None = None
 
 
 @dataclass(slots=True)
@@ -102,6 +104,32 @@ def _coerce_path(value: Any) -> Path | None:
     if value in {None, ""}:
         return None
     return Path(str(value)).expanduser()
+
+
+def _coerce_path_list(value: Any) -> tuple[Path, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str) and not value.strip():
+        return ()
+    paths: list[Path] = []
+    if isinstance(value, (list, tuple, set)):
+        items = value
+    else:
+        text = str(value)
+        separators = [os.pathsep, ",", ";"]
+        for sep in separators:
+            if sep in text:
+                items = [item.strip() for item in text.split(sep)]
+                break
+        else:
+            items = [text]
+    for item in items:
+        if not item:
+            continue
+        path = _coerce_path(item)
+        if path:
+            paths.append(path)
+    return tuple(paths)
 
 
 def _coerce_int(value: Any, default: int) -> int:
@@ -224,6 +252,17 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if isinstance(docs_chat_section, MutableMapping)
         else None
     )
+    docs_chat_code_paths = (
+        _coerce_path_list(docs_chat_section.get("code_paths"))
+        if isinstance(docs_chat_section, MutableMapping)
+        else ()
+    )
+    docs_chat_reasoning_effort = None
+    if isinstance(docs_chat_section, MutableMapping):
+        raw_reasoning = docs_chat_section.get("reasoning_effort")
+        if raw_reasoning is not None:
+            value_text = str(raw_reasoning).strip()
+            docs_chat_reasoning_effort = value_text or None
 
     if allow_env_overrides:
         env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv("DC43_DEMO_WORK_DIR")
@@ -282,6 +321,15 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if env_docs_index:
             docs_chat_index_path = _coerce_path(env_docs_index)
 
+        env_docs_code = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS")
+        if env_docs_code:
+            docs_chat_code_paths = _coerce_path_list(env_docs_code)
+
+        env_docs_reasoning = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT")
+        if env_docs_reasoning is not None:
+            value_text = env_docs_reasoning.strip()
+            docs_chat_reasoning_effort = value_text or None
+
     if docs_chat_api_key is None and docs_chat_api_key_env:
         if not _looks_like_env_var_name(docs_chat_api_key_env):
             docs_chat_api_key = docs_chat_api_key_env
@@ -306,6 +354,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         api_key=docs_chat_api_key,
         docs_path=docs_chat_docs_path,
         index_path=docs_chat_index_path,
+        code_paths=docs_chat_code_paths,
+        reasoning_effort=docs_chat_reasoning_effort,
     )
 
     return ContractsAppConfig(
@@ -370,6 +420,12 @@ def _docs_chat_mapping(config: DocsChatConfig) -> dict[str, Any]:
         mapping["docs_path"] = _stringify_path(config.docs_path)
     if config.index_path:
         mapping["index_path"] = _stringify_path(config.index_path)
+    if config.code_paths:
+        mapping["code_paths"] = [
+            _stringify_path(path) for path in config.code_paths if path is not None
+        ]
+    if config.reasoning_effort:
+        mapping["reasoning_effort"] = config.reasoning_effort
     return mapping
 
 

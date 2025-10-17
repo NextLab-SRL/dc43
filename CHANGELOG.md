@@ -40,6 +40,9 @@
   `dc43-demo` startup to make local troubleshooting easier.
 - Tuned the docs assistant prompt so answers lean on retrieved Markdown, cite relevant
   files, and provide actionable integration steps instead of replying with "I don't know".
+- Extended the docs assistant to index repository source files, honour configurable
+  `docs_chat.code_paths`, and pass optional OpenAI reasoning effort hints so complex
+  questions return context-rich guidance grounded in both docs and code.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

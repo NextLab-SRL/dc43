@@ -13,3 +13,19 @@ def test_resolve_docs_root_prefers_existing_candidates(tmp_path, monkeypatch):
 
     resolved = docs_chat._resolve_docs_root(config)  # type: ignore[attr-defined]
     assert resolved == existing
+
+
+def test_resolve_content_sources_includes_code_paths(tmp_path, monkeypatch):
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    code_dir = tmp_path / "src"
+    code_dir.mkdir()
+
+    monkeypatch.setattr(docs_chat, "_candidate_docs_roots", lambda: [docs_dir])
+    monkeypatch.setattr(docs_chat, "_candidate_code_paths", lambda: [code_dir])
+
+    config = DocsChatConfig(enabled=True)
+    sources = docs_chat._resolve_content_sources(config)  # type: ignore[attr-defined]
+
+    assert sources[0].root == docs_dir
+    assert any(source.root == code_dir and source.kind == "code" for source in sources)

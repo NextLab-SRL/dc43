@@ -291,6 +291,8 @@ log_level = "info"
 | `docs_chat` | `api_key` | Optional inline provider key stored directly in the configuration (keep the file outside version control). |
 | `docs_chat` | `docs_path` | Optional override pointing at the directory that stores Markdown documentation (`DC43_CONTRACTS_APP_DOCS_CHAT_PATH`). |
 | `docs_chat` | `index_path` | Directory used to persist the LangChain/FAISS index (`DC43_CONTRACTS_APP_DOCS_CHAT_INDEX`). |
+| `docs_chat` | `code_paths` | Additional source directories to index alongside the bundled docs (`DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS`). |
+| `docs_chat` | `reasoning_effort` | Optional reasoning hint for OpenAI `o4`/`o1` models (mirrors `DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT`). |
 
 `api_key_env` records the *name* of the variable that contains your secret—load
 the key separately (for example by exporting `OPENAI_API_KEY`, pointing the demo
@@ -305,7 +307,11 @@ from a source checkout, or `pip install "dc43-contracts-app[docs-chat]"` from
 PyPI) and supply the configured API key variable before enabling the feature.
 Avoid chaining both commands in the same environment—pip treats the editable and
 wheel installs as conflicting requirements when they target the same local
-package.
+package. By default the assistant indexes Markdown under `docs/` and the source
+trees in `src/` and `packages/`; populate `code_paths` when you want to extend or
+restrict that scope. Teams experimenting with reasoning-capable OpenAI models can
+set `model = "o4-mini"` (for example) and provide a `reasoning_effort` string
+(`"medium"` or `"high"`) to balance quality versus latency.
 
 ## Templates
 

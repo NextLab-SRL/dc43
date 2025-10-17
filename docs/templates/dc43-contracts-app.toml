@@ -41,3 +41,7 @@ api_key = ""
 docs_path = ""
 # Override to persist the vector index in a custom directory.
 index_path = ""
+# Point at additional source directories so the assistant can cite code alongside documentation.
+code_paths = []
+# Request OpenAI reasoning models (for example set to "medium" when using the `o4-mini` model family).
+reasoning_effort = ""
