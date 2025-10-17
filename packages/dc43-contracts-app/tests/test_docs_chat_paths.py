@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from dc43_contracts_app import docs_chat
 from dc43_contracts_app.config import DocsChatConfig
 
@@ -29,3 +31,13 @@ def test_resolve_content_sources_includes_code_paths(tmp_path, monkeypatch):
 
     assert sources[0].root == docs_dir
     assert any(source.root == code_dir and source.kind == "code" for source in sources)
+
+
+def test_candidate_paths_stay_within_repository():
+    repo_root = Path(__file__).resolve().parents[4]
+
+    code_candidates = docs_chat._candidate_code_paths()  # type: ignore[attr-defined]
+    doc_candidates = docs_chat._candidate_docs_roots()  # type: ignore[attr-defined]
+
+    for path in (*code_candidates, *doc_candidates):
+        assert path.resolve().is_relative_to(repo_root)

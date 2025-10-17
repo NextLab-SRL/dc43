@@ -58,7 +58,8 @@ maintain bespoke chat widgets. To enable it:
    The legacy `export DC43_CONTRACTS_APP_CONFIG=/path/to/contracts-app.toml`
    workflow still works when you prefer a global environment variable.
 5. Restart the dc43 app. The assistant indexes Markdown under `docs/` and the
-   source trees in `src/`/`packages/` by default; override
+   source trees in `src/`/`packages/` from your dc43 checkout by default and
+   ignores parent directories (for example `~/src`). Override
    `docs_chat.docs_path`, `docs_chat.code_paths`, or `docs_chat.index_path` when
    the repository lives elsewhere.
 

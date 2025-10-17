@@ -57,6 +57,8 @@
 - Expanded the docs chat helper to index repository source code, respect configurable
   `code_paths`, and forward OpenAI reasoning effort hints so the assistant can tackle
   complex integration prompts with code-backed answers.
+- Limited auto-discovered docs chat code roots to the dc43 repository so editable installs no
+  longer scan unrelated mono-repo siblings and breach embedding rate limits.
 - Added a dc43-specific guardrail to the docs chat runtime so off-topic prompts get a polite
   reminder that the assistant is limited to project documentation and helper workflows.
 - Triggered the docs chat runtime warm-up in the background during app startup, cached the

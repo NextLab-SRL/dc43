@@ -121,6 +121,16 @@ _EXCLUDED_DIR_NAMES = {
 }
 _EXCLUDED_GLOBS = tuple(f"**/{name}/**" for name in _EXCLUDED_DIR_NAMES)
 
+def _detect_repository_root() -> Path | None:
+    module_path = Path(__file__).resolve()
+    for parent in module_path.parents:
+        if (parent / ".git").exists() or (parent / "pyproject.toml").exists():
+            return parent
+    return None
+
+
+_REPOSITORY_ROOT = _detect_repository_root()
+
 _CONFIG: DocsChatConfig | None = None
 _WORKSPACE: ContractsAppWorkspace | None = None
 _RUNTIME: _DocsChatRuntime | None = None
@@ -210,6 +220,15 @@ def _candidate_docs_roots() -> list[Path]:
     candidates: list[Path] = []
     seen: set[Path] = set()
 
+    def _within_repository(path: Path) -> bool:
+        if _REPOSITORY_ROOT is None:
+            return True
+        try:
+            path.resolve().relative_to(_REPOSITORY_ROOT.resolve())
+        except Exception:
+            return False
+        return True
+
     def _remember(path: Path) -> None:
         try:
             key = path.resolve()
@@ -217,11 +236,17 @@ def _candidate_docs_roots() -> list[Path]:
             key = path
         if key in seen:
             return
+        if not _within_repository(path):
+            return
         seen.add(key)
         candidates.append(path)
 
     def _extend_from(base: Path) -> None:
-        for parent in (base,) + tuple(base.parents):
+        for depth, parent in enumerate((base,) + tuple(base.parents)):
+            if _REPOSITORY_ROOT is None and depth > 3:
+                break
+            if not _within_repository(parent):
+                break
             if parent.name == "docs":
                 _remember(parent)
             else:
@@ -249,6 +274,15 @@ def _candidate_code_paths() -> list[Path]:
     candidates: list[Path] = []
     seen: set[Path] = set()
 
+    def _within_repository(path: Path) -> bool:
+        if _REPOSITORY_ROOT is None:
+            return True
+        try:
+            path.resolve().relative_to(_REPOSITORY_ROOT.resolve())
+        except Exception:
+            return False
+        return True
+
     def _remember(path: Path) -> None:
         try:
             key = path.resolve()
@@ -258,11 +292,17 @@ def _candidate_code_paths() -> list[Path]:
             return
         if not path.exists() or not path.is_dir():
             return
+        if not _within_repository(path):
+            return
         seen.add(key)
         candidates.append(path)
 
     def _extend_from(base: Path) -> None:
-        for parent in (base,) + tuple(base.parents):
+        for depth, parent in enumerate((base,) + tuple(base.parents)):
+            if _REPOSITORY_ROOT is None and depth > 3:
+                break
+            if not _within_repository(parent):
+                break
             for name in _DEFAULT_CODE_DIR_NAMES:
                 _remember(parent / name)
 

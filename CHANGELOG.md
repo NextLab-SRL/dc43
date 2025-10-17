@@ -38,6 +38,8 @@
   optional `docs_chat.api_key` field for storing secrets outside environment variables.
 - Logged the resolved contracts-app configuration path and docs-chat status during
   `dc43-demo` startup to make local troubleshooting easier.
+- Limited the docs chat auto-discovered code directories to the dc43 checkout so
+  editable installs no longer scan sibling projects and hit embedding rate limits.
 - Tuned the docs assistant prompt so answers lean on retrieved Markdown, cite relevant
   files, and provide actionable integration steps instead of replying with "I don't know".
 - Extended the docs assistant to index repository source files, honour configurable

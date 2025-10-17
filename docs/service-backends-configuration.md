@@ -308,8 +308,10 @@ PyPI) and supply the configured API key variable before enabling the feature.
 Avoid chaining both commands in the same environment—pip treats the editable and
 wheel installs as conflicting requirements when they target the same local
 package. By default the assistant indexes Markdown under `docs/` and the source
-trees in `src/` and `packages/`; populate `code_paths` when you want to extend or
-restrict that scope. Teams experimenting with reasoning-capable OpenAI models can
+trees in `src/` and `packages/` from your dc43 checkout, ignoring paths outside
+the repository even when the project sits inside a larger mono-repo. Populate
+`code_paths` when you want to extend or restrict that scope. Teams experimenting
+with reasoning-capable OpenAI models can
 set `model = "o4-mini"` (for example) and provide a `reasoning_effort` string
 (`"medium"` or `"high"`) to balance quality versus latency.
 

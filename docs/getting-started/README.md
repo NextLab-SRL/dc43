@@ -36,8 +36,9 @@ embedding_model = "text-embedding-3-small"
 api_key_env = "OPENAI_API_KEY" # rename when you prefer a different env var
 # Keep secrets out of git-tracked files? add them to a private env file.
 # Prefer storing the key alongside the config? set `api_key = "sk-..."` instead.
-# Want to expand the knowledge base beyond the default `src/` and `packages/` directories?
-# Populate `code_paths` with extra folders (for example a mono-repo integration module).
+# Want to expand the knowledge base beyond the repository `src/` and `packages/`
+# directories? Populate `code_paths` with extra folders (for example a mono-repo
+# integration module).
 code_paths = []
 # Enabling OpenAI reasoning models such as `o4-mini`? set `reasoning_effort = "medium"` (or `"high"`).
 reasoning_effort = ""
@@ -70,9 +71,11 @@ external API), the assistant politely declines and reminds the user to focus on
 dc43 tasks. This keeps the experience centred on the project documentation and
 avoids suggesting unsupported workflows.
 
-By default the assistant indexes the repository `docs/`, `src/`, and `packages/`
-trees. Set `docs_chat.code_paths` when you want to add additional modules (for
-example a sibling integration repo) or trim the scope to specific directories.
+By default the assistant indexes the `docs/`, `src/`, and `packages/` trees from
+your dc43 checkout. Paths outside the repository are ignored automatically so a
+workspace rooted in `~/src` no longer triggers a scan of every sibling project.
+Set `docs_chat.code_paths` when you want to add additional modules (for example
+a sibling integration repo) or trim the scope to specific directories.
 Teams experimenting with OpenAI's reasoning models can opt into higher-depth
 answers by switching `docs_chat.model` to `o4-mini` and providing a
 `docs_chat.reasoning_effort` value (`"medium"` or `"high"` depending on
