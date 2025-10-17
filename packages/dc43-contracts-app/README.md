@@ -66,6 +66,10 @@ The contracts setup wizard mirrors these settings via the **Documentation assist
 the Gradio option under the *User experience* group to populate `[docs_chat]` in the exported
 `dc43-contracts-app.toml` and surface the assistant alongside other deployment assets.
 
+The assistant is purposefully constrained to dc43 setup and usage. When a prompt
+strays outside that scope the response reminds the requester to come back with a
+dc43-specific question so the chat surface stays focused on project guidance.
+
 Programmatic callers can POST to `/api/docs-chat/messages` with a JSON payload
 (`{"message": "...", "history": [...]}`) and receive answers plus cited
 sources. The embedded Gradio UI is mounted at `/docs-chat/assistant` and the

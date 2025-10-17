@@ -125,6 +125,9 @@ and source code context provided below to answer the user's question with
 practical guidance, explicit references to relevant files or headings, and
 concrete next steps.
 
+- Only answer questions that relate to the dc43 platform, its setup, usage,
+  architecture, integrations, or deployment. If a request is unrelated, politely
+  decline and remind the user that you only support dc43 topics.
 - Always ground your reply in the supplied context snippets. Quote or summarise
   the most relevant passages so the reader understands how to proceed.
 - Mention the filename (for example `docs/implementations/spark.md` or
@@ -145,6 +148,11 @@ User question:
 
 Answer:
 """
+
+_OUT_OF_SCOPE_MESSAGE = (
+    "I can help with dc43 setup, architecture, and usage questions only. "
+    "Please share a dc43-specific task or topic so I can look up the right guidance."
+)
 
 
 def _candidate_docs_roots() -> list[Path]:
@@ -342,8 +350,11 @@ def generate_reply(message: str, history: Sequence[Tuple[str, str]] | Sequence[M
     except Exception as exc:  # pragma: no cover - defensive guard around provider errors
         raise DocsChatError(str(exc)) from exc
 
-    answer_text = _extract_answer_text(result)
     sources = _extract_sources(result, runtime)
+    if not sources:
+        answer_text = _OUT_OF_SCOPE_MESSAGE
+    else:
+        answer_text = _extract_answer_text(result)
     return DocsChatReply(answer=answer_text, sources=sources)
 
 

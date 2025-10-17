@@ -64,6 +64,12 @@ in the retrieved Markdown and code snippets so prompts like “help me start a S
 integration pipeline” return step-by-step guidance, highlighted file names from
 `docs/` and `src/`, and links to the most relevant setup sections.
 
+The chat surface is intentionally scoped to dc43. When a request is unrelated to
+the platform (for example, a generic question about weather forecasts or an
+external API), the assistant politely declines and reminds the user to focus on
+dc43 tasks. This keeps the experience centred on the project documentation and
+avoids suggesting unsupported workflows.
+
 By default the assistant indexes the repository `docs/`, `src/`, and `packages/`
 trees. Set `docs_chat.code_paths` when you want to add additional modules (for
 example a sibling integration repo) or trim the scope to specific directories.

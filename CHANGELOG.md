@@ -43,6 +43,8 @@
 - Extended the docs assistant to index repository source files, honour configurable
   `docs_chat.code_paths`, and pass optional OpenAI reasoning effort hints so complex
   questions return context-rich guidance grounded in both docs and code.
+- Added a dc43-only guardrail to the docs assistant so off-topic prompts receive a polite
+  reminder that the chat surface focuses on project setup and usage guidance.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.
