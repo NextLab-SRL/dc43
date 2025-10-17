@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import math
-from queue import Queue
+from queue import Empty, Queue
 import threading
 
 from .config import DocsChatConfig
@@ -127,6 +127,8 @@ _RUNTIME: _DocsChatRuntime | None = None
 _RUNTIME_LOCK = threading.Lock()
 _WARMUP_GUARD = threading.Lock()
 _WARMUP_THREAD: threading.Thread | None = None
+_WARMUP_MESSAGES: Queue[object] | None = None
+_WARMUP_SENTINEL = object()
 
 _EMBEDDING_BATCH_SIZE = 32
 
@@ -173,6 +175,33 @@ def _emit_progress(callback: ProgressCallback | None, message: str) -> None:
         callback(message)
     except Exception:  # pragma: no cover - progress is best-effort
         logger.debug("Docs chat progress callback failed", exc_info=True)
+
+
+def _consume_warmup_messages(
+    queue: Queue[object] | None,
+    progress: ProgressCallback | None,
+    *,
+    block: bool = False,
+) -> bool:
+    """Forward queued warm-up progress messages to ``progress``."""
+
+    if queue is None:
+        return False
+
+    consumed = False
+    timeout = 0.2 if block else 0.0
+    while True:
+        try:
+            item = queue.get(timeout=timeout)
+        except Empty:
+            break
+        consumed = True
+        if item is _WARMUP_SENTINEL:
+            break
+        if isinstance(item, str):
+            _emit_progress(progress, item)
+        timeout = 0.0  # Subsequent reads should not block within the same drain cycle.
+    return consumed
 
 
 def _candidate_docs_roots() -> list[Path]:
@@ -315,12 +344,33 @@ def warm_up(block: bool = False, progress: ProgressCallback | None = None) -> No
         _build()
         return
 
-    global _WARMUP_THREAD
+    global _WARMUP_THREAD, _WARMUP_MESSAGES
     with _WARMUP_GUARD:
         existing = _WARMUP_THREAD
         if existing and existing.is_alive():
             return
-        thread = threading.Thread(target=_build, name="dc43-docs-chat-warmup", daemon=True)
+        queue: Queue[object] = Queue()
+
+        def _relay(detail: str) -> None:
+            queue.put(detail)
+            _emit_progress(progress, detail)
+
+        def _run() -> None:
+            global _WARMUP_THREAD
+            try:
+                _ensure_runtime(progress=_relay)
+            except DocsChatError as exc:
+                warning = f"⚠️ Docs chat warm-up skipped: {exc}"
+                queue.put(warning)
+                logger.warning("Docs chat warm-up skipped: %s", exc)
+            finally:
+                queue.put(_WARMUP_SENTINEL)
+                with _WARMUP_GUARD:
+                    if _WARMUP_THREAD is threading.current_thread():
+                        _WARMUP_THREAD = None
+
+        _WARMUP_MESSAGES = queue
+        thread = threading.Thread(target=_run, name="dc43-docs-chat-warmup", daemon=True)
         _WARMUP_THREAD = thread
         thread.start()
 
@@ -508,16 +558,34 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
 
 
 def _ensure_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntime:
+    global _WARMUP_MESSAGES
     status_payload = status()
     if not status_payload.enabled:
         raise DocsChatError(status_payload.message or "Docs chat is disabled in the current configuration.")
     if not status_payload.ready:
         raise DocsChatError(status_payload.message or "Docs chat is not ready yet.")
 
-    with _WARMUP_GUARD:
-        warm_thread = _WARMUP_THREAD
-    if warm_thread is not None and warm_thread.is_alive():
+    current_thread = threading.current_thread()
+    while True:
+        with _WARMUP_GUARD:
+            warm_thread = _WARMUP_THREAD
+            queue = _WARMUP_MESSAGES
+
+        if not warm_thread or not warm_thread.is_alive() or warm_thread is current_thread:
+            _consume_warmup_messages(queue, progress, block=False)
+            break
+
         _emit_progress(progress, "⏳ Waiting for the documentation index warm-up to finish…")
+        _consume_warmup_messages(queue, progress, block=True)
+        warm_thread.join(timeout=0.2)
+
+    with _WARMUP_GUARD:
+        queue = _WARMUP_MESSAGES
+        thread_stopped = not _WARMUP_THREAD or not _WARMUP_THREAD.is_alive()
+        if thread_stopped and queue is not None:
+            _WARMUP_MESSAGES = None
+
+    _consume_warmup_messages(queue, progress, block=False)
 
     with _RUNTIME_LOCK:
         global _RUNTIME

@@ -60,9 +60,10 @@
 - Added a dc43-specific guardrail to the docs chat runtime so off-topic prompts get a polite
   reminder that the assistant is limited to project documentation and helper workflows.
 - Triggered the docs chat runtime warm-up in the background during app startup, cached the
-  FAISS index between runs, and streamed progress steps (including an explicit warm-up wait
-  message returned from the REST API) so operators see the retrieval/generation pipeline
-  status before the final answer appears without blocking the server from starting.
+  FAISS index between runs, and now relay the queued warm-up progress to both the UI and
+  application logs (including the explicit warm-up wait message returned from the REST API)
+  so operators can follow each stage even when the cache build starts before the first
+  question, all without blocking the server from starting.
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from

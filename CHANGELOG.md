@@ -46,9 +46,10 @@
 - Added a dc43-only guardrail to the docs assistant so off-topic prompts receive a polite
   reminder that the chat surface focuses on project setup and usage guidance.
 - Kicked off docs assistant warm-up in the background during application startup, cached
-  the vector index between runs, and streamed progress updates (with an explicit warm-up
-  wait message also exposed via the API `steps` field) so users can see which stage is
-  running before the final answer appears without delaying service start-up.
+  the vector index between runs, and now relay the queued warm-up progress to both the
+  UI and server logs (including the explicit warm-up wait message exposed via the API
+  `steps` field) so users see each stage even when the cache build started before their
+  first question, without delaying service start-up.
 - Migrated the ODCS/ODPS helpers into the backend package and kept the meta
   distribution as a thin compatibility layer to eliminate dependency cycles
   when installing integration extras.

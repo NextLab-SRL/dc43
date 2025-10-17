@@ -87,9 +87,10 @@ The demo runner now kicks off the knowledge base warm-up as part of its startup
 flow while the FastAPI apps boot. Downloading model metadata, scanning
 Markdown, and persisting the FAISS index happens in the background so the
 services come online quickly. If a chat request lands before the warm-up
-completes, the UI streams a “waiting for warm-up” status until the cache is
-ready and then continues with retrieval. Subsequent restarts reuse the cached
-index unless the docs or code change.
+completes, the UI streams the queued warm-up steps (including the initial
+“waiting for warm-up” status) until the cache is ready and then continues with
+retrieval, and the same progress shows up in the server logs for debugging.
+Subsequent restarts reuse the cached index unless the docs or code change.
 
 While a response is being generated the chat UI streams progress updates such
 as “embedding documentation” or “querying OpenAI”, so users always know which

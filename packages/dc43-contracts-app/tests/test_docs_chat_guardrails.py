@@ -1,3 +1,4 @@
+from queue import Queue
 from types import SimpleNamespace
 
 import threading
@@ -40,33 +41,26 @@ def test_warm_up_async_runs_once(monkeypatch):
         ready = True
         message = None
 
-    starts: list[str] = []
+    calls: list[str] = []
+    completed = threading.Event()
 
     def _record(progress=None):
-        starts.append("run")
-
-    class _StubThread:
-        def __init__(self, target, name=None, daemon=None):
-            self._target = target
-            self._started = False
-
-        def start(self):
-            self._started = True
-            self._target()
-
-        def is_alive(self):
-            return self._started
+        calls.append("run")
+        completed.set()
 
     monkeypatch.setattr(docs_chat, "status", lambda: _Status())
     monkeypatch.setattr(docs_chat, "_ensure_runtime", lambda progress=None: _record(progress))
-    monkeypatch.setattr(docs_chat, "_WARMUP_THREAD", None)
-    monkeypatch.setattr(docs_chat, "threading", threading)
-    monkeypatch.setattr(threading, "Thread", _StubThread)
+    monkeypatch.setattr(docs_chat, "_WARMUP_THREAD", None, raising=False)
+    monkeypatch.setattr(docs_chat, "_WARMUP_MESSAGES", None, raising=False)
 
     docs_chat.warm_up()
+    assert completed.wait(timeout=1.0)
+
+    completed.clear()
     docs_chat.warm_up()
 
-    assert starts == ["run"]
+    assert not completed.wait(timeout=0.2)
+    assert calls == ["run"]
 
 
 def test_ensure_runtime_reports_warmup_wait(monkeypatch):
@@ -82,10 +76,27 @@ def test_ensure_runtime_reports_warmup_wait(monkeypatch):
 
     messages: list[str] = []
 
+    queue: Queue[object] = Queue()
+    queue.put("🔧 warm-up progress message")
+    queue.put(docs_chat._WARMUP_SENTINEL)
+
+    class _WarmThread:
+        def __init__(self):
+            self._alive = True
+
+        def is_alive(self):
+            return self._alive
+
+        def join(self, timeout=None):
+            self._alive = False
+
+    warm_thread = _WarmThread()
+
     monkeypatch.setattr(docs_chat, "status", lambda: _Status())
     monkeypatch.setattr(docs_chat, "_manifest_matches", lambda runtime: True)
     monkeypatch.setattr(docs_chat, "_RUNTIME", sentinel, raising=False)
-    monkeypatch.setattr(docs_chat, "_WARMUP_THREAD", SimpleNamespace(is_alive=lambda: True), raising=False)
+    monkeypatch.setattr(docs_chat, "_WARMUP_THREAD", warm_thread, raising=False)
+    monkeypatch.setattr(docs_chat, "_WARMUP_MESSAGES", queue, raising=False)
 
     runtime = docs_chat._ensure_runtime(progress=_record)
 
