@@ -66,6 +66,9 @@
   complex integration prompts with code-backed answers.
 - Limited auto-discovered docs chat code roots to the dc43 repository so editable installs no
   longer scan unrelated mono-repo siblings and breach embedding rate limits.
+- Accepted hyphenated `code-path` keys in docs chat TOML configuration and taught the
+  offline index CLI to echo the resolved sources and providers before warm-up so
+  misconfigurations are easier to spot during cache builds.
 - Added a dc43-specific guardrail to the docs chat runtime so off-topic prompts get a polite
   reminder that the assistant is limited to project documentation and helper workflows.
 - Triggered the docs chat runtime warm-up in the background during app startup, cached the

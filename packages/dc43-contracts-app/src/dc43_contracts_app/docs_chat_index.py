@@ -109,6 +109,28 @@ def main(argv: Iterable[str] | None = None) -> int:
     configure(docs_chat_config, workspace)
     summary = describe_configuration()
 
+    def _emit(detail: str) -> None:
+        print(detail, file=sys.stdout, flush=True)
+
+    _emit("Resolved docs chat configuration:")
+    _emit(f"- Workspace: {summary.workspace_root}")
+    _emit(f"- Documentation source: {summary.docs_root}")
+    if summary.code_paths:
+        _emit(f"- Code sources ({len(summary.code_paths)}):")
+        for path in summary.code_paths:
+            _emit(f"  • {path}")
+    else:
+        _emit("- Code sources: none")
+    _emit(f"- Index directory: {summary.index_dir}")
+    _emit(
+        "- Embedding backend: "
+        f"{summary.embedding_provider} ({summary.embedding_model})"
+    )
+    _emit(
+        "- Chat provider: "
+        f"{docs_chat_config.provider} ({docs_chat_config.model})"
+    )
+
     status_payload = status()
     if not status_payload.ready:
         message = status_payload.message or (
@@ -122,38 +144,23 @@ def main(argv: Iterable[str] | None = None) -> int:
     index_path = index_dir / "index.faiss"
     cache_preexisting = manifest_path.exists() and index_path.exists()
 
-    def _log(detail: str) -> None:
-        print(detail, file=sys.stdout, flush=True)
-
     try:
-        warm_up(block=True, progress=_log)
+        warm_up(block=True, progress=_emit)
     except DocsChatError as exc:  # pragma: no cover - exercised in CLI smoke tests
         parser.error(str(exc))
         return 1
 
     cache_available = manifest_path.exists() and index_path.exists()
 
-    _log("✅ Documentation index ready.")
-    _log("")
-    _log("Summary:")
-    _log(f"- Workspace: {summary.workspace_root}")
-    _log(f"- Documentation source: {summary.docs_root}")
-    if summary.code_paths:
-        _log(f"- Code sources ({len(summary.code_paths)}):")
-        for path in summary.code_paths:
-            _log(f"  • {path}")
-    else:
-        _log("- Code sources: none")
-    cache_line = f"- Index directory: {summary.index_dir}"
+    _emit("")
+    _emit("Warm-up result:")
     if cache_available:
-        cache_line += " (reused existing cache)" if cache_preexisting else " (generated new cache)"
+        if cache_preexisting:
+            _emit("- ✅ Documentation index ready (reused existing cache).")
+        else:
+            _emit("- ✅ Documentation index ready (generated new cache).")
     else:
-        cache_line += " (no cache artifacts were created)"
-    _log(cache_line)
-    _log(
-        "- Embeddings: "
-        f"{summary.embedding_provider} ({summary.embedding_model})"
-    )
+        _emit("- ⚠️ Documentation index files were not created. Check permissions and retry.")
     return 0
 
 

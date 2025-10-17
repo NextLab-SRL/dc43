@@ -74,8 +74,9 @@ embedding_provider = "huggingface"
     assert workspace_obj.root == workspace_root
 
     captured = capsys.readouterr()
-    assert "Summary:" in captured.out
-    assert "- Index directory:" in captured.out
+    assert "Resolved docs chat configuration:" in captured.out
+    assert "Warm-up result:" in captured.out
+    assert "Documentation index ready" in captured.out
 
 
 def test_docs_chat_index_cli_fails_when_not_ready(monkeypatch, tmp_path, capsys):

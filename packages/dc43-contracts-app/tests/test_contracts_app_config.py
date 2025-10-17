@@ -86,6 +86,30 @@ api_key_env = "sk-example-token"
     assert docs_chat.api_key_env == "OPENAI_API_KEY"
 
 
+def test_docs_chat_supports_hyphenated_code_paths_key(tmp_path):
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    src_dir = tmp_path / "src"
+    pkg_dir = tmp_path / "packages"
+    src_dir.mkdir()
+    pkg_dir.mkdir()
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[docs_chat]
+enabled = true
+code-path = ["{src}", "{pkg}"]
+""".strip().format(src=src_dir, pkg=pkg_dir)
+    )
+
+    config = load_config(config_path)
+    docs_chat = config.docs_chat
+
+    assert docs_chat.enabled is True
+    assert docs_chat.code_paths == (src_dir, pkg_dir)
+
+
 def test_wizard_state_enables_docs_chat():
     state = {
         "configuration": {

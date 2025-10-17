@@ -258,11 +258,15 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if isinstance(docs_chat_section, MutableMapping)
         else None
     )
-    docs_chat_code_paths = (
-        _coerce_path_list(docs_chat_section.get("code_paths"))
-        if isinstance(docs_chat_section, MutableMapping)
-        else ()
-    )
+    docs_chat_code_paths: tuple[Path, ...] = ()
+    if isinstance(docs_chat_section, MutableMapping):
+        raw_code_paths = docs_chat_section.get("code_paths")
+        if raw_code_paths is None:
+            for legacy_key in ("code-paths", "code-path"):
+                if legacy_key in docs_chat_section:
+                    raw_code_paths = docs_chat_section.get(legacy_key)
+                    break
+        docs_chat_code_paths = _coerce_path_list(raw_code_paths)
     docs_chat_reasoning_effort = None
     if isinstance(docs_chat_section, MutableMapping):
         raw_reasoning = docs_chat_section.get("reasoning_effort")
