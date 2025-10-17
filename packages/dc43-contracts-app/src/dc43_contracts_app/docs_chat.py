@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DocsChatConfig",
+    "DocsChatConfigurationSummary",
     "DocsChatError",
     "DocsChatReply",
     "DocsChatStatus",
     "configure",
+    "describe_configuration",
     "generate_reply",
     "mount_gradio_app",
     "status",
@@ -64,6 +66,18 @@ class DocsChatReply:
 
 class DocsChatError(RuntimeError):
     """Raised when the docs assistant cannot fulfil a request."""
+
+
+@dataclass(slots=True)
+class DocsChatConfigurationSummary:
+    """Normalised view of the configured documentation assistant."""
+
+    workspace_root: Path
+    docs_root: Path
+    code_paths: tuple[Path, ...]
+    index_dir: Path
+    embedding_provider: str
+    embedding_model: str
 
 
 @dataclass(slots=True)
@@ -148,6 +162,7 @@ _WARMUP_GUARD = threading.Lock()
 _WARMUP_THREAD: threading.Thread | None = None
 _WARMUP_MESSAGES: Queue[object] | None = None
 _WARMUP_SENTINEL = object()
+_WARMUP_COMPLETED = False
 
 _EMBEDDING_BATCH_SIZE = 32
 
@@ -367,33 +382,46 @@ ProgressCallback = Callable[[str], None]
 def configure(config: DocsChatConfig, workspace: ContractsAppWorkspace) -> None:
     """Store the active configuration and reset cached state."""
 
-    global _CONFIG, _WORKSPACE, _RUNTIME, _WARMUP_THREAD
+    global _CONFIG, _WORKSPACE, _RUNTIME, _WARMUP_THREAD, _WARMUP_MESSAGES, _WARMUP_COMPLETED
     with _RUNTIME_LOCK:
         _CONFIG = config
         _WORKSPACE = workspace
         _RUNTIME = None
     with _WARMUP_GUARD:
         _WARMUP_THREAD = None
+        _WARMUP_MESSAGES = None
+        _WARMUP_COMPLETED = False
 
 
 def warm_up(block: bool = False, progress: ProgressCallback | None = None) -> None:
     """Ensure the runtime is ready, optionally warming the cache asynchronously."""
 
     def _build() -> None:
+        global _WARMUP_COMPLETED
         try:
             _ensure_runtime(progress=progress)
         except DocsChatError as exc:
             logger.warning("Docs chat warm-up skipped: %s", exc)
+            _WARMUP_COMPLETED = False
+        else:
+            _WARMUP_COMPLETED = True
 
     status_payload = status()
     if not status_payload.enabled or not status_payload.ready:
+        return
+
+    global _WARMUP_THREAD, _WARMUP_MESSAGES, _WARMUP_COMPLETED
+
+    if _WARMUP_MESSAGES is None:
+        _WARMUP_COMPLETED = False
+
+    if _WARMUP_COMPLETED and not block:
         return
 
     if block:
         _build()
         return
 
-    global _WARMUP_THREAD, _WARMUP_MESSAGES
     with _WARMUP_GUARD:
         existing = _WARMUP_THREAD
         if existing and existing.is_alive():
@@ -405,19 +433,21 @@ def warm_up(block: bool = False, progress: ProgressCallback | None = None) -> No
             _emit_progress(progress, detail)
 
         def _run() -> None:
-            global _WARMUP_THREAD
+            global _WARMUP_THREAD, _WARMUP_COMPLETED
             try:
                 _ensure_runtime(progress=_relay)
             except DocsChatError as exc:
                 warning = f"⚠️ Docs chat warm-up skipped: {exc}"
                 queue.put(warning)
                 logger.warning("Docs chat warm-up skipped: %s", exc)
+                _WARMUP_COMPLETED = False
+            else:
+                _WARMUP_COMPLETED = True
             finally:
                 queue.put(_WARMUP_SENTINEL)
                 with _WARMUP_GUARD:
                     if _WARMUP_THREAD is threading.current_thread():
                         _WARMUP_THREAD = None
-
         _WARMUP_MESSAGES = queue
         thread = threading.Thread(target=_run, name="dc43-docs-chat-warmup", daemon=True)
         _WARMUP_THREAD = thread
@@ -496,6 +526,31 @@ def status() -> DocsChatStatus:
 
     ui_ready, _ = _check_ui_dependencies()
     return DocsChatStatus(enabled=True, ready=True, message=None, ui_available=ui_ready)
+
+
+def describe_configuration() -> DocsChatConfigurationSummary:
+    """Return a summary of the configured documentation assistant."""
+
+    if not _CONFIG or not _WORKSPACE:
+        raise DocsChatError(
+            "Configure the documentation assistant before describing its settings."
+        )
+
+    docs_root = _resolve_docs_root(_CONFIG)
+    sources = _resolve_content_sources(_CONFIG)
+    code_paths = tuple(source.root for source in sources if source.kind == "code")
+    index_dir = _resolve_index_dir(_CONFIG, _WORKSPACE)
+    provider = _normalise_embedding_provider(_CONFIG)
+    model = _resolve_embedding_model(_CONFIG)
+
+    return DocsChatConfigurationSummary(
+        workspace_root=_WORKSPACE.root,
+        docs_root=docs_root,
+        code_paths=code_paths,
+        index_dir=index_dir,
+        embedding_provider=provider,
+        embedding_model=model,
+    )
 
 
 def generate_reply(

@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Iterable
 
 from .config import ContractsAppConfig, DocsChatConfig, load_config
-from .docs_chat import DocsChatError, configure, warm_up
+from .docs_chat import (
+    DocsChatError,
+    configure,
+    describe_configuration,
+    status,
+    warm_up,
+)
 from .workspace import ContractsAppWorkspace
 
 
@@ -101,6 +107,20 @@ def main(argv: Iterable[str] | None = None) -> int:
     workspace = _workspace_from_root(workspace_root)
 
     configure(docs_chat_config, workspace)
+    summary = describe_configuration()
+
+    status_payload = status()
+    if not status_payload.ready:
+        message = status_payload.message or (
+            "The documentation assistant is not ready. Check your configuration and retry."
+        )
+        print(f"⚠️ {message}", file=sys.stderr, flush=True)
+        return 1
+
+    index_dir = summary.index_dir
+    manifest_path = index_dir / "manifest.json"
+    index_path = index_dir / "index.faiss"
+    cache_preexisting = manifest_path.exists() and index_path.exists()
 
     def _log(detail: str) -> None:
         print(detail, file=sys.stdout, flush=True)
@@ -111,7 +131,29 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.error(str(exc))
         return 1
 
+    cache_available = manifest_path.exists() and index_path.exists()
+
     _log("✅ Documentation index ready.")
+    _log("")
+    _log("Summary:")
+    _log(f"- Workspace: {summary.workspace_root}")
+    _log(f"- Documentation source: {summary.docs_root}")
+    if summary.code_paths:
+        _log(f"- Code sources ({len(summary.code_paths)}):")
+        for path in summary.code_paths:
+            _log(f"  • {path}")
+    else:
+        _log("- Code sources: none")
+    cache_line = f"- Index directory: {summary.index_dir}"
+    if cache_available:
+        cache_line += " (reused existing cache)" if cache_preexisting else " (generated new cache)"
+    else:
+        cache_line += " (no cache artifacts were created)"
+    _log(cache_line)
+    _log(
+        "- Embeddings: "
+        f"{summary.embedding_provider} ({summary.embedding_model})"
+    )
     return 0
 
 

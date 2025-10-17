@@ -30,6 +30,8 @@
   store credentials directly when environment variables are impractical.
 - Added a `dc43-docs-chat-index` CLI so operators can pre-compute the documentation assistant's
   FAISS cache using the same configuration as the FastAPI deployment.
+- Updated the docs-chat index CLI to validate configuration readiness before warming up and to
+  print a summary of the indexed sources when the cache build succeeds.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are

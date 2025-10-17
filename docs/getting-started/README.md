@@ -59,6 +59,9 @@ dc43-demo --config ~/.dc43/contracts-app.toml --env-file ~/.dc43/docs-chat.env
 # Optional: pre-build the documentation index (reuses the same configuration and
 # stores the FAISS cache under the configured workspace).
 dc43-docs-chat-index --config ~/.dc43/contracts-app.toml --workspace-root ~/dc43/workspace
+# The CLI now prints a summary of the docs/code roots and embedding backend on
+# success and exits with a clear error (for example "missing API key") when the
+# assistant is not ready to warm up.
 ```
 
 The launcher still honours `DC43_CONTRACTS_APP_CONFIG` if you prefer a global

@@ -18,6 +18,9 @@
   manual `export` steps when working from private TOML files.
 - Added a `dc43-docs-chat-index` CLI so operators can pre-build the documentation
   assistant's FAISS cache using the same configuration that powers the FastAPI app.
+- Updated the docs-chat index CLI to fail fast when the assistant configuration
+  is incomplete and to print a summary of the indexed sources after a
+  successful warm-up.
 
 ### Changed
 - Updated the release automation to tag the contracts-app and HTTP backend Docker
