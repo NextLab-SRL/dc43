@@ -60,7 +60,9 @@
 - Updated docs, templates, and wizard guidance to highlight the new inline key support and the
   `dc43-demo --config/--env-file` launcher flags for local runs.
 - Reworked the docs chat question-answer prompt so responses summarise the retrieved Markdown,
-  cite file names, and guide Spark integration questions instead of defaulting to "I don't know".
+  cite file names, and explicitly call out helper APIs (for example `read_with_contract`
+  and status strategies) when users ask how to plug dc43 into Spark pipelines instead of
+  defaulting to "I don't know".
 - Expanded the docs chat helper to index repository source code, respect configurable
   `code_paths`, and forward OpenAI reasoning effort hints so the assistant can tackle
   complex integration prompts with code-backed answers.

@@ -61,7 +61,11 @@
   chat bubble, and moved the detailed step log into a separate collapsible
   message so results stay visible without scrolling through status updates.
 - Tuned the docs assistant prompt so answers lean on retrieved Markdown, cite relevant
-  files, and provide actionable integration steps instead of replying with "I don't know".
+  files, provide actionable integration steps, and explicitly surface helper APIs when
+  users ask how to wire dc43 into pipelines.
+- Expanded the Spark local quickstart with concrete `read_with_contract` and status
+  strategy examples so developers can drop the integration layer into existing jobs
+  without hunting through other guides.
 - Extended the docs assistant to index repository source files, honour configurable
   `docs_chat.code_paths`, and pass optional OpenAI reasoning effort hints so complex
   questions return context-rich guidance grounded in both docs and code.
