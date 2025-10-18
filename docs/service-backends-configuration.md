@@ -259,7 +259,7 @@ request.
 
 ## Contracts app configuration
 
-The contracts UI reads two tables: `workspace` and `backend`.
+The contracts UI reads three tables: `workspace`, `backend`, and `docs_chat`.
 
 ```toml
 [workspace]
@@ -283,6 +283,47 @@ log_level = "info"
 | `backend.process` | `host` | Hostname to bind when running the embedded backend (`DC43_CONTRACTS_APP_BACKEND_HOST`). |
 | `backend.process` | `port` | TCP port for the embedded backend (`DC43_CONTRACTS_APP_BACKEND_PORT`). |
 | `backend.process` | `log_level` | Optional log level forwarded to the embedded backend (`DC43_CONTRACTS_APP_BACKEND_LOG`). |
+| `docs_chat` | `enabled` | Toggle the documentation assistant (`DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED`). |
+| `docs_chat` | `provider` | LLM provider identifier (currently `openai`). Override via `DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER`. |
+| `docs_chat` | `model` | Chat completion model requested from the provider (`DC43_CONTRACTS_APP_DOCS_CHAT_MODEL`). |
+| `docs_chat` | `embedding_provider` | Embedding backend used to build the FAISS index (defaults to `huggingface`; set to `openai` to reuse hosted embeddings). Override via `DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER`. |
+| `docs_chat` | `embedding_model` | Embedding model used to build the Markdown index (`DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL`). Leave empty when `embedding_provider = "huggingface"` to use the bundled `sentence-transformers/all-MiniLM-L6-v2` default. |
+| `docs_chat` | `api_key_env` | Environment variable that stores the provider key (`DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV`). |
+| `docs_chat` | `api_key` | Optional inline provider key stored directly in the configuration (keep the file outside version control). |
+| `docs_chat` | `docs_path` | Optional override pointing at the directory that stores Markdown documentation (`DC43_CONTRACTS_APP_DOCS_CHAT_PATH`). |
+| `docs_chat` | `index_path` | Directory used to persist the LangChain/FAISS index (`DC43_CONTRACTS_APP_DOCS_CHAT_INDEX`). |
+| `docs_chat` | `code_paths` | Additional source directories to index alongside the bundled docs (`DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS`). |
+| `docs_chat` | `reasoning_effort` | Optional reasoning hint for OpenAI `o4`/`o1` models (mirrors `DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT`). |
+
+`api_key_env` records the *name* of the variable that contains your secret—load
+the key separately (for example by exporting `OPENAI_API_KEY`, pointing the demo
+at a `.env` file with `dc43-demo --env-file`, or using `direnv`). Prefer keeping
+credentials outside source control? populate `docs_chat.api_key` in a private
+TOML file and launch the demo with `dc43-demo --config /path/to/contracts-app.toml`.
+
+When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
+`/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install
+the `docs-chat` optional dependency (`pip install --no-cache-dir -e ".[demo]"`
+from a source checkout, or `pip install "dc43-contracts-app[docs-chat]"` from
+PyPI) and supply the configured API key variable before enabling the feature.
+Avoid chaining both commands in the same environment—pip treats the editable and
+wheel installs as conflicting requirements when they target the same local
+package. By default the assistant indexes Markdown under `docs/` and the source
+trees in `src/` and `packages/` from your dc43 checkout, ignoring paths outside
+the repository even when the project sits inside a larger mono-repo. Populate
+`code_paths` when you want to extend or restrict that scope. Teams experimenting
+with reasoning-capable OpenAI models can
+set `model = "o4-mini"` (for example) and provide a `reasoning_effort` string
+(`"medium"` or `"high"`) to balance quality versus latency.
+
+Hugging Face embeddings are enabled by default so local warm-ups avoid OpenAI's
+token limits. When you prefer OpenAI-managed embeddings, set
+`embedding_provider = "openai"` and choose a compatible `embedding_model`. The
+docs-chat extra already includes `langchain-huggingface` and
+`sentence-transformers`, so leaving `embedding_model` empty keeps the
+`sentence-transformers/all-MiniLM-L6-v2` default. Run
+`dc43-docs-chat-index --config /path/to/contracts-app.toml` after updating your
+configuration to pre-compute the FAISS cache and reuse it across deployments.
 
 ## Templates
 

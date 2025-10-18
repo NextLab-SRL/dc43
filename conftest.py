@@ -1,4 +1,4 @@
-"""Pytest configuration for the root test suite."""
+"""Pytest configuration shared across in-repo test suites."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _ensure_local_package(module_name: str, local_root: Path) -> None:
 # what ``pip install -e .`` does, but keeps ``pytest`` usable in lightweight
 # environments (for example, GitHub Actions matrix jobs that build packages in
 # parallel).
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent
 LOCAL_CLIENTS_ROOT = ROOT / "packages" / "dc43-service-clients" / "src" / "dc43_service_clients"
 PACKAGE_SRC_DIRS = [
     ROOT / "src",

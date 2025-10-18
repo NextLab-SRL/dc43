@@ -22,6 +22,19 @@
 - Added a pipeline integration module covering Spark and Delta Live Tables runtimes so the wizard
   captures orchestration credentials and the exported helper script shows how to initialise the
   chosen engine alongside the dc43 backends.
+- Added a documentation chat experience powered by LangChain and Gradio, including configuration
+  defaults, a Gradio-mounted UI, and a REST endpoint for programmatic access.
+- Introduced a documentation assistant module in the setup wizard so exported bundles capture the
+  docs chat configuration alongside other deployment metadata.
+- Extended docs chat configuration with an optional inline `api_key` field so private TOML files can
+  store credentials directly when environment variables are impractical.
+- Added a `dc43-docs-chat-index` CLI so operators can pre-compute the documentation assistant's
+  FAISS cache using the same configuration as the FastAPI deployment.
+- Updated the docs-chat index CLI to validate configuration readiness before warming up and to
+  print a summary of the indexed sources when the cache build succeeds.
+- Switched the default docs chat embedding provider to Hugging Face so cache builds run locally by
+  default while leaving OpenAI as an opt-in for hosted embeddings; templates and docs reflect the
+  new default values.
 
 ### Changed
 - The setup architecture view only renders modules that have been explicitly selected or are
@@ -35,3 +48,51 @@
 - Architecture groupings now distinguish local runtime choices from hosted deployments so the
   diagram no longer lists local Python orchestration under remote hosting and highlights the new
   pipeline integration node.
+- Rebranded the UI to the "dc43 app", added a docs chat navigation entry, and documented the
+  configuration knobs required to enable the assistant in deployments.
+- Clarified installation guidance for the docs chat assistant so source checkouts and PyPI
+  consumers know which pip command enables the optional dependencies.
+- Documented that mixing the meta package demo extra with a direct
+  `dc43-contracts-app[docs-chat]` install in the same environment leads to pip conflicts, and
+  pointed contributors at the single-command workflow.
+- Clarified that docs chat configuration requires exporting `DC43_CONTRACTS_APP_CONFIG` and that
+  `docs_chat.api_key_env` holds the name of the environment variable containing the provider key.
+- Updated docs, templates, and wizard guidance to highlight the new inline key support and the
+  `dc43-demo --config/--env-file` launcher flags for local runs.
+- Reworked the docs chat question-answer prompt so responses summarise the retrieved Markdown,
+  cite file names, and explicitly call out helper APIs (for example `read_with_contract`
+  and status strategies) when users ask how to plug dc43 into Spark pipelines instead of
+  defaulting to "I don't know".
+- Expanded the docs chat helper to index repository source code, respect configurable
+  `code_paths`, and forward OpenAI reasoning effort hints so the assistant can tackle
+  complex integration prompts with code-backed answers.
+- Limited auto-discovered docs chat code roots to the dc43 repository so editable installs no
+  longer scan unrelated mono-repo siblings and breach embedding rate limits.
+- Accepted hyphenated `code-path` keys in docs chat TOML configuration and taught the
+  offline index CLI to echo the resolved sources and providers before warm-up so
+  misconfigurations are easier to spot during cache builds.
+- Streamed docs chat progress as concise updates and now normalise Gradio
+  message payloads so answers render in their own chat bubble while the full
+  processing log appears in a separate collapsible message.
+- Added a dc43-specific guardrail to the docs chat runtime so off-topic prompts get a polite
+  reminder that the assistant is limited to project documentation and helper workflows.
+- Triggered the docs chat runtime warm-up in the background during app startup, cached the
+  FAISS index between runs, and now relay the queued warm-up progress to both the UI and
+  application logs (including the explicit warm-up wait message returned from the REST API)
+  so operators can follow each stage even when the cache build starts before the first
+  question, all without blocking the server from starting.
+- Added Hugging Face embedding support alongside OpenAI so large repositories can be indexed
+  offline; templates, environment references, and getting-started guides now highlight the
+  `embedding_provider` option and the persisted index workflow.
+
+### Fixed
+- Adjusted the documentation assistant to discover repository Markdown when running from
+  editable installs so the chat surface no longer reports missing documentation directories.
+- Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured
+  installs do not block the documentation assistant with missing-key warnings.
+- Added the `chardet` dependency to the docs-chat optional extras so documentation indexing
+  works out of the box without requiring manual module installs.
+- Batched documentation embeddings during vector index creation so large Markdown and code
+  trees no longer trigger OpenAI "max tokens per request" errors when the assistant starts.
+- Reordered the docs assistant chat output so the processing log appears before the
+  answer, keeping the final response visible as the most recent chat bubble.

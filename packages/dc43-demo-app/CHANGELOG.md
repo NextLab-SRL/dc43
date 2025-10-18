@@ -36,6 +36,8 @@
 - Altair Retail timeline replay that simulates each pipeline step, highlights the exact rule
   failures and reject slices, drives status banners across the activation/dashboard tabs, and
   exposes a richer sample script for presenters to reuse in notebooks.
+- Added `--config` and `--env-file` flags to the `dc43-demo` launcher so personal TOML overrides and
+  `.env` secrets can be loaded without pre-exporting environment variables.
 
 ### Changed
 - Pipeline scenario details now run Spark or DLT modes in place using asynchronous
@@ -74,8 +76,19 @@
   hand-offs highlight which assets are contract-backed versus tracked without a contract.
 - Adopted the demo pipeline, UI, and streaming regression tests into the package so its
   distribution validates the bundled scenarios directly during CI runs.
+- `dc43-demo` now logs the resolved contracts-app configuration path and docs-chat summary
+  during startup to aid debugging and deployment validation.
+- Documented the docs-chat embedding provider options and the new
+  `dc43-docs-chat-index` helper so demos can pre-build the assistant cache and
+  opt into offline Hugging Face embeddings when needed.
 
 ### Fixed
+- Respect exported `DC43_CONTRACTS_APP_CONFIG` files when launching `dc43-demo`
+  by merging their overrides (such as `[docs_chat]` settings) into the generated
+  workspace configuration instead of overwriting them.
+- Stop including credential-source hints in docs-chat startup logs and report
+  repository documentation directories when present so editable installs avoid
+  missing-docs warnings.
 - Prevent the Altair Retail timeline replay from crashing when comparing timezone-aware
   inventory snapshots with the freshness reference checkpoint.
 - Ensure the Altair Retail flow and dataset lineage tabs render their Mermaid diagrams reliably

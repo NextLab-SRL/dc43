@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-4">dc43 docs assistant</h1>
+{% set status = docs_chat_status %}
+{% if not status.enabled %}
+  <div class="alert alert-secondary" role="alert">
+    The documentation assistant is currently disabled. Enable the <code>docs_chat</code> section in your configuration (or
+    export <code>DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED=1</code>) and restart the dc43 app to chat with the bundled guides.
+    Launching the demo with <code>dc43-demo --config &lt;path-to-config&gt;</code> applies your personal TOML without having to
+    export the variable globally.
+  </div>
+  <p>
+    Install the optional extra (<code>pip install --no-cache-dir -e ".[demo]"</code> from a source checkout, or
+    <code>pip install "dc43-contracts-app[docs-chat]"</code> from PyPI) and provide an API key either by setting
+    <code>docs_chat.api_key</code> in your private configuration file or by exposing the
+    <code>docs_chat.api_key_env</code> environment variable. Skip chaining both commands in the same environment to avoid pip
+    dependency conflicts.
+  </p>
+{% elif not status.ready %}
+  <div class="alert alert-warning" role="alert">
+    {{ status.message or "The documentation assistant is not ready yet." }}
+  </div>
+  <p class="mb-0">
+    Confirm the <code>docs_chat</code> configuration is enabled, the docs-chat extra is installed, your config path is passed to the
+    app (for example <code>dc43-demo --config ~/.dc43/contracts-app.toml</code>), and an API key is available via
+    <code>docs_chat.api_key</code> or the configured environment variable before retrying.
+  </p>
+{% else %}
+  <p class="text-muted">
+    Ask questions about the dc43 platform, architecture, and deployment guides. Answers are grounded in the Markdown
+    documentation and indexed source files bundled with this repository so you can jump straight to the relevant
+    implementation details.
+  </p>
+  <div class="ratio ratio-16x9" style="min-height: 620px;">
+    <iframe
+      src="{{ gradio_path }}"
+      title="dc43 docs assistant"
+      allow="clipboard-read; clipboard-write"
+      class="w-100 border rounded shadow-sm bg-white"
+    ></iframe>
+  </div>
+{% endif %}
+<p class="mt-4 small text-muted">
+  Prefer an API? POST messages to <code>/api/docs-chat/messages</code> with a JSON payload (<code>{"message": "...", "history": [...]}</code>)
+  to retrieve answers and cited sources programmatically.
+</p>
+{% endblock %}

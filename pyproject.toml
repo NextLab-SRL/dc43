@@ -32,7 +32,7 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/dc43-contracts-app/tests"]
 addopts = "-q --basetemp=test_temp_files"
 filterwarnings = [
   "ignore::DeprecationWarning",

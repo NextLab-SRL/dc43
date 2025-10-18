@@ -71,6 +71,9 @@ extras_require = {
     "spark": [
         _dependency("dc43-integrations", extras="spark")
     ],
+    "docs-chat": [
+        _dependency("dc43-contracts-app", extras="docs-chat"),
+    ],
     "test": [
         "pytest>=7.0",
         "pyspark>=3.4",
@@ -85,7 +88,7 @@ extras_require = {
         "uvicorn",
         "jinja2",
         "python-multipart",
-        _dependency("dc43-contracts-app", extras="spark"),
+        _dependency("dc43-contracts-app", extras="spark,docs-chat"),
         _dependency("dc43-integrations", extras="spark"),
         _dependency("dc43-demo-app"),
     ],

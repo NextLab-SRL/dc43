@@ -31,7 +31,7 @@ This guide shows how to:
    npm run test:ui -- --list
    ```
 
-   The list output mirrors the scenario catalogue defined in `tests/playwright/scenarios.ts`. The bundled scenarios include:
+   The list output mirrors the scenario catalogue defined in `packages/dc43-contracts-app/tests/playwright/scenarios.ts`. The bundled scenarios include:
 
    - `@local_only` (tagged with `@happy_path`) for self-contained workstation demos that stick to embedded services and filesystem stores.
    - `@databricks_jobs` (tagged with `@governance_focus` and `@databricks`) for Unity Catalog-heavy pipelines where Databricks configuration is the primary concern.
@@ -59,7 +59,7 @@ Add the same command to your CI pipeline to reuse the bundled selectors without 
 
 ## 2. Extend or override scenarios
 
-Scenarios are stored in `tests/playwright/scenarios.ts` as TypeScript objects that map module selections and configuration overrides. Each key corresponds to the wizard's data attributes so the automation stays aligned with server-side validation. Add a new entry that mirrors the structure below when you want the suite to drive a different configuration:
+Scenarios are stored in `packages/dc43-contracts-app/tests/playwright/scenarios.ts` as TypeScript objects that map module selections and configuration overrides. Each key corresponds to the wizard's data attributes so the automation stays aligned with server-side validation. Add a new entry that mirrors the structure below when you want the suite to drive a different configuration:
 
 ```ts
 export const setupWizardScenarios = {
@@ -77,7 +77,7 @@ export const setupWizardScenarios = {
 };
 ```
 
-Playwright automatically discovers the new scenario on the next run, making it available through `--grep @my_custom_flow`. If you prefer to keep local experiments out of version control, duplicate `tests/playwright/setup-wizard.spec.ts`, import your own scenario catalogue, and execute the copy from your workstation.
+Playwright automatically discovers the new scenario on the next run, making it available through `--grep @my_custom_flow`. If you prefer to keep local experiments out of version control, duplicate `packages/dc43-contracts-app/tests/playwright/setup-wizard.spec.ts`, import your own scenario catalogue, and execute the copy from your workstation.
 
 When authoring a brand-new path, use Playwright's recorder to bootstrap selectors before copying them into the scenario definition:
 
