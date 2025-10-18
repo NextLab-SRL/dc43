@@ -725,6 +725,29 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
 
         threading.Thread(target=_worker, name="dc43-docs-chat-query", daemon=True).start()
 
+        def _build_message(
+            content: str,
+            *,
+            variant: str | None = None,
+            title: str | None = None,
+        ) -> object:
+            metadata: dict[str, str] | None = None
+            if variant or title:
+                metadata = {}
+                if variant:
+                    metadata["variant"] = variant
+                if title:
+                    metadata["title"] = title
+            if GradioChatMessage is not None:
+                return GradioChatMessage(
+                    role="assistant",
+                    content=content,
+                    metadata=metadata or None,
+                )
+            if metadata:
+                return {"content": content, "metadata": metadata}
+            return content
+
         while True:
             kind, payload = progress_queue.get()
             if kind == "progress":
@@ -733,29 +756,24 @@ def mount_gradio_app(app: "FastAPI", path: str = _GRADIO_MOUNT_PATH) -> bool:
                 yield _render_progress_update(step, len(progress_entries))
                 continue
             if kind == "error":
-                yield f"⚠️ {payload}"
+                yield _build_message(f"⚠️ {payload}", variant="secondary", title="Status update")
                 continue
             if kind == "result":
                 reply = payload
                 if isinstance(reply, DocsChatReply):
-                    final_markdown = reply.render_markdown()
+                    final_markdown = reply.render_markdown(include_steps=False)
                 else:  # pragma: no cover - defensive fallback
                     final_markdown = str(payload)
 
-                if GradioChatMessage is not None:
-                    yield GradioChatMessage(role="assistant", content=final_markdown)
-                    if progress_entries:
-                        summary_markdown = _build_progress_summary(progress_entries)
-                        yield GradioChatMessage(
-                            role="assistant",
-                            content=summary_markdown,
-                            metadata={"variant": "secondary", "title": "Processing log"},
-                        )
-                else:
-                    yield final_markdown
-                    if progress_entries:
-                        summary_markdown = _build_progress_summary(progress_entries)
-                        yield summary_markdown
+                if progress_entries:
+                    summary_markdown = _build_progress_summary(progress_entries)
+                    yield _build_message(
+                        summary_markdown,
+                        variant="secondary",
+                        title="Processing log",
+                    )
+
+                yield _build_message(final_markdown)
                 continue
             if kind == "done":
                 break

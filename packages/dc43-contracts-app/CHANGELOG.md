@@ -92,3 +92,5 @@
   works out of the box without requiring manual module installs.
 - Batched documentation embeddings during vector index creation so large Markdown and code
   trees no longer trigger OpenAI "max tokens per request" errors when the assistant starts.
+- Reordered the docs assistant chat output so the processing log appears before the
+  answer, keeping the final response visible as the most recent chat bubble.

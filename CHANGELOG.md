@@ -97,3 +97,6 @@
   Markdown loader runs without missing-module errors during documentation indexing.
 - Batch docs assistant embedding requests so large repositories stay under OpenAI's
   per-request token limits instead of failing with 400 errors during index builds.
+- Ensure the docs assistant displays its final response as the last chat bubble,
+  moving the processing log above the answer so users no longer mistake the
+  status summary for the reply.

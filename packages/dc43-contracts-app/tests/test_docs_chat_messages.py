@@ -32,3 +32,17 @@ def test_coerce_chat_history_accepts_tuple_pairs():
     tuples = docs_chat._coerce_chat_history([("prompt", "response")])  # type: ignore[attr-defined]
 
     assert tuples == [("prompt", "response")]
+
+
+def test_render_markdown_can_omit_progress_steps():
+    reply = docs_chat.DocsChatReply(
+        answer="Final answer",
+        sources=["docs/example.md"],
+        steps=["first", "second"],
+    )
+
+    markdown = reply.render_markdown(include_steps=False)
+
+    assert "Final answer" in markdown
+    assert "**Sources**" in markdown
+    assert "**Progress**" not in markdown
