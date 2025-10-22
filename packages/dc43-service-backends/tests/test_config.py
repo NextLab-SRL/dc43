@@ -321,3 +321,150 @@ def test_dumps_matches_mapping_including_workspace_url() -> None:
 
     assert parsed == config_to_mapping(config)
     assert parsed["unity_catalog"]["workspace_url"] == "https://adb.example.com"
+
+
+def test_config_to_mapping_covers_all_sections() -> None:
+    config = ServiceBackendsConfig(
+        contract_store=ContractStoreConfig(
+            type="collibra_http",
+            root=Path("/var/contracts"),
+            base_path=Path("/delta/contracts"),
+            table="governance.contracts",
+            base_url="https://contracts.example.com",
+            dsn="postgresql+psycopg://user:pass@host/contracts",
+            schema="governance",
+            token="contract-token",
+            timeout=22.5,
+            contracts_endpoint_template="/custom/contracts/{data_product}/{port}",
+            default_status="Validated",
+            status_filter="Validated",
+            catalog={"product-quality": ("dp-quality", "gold")},
+        ),
+        data_product_store=DataProductStoreConfig(
+            type="collibra_http",
+            root=Path("/var/products"),
+            base_path=Path("/delta/products"),
+            table="governance.products",
+            dsn="postgresql+psycopg://user:pass@host/products",
+            schema="governance",
+            base_url="https://products.example.com",
+            catalog="governance-products",
+        ),
+        data_quality=DataQualityBackendConfig(
+            type="http",
+            base_url="https://dq.example.com",
+            token="dq-token",
+            token_header="X-Token",
+            token_scheme="Token",
+            headers={"X-Team": "quality"},
+            default_engine="soda",
+            engines={
+                "native": {"strict_types": False},
+                "great_expectations": {"suite_path": "/tmp/suite.json"},
+            },
+        ),
+        auth=AuthConfig(token="shared-token"),
+        unity_catalog=UnityCatalogConfig(
+            enabled=True,
+            dataset_prefix="table:",
+            workspace_profile="prod",
+            workspace_url="https://adb.example.com",
+            workspace_token="uc-token",
+            static_properties={"catalog": "main", "schema": "governance"},
+        ),
+        governance=GovernanceConfig(
+            dataset_contract_link_builders=("custom.module:builder",),
+        ),
+        governance_store=GovernanceStoreConfig(
+            type="http",
+            root=Path("/var/governance"),
+            base_path=Path("/delta/governance"),
+            table="governance.status",
+            status_table="governance.status_history",
+            activity_table="governance.activity",
+            link_table="governance.links",
+            dsn="postgresql+psycopg://user:pass@host/governance",
+            schema="governance",
+            base_url="https://governance.example.com",
+            token="governance-token",
+            token_header="X-Gov-Token",
+            token_scheme="Token",
+            timeout=45.5,
+            headers={"X-Env": "prod"},
+        ),
+    )
+
+    mapping = config_to_mapping(config)
+
+    assert mapping["contract_store"] == {
+        "type": "collibra_http",
+        "root": str(Path("/var/contracts")),
+        "base_path": str(Path("/delta/contracts")),
+        "table": "governance.contracts",
+        "base_url": "https://contracts.example.com",
+        "dsn": "postgresql+psycopg://user:pass@host/contracts",
+        "schema": "governance",
+        "token": "contract-token",
+        "timeout": 22.5,
+        "contracts_endpoint_template": "/custom/contracts/{data_product}/{port}",
+        "default_status": "Validated",
+        "status_filter": "Validated",
+        "catalog": {
+            "product-quality": {
+                "data_product": "dp-quality",
+                "port": "gold",
+            }
+        },
+    }
+    assert mapping["data_product"] == {
+        "type": "collibra_http",
+        "root": str(Path("/var/products")),
+        "base_path": str(Path("/delta/products")),
+        "table": "governance.products",
+        "dsn": "postgresql+psycopg://user:pass@host/products",
+        "schema": "governance",
+        "base_url": "https://products.example.com",
+        "catalog": "governance-products",
+    }
+    assert mapping["data_quality"] == {
+        "type": "http",
+        "base_url": "https://dq.example.com",
+        "token": "dq-token",
+        "token_header": "X-Token",
+        "token_scheme": "Token",
+        "headers": {"X-Team": "quality"},
+        "default_engine": "soda",
+        "engines": {
+            "native": {"strict_types": False},
+            "great_expectations": {"suite_path": "/tmp/suite.json"},
+        },
+    }
+    assert mapping["auth"] == {"token": "shared-token"}
+    assert mapping["unity_catalog"] == {
+        "enabled": True,
+        "dataset_prefix": "table:",
+        "workspace_profile": "prod",
+        "workspace_url": "https://adb.example.com",
+        "workspace_token": "uc-token",
+        "static_properties": {"catalog": "main", "schema": "governance"},
+    }
+    assert mapping["governance"] == {
+        "dataset_contract_link_builders": ["custom.module:builder"],
+    }
+    assert mapping["governance_store"] == {
+        "type": "http",
+        "root": str(Path("/var/governance")),
+        "base_path": str(Path("/delta/governance")),
+        "table": "governance.status",
+        "status_table": "governance.status_history",
+        "activity_table": "governance.activity",
+        "link_table": "governance.links",
+        "dsn": "postgresql+psycopg://user:pass@host/governance",
+        "schema": "governance",
+        "base_url": "https://governance.example.com",
+        "token": "governance-token",
+        "token_header": "X-Gov-Token",
+        "token_scheme": "Token",
+        "timeout": 45.5,
+        "headers": {"X-Env": "prod"},
+    }

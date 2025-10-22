@@ -109,3 +109,52 @@ def test_dumps_matches_mapping_for_docs_chat() -> None:
     assert parsed["workspace"]["root"] == str(Path("/opt/dc43/workspace"))
     assert parsed["docs_chat"]["reasoning_effort"] == "medium"
     assert parsed["docs_chat"]["code_paths"] == ["/src/contracts"]
+
+
+def test_config_to_mapping_includes_all_fields() -> None:
+    config = ContractsAppConfig(
+        workspace=WorkspaceConfig(root=Path("/srv/contracts")),
+        backend=BackendConfig(
+            mode="remote",
+            base_url="https://contracts-backend.example.com",
+            process=BackendProcessConfig(host="0.0.0.0", port=8200, log_level="info"),
+        ),
+        docs_chat=DocsChatConfig(
+            enabled=True,
+            provider="anthropic",
+            model="claude-3",
+            embedding_provider="openai",
+            embedding_model="text-embedding-3-large",
+            api_key_env="DOCS_CHAT_KEY",
+            api_key="inline-secret",
+            docs_path=Path("/data/docs"),
+            index_path=Path("/data/index"),
+            code_paths=(Path("/src/contracts"), Path("/src/shared")),
+            reasoning_effort="high",
+        ),
+    )
+
+    mapping = config_to_mapping(config)
+
+    assert mapping["workspace"] == {"root": str(Path("/srv/contracts"))}
+    assert mapping["backend"] == {
+        "mode": "remote",
+        "base_url": "https://contracts-backend.example.com",
+        "process": {"host": "0.0.0.0", "port": 8200, "log_level": "info"},
+    }
+    assert mapping["docs_chat"] == {
+        "enabled": True,
+        "provider": "anthropic",
+        "model": "claude-3",
+        "embedding_provider": "openai",
+        "embedding_model": "text-embedding-3-large",
+        "api_key_env": "DOCS_CHAT_KEY",
+        "api_key": "inline-secret",
+        "docs_path": str(Path("/data/docs")),
+        "index_path": str(Path("/data/index")),
+        "code_paths": [
+            str(Path("/src/contracts")),
+            str(Path("/src/shared")),
+        ],
+        "reasoning_effort": "high",
+    }

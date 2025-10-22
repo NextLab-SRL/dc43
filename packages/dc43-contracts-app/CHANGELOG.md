@@ -94,6 +94,8 @@
   `embedding_provider` option and the persisted index workflow.
 - Migrated the contracts app configuration writer to `tomlkit` so exported wizard bundles
   rely on the same well-supported serializer as the backend services.
+- Added regression coverage that exercises every contracts-app configuration field and keeps
+  the documentation reference in sync with the wizard options.
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from

@@ -75,3 +75,5 @@
   backend changes validate the helpers in-package.
 - Moved service-backend TOML emission to `tomlkit` so exported bundles and
   configuration tooling rely on the same mature serializer as the contracts app.
+- Added regression tests that assert every service-backend configuration field is
+  serialised and documented alongside the setup wizard guidance.
