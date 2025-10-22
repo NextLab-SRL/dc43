@@ -4906,6 +4906,135 @@ def _start_stack_script() -> str:
     )
 
 
+
+def _toml_escape(value: str) -> str:
+    """Return ``value`` escaped for safe inclusion in TOML strings."""
+
+    return (
+        value.replace("\\", "\\\\")
+        .replace("\b", "\\b")
+        .replace("\f", "\\f")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+        .replace('"', '\\"')
+    )
+
+
+def _toml_format(value: Any) -> str:
+    """Format ``value`` as TOML text."""
+
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, Path):
+        return f'"{_toml_escape(str(value))}"'
+    if isinstance(value, str):
+        return f'"{_toml_escape(value)}"'
+    if isinstance(value, (list, tuple, set)):
+        items = ", ".join(_toml_format(item) for item in value)
+        return f"[{items}]"
+    if isinstance(value, Mapping):
+        items = []
+        for key, item in value.items():
+            items.append(f"{key} = {_toml_format(item)}")
+        return "{ " + ", ".join(items) + " }"
+    raise TypeError(f"Unsupported TOML value: {value!r}")
+
+
+def _toml_lines(mapping: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> list[str]:
+    """Return TOML lines representing ``mapping``."""
+
+    lines: list[str] = []
+    scalars: list[tuple[str, Any]] = []
+    tables: list[tuple[str, Mapping[str, Any]]] = []
+
+    for key, value in mapping.items():
+        if isinstance(value, Mapping):
+            tables.append((key, value))
+        else:
+            scalars.append((key, value))
+
+    if prefix:
+        lines.append(f"[{'.'.join(prefix)}]")
+
+    for key, value in scalars:
+        lines.append(f"{key} = {_toml_format(value)}")
+
+    for index, (key, value) in enumerate(tables):
+        sub_lines = _toml_lines(value, prefix + (key,))
+        if lines and sub_lines:
+            lines.append("")
+        elif not lines and index > 0:
+            lines.append("")
+        lines.extend(sub_lines)
+
+    return lines
+
+
+def _toml_ready(value: Any) -> Any:
+    """Normalise ``value`` into TOML-compatible primitives."""
+
+    if value is None:
+        return None
+    if isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, Path):
+        return value
+    if isinstance(value, Mapping):
+        payload: Dict[str, Any] = {}
+        for key, raw in value.items():
+            cleaned_key = str(key)
+            cleaned_value = _toml_ready(raw)
+            if cleaned_value is None:
+                continue
+            payload[cleaned_key] = cleaned_value
+        return payload
+    if isinstance(value, (list, tuple, set)):
+        items: list[Any] = []
+        for raw in value:
+            cleaned = _toml_ready(raw)
+            if cleaned is None:
+                continue
+            items.append(cleaned)
+        return items
+    return str(value)
+
+
+def _wizard_module_toml(
+    module_key: str,
+    module_config: Mapping[str, Any],
+    selected_option: str | None,
+) -> tuple[str, str] | None:
+    """Return archive path and TOML text for ``module_config``."""
+
+    payload: Dict[str, Any] = {}
+    if selected_option:
+        payload["selected_option"] = selected_option
+
+    payload.update(
+        {
+            key: value
+            for key, value in (
+                (_key, _toml_ready(raw)) for _key, raw in module_config.items()
+            )
+            if value is not None
+        }
+    )
+
+    if not payload:
+        return None
+
+    lines = _toml_lines(payload)
+    if not lines:
+        return None
+
+    safe_key = module_key.replace("/", "-")
+    path = f"dc43-setup/config/modules/{safe_key}.toml"
+    return path, "\n".join(lines) + "\n"
+
+
 def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
     """Return README text for the setup export archive."""
 
@@ -4921,6 +5050,7 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- modules/<module>.json — per-module configuration stubs for automation.",
         "- config/dc43-service-backends.toml — drop-in configuration for the backend services.",
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
+        "- config/modules/<module>.toml — raw field values captured for each wizard module.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
         "- examples/ — integration-aware starter projects provided by each integration.",
         "- requirements.txt — pinned Python dependencies for the starter projects and tooling.",
@@ -4998,6 +5128,34 @@ def _build_setup_bundle(state: Mapping[str, Any]) -> Tuple[io.BytesIO, Dict[str,
                 "dc43-setup/config/dc43-contracts-app.toml",
                 contracts_app_toml,
             )
+
+        configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
+        selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
+        configuration: Dict[str, Mapping[str, Any]]
+        if isinstance(configuration_raw, Mapping):
+            configuration = {
+                str(module_key): module_config
+                for module_key, module_config in configuration_raw.items()
+                if isinstance(module_config, Mapping)
+            }
+        else:
+            configuration = {}
+        if isinstance(selected_raw, Mapping):
+            selected = {
+                str(module_key): str(option)
+                for module_key, option in selected_raw.items()
+                if option is not None
+            }
+        else:
+            selected = {}
+
+        for module_key, module_config in configuration.items():
+            module_selected = selected.get(module_key)
+            result = _wizard_module_toml(module_key, module_config, module_selected)
+            if not result:
+                continue
+            path, text = result
+            archive.writestr(path, text)
 
         bootstrap_script = _pipeline_bootstrap_script(state)
         script_info = zipfile.ZipInfo("dc43-setup/scripts/bootstrap_pipeline.py")

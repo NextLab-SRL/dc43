@@ -35,8 +35,13 @@
 - Switched the default docs chat embedding provider to Hugging Face so cache builds run locally by
   default while leaving OpenAI as an opt-in for hosted embeddings; templates and docs reflect the
   new default values.
+- Published a comprehensive configuration reference that lists every setup wizard module,
+  exported field, and related environment override so operators can review available options in one place.
 
 ### Changed
+- Setup bundle archives now include per-module TOML exports capturing the raw
+  wizard field values, and regression coverage verifies every submitted value
+  is written to the generated configuration files.
 - The setup architecture view only renders modules that have been explicitly selected or are
   required by user-driven dependencies, preventing unrelated services from appearing in fresh
   configurations.
@@ -96,3 +101,6 @@
   trees no longer trigger OpenAI "max tokens per request" errors when the assistant starts.
 - Reordered the docs assistant chat output so the processing log appears before the
   answer, keeping the final response visible as the most recent chat bubble.
+- Added regression coverage that posts each module/option combination to the setup wizard
+  and asserts the persisted configuration retains every provided field, guarding against
+  future persistence regressions.

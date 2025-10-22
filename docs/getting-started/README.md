@@ -12,6 +12,10 @@ material when you want to dive deeper.
 - [Contracts app: automate the setup wizard with Playwright scenarios](../tutorials/contracts-setup-automation.md)
 - [Databricks teams: integrate dc43 with Unity Catalog](databricks.md)
 
+## Reference
+
+- [dc43 configuration reference](../configuration-reference.md)
+
 The guides assume you have a working Python 3.11 environment. When you work from a source checkout run `pip install -e .` from the
 repository root so editable installs pick up sibling packages.
 

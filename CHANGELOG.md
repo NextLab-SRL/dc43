@@ -21,6 +21,11 @@
 - Updated the docs-chat index CLI to fail fast when the assistant configuration
   is incomplete and to print a summary of the indexed sources after a
   successful warm-up.
+- Documented every setup wizard module, TOML key, and environment override in a
+  single configuration reference under `docs/` so teams can audit available knobs
+  without cross-referencing multiple guides.
+- Bundled per-module TOML exports in the setup archive and expanded tests to
+  ensure every submitted wizard value persists into generated configuration files.
 
 ### Changed
 - Updated the release automation to tag the contracts-app and HTTP backend Docker
@@ -104,3 +109,6 @@
 - Ensure the docs assistant displays its final response as the last chat bubble,
   moving the processing log above the answer so users no longer mistake the
   status summary for the reply.
+- Added regression coverage that posts each setup wizard configuration option and
+  asserts the saved `setup_state.json` retains every provided field so future
+  changes cannot silently drop user input.
