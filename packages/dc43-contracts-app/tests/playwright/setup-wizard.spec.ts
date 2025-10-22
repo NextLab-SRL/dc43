@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { expect, Locator, Page, test } from '@playwright/test';
 import {
   setupWizardScenarioEntries,
+  setupWizardScenarios,
   SetupWizardScenario,
 } from './scenarios';
 
@@ -39,6 +40,44 @@ test.describe('Contracts setup wizard', () => {
       await finishWizard(page, expectedBaseURL);
     });
   }
+
+  test('@sample_prefill populates configuration values from the generator', async ({ page }) => {
+    const scenario = setupWizardScenarios.local_only;
+
+    await test.step('Open the wizard', async () => {
+      await page.goto('/setup?restart=1');
+      await expect(page.locator('#setup-root')).toBeVisible();
+      await expect(page.locator('[data-step1-wizard]')).toBeVisible();
+    });
+
+    await completeModuleSelection(page, scenario);
+
+    await test.step('Generate sample configuration values', async () => {
+      const generatorButton = page.getByRole('button', { name: 'Generate sample configuration' });
+      await expect(generatorButton, 'Sample configuration button should be visible.').toBeVisible();
+      await generatorButton.click();
+
+      const feedback = page.locator('[data-template-feedback]');
+      await expect(feedback, 'Sample generator feedback banner should appear.').toBeVisible();
+      await expect(feedback).toContainText('Applied');
+
+      await ensureConfigurationModuleVisible(page, 'contracts_backend');
+      await expect(page.locator('[name="config__contracts_backend__work_dir"]')).toHaveValue('/workspace');
+      await expect(page.locator('[name="config__contracts_backend__contracts_dir"]')).toHaveValue('/workspace/contracts');
+
+      await ensureConfigurationModuleVisible(page, 'products_backend');
+      await expect(page.locator('[name="config__products_backend__products_dir"]')).toHaveValue('/workspace/products');
+
+      await ensureConfigurationModuleVisible(page, 'docs_assistant');
+      await expect(page.locator('[name="config__docs_assistant__provider"]')).toHaveValue('openai');
+      await expect(page.locator('[name="config__docs_assistant__model"]')).toHaveValue('gpt-4o-mini');
+    });
+
+    await test.step('Review the summary', async () => {
+      await page.getByRole('button', { name: 'Review summary' }).click();
+      await expect(page.locator('#setup-root')).toHaveAttribute('data-current-step', '3');
+    });
+  });
 });
 
 async function completeModuleSelection(page: Page, scenario: SetupWizardScenario) {

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- Added a setup wizard sample generator that fills the configuration forms from
+  a static template so demos and tests can start from realistic placeholder
+  values before customising them.
 - Added a generated Mermaid dependency graph and supporting script so internal package
   relationships are easier to audit during releases.
 - Introduced Playwright-based contracts setup wizard UI automation, including

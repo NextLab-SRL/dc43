@@ -5,6 +5,12 @@ values captured by the setup wizard. Use it as a single source of truth when
 building automation around the generated `setup_state.json`, exporting bundles,
 or wiring TOML configuration into your own infrastructure.
 
+Need sample credentials while exploring the wizard? Step 2 now includes a
+**Generate sample configuration** button that reads from
+`dc43_contracts_app/static/setup-wizard-template.json`. The template contains
+example values for every module and option so you can populate the current form
+with realistic placeholders before customising the output for your environment.
+
 ## Configuration surfaces at a glance
 
 | Surface | Description | How to configure |

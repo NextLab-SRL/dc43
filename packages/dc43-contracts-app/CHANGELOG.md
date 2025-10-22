@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 ### Added
+- The setup wizard now exposes a sample generator button on Step 2 that loads
+  realistic placeholders from `static/setup-wizard-template.json`, letting
+  contributors populate every selected module before refining the values for
+  their environment.
 - Setup bundle archives now ship a ready-to-run `requirements.txt`, cross-platform
   environment bootstrap scripts, and Docker build/publish helpers so teams can
   stand up virtual environments or prebuilt images without manual packaging.
