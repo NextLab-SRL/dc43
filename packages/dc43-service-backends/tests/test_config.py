@@ -3,8 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import tomllib
 
-from dc43_service_backends.config import load_config
+from dc43_service_backends.config import (
+    AuthConfig,
+    ContractStoreConfig,
+    DataQualityBackendConfig,
+    ServiceBackendsConfig,
+    UnityCatalogConfig,
+    config_to_mapping,
+    dumps,
+    load_config,
+)
 
 
 def test_load_config_from_file(tmp_path: Path) -> None:
@@ -231,7 +241,7 @@ def test_unity_catalog_config_section(tmp_path: Path) -> None:
                 "enabled = true",
                 "dataset_prefix = 'table:'",
                 "workspace_profile = 'prod'",
-                "workspace_host = 'https://adb.example.com'",
+                "workspace_url = 'https://adb.example.com'",
                 "workspace_token = 'token-123'",
                 "",
                 "[unity_catalog.static_properties]",
@@ -251,7 +261,7 @@ def test_unity_catalog_config_section(tmp_path: Path) -> None:
     assert config.unity_catalog.enabled is True
     assert config.unity_catalog.dataset_prefix == "table:"
     assert config.unity_catalog.workspace_profile == "prod"
-    assert config.unity_catalog.workspace_host == "https://adb.example.com"
+    assert config.unity_catalog.workspace_url == "https://adb.example.com"
     assert config.unity_catalog.workspace_token == "token-123"
     assert config.unity_catalog.static_properties == {"owner": "governance"}
     assert config.governance.dataset_contract_link_builders == (
@@ -278,9 +288,36 @@ def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert config.unity_catalog.enabled is True
     assert config.unity_catalog.dataset_prefix == "cat:"
     assert config.unity_catalog.workspace_profile == "unity-prod"
-    assert config.unity_catalog.workspace_host == "https://adb.example.com"
+    assert config.unity_catalog.workspace_url == "https://adb.example.com"
     assert config.unity_catalog.workspace_token == "env-token"
     assert config.governance.dataset_contract_link_builders == (
         "custom.module:builder",
         "other.module.hooks:make",
     )
+
+
+def test_dumps_matches_mapping_including_workspace_url() -> None:
+    config = ServiceBackendsConfig(
+        contract_store=ContractStoreConfig(type="delta", table="governed.contracts"),
+        data_quality=DataQualityBackendConfig(
+            type="http",
+            base_url="https://quality.example.com",
+            token="dq-token",
+            headers={"X-Env": "prod"},
+        ),
+        unity_catalog=UnityCatalogConfig(
+            enabled=True,
+            workspace_url="https://adb.example.com",
+            workspace_profile="prod",
+            workspace_token="token-123",
+            dataset_prefix="table:",
+            static_properties={"catalog": "main", "schema": "contracts"},
+        ),
+        auth=AuthConfig(token="auth-token"),
+    )
+
+    toml_text = dumps(config)
+    parsed = tomllib.loads(toml_text)
+
+    assert parsed == config_to_mapping(config)
+    assert parsed["unity_catalog"]["workspace_url"] == "https://adb.example.com"

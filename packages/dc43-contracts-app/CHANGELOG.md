@@ -39,6 +39,9 @@
   exported field, and related environment override so operators can review available options in one place.
 
 ### Changed
+- Setup wizard exports, backend configuration, and docs-chat helpers now agree
+  on the `workspace_url` field and new regression tests cover the shared TOML
+  serializers for both the contracts UI and service backend bundles.
 - Setup bundle archives now include per-module TOML exports capturing the raw
   wizard field values, and regression coverage verifies every submitted value
   is written to the generated configuration files.

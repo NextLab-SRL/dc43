@@ -4002,7 +4002,7 @@ def _service_backends_config_from_state(
         if prefix_value:
             unity_cfg.dataset_prefix = prefix_value
         unity_cfg.workspace_profile = _clean_str(module.get("workspace_profile"))
-        unity_cfg.workspace_host = _clean_str(module.get("workspace_url"))
+        unity_cfg.workspace_url = _clean_str(module.get("workspace_url"))
         unity_cfg.workspace_token = _clean_str(module.get("token"))
         catalog_value = _clean_str(module.get("catalog"))
         schema_value = _clean_str(module.get("schema"))
@@ -4019,10 +4019,10 @@ def _service_backends_config_from_state(
         if module_path:
             governance_builders = (module_path,)
 
-    if not unity_cfg.workspace_host:
+    if not unity_cfg.workspace_url:
         for host in databricks_hosts:
             if host:
-                unity_cfg.workspace_host = host
+                unity_cfg.workspace_url = host
                 break
     if not unity_cfg.workspace_profile:
         for profile in databricks_profiles:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import logging
 import os
 import subprocess
@@ -24,15 +23,16 @@ from dc43_contracts_app.config import (
     dump as dump_contracts_config,
     load_config as load_contracts_config,
 )
+from dc43_service_backends.config import (
+    AuthConfig as BackendAuthConfig,
+    ServiceBackendsConfig,
+    dump as dump_service_backends_config,
+)
 
 from .contracts_workspace import current_workspace, prepare_demo_workspace
 
 
 logger = logging.getLogger(__name__)
-
-
-def _toml_string(value: str) -> str:
-    return json.dumps(value)
 
 
 def _describe_docs_chat(config: DocsChatConfig) -> str:
@@ -104,19 +104,11 @@ def _load_env_file(path: str) -> None:
 
 
 def _write_backend_config(path: Path, contracts_dir: Path, token: str | None) -> None:
-    lines = [
-        "[contract_store]",
-        f"root = {_toml_string(contracts_dir.as_posix())}",
-    ]
+    config = ServiceBackendsConfig()
+    config.contract_store.root = contracts_dir
     if token:
-        lines.extend(
-            [
-                "",
-                "[auth]",
-                f"token = {_toml_string(token)}",
-            ]
-        )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        config.auth = BackendAuthConfig(token=token)
+    dump_service_backends_config(path, config)
 
 
 def _build_contracts_config(

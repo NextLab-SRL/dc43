@@ -40,6 +40,9 @@
   `.env` secrets can be loaded without pre-exporting environment variables.
 
 ### Changed
+- `dc43-demo` now writes the service-backend configuration via the shared
+  `tomlkit` serializer, aligning with the setup wizard exports and covering the
+  behaviour with dedicated tests.
 - Pipeline scenario details now run Spark or DLT modes in place using asynchronous
   progress indicators, Bootstrap toasts for completion status, and the JSON
   pipeline endpoint instead of redirecting back to the scenario list.

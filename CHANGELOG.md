@@ -28,6 +28,9 @@
   ensure every submitted wizard value persists into generated configuration files.
 
 ### Changed
+- Normalised TOML writers across the demo launcher and backend configuration so
+  every export uses the shared serializer, documentation calls the field
+  `workspace_url`, and tests assert the generated TOML mirrors wizard input.
 - Updated the release automation to tag the contracts-app and HTTP backend Docker
   images with their package versions, documented the ECR setup flow, and added a
   manual smoke publish path for validating AWS credentials.

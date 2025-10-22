@@ -3,8 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import tomllib
 
-from dc43_contracts_app.config import load_config
+from dc43_contracts_app.config import (
+    BackendConfig,
+    BackendProcessConfig,
+    ContractsAppConfig,
+    DocsChatConfig,
+    WorkspaceConfig,
+    config_to_mapping,
+    dumps,
+    load_config,
+)
 
 
 def test_load_config_from_file(tmp_path: Path) -> None:
@@ -68,3 +78,34 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config.backend.process.host == "svc"
     assert config.backend.process.port == 9100
     assert config.backend.process.log_level == "debug"
+
+
+def test_dumps_matches_mapping_for_docs_chat() -> None:
+    config = ContractsAppConfig(
+        workspace=WorkspaceConfig(root=Path("/opt/dc43/workspace")),
+        backend=BackendConfig(
+            mode="remote",
+            base_url="https://backend.example.com",
+            process=BackendProcessConfig(host="0.0.0.0", port=8100, log_level="debug"),
+        ),
+        docs_chat=DocsChatConfig(
+            enabled=True,
+            provider="openai",
+            model="gpt-4o",
+            embedding_provider="huggingface",
+            embedding_model="sentence-transformers/all-MiniLM-L6-v2",
+            api_key_env="CUSTOM_KEY",
+            docs_path=Path("/docs"),
+            index_path=Path("/index"),
+            code_paths=(Path("/src/contracts"),),
+            reasoning_effort="medium",
+        ),
+    )
+
+    toml_text = dumps(config)
+    parsed = tomllib.loads(toml_text)
+
+    assert parsed == config_to_mapping(config)
+    assert parsed["workspace"]["root"] == str(Path("/opt/dc43/workspace"))
+    assert parsed["docs_chat"]["reasoning_effort"] == "medium"
+    assert parsed["docs_chat"]["code_paths"] == ["/src/contracts"]

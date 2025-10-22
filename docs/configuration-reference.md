@@ -467,7 +467,8 @@ Environment overrides:
 - `enabled` – Toggle for Unity Catalog synchronisation. Override with `DC43_UNITY_CATALOG_ENABLED`.
 - `dataset_prefix` – Prefix applied to dataset identifiers. Override with `DC43_UNITY_CATALOG_PREFIX`.
 - `workspace_profile` – Databricks CLI profile name. Override with `DATABRICKS_CONFIG_PROFILE`.
-- `workspace_host` – Databricks host URL. Override with `DATABRICKS_HOST`.
+- `workspace_url` – Databricks workspace URL. Override with `DATABRICKS_HOST`. Existing configurations that still use
+  `workspace_host` remain supported for backwards compatibility.
 - `workspace_token` – Databricks token. Override with `DATABRICKS_TOKEN` or `DC43_DATABRICKS_TOKEN`.
 - `static_properties` – Additional metadata pushed to Unity Catalog.
 

@@ -108,9 +108,19 @@ class UnityCatalogConfig:
     enabled: bool = False
     dataset_prefix: str = "table:"
     workspace_profile: str | None = None
-    workspace_host: str | None = None
+    workspace_url: str | None = None
     workspace_token: str | None = None
     static_properties: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def workspace_host(self) -> str | None:
+        """Backwards-compatible accessor for legacy ``workspace_host`` keys."""
+
+        return self.workspace_url
+
+    @workspace_host.setter
+    def workspace_host(self, value: str | None) -> None:
+        self.workspace_url = value
 
 
 @dataclass(slots=True)
@@ -383,7 +393,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     unity_enabled = False
     unity_prefix = "table:"
     unity_profile = None
-    unity_host = None
+    unity_url = None
     unity_token = None
     unity_static: dict[str, str] = {}
     if isinstance(unity_section, MutableMapping):
@@ -394,9 +404,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         profile_raw = unity_section.get("workspace_profile")
         if isinstance(profile_raw, str) and profile_raw.strip():
             unity_profile = profile_raw.strip()
-        host_raw = unity_section.get("workspace_host")
+        host_raw = unity_section.get("workspace_url")
+        if host_raw is None:
+            host_raw = unity_section.get("workspace_host")
         if isinstance(host_raw, str) and host_raw.strip():
-            unity_host = host_raw.strip()
+            unity_url = host_raw.strip()
         token_raw = unity_section.get("workspace_token")
         if isinstance(token_raw, str) and token_raw.strip():
             unity_token = token_raw.strip()
@@ -548,7 +560,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
 
     env_host = os.getenv("DATABRICKS_HOST")
     if env_host:
-        unity_host = env_host.strip() or None
+        unity_url = env_host.strip() or None
 
     env_workspace_token = os.getenv("DATABRICKS_TOKEN") or os.getenv("DC43_DATABRICKS_TOKEN")
     if env_workspace_token:
@@ -669,7 +681,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             enabled=unity_enabled,
             dataset_prefix=unity_prefix,
             workspace_profile=unity_profile,
-            workspace_host=unity_host,
+            workspace_url=unity_url,
             workspace_token=unity_token,
             static_properties=unity_static,
         ),
@@ -801,8 +813,8 @@ def _unity_catalog_mapping(config: UnityCatalogConfig) -> dict[str, Any]:
         mapping["dataset_prefix"] = config.dataset_prefix
     if config.workspace_profile:
         mapping["workspace_profile"] = config.workspace_profile
-    if config.workspace_host:
-        mapping["workspace_host"] = config.workspace_host
+    if config.workspace_url:
+        mapping["workspace_url"] = config.workspace_url
     if config.workspace_token:
         mapping["workspace_token"] = config.workspace_token
     if config.static_properties:

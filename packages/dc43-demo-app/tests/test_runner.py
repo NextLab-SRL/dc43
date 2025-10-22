@@ -3,6 +3,8 @@ import os
 import textwrap
 from pathlib import Path
 
+import tomllib
+
 from dc43_demo_app import runner
 
 
@@ -94,3 +96,35 @@ def test_load_env_file(tmp_path: Path, monkeypatch) -> None:
     assert os.environ["OPENAI_API_KEY"] == "sk-demo"
     assert os.environ["QUOTED"] == "value"
     assert os.environ["EMPTY"] == ""
+
+
+def test_write_backend_config_uses_shared_serializer(tmp_path: Path) -> None:
+    config_path = tmp_path / "service_backends.toml"
+    contracts_dir = tmp_path / "contracts"
+    contracts_dir.mkdir()
+
+    runner._write_backend_config(  # type: ignore[attr-defined]
+        config_path,
+        contracts_dir,
+        token="demo-token",
+    )
+
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert data["contract_store"]["root"] == str(contracts_dir)
+    assert data["auth"]["token"] == "demo-token"
+
+
+def test_write_backend_config_omits_auth_when_token_missing(tmp_path: Path) -> None:
+    config_path = tmp_path / "service_backends.toml"
+    contracts_dir = tmp_path / "contracts"
+    contracts_dir.mkdir()
+
+    runner._write_backend_config(  # type: ignore[attr-defined]
+        config_path,
+        contracts_dir,
+        token=None,
+    )
+
+    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    assert data["contract_store"]["root"] == str(contracts_dir)
+    assert "auth" not in data
