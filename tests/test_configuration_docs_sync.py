@@ -52,6 +52,7 @@ def test_setup_module_fields_have_documentation() -> None:
 
 
 def test_config_dataclasses_are_documented() -> None:
+    pytest.importorskip("tomlkit")
     from dc43_contracts_app.config import (  # type: ignore import
         BackendConfig,
         BackendProcessConfig,
