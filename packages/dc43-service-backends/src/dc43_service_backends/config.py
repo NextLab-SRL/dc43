@@ -809,7 +809,7 @@ def _unity_catalog_mapping(config: UnityCatalogConfig) -> dict[str, Any]:
     mapping: dict[str, Any] = {}
     if config.enabled:
         mapping["enabled"] = True
-    if config.dataset_prefix and config.dataset_prefix != "table:":
+    if config.dataset_prefix:
         mapping["dataset_prefix"] = config.dataset_prefix
     if config.workspace_profile:
         mapping["workspace_profile"] = config.workspace_profile

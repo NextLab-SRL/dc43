@@ -46,6 +46,9 @@
   `DC43_GOVERNANCE_LINK_BUILDERS` environment variable) so deployments can load
   custom dataset–contract link hooks without editing the service code.
 ### Changed
+- Unity Catalog configuration mappings now retain the `dataset_prefix` value even
+  when the default `table:` prefix is supplied, ensuring generated TOML mirrors
+  the dataclass inputs without dropping explicit user choices.
 - Unity Catalog configuration now emits `workspace_url` consistently (while
   still honouring legacy `workspace_host` input) and regression tests ensure the
   shared TOML serializer mirrors the dataclass mapping.

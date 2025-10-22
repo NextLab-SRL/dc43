@@ -8,7 +8,10 @@ import tomllib
 from dc43_service_backends.config import (
     AuthConfig,
     ContractStoreConfig,
+    DataProductStoreConfig,
     DataQualityBackendConfig,
+    GovernanceConfig,
+    GovernanceStoreConfig,
     ServiceBackendsConfig,
     UnityCatalogConfig,
     config_to_mapping,
