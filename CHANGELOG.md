@@ -91,6 +91,11 @@
   its test suite without duplicating runs.
 - Ensured the demo-app CI lane installs `open-data-contract-standard` so the demo pipeline
   and UI tests can exercise the backend helpers without missing dependencies.
+- Replaced the hand-written TOML emitters with `tomlkit` so configuration bundles reuse a
+  well-supported serializer and match the loaders' expectations across the setup wizard,
+  contracts UI, and backend services.
+- Expanded the service backend configuration guide with Unity Catalog workspace examples so
+  Delta deployments spell out how to capture hosts, tokens, and CLI profiles in TOML.
 
 ### Fixed
 - Updated the `dc43-demo` launcher to merge any exported `DC43_CONTRACTS_APP_CONFIG`

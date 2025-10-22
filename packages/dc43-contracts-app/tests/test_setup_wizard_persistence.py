@@ -9,10 +9,15 @@ import zipfile
 from typing import Iterable, Tuple
 
 import pytest
+import tomllib
 from starlette.testclient import TestClient
 
 from dc43_contracts_app import server
+from dc43_contracts_app.config import config_to_mapping as contracts_config_to_mapping
 from dc43_contracts_app.workspace import workspace_from_env
+from dc43_service_backends.config import (
+    config_to_mapping as service_config_to_mapping,
+)
 
 
 def _option_fields(module_key: str, option_key: str) -> Tuple[str, ...]:
@@ -134,3 +139,21 @@ def test_setup_step_two_persists_all_fields(
         assert any(
             value in contents for contents in toml_files.values()
         ), f"no TOML file retained {field_name} for {module_key}"
+
+    service_toml_path = "dc43-setup/config/dc43-service-backends.toml"
+    assert service_toml_path in toml_files
+    contracts_app_toml_path = "dc43-setup/config/dc43-contracts-app.toml"
+    assert contracts_app_toml_path in toml_files
+
+    exported_service = tomllib.loads(toml_files[service_toml_path])
+    exported_contracts = tomllib.loads(toml_files[contracts_app_toml_path])
+
+    service_config = server._service_backends_config_from_state(state)
+    assert service_config is not None
+    expected_service_mapping = service_config_to_mapping(service_config)
+    assert exported_service == expected_service_mapping
+
+    contracts_config = server._contracts_app_config_from_state(state)
+    assert contracts_config is not None
+    expected_contracts_mapping = contracts_config_to_mapping(contracts_config)
+    assert exported_contracts == expected_contracts_mapping

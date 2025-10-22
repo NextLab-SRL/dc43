@@ -23,6 +23,7 @@ dependencies = [
   "jinja2>=3.1.0",
   "python-multipart>=0.0.5",
   "httpx>=0.24",
+  "tomlkit>=0.12",
 ]
 
 [project.optional-dependencies]

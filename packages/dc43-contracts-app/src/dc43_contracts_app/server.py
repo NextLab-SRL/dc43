@@ -4916,7 +4916,7 @@ def _toml_ready(value: Any) -> Any:
     if isinstance(value, (str, bool, int, float)):
         return value
     if isinstance(value, Path):
-        return value
+        return str(value)
     if isinstance(value, Mapping):
         payload: Dict[str, Any] = {}
         for key, raw in value.items():

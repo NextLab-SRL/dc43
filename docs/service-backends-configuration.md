@@ -100,6 +100,26 @@ import `pyspark` and uses `SparkSession.builder.getOrCreate()` to access the
 workspace catalog. Provide either `table` or `base_path`; if both are defined
 the table takes precedence.
 
+#### Unity Catalog workspace configuration
+
+Delta-backed stores often run alongside Databricks Unity Catalog. The service
+exposes a dedicated `[unity_catalog]` table to record workspace credentials and
+catalog metadata shared between contract, product, and governance stores:
+
+| Key | Type | Description |
+| --- | ---- | ----------- |
+| `enabled` | bool | Toggle Unity Catalog synchronisation. Exported by the setup wizard when any Delta backend is selected. |
+| `workspace_host` | string | Databricks workspace URL (for example `https://adb-<workspace>.azuredatabricks.net`). Populates from the wizard's *workspace URL* field when using the Delta modules. |
+| `workspace_profile` | string | Optional Databricks CLI profile loaded from `~/.databrickscfg`. Useful when authentication is handled by the CLI rather than a static token. |
+| `workspace_token` | string | Personal access token used when connecting via the REST APIs. Store the token outside version control and inject it as an environment variable in production. |
+| `dataset_prefix` | string | Prefix applied to dataset identifiers synchronised to Unity Catalog (defaults to `table:`). |
+| `static_properties` | table | Additional catalog metadata (for example `{ catalog = "main", schema = "contracts" }`). |
+
+Environment overrides include `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and
+`DATABRICKS_CONFIG_PROFILE`. When the setup wizard exports a Delta-based
+configuration it also records the same values in `dc43-setup/config/modules/*.toml`
+so automation pipelines can hydrate secrets before launching the services.
+
 #### SQL contract store
 
 | Key | Type | Description |

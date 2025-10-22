@@ -89,6 +89,8 @@
 - Added Hugging Face embedding support alongside OpenAI so large repositories can be indexed
   offline; templates, environment references, and getting-started guides now highlight the
   `embedding_provider` option and the persisted index workflow.
+- Migrated the contracts app configuration writer to `tomlkit` so exported wizard bundles
+  rely on the same well-supported serializer as the backend services.
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from
@@ -104,3 +106,5 @@
 - Added regression coverage that posts each module/option combination to the setup wizard
   and asserts the persisted configuration retains every provided field, guarding against
   future persistence regressions.
+- Verified that the exported contracts-app and backend TOML files round-trip through the
+  loader dataclasses so no wizard field goes missing in the generated configuration.

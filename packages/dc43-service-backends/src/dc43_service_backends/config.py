@@ -8,6 +8,7 @@ from typing import Any, Mapping, MutableMapping
 import os
 
 import tomllib
+import tomlkit
 
 __all__ = [
     "ContractStoreConfig",
@@ -888,64 +889,18 @@ def config_to_mapping(config: ServiceBackendsConfig) -> dict[str, Any]:
     return payload
 
 
-def _toml_escape(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace("\b", "\\b")
-        .replace("\f", "\\f")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-        .replace('"', '\\"')
-    )
+def _toml_ready_value(value: Any) -> Any:
+    """Return ``value`` converted into TOML-friendly primitives."""
 
-
-def _format_toml_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
     if isinstance(value, Path):
-        return f'"{_toml_escape(str(value))}"'
-    if isinstance(value, str):
-        return f'"{_toml_escape(value)}"'
-    if isinstance(value, (list, tuple, set)):
-        items = ", ".join(_format_toml_value(item) for item in value)
-        return f"[{items}]"
-    if isinstance(value, MutableMapping):
-        items = []
-        for key, item in value.items():
-            items.append(f"{key} = {_format_toml_value(item)}")
-        return "{ " + ", ".join(items) + " }"
-    raise TypeError(f"Unsupported TOML value: {value!r}")
-
-
-def _toml_lines(mapping: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> list[str]:
-    lines: list[str] = []
-    scalars: list[tuple[str, Any]] = []
-    tables: list[tuple[str, Mapping[str, Any]]] = []
-
-    for key, value in mapping.items():
-        if isinstance(value, Mapping):
-            tables.append((key, value))
-        else:
-            scalars.append((key, value))
-
-    if prefix:
-        lines.append(f"[{'.'.join(prefix)}]")
-
-    for key, value in scalars:
-        lines.append(f"{key} = {_format_toml_value(value)}")
-
-    for index, (key, value) in enumerate(tables):
-        sub_lines = _toml_lines(value, prefix + (key,))
-        if lines and sub_lines:
-            lines.append("")
-        elif not lines and index > 0:
-            lines.append("")
-        lines.extend(sub_lines)
-
-    return lines
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _toml_ready_value(item) for key, item in value.items()}
+    if isinstance(value, set):
+        return [_toml_ready_value(item) for item in sorted(value, key=repr)]
+    if isinstance(value, (list, tuple)):
+        return [_toml_ready_value(item) for item in value]
+    return value
 
 
 def dumps(config: ServiceBackendsConfig) -> str:
@@ -954,10 +909,10 @@ def dumps(config: ServiceBackendsConfig) -> str:
     mapping = config_to_mapping(config)
     if not mapping:
         return ""
-    lines = _toml_lines(mapping)
-    if not lines:
+    prepared = _toml_ready_value(mapping)
+    if not prepared:
         return ""
-    return "\n".join(lines) + "\n"
+    return tomlkit.dumps(prepared)
 
 
 def dump(path: str | os.PathLike[str], config: ServiceBackendsConfig) -> None:
