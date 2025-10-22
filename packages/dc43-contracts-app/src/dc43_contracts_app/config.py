@@ -17,6 +17,7 @@ __all__ = [
     "DocsChatConfig",
     "load_config",
     "config_to_mapping",
+    "mapping_to_toml",
     "dumps",
     "dump",
 ]
@@ -542,3 +543,14 @@ def dump(path: str | os.PathLike[str], config: ContractsAppConfig) -> None:
     """Write ``config`` to ``path`` in TOML format."""
 
     Path(path).write_text(dumps(config), encoding="utf-8")
+
+
+def mapping_to_toml(mapping: Mapping[str, Any]) -> str:
+    """Return TOML for an arbitrary mapping."""
+
+    if not mapping:
+        return ""
+    lines = _toml_lines(mapping)
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"

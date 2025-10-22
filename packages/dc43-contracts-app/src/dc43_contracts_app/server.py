@@ -82,6 +82,7 @@ from .config import (
     WorkspaceConfig,
     dumps as dump_contracts_app_config,
     load_config,
+    mapping_to_toml,
 )
 from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
@@ -4907,72 +4908,6 @@ def _start_stack_script() -> str:
 
 
 
-def _toml_escape(value: str) -> str:
-    """Return ``value`` escaped for safe inclusion in TOML strings."""
-
-    return (
-        value.replace("\\", "\\\\")
-        .replace("\b", "\\b")
-        .replace("\f", "\\f")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-        .replace('"', '\\"')
-    )
-
-
-def _toml_format(value: Any) -> str:
-    """Format ``value`` as TOML text."""
-
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, Path):
-        return f'"{_toml_escape(str(value))}"'
-    if isinstance(value, str):
-        return f'"{_toml_escape(value)}"'
-    if isinstance(value, (list, tuple, set)):
-        items = ", ".join(_toml_format(item) for item in value)
-        return f"[{items}]"
-    if isinstance(value, Mapping):
-        items = []
-        for key, item in value.items():
-            items.append(f"{key} = {_toml_format(item)}")
-        return "{ " + ", ".join(items) + " }"
-    raise TypeError(f"Unsupported TOML value: {value!r}")
-
-
-def _toml_lines(mapping: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> list[str]:
-    """Return TOML lines representing ``mapping``."""
-
-    lines: list[str] = []
-    scalars: list[tuple[str, Any]] = []
-    tables: list[tuple[str, Mapping[str, Any]]] = []
-
-    for key, value in mapping.items():
-        if isinstance(value, Mapping):
-            tables.append((key, value))
-        else:
-            scalars.append((key, value))
-
-    if prefix:
-        lines.append(f"[{'.'.join(prefix)}]")
-
-    for key, value in scalars:
-        lines.append(f"{key} = {_toml_format(value)}")
-
-    for index, (key, value) in enumerate(tables):
-        sub_lines = _toml_lines(value, prefix + (key,))
-        if lines and sub_lines:
-            lines.append("")
-        elif not lines and index > 0:
-            lines.append("")
-        lines.extend(sub_lines)
-
-    return lines
-
-
 def _toml_ready(value: Any) -> Any:
     """Normalise ``value`` into TOML-compatible primitives."""
 
@@ -5013,26 +4948,23 @@ def _wizard_module_toml(
     if selected_option:
         payload["selected_option"] = selected_option
 
-    payload.update(
-        {
-            key: value
-            for key, value in (
-                (_key, _toml_ready(raw)) for _key, raw in module_config.items()
-            )
-            if value is not None
-        }
-    )
-
-    if not payload:
-        return None
-
-    lines = _toml_lines(payload)
-    if not lines:
-        return None
-
     safe_key = module_key.replace("/", "-")
     path = f"dc43-setup/config/modules/{safe_key}.toml"
-    return path, "\n".join(lines) + "\n"
+
+    normalised: Dict[str, Any] = {}
+    for field_name, raw_value in module_config.items():
+        cleaned_value = _toml_ready(raw_value)
+        if cleaned_value is None:
+            continue
+        normalised[str(field_name)] = cleaned_value
+
+    payload.update(normalised)
+
+    toml_text = mapping_to_toml(payload)
+    if not toml_text:
+        return None
+
+    return path, toml_text
 
 
 def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
