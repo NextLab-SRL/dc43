@@ -5,11 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
-
-pytest.importorskip("tomlkit")
-
 
 def _ensure_local_src_on_path() -> None:
     """Add first-party ``src`` directories to ``sys.path`` for tests."""
