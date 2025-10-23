@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Mapping, MutableMapping
+from typing import Any, Iterable, Literal, Mapping, MutableMapping, Sequence
+import json
 import os
+import re
 
 import tomllib
-import tomlkit
+
+try:
+    import tomlkit
+except ModuleNotFoundError:  # pragma: no cover - exercised via fallback tests
+    tomlkit = None
 
 __all__ = [
     "WorkspaceConfig",
@@ -22,6 +28,95 @@ __all__ = [
     "dumps",
     "dump",
 ]
+
+
+_BARE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _format_key(value: str) -> str:
+    """Return ``value`` formatted as a TOML key."""
+
+    if _BARE_KEY_PATTERN.match(value):
+        return value
+    return json.dumps(value)
+
+
+def _format_value(value: Any) -> str:
+    """Return ``value`` rendered as TOML without relying on ``tomlkit``."""
+
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if value is None:
+        return '""'
+    if isinstance(value, Mapping):
+        if not value:
+            return "{}"
+        items = [
+            f"{_format_key(str(key))} = {_format_value(item)}"
+            for key, item in value.items()
+        ]
+        return "{ " + ", ".join(items) + " }"
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        values = ", ".join(_format_value(item) for item in value)
+        return f"[ {values} ]" if values else "[]"
+    return json.dumps(str(value))
+
+
+def _join_table(parts: Iterable[str]) -> str:
+    """Return a dotted table path for ``parts``."""
+
+    return ".".join(_format_key(part) for part in parts)
+
+
+def _write_table(
+    mapping: Mapping[str, Any],
+    lines: list[str],
+    prefix: tuple[str, ...] = (),
+) -> None:
+    """Append TOML lines representing ``mapping`` to ``lines``."""
+
+    scalar_items: list[tuple[str, Any]] = []
+    table_items: list[tuple[str, Mapping[str, Any]]] = []
+
+    for key, value in mapping.items():
+        key_str = str(key)
+        if isinstance(value, Mapping):
+            table_items.append((key_str, value))
+            continue
+        scalar_items.append((key_str, value))
+
+    for key, value in scalar_items:
+        lines.append(f"{_format_key(key)} = {_format_value(value)}")
+
+    for key, value in table_items:
+        table_prefix = prefix + (key,)
+        has_scalars = any(not isinstance(item, Mapping) for item in value.values())
+        if has_scalars or not value:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.append(f"[{_join_table(table_prefix)}]")
+        _write_table(value, lines, table_prefix)
+
+
+def _toml_dumps(payload: Mapping[str, Any]) -> str:
+    """Return TOML for ``payload`` using ``tomlkit`` when available."""
+
+    if tomlkit is not None:  # pragma: no branch
+        return tomlkit.dumps(payload)
+    lines: list[str] = []
+    _write_table(payload, lines)
+    if not lines:
+        return ""
+    text = "\n".join(lines)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
 
 
 @dataclass(slots=True)
@@ -491,7 +586,7 @@ def dumps(config: ContractsAppConfig) -> str:
     prepared = _toml_ready_value(mapping)
     if not prepared:
         return ""
-    return tomlkit.dumps(prepared)
+    return _toml_dumps(prepared)
 
 
 def dump(path: str | os.PathLike[str], config: ContractsAppConfig) -> None:
@@ -508,4 +603,4 @@ def mapping_to_toml(mapping: Mapping[str, Any]) -> str:
     prepared = _toml_ready_value(mapping)
     if not prepared:
         return ""
-    return tomlkit.dumps(prepared)
+    return _toml_dumps(prepared)

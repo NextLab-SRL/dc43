@@ -111,6 +111,26 @@ def test_dumps_matches_mapping_for_docs_chat() -> None:
     assert parsed["docs_chat"]["code_paths"] == ["/src/contracts"]
 
 
+def test_mapping_to_toml_handles_missing_tomlkit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dc43_contracts_app import config as contracts_config
+
+    mapping = {
+        "workspace": {"root": "/data/workspace"},
+        "backend": {"mode": "embedded"},
+        "docs_chat": {"enabled": True},
+    }
+
+    original = contracts_config.tomlkit
+    monkeypatch.setattr(contracts_config, "tomlkit", None)
+    try:
+        toml_text = contracts_config.mapping_to_toml(mapping)
+    finally:
+        monkeypatch.setattr(contracts_config, "tomlkit", original)
+
+    parsed = tomllib.loads(toml_text)
+    assert parsed == mapping
+
+
 def test_config_to_mapping_includes_all_fields() -> None:
     config = ContractsAppConfig(
         workspace=WorkspaceConfig(root=Path("/srv/contracts")),

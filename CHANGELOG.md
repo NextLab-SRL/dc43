@@ -125,3 +125,6 @@
 - Added regression coverage that posts each setup wizard configuration option and
   asserts the saved `setup_state.json` retains every provided field so future
   changes cannot silently drop user input.
+- Added a lightweight TOML writer fallback so backend and contracts configuration
+  dumps continue to work (and their tests run) even when `tomlkit` isn't installed
+  in the execution environment.

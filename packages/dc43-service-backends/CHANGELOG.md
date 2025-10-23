@@ -80,3 +80,7 @@
   configuration tooling rely on the same mature serializer as the contracts app.
 - Added regression tests that assert every service-backend configuration field is
   serialised and documented alongside the setup wizard guidance.
+
+### Fixed
+- Added a fallback serializer so service-backend configuration dumps continue to
+  work (and the package tests run) when `tomlkit` is missing from the environment.

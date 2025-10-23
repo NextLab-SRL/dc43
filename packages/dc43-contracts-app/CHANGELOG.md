@@ -117,3 +117,5 @@
   future persistence regressions.
 - Verified that the exported contracts-app and backend TOML files round-trip through the
   loader dataclasses so no wizard field goes missing in the generated configuration.
+- Added a fallback serializer so contracts-app configuration dumps still produce TOML (and
+  the package tests run) when `tomlkit` is absent from the environment.

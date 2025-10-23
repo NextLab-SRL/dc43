@@ -326,6 +326,26 @@ def test_dumps_matches_mapping_including_workspace_url() -> None:
     assert parsed["unity_catalog"]["workspace_url"] == "https://adb.example.com"
 
 
+def test_dumps_handles_missing_tomlkit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dc43_service_backends import config as backends_config
+
+    service_config = ServiceBackendsConfig(
+        contract_store=ContractStoreConfig(type="filesystem"),
+        data_product_store=DataProductStoreConfig(type="memory"),
+        auth=AuthConfig(token="shared"),
+    )
+
+    original = backends_config.tomlkit
+    monkeypatch.setattr(backends_config, "tomlkit", None)
+    try:
+        toml_text = backends_config.dumps(service_config)
+    finally:
+        monkeypatch.setattr(backends_config, "tomlkit", original)
+
+    parsed = tomllib.loads(toml_text)
+    assert parsed == config_to_mapping(service_config)
+
+
 def test_config_to_mapping_covers_all_sections() -> None:
     config = ServiceBackendsConfig(
         contract_store=ContractStoreConfig(
