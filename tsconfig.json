@@ -11,6 +11,9 @@
     "types": ["node", "@playwright/test"],
     "isolatedModules": true
   },
-  "include": ["playwright.config.ts", "tests/playwright/**/*.ts"],
+  "include": [
+    "playwright.config.ts",
+    "packages/dc43-contracts-app/tests/playwright/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

@@ -1,6 +1,9 @@
 # Example configuration for the dc43 contracts application.
 # Copy this file next to your deployment (e.g. /etc/dc43/contracts-app.toml)
-# and update the paths to match your environment.
+# and update the paths to match your environment. You can pass the file to the
+# demo launcher with `dc43-demo --config /path/to/contracts-app.toml` or export
+# `DC43_CONTRACTS_APP_CONFIG` ahead of time. Remember that `docs_chat.api_key_env`
+# contains the *name* of the environment variable that stores your secret.
 
 [workspace]
 # Location where draft contracts and attachments are stored.
@@ -18,3 +21,31 @@ host = "127.0.0.1"
 port = 8001
 # Optional log level forwarded to the embedded backend (e.g. "info").
 log_level = ""
+
+[docs_chat]
+# Enable when you want to expose the embedded documentation assistant in the dc43 app.
+enabled = false
+# The provider powering the chat experience ("openai" is currently supported).
+provider = "openai"
+# Chat completion model requested from the provider.
+model = "gpt-4o-mini"
+# Embedding provider used to vectorise documentation. Defaults to the local Hugging Face flow.
+embedding_provider = "huggingface"
+# Embedding model used to vectorise Markdown documentation. Leave empty to fall back to
+# ``sentence-transformers/all-MiniLM-L6-v2`` when using Hugging Face embeddings, or specify an OpenAI
+# embedding when you opt into ``embedding_provider = "openai"``.
+embedding_model = ""
+# Environment variable that stores the API key for the provider.
+api_key_env = "OPENAI_API_KEY"
+# Dropped a token here by mistake? the loader falls back to treating the value as
+# `api_key`, but keeping the secret in `api_key` (or an env var) is clearer.
+# Optional inline API key (useful for private configs that are not tracked in git).
+api_key = ""
+# Override when documentation lives outside the repository checkout.
+docs_path = ""
+# Override to persist the vector index in a custom directory.
+index_path = ""
+# Point at additional source directories so the assistant can cite code alongside documentation.
+code_paths = []
+# Request OpenAI reasoning models (for example set to "medium" when using the `o4-mini` model family).
+reasoning_effort = ""

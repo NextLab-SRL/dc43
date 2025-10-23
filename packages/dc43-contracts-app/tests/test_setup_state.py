@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -53,7 +54,7 @@ def test_delta_databricks_values_fill_unity_config() -> None:
 
     unity_cfg = config.unity_catalog
     assert unity_cfg.enabled is False
-    assert unity_cfg.workspace_host == "https://adb-123.example.net"
+    assert unity_cfg.workspace_url == "https://adb-123.example.net"
     assert unity_cfg.workspace_profile == "cli-profile"
     assert unity_cfg.workspace_token == "token-contract"
 
@@ -88,7 +89,7 @@ def test_unity_hook_credentials_remain_authoritative() -> None:
     assert config is not None
     unity_cfg = config.unity_catalog
     assert unity_cfg.enabled is True
-    assert unity_cfg.workspace_host == "https://adb-governance.example.net"
+    assert unity_cfg.workspace_url == "https://adb-governance.example.net"
     assert unity_cfg.workspace_profile == "governance-profile"
     assert unity_cfg.workspace_token == "token-governance"
 
@@ -164,7 +165,7 @@ def test_governance_store_delta_adds_databricks_credentials() -> None:
     assert store_cfg.type == "delta"
 
     unity_cfg = config.unity_catalog
-    assert unity_cfg.workspace_host == "https://adb-governance.example.net"
+    assert unity_cfg.workspace_url == "https://adb-governance.example.net"
     assert unity_cfg.workspace_profile == "governance-profile"
     assert unity_cfg.workspace_token == "token-governance"
 
@@ -197,6 +198,33 @@ def test_governance_store_http_configuration() -> None:
     assert store_cfg.token_scheme == "Token"
     assert store_cfg.timeout == 30.0
     assert store_cfg.headers == {"X-Org": "governance", "X-Team": "quality"}
+
+
+def test_service_backends_toml_emits_workspace_url() -> None:
+    state = {
+        "selected_options": {
+            "contracts_backend": "delta_lake",
+            "governance_extensions": "unity_catalog",
+        },
+        "configuration": {
+            "contracts_backend": {
+                "schema": "contracts",
+                "workspace_url": "https://adb-contracts.example.net",
+            },
+            "governance_extensions": {
+                "workspace_url": "https://adb-governance.example.net",
+                "workspace_profile": "governance",
+                "token": "uc-token",
+            },
+        },
+    }
+
+    toml_text = server._service_backends_toml(state)
+    assert toml_text is not None
+    parsed = tomllib.loads(toml_text)
+
+    assert parsed["unity_catalog"]["workspace_url"] == "https://adb-governance.example.net"
+    assert parsed["unity_catalog"]["workspace_profile"] == "governance"
 
 
 def test_governance_store_module_sits_with_storage_foundations() -> None:

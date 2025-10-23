@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
-    <title>DC43 Demo</title>
+    <title>dc43 app</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css"/>
     <style>
@@ -18,12 +18,22 @@
 <body>
 <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
   <div class="container-fluid">
-    <a class="navbar-brand" href="/">DC43 Demo</a>
+    <a class="navbar-brand" href="/">dc43 app</a>
     <div class="navbar-nav">
       <a class="nav-link" href="/contracts">Contracts</a>
       <a class="nav-link" href="/datasets">Datasets</a>
       <a class="nav-link" href="/data-products">Data products</a>
       <a class="nav-link" href="/integration-helper">Integration helper</a>
+      {% set docs_status = request.state.docs_chat_status | default(None) %}
+      {% set docs_title = "Open the dc43 documentation assistant" %}
+      {% if docs_status and not docs_status.ready and docs_status.message %}
+        {% set docs_title = docs_status.message %}
+      {% elif docs_status and docs_status.ready %}
+        {% set docs_title = "Chat with the dc43 documentation assistant" %}
+      {% endif %}
+      <a class="nav-link{% if docs_status and not docs_status.ready %} text-warning{% endif %}" href="/docs-chat" title="{{ docs_title }}">
+        Docs chat
+      </a>
       {% set needs_setup = request.state.setup_required | default(False) %}
       <a class="nav-link{% if needs_setup %} text-danger fw-semibold{% endif %}" href="/setup">
         {% if needs_setup %}

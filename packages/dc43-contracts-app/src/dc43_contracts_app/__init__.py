@@ -22,6 +22,7 @@ _CONFIG_EXPORTS = {
     "BackendConfig",
     "BackendProcessConfig",
     "ContractsAppConfig",
+    "DocsChatConfig",
     "WorkspaceConfig",
     "load_config",
 }

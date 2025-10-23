@@ -48,20 +48,55 @@ loader = SparkContractLoader(spark, contract_store)
 contract = loader.load_latest_version("sales.orders")
 ```
 
-## 3. Run pipelines with the local store
+## 3. Wire the helpers into your pipeline
 
-You can now use helpers such as `write_with_contract` to validate schema alignment without an HTTP hop:
+Swap your ad-hoc Spark reads and writes for the dc43 helpers so every dataset load checks contract status before data reaches
+your business logic.
+
+### Read contract-bound datasets
 
 ```python
 from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_integrations.spark.io import write_with_contract, ContractVersionLocator
+from dc43_integrations.spark.io import (
+    ContractVersionLocator,
+    DefaultReadStatusStrategy,
+    read_with_contract,
+)
 
-service_client = LocalContractServiceClient(contract_store)
+contract_client = LocalContractServiceClient(contract_store)
+read_strategy = DefaultReadStatusStrategy(
+    allowed_contract_statuses=("active", "draft"),
+)
+
+orders_df, status = read_with_contract(
+    spark,
+    contract_id="sales.orders",
+    contract_service=contract_client,
+    expected_contract_version=">=0.1.0",
+    dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    status_strategy=read_strategy,
+    enforce=True,
+    auto_cast=True,
+    return_status=True,
+)
+
+if status and not status.ok:
+    raise RuntimeError(status.message)
+```
+
+The `DefaultReadStatusStrategy` blocks records whose governance status is "block" while letting you opt into drafts for local
+testing. Swap in your existing table or file options (`format`, `path`, or `table`) and pass a `pipeline_context` when your
+orchestrator (for example Databricks Jobs) needs the metadata.
+
+### Validate writes before publishing
+
+```python
+from dc43_integrations.spark.io import write_with_contract
 
 write_with_contract(
     df=orders_df,
     contract_id="sales.orders",
-    contract_service=service_client,
+    contract_service=contract_client,
     expected_contract_version=">=0.1.0",
     dataset_locator=ContractVersionLocator(dataset_version="latest"),
     mode="append",
@@ -69,6 +104,9 @@ write_with_contract(
     auto_cast=True,
 )
 ```
+
+Return the tuple form (`return_status=True`) during development so you can surface validation warnings directly to notebook
+users.
 
 Switch the `[contract_store]` section to `type = "collibra_stub"` when you want to emulate Collibra responses during unit tests.
 The stub ships with the same contract resolution flow as the HTTP service, making it easy to swap the real backend later.

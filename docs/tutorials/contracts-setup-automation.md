@@ -31,7 +31,7 @@ This guide shows how to:
    npm run test:ui -- --list
    ```
 
-   The list output mirrors the scenario catalogue defined in `tests/playwright/scenarios.ts`. The bundled scenarios include:
+   The list output mirrors the scenario catalogue defined in `packages/dc43-contracts-app/tests/playwright/scenarios.ts`. The bundled scenarios include:
 
    - `@local_only` (tagged with `@happy_path`) for self-contained workstation demos that stick to embedded services and filesystem stores.
    - `@databricks_jobs` (tagged with `@governance_focus` and `@databricks`) for Unity Catalog-heavy pipelines where Databricks configuration is the primary concern.
@@ -59,7 +59,7 @@ Add the same command to your CI pipeline to reuse the bundled selectors without 
 
 ## 2. Extend or override scenarios
 
-Scenarios are stored in `tests/playwright/scenarios.ts` as TypeScript objects that map module selections and configuration overrides. Each key corresponds to the wizard's data attributes so the automation stays aligned with server-side validation. Add a new entry that mirrors the structure below when you want the suite to drive a different configuration:
+Scenarios are stored in `packages/dc43-contracts-app/tests/playwright/scenarios.ts` as TypeScript objects that map module selections and configuration overrides. Each key corresponds to the wizard's data attributes so the automation stays aligned with server-side validation. Add a new entry that mirrors the structure below when you want the suite to drive a different configuration:
 
 ```ts
 export const setupWizardScenarios = {
@@ -77,7 +77,7 @@ export const setupWizardScenarios = {
 };
 ```
 
-Playwright automatically discovers the new scenario on the next run, making it available through `--grep @my_custom_flow`. If you prefer to keep local experiments out of version control, duplicate `tests/playwright/setup-wizard.spec.ts`, import your own scenario catalogue, and execute the copy from your workstation.
+Playwright automatically discovers the new scenario on the next run, making it available through `--grep @my_custom_flow`. If you prefer to keep local experiments out of version control, duplicate `packages/dc43-contracts-app/tests/playwright/setup-wizard.spec.ts`, import your own scenario catalogue, and execute the copy from your workstation.
 
 When authoring a brand-new path, use Playwright's recorder to bootstrap selectors before copying them into the scenario definition:
 
@@ -94,7 +94,7 @@ Need to take over before the suite finishes? Set `KEEP_WIZARD_OPEN=1` (or run `n
 Automation is helpful for regression coverage, but the contracts app UI still exposes everything you need for manual validation:
 
 1. Launch the app and open `http://localhost:8002/setup?restart=1`. Step 1 displays grouped module cards keyed by `data-module-key` attributes so you can confirm the selectors your scripts expect.
-2. Continue to Step 2 to fill required configuration fields. Inputs are named `config__<module_key>__<field>`; the same names appear in the JSON state embedded in the page so you can inspect available overrides while iterating on automation.
+2. Continue to Step 2 to fill required configuration fields. Inputs are named `config__<module_key>__<field>`; the same names appear in the JSON state embedded in the page so you can inspect available overrides while iterating on automation. When you want a quick baseline, click **Generate sample configuration** to populate the form with realistic placeholders sourced from `dc43_contracts_app/static/setup-wizard-template.json`.
 3. Finish the wizard on Step 3. The server persists selections, redirects back to `/`, and renders the completion badge that both humans and automation rely on to verify success. The automated suite now waits for the configuration bundle download to succeed before finishing, so you can spot regressions where the export breaks even when the UI appears healthy.
 
 Refer back to the scenario definitions whenever you need a reminder of the combinations exercised by CI, then branch out manually to test edge cases such as missing configuration or invalid credentials.

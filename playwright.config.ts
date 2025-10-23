@@ -18,7 +18,7 @@ const webServerEnv = {
 };
 
 export default defineConfig({
-  testDir: 'tests/playwright',
+  testDir: 'packages/dc43-contracts-app/tests/playwright',
   timeout: 2 * 60 * 1000,
   expect: {
     timeout: 5000,

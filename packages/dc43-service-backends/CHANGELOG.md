@@ -46,6 +46,12 @@
   `DC43_GOVERNANCE_LINK_BUILDERS` environment variable) so deployments can load
   custom dataset–contract link hooks without editing the service code.
 ### Changed
+- Unity Catalog configuration mappings now retain the `dataset_prefix` value even
+  when the default `table:` prefix is supplied, ensuring generated TOML mirrors
+  the dataclass inputs without dropping explicit user choices.
+- Unity Catalog configuration now emits `workspace_url` consistently (while
+  still honouring legacy `workspace_host` input) and regression tests ensure the
+  shared TOML serializer mirrors the dataclass mapping.
 - Governance storage once again imports the SQL backend eagerly, keeping
   SQLAlchemy a required dependency instead of relying on placeholder guards.
 - Unity Catalog tagging now runs through pluggable governance hooks so service
@@ -70,3 +76,11 @@
   distribution.
 - Took ownership of the legacy ODCS/ODPS tests from the meta distribution so
   backend changes validate the helpers in-package.
+- Moved service-backend TOML emission to `tomlkit` so exported bundles and
+  configuration tooling rely on the same mature serializer as the contracts app.
+- Added regression tests that assert every service-backend configuration field is
+  serialised and documented alongside the setup wizard guidance.
+
+### Fixed
+- Added a fallback serializer so service-backend configuration dumps continue to
+  work (and the package tests run) when `tomlkit` is missing from the environment.

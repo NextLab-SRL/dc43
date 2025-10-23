@@ -20,6 +20,7 @@ dependencies = [
   "dc43-service-clients>=0.0.3",
   "open-data-contract-standard==3.0.2",
   "sqlalchemy>=2.0",
+  "tomlkit>=0.12",
 ]
 
 [project.optional-dependencies]

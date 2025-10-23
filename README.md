@@ -9,6 +9,7 @@ dc43 is a governance-first toolkit that separates the **concepts** of data contr
 - Contract lifecycle management primitives to draft, review, approve, and retire ODCS contracts. _Note: dc43 currently targets ODCS 3.0.2; a compatibility table will follow as the spec evolves._
 - Extensible interfaces for contract storage, drafting, and data quality orchestration that keep governance decisions close to the data contract owner.
 - Runtime helpers to apply approved specifications in compute platforms while feeding observations back to governance workflows.
+- A documentation assistant embedded in the dc43 app (powered by LangChain and Gradio) so teams can chat with the Markdown guides that ship with the project.
 
 ### Provided integrations
 

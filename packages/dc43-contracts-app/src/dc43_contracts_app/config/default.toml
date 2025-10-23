@@ -11,3 +11,21 @@ mode = "embedded"
 host = "127.0.0.1"
 port = 8001
 log_level = ""
+
+[docs_chat]
+# Documentation chat is disabled by default. Set ``enabled = true`` and provide
+# an API key environment variable when you are ready to use it.
+enabled = false
+provider = "openai"
+model = "gpt-4o-mini"
+embedding_provider = "huggingface"
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+api_key_env = "OPENAI_API_KEY"
+# Inline API key support is available for private configs; leave empty in shared deployments.
+api_key = ""
+docs_path = ""
+index_path = ""
+# Provide additional source directories to index (defaults to repository ``src`` and ``packages`` folders).
+code_paths = []
+# Request OpenAI reasoning models by setting ``reasoning_effort`` (for example "medium" when using ``o4-mini``).
+reasoning_effort = ""

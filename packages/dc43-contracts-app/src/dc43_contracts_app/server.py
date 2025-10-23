@@ -47,7 +47,7 @@ import zipfile
 
 import httpx
 from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
@@ -78,10 +78,13 @@ from .config import (
     BackendConfig,
     BackendProcessConfig,
     ContractsAppConfig,
+    DocsChatConfig,
     WorkspaceConfig,
     dumps as dump_contracts_app_config,
     load_config,
+    mapping_to_toml,
 )
+from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
 from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
@@ -761,6 +764,12 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
     workspace, _ = workspace_from_env(default_root=default_root)
     configure_workspace(workspace)
     configure_backend(config=config.backend)
+    docs_chat.configure(config.docs_chat, workspace)
+
+    def _log_warmup(detail: str) -> None:
+        logger.info("Docs chat warm-up: %s", detail)
+
+    docs_chat.warm_up(progress=_log_warmup)
     return _set_active_config(config)
 
 
@@ -798,6 +807,46 @@ async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[st
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+@router.get("/docs-chat", response_class=HTMLResponse)
+async def docs_chat_view(request: Request) -> HTMLResponse:
+    status_payload = docs_chat.status()
+    context = {
+        "request": request,
+        "docs_chat_status": status_payload,
+        "gradio_path": docs_chat.GRADIO_MOUNT_PATH,
+    }
+    return templates.TemplateResponse("docs_chat.html", context)
+
+
+@router.post("/api/docs-chat/messages")
+async def docs_chat_message(payload: dict[str, Any]) -> JSONResponse:
+    message = payload.get("message") if isinstance(payload, Mapping) else None
+    if not isinstance(message, str) or not message.strip():
+        raise HTTPException(status_code=422, detail="Provide a question so the assistant can help.")
+
+    history_raw = payload.get("history") if isinstance(payload, Mapping) else None
+    history: list[Any]
+    if isinstance(history_raw, list):
+        history = history_raw
+    else:
+        history = []
+
+    status_payload = docs_chat.status()
+    if not status_payload.enabled:
+        detail = status_payload.message or "Docs chat is disabled in the current configuration."
+        raise HTTPException(status_code=400, detail=detail)
+    if not status_payload.ready:
+        detail = status_payload.message or "Docs chat is not ready yet."
+        raise HTTPException(status_code=400, detail=detail)
+
+    try:
+        reply = await run_in_threadpool(docs_chat.generate_reply, message, history)
+    except docs_chat.DocsChatError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse({"message": reply.answer, "sources": reply.sources, "steps": reply.steps})
 
 
 SETUP_MODULES: Dict[str, Dict[str, Any]] = {
@@ -2389,6 +2438,76 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
             },
         },
     },
+    "docs_assistant": {
+        "title": "Documentation assistant",
+        "summary": "Enable the bundled docs chat so operators can query dc43 guides without leaving the app.",
+        "default_option": "disabled",
+        "options": {
+            "disabled": {
+                "label": "Disabled",
+                "description": "Skip the documentation chat experience for now.",
+                "installation": [
+                    "Leave the docs assistant turned off until credentials and dependencies are available.",
+                ],
+                "configuration_notes": [
+                    "Re-run the wizard later to capture docs chat settings once the assistant should be exposed.",
+                ],
+                "fields": [],
+                "skip_configuration": True,
+            },
+            "openai_embedded": {
+                "label": "Gradio assistant (OpenAI)",
+                "description": "Use the LangChain + Gradio powered docs assistant backed by OpenAI models.",
+                "installation": [
+                    "Install the docs-chat extra: `pip install --no-cache-dir -e \".[demo]\"` (or `pip install \"dc43-contracts-app[docs-chat]\"`).",
+                    "Do not chain both commands in the same environment—pip will report conflicting requirements when the local editable and wheel installs target the same package.",
+                    "Expose the configured API key environment variable before starting the UI.",
+                ],
+                "configuration_notes": [
+                    "The assistant indexes Markdown under `docs/` by default and persists a FAISS index alongside the workspace.",
+                    "Override paths when bundling custom documentation or sharing an index across environments.",
+                ],
+                "fields": [
+                    {
+                        "name": "provider",
+                        "label": "Provider ID",
+                        "placeholder": "openai",
+                        "default": "openai",
+                    },
+                    {
+                        "name": "model",
+                        "label": "Chat model",
+                        "placeholder": "gpt-4o-mini",
+                        "default": "gpt-4o-mini",
+                    },
+                    {
+                        "name": "embedding_model",
+                        "label": "Embedding model",
+                        "placeholder": "text-embedding-3-small",
+                        "default": "text-embedding-3-small",
+                    },
+                    {
+                        "name": "api_key_env",
+                        "label": "API key environment variable",
+                        "placeholder": "OPENAI_API_KEY",
+                        "default": "OPENAI_API_KEY",
+                    },
+                    {
+                        "name": "docs_path",
+                        "label": "Documentation directory override",
+                        "placeholder": "~/dc43/docs",
+                        "optional": True,
+                    },
+                    {
+                        "name": "index_path",
+                        "label": "Vector index directory override",
+                        "placeholder": "~/dc43/docs-index",
+                        "optional": True,
+                    },
+                ],
+            },
+        },
+    },
     "ui_deployment": {
         "title": "User interface deployment",
         "summary": "Document how the contracts UI is hosted so deployment scripts and Terraform variables can be generated per environment.",
@@ -2871,7 +2990,7 @@ SETUP_MODULE_GROUPS: List[Dict[str, Any]] = [
         "key": "user_experience",
         "title": "User experience",
         "summary": "Choose how operators reach the contracts UI and how that interface is hosted or automated.",
-        "modules": ["user_interface", "ui_deployment"],
+        "modules": ["user_interface", "docs_assistant", "ui_deployment"],
     },
     {
         "key": "access_security",
@@ -3883,7 +4002,7 @@ def _service_backends_config_from_state(
         if prefix_value:
             unity_cfg.dataset_prefix = prefix_value
         unity_cfg.workspace_profile = _clean_str(module.get("workspace_profile"))
-        unity_cfg.workspace_host = _clean_str(module.get("workspace_url"))
+        unity_cfg.workspace_url = _clean_str(module.get("workspace_url"))
         unity_cfg.workspace_token = _clean_str(module.get("token"))
         catalog_value = _clean_str(module.get("catalog"))
         schema_value = _clean_str(module.get("schema"))
@@ -3900,10 +4019,10 @@ def _service_backends_config_from_state(
         if module_path:
             governance_builders = (module_path,)
 
-    if not unity_cfg.workspace_host:
+    if not unity_cfg.workspace_url:
         for host in databricks_hosts:
             if host:
-                unity_cfg.workspace_host = host
+                unity_cfg.workspace_url = host
                 break
     if not unity_cfg.workspace_profile:
         for profile in databricks_profiles:
@@ -3983,7 +4102,63 @@ def _contracts_app_config_from_state(
         process=BackendProcessConfig(),
     )
 
-    return ContractsAppConfig(workspace=workspace_cfg, backend=backend_cfg)
+    docs_option = selected.get("docs_assistant")
+    docs_chat_cfg = DocsChatConfig()
+    if docs_option == "openai_embedded":
+        docs_module = configuration.get("docs_assistant", {})
+        if not isinstance(docs_module, Mapping):
+            docs_module = {}
+
+        provider = _clean_str(docs_module.get("provider")) or "openai"
+        model = _clean_str(docs_module.get("model")) or "gpt-4o-mini"
+        embedding_provider = _clean_str(docs_module.get("embedding_provider")) or "openai"
+        embedding_model = _clean_str(docs_module.get("embedding_model")) or "text-embedding-3-small"
+        api_key_env = _clean_str(docs_module.get("api_key_env")) or "OPENAI_API_KEY"
+        api_key_value = _clean_str(docs_module.get("api_key"))
+
+        docs_path_text = _clean_str(docs_module.get("docs_path"))
+        index_path_text = _clean_str(docs_module.get("index_path"))
+
+        docs_path = Path(docs_path_text).expanduser() if docs_path_text else None
+        index_path = Path(index_path_text).expanduser() if index_path_text else None
+
+        code_paths_value = docs_module.get("code_paths")
+        code_path_entries: list[str] = []
+        if isinstance(code_paths_value, (list, tuple, set)):
+            for item in code_paths_value:
+                if not isinstance(item, str):
+                    item = str(item)
+                item = item.strip()
+                if item:
+                    code_path_entries.append(item)
+        elif isinstance(code_paths_value, str):
+            candidate = code_paths_value.strip()
+            if candidate:
+                parts = [part.strip() for part in candidate.replace(";", ",").split(",")]
+                code_path_entries.extend(part for part in parts if part)
+
+        code_paths = tuple(Path(entry).expanduser() for entry in code_path_entries)
+        reasoning_effort = _clean_str(docs_module.get("reasoning_effort")) or None
+
+        docs_chat_cfg = DocsChatConfig(
+            enabled=True,
+            provider=provider,
+            model=model,
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model,
+            api_key_env=api_key_env,
+            api_key=api_key_value,
+            docs_path=docs_path,
+            index_path=index_path,
+            code_paths=code_paths,
+            reasoning_effort=reasoning_effort,
+        )
+
+    return ContractsAppConfig(
+        workspace=workspace_cfg,
+        backend=backend_cfg,
+        docs_chat=docs_chat_cfg,
+    )
 
 
 def _contracts_app_toml(state: Mapping[str, Any]) -> str | None:
@@ -4732,6 +4907,66 @@ def _start_stack_script() -> str:
     )
 
 
+
+def _toml_ready(value: Any) -> Any:
+    """Normalise ``value`` into TOML-compatible primitives."""
+
+    if value is None:
+        return None
+    if isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        payload: Dict[str, Any] = {}
+        for key, raw in value.items():
+            cleaned_key = str(key)
+            cleaned_value = _toml_ready(raw)
+            if cleaned_value is None:
+                continue
+            payload[cleaned_key] = cleaned_value
+        return payload
+    if isinstance(value, (list, tuple, set)):
+        items: list[Any] = []
+        for raw in value:
+            cleaned = _toml_ready(raw)
+            if cleaned is None:
+                continue
+            items.append(cleaned)
+        return items
+    return str(value)
+
+
+def _wizard_module_toml(
+    module_key: str,
+    module_config: Mapping[str, Any],
+    selected_option: str | None,
+) -> tuple[str, str] | None:
+    """Return archive path and TOML text for ``module_config``."""
+
+    payload: Dict[str, Any] = {}
+    if selected_option:
+        payload["selected_option"] = selected_option
+
+    safe_key = module_key.replace("/", "-")
+    path = f"dc43-setup/config/modules/{safe_key}.toml"
+
+    normalised: Dict[str, Any] = {}
+    for field_name, raw_value in module_config.items():
+        cleaned_value = _toml_ready(raw_value)
+        if cleaned_value is None:
+            continue
+        normalised[str(field_name)] = cleaned_value
+
+    payload.update(normalised)
+
+    toml_text = mapping_to_toml(payload)
+    if not toml_text:
+        return None
+
+    return path, toml_text
+
+
 def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
     """Return README text for the setup export archive."""
 
@@ -4747,6 +4982,7 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- modules/<module>.json — per-module configuration stubs for automation.",
         "- config/dc43-service-backends.toml — drop-in configuration for the backend services.",
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
+        "- config/modules/<module>.toml — raw field values captured for each wizard module.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
         "- examples/ — integration-aware starter projects provided by each integration.",
         "- requirements.txt — pinned Python dependencies for the starter projects and tooling.",
@@ -4824,6 +5060,34 @@ def _build_setup_bundle(state: Mapping[str, Any]) -> Tuple[io.BytesIO, Dict[str,
                 "dc43-setup/config/dc43-contracts-app.toml",
                 contracts_app_toml,
             )
+
+        configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
+        selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
+        configuration: Dict[str, Mapping[str, Any]]
+        if isinstance(configuration_raw, Mapping):
+            configuration = {
+                str(module_key): module_config
+                for module_key, module_config in configuration_raw.items()
+                if isinstance(module_config, Mapping)
+            }
+        else:
+            configuration = {}
+        if isinstance(selected_raw, Mapping):
+            selected = {
+                str(module_key): str(option)
+                for module_key, option in selected_raw.items()
+                if option is not None
+            }
+        else:
+            selected = {}
+
+        for module_key, module_config in configuration.items():
+            module_selected = selected.get(module_key)
+            result = _wizard_module_toml(module_key, module_config, module_selected)
+            if not result:
+                continue
+            path, text = result
+            archive.writestr(path, text)
 
         bootstrap_script = _pipeline_bootstrap_script(state)
         script_info = zipfile.ZipInfo("dc43-setup/scripts/bootstrap_pipeline.py")
@@ -8238,10 +8502,16 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
 def create_app() -> FastAPI:
     """Return a FastAPI application serving contract and dataset views."""
 
-    application = FastAPI(title="DC43 Contracts App")
+    application = FastAPI(title="dc43 app")
 
     @application.middleware("http")
     async def setup_guard(request: Request, call_next):  # type: ignore[override]
+        docs_status = docs_chat.status()
+        request.state.docs_chat_status = docs_status
+        request.state.docs_chat_enabled = docs_status.enabled
+        request.state.docs_chat_ready = docs_status.ready
+        request.state.docs_chat_message = docs_status.message
+
         path = request.url.path
         exempt_paths = {"/openapi.json"}
         exempt_prefixes = ("/setup", "/static", "/docs", "/redoc")
@@ -8261,6 +8531,7 @@ def create_app() -> FastAPI:
         name="static",
     )
     application.include_router(router)
+    docs_chat.mount_gradio_app(application, path=docs_chat.GRADIO_MOUNT_PATH)
     return application
 
 

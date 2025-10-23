@@ -2,62 +2,167 @@
 
 from __future__ import annotations
 
+import argparse
 import contextlib
-import json
+import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Sequence
 
 import httpx
+
+from dc43_contracts_app.config import (
+    BackendConfig,
+    BackendProcessConfig,
+    ContractsAppConfig,
+    DocsChatConfig,
+    WorkspaceConfig,
+    dump as dump_contracts_config,
+    load_config as load_contracts_config,
+)
+from dc43_service_backends.config import (
+    AuthConfig as BackendAuthConfig,
+    ServiceBackendsConfig,
+    dump as dump_service_backends_config,
+)
 
 from .contracts_workspace import current_workspace, prepare_demo_workspace
 
 
-def _toml_string(value: str) -> str:
-    return json.dumps(value)
+logger = logging.getLogger(__name__)
+
+
+def _describe_docs_chat(config: DocsChatConfig) -> str:
+    if not config.enabled:
+        return "disabled"
+
+    credentials_state = "present" if (config.api_key or config.api_key_env) else "missing"
+
+    docs_path = config.docs_path.as_posix() if config.docs_path else "default"
+    index_path = config.index_path.as_posix() if config.index_path else "workspace"
+
+    embedding_provider = (config.embedding_provider or "huggingface").strip() or "huggingface"
+
+    return (
+        "enabled "
+        f"provider={config.provider} "
+        f"model={config.model} "
+        f"embeddings={embedding_provider} "
+        f"credentials={credentials_state} "
+        f"docs_path={docs_path} "
+        f"index_path={index_path}"
+    )
+
+
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="dc43-demo",
+        description="Launch the dc43 demo application with optional configuration overrides.",
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        dest="contracts_config",
+        help="Path to a dc43-contracts-app TOML file that should be merged into the demo defaults.",
+    )
+    parser.add_argument(
+        "--env-file",
+        dest="env_file",
+        help="Load environment variables from a .env-style file before starting the services.",
+    )
+    return parser.parse_args(list(argv) if argv is not None else None)
+
+
+def _load_env_file(path: str) -> None:
+    file_path = Path(path).expanduser()
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("Environment file %s was not found; skipping.", file_path)
+        return
+    except OSError as exc:  # pragma: no cover - defensive logging around unreadable files
+        logger.warning("Unable to read environment file %s (%s); skipping.", file_path, exc)
+        return
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        os.environ[key] = value
 
 
 def _write_backend_config(path: Path, contracts_dir: Path, token: str | None) -> None:
-    lines = [
-        "[contract_store]",
-        f"root = {_toml_string(contracts_dir.as_posix())}",
-    ]
+    config = ServiceBackendsConfig()
+    config.contract_store.root = contracts_dir
     if token:
-        lines.extend(
-            [
-                "",
-                "[auth]",
-                f"token = {_toml_string(token)}",
-            ]
-        )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        config.auth = BackendAuthConfig(token=token)
+    dump_service_backends_config(path, config)
 
 
-def _write_contracts_config(
-    path: Path,
+def _build_contracts_config(
     workspace_root: Path,
     backend_host: str,
     backend_port: int,
     backend_url: str,
     backend_log_level: str | None,
-) -> None:
-    lines = [
-        "[workspace]",
-        f"root = {_toml_string(workspace_root.as_posix())}",
-        "",
-        "[backend]",
-        "mode = \"remote\"",
-        f"base_url = {_toml_string(backend_url)}",
-        "",
-        "[backend.process]",
-        f"host = {_toml_string(backend_host)}",
-        f"port = {backend_port}",
-    ]
-    if backend_log_level:
-        lines.append(f"log_level = {_toml_string(backend_log_level)}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    override_path: str | None,
+) -> ContractsAppConfig:
+    """Return the contracts app configuration for the demo run."""
+
+    base_config: ContractsAppConfig
+    if override_path:
+        try:
+            base_config = load_contracts_config(override_path)
+        except Exception as exc:  # pragma: no cover - defensive guard around custom files
+            logger.warning(
+                "Failed to load user-supplied contracts app config %s (%s); falling back to defaults.",
+                override_path,
+                exc,
+            )
+            base_config = ContractsAppConfig()
+        else:
+            logger.info(
+                "Merging user contracts app configuration from %s into demo defaults.",
+                override_path,
+            )
+    else:
+        logger.info("No user contracts app configuration supplied; using demo defaults.")
+        base_config = ContractsAppConfig()
+
+    base_config.workspace = WorkspaceConfig(root=workspace_root)
+    base_config.backend = BackendConfig(
+        mode="remote",
+        base_url=backend_url,
+        process=BackendProcessConfig(
+            host=backend_host,
+            port=backend_port,
+            log_level=backend_log_level,
+        ),
+    )
+
+    # Preserve docs chat toggles from the user configuration when provided.
+    if override_path is None:
+        base_config.docs_chat = DocsChatConfig()
+
+    logger.info(
+        "Prepared contracts app configuration (source=%s, docs_chat=%s)",
+        override_path or "demo defaults",
+        _describe_docs_chat(base_config.docs_chat),
+    )
+
+    return base_config
 
 
 def _wait_for_backend(base_url: str, *, timeout: float = 30.0) -> None:
@@ -79,10 +184,17 @@ def _wait_for_backend(base_url: str, *, timeout: float = 30.0) -> None:
     raise RuntimeError(f"Service at {base_url} is not responding")
 
 
-def main() -> None:  # pragma: no cover - convenience runner
+def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - convenience runner
     """Run the pipeline demo alongside the contracts app and backend."""
 
     import uvicorn
+
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+    args = _parse_args(argv)
+    if args.env_file:
+        _load_env_file(args.env_file)
 
     prepare_demo_workspace()
 
@@ -107,17 +219,25 @@ def main() -> None:  # pragma: no cover - convenience runner
     backend_config_path = config_dir / "service_backends.toml"
     _write_backend_config(backend_config_path, workspace.contracts_dir, backend_token)
 
+    previous_contracts_config = os.getenv("DC43_CONTRACTS_APP_CONFIG")
+    override_contracts_config = args.contracts_config or previous_contracts_config
+
     contracts_config_path = config_dir / "contracts_app.toml"
-    _write_contracts_config(
-        contracts_config_path,
+    contracts_config = _build_contracts_config(
         workspace.root,
         backend_host,
         backend_port,
         backend_url,
         backend_log_level,
+        override_contracts_config,
+    )
+    dump_contracts_config(contracts_config_path, contracts_config)
+    logger.info(
+        "Contracts app configuration written to %s (%s)",
+        contracts_config_path,
+        _describe_docs_chat(contracts_config.docs_chat),
     )
 
-    previous_contracts_config = os.getenv("DC43_CONTRACTS_APP_CONFIG")
     previous_backend_config = os.getenv("DC43_SERVICE_BACKENDS_CONFIG")
     previous_demo_backend_url = os.getenv("DC43_DEMO_BACKEND_URL")
     previous_demo_work_dir = os.getenv("DC43_DEMO_WORK_DIR")

@@ -1,0 +1,283 @@
+{
+  "meta": {
+    "description": "Sample configuration values for every setup wizard option.",
+    "generated": true
+  },
+  "modules": {
+    "contracts_backend": {
+      "filesystem": {
+        "work_dir": "/workspace",
+        "contracts_dir": "/workspace/contracts"
+      },
+      "collibra": {
+        "base_url": "https://acme.collibra.com",
+        "client_id": "collibra-service-client",
+        "client_secret": "\u2022\u2022\u2022\u2022\u2022\u2022",
+        "domain_id": "DATA_CONTRACTS"
+      },
+      "sql": {
+        "connection_uri": "postgresql+psycopg://user:pass@host:5432/contracts",
+        "schema": "contracts",
+        "ssl_mode": "require"
+      },
+      "delta_lake": {
+        "storage_path": "s3://contracts-lake/contracts",
+        "table_name": "main.contracts.contract_store",
+        "workspace_url": "https://adb-1234567890123456.7.azuredatabricks.net",
+        "workspace_profile": "unity-admin",
+        "workspace_token": "dapi...",
+        "catalog": "main",
+        "schema": "contracts"
+      }
+    },
+    "products_backend": {
+      "filesystem": {
+        "products_dir": "/workspace/products"
+      },
+      "collibra": {
+        "base_url": "https://acme.collibra.com",
+        "client_id": "collibra-products-client",
+        "client_secret": "\u2022\u2022\u2022\u2022\u2022\u2022",
+        "domain_id": "DATA_PRODUCTS"
+      },
+      "sql": {
+        "connection_uri": "postgresql+psycopg://user:pass@host:5432/products",
+        "schema": "products"
+      },
+      "delta_lake": {
+        "storage_path": "s3://contracts-lake/products",
+        "table_name": "main.products.catalogue",
+        "workspace_url": "https://adb-1234567890123456.7.azuredatabricks.net",
+        "workspace_profile": "unity-admin",
+        "workspace_token": "dapi...",
+        "catalog": "main",
+        "schema": "products"
+      }
+    },
+    "data_quality": {
+      "embedded_engine": {
+        "expectations_path": "/workspace/expectations",
+        "results_path": "/workspace/expectations/results"
+      },
+      "remote_http": {
+        "base_url": "https://quality.example.com",
+        "api_token": "quality-token",
+        "token_header": "Authorization",
+        "token_scheme": "Bearer",
+        "default_engine": "soda",
+        "extra_headers": "X-Org=governance,X-Team=data-quality"
+      }
+    },
+    "governance_store": {
+      "embedded_memory": {},
+      "filesystem": {
+        "storage_path": "/workspace/governance"
+      },
+      "sql": {
+        "connection_uri": "postgresql+psycopg://governance:secret@db.example.com/dc43",
+        "schema": "governance",
+        "status_table": "dq_status",
+        "activity_table": "dq_activity",
+        "link_table": "dq_dataset_contract_links"
+      },
+      "delta_lake": {
+        "storage_path": "s3://governance/validation",
+        "status_table": "main.governance.dq_status",
+        "activity_table": "main.governance.dq_activity",
+        "link_table": "main.governance.dq_dataset_contract_links",
+        "workspace_url": "https://adb-1234567890123456.7.azuredatabricks.net",
+        "workspace_profile": "unity-admin",
+        "workspace_token": "dapi..."
+      },
+      "remote_http": {
+        "base_url": "https://governance.example.com",
+        "api_token": "governance-token",
+        "token_header": "Authorization",
+        "token_scheme": "Bearer",
+        "timeout": "10",
+        "extra_headers": "X-Org=governance,X-Team=quality"
+      }
+    },
+    "pipeline_integration": {
+      "spark": {
+        "runtime": "local[*], yarn, databricks job",
+        "workspace_url": "https://adb-1234567890123456.7.azuredatabricks.net",
+        "workspace_profile": "pipelines",
+        "cluster_reference": "job:dc43-governance"
+      },
+      "dlt": {
+        "workspace_url": "https://adb-1234567890123456.7.azuredatabricks.net",
+        "workspace_profile": "dlt-admin",
+        "pipeline_name": "dc43-contract-governance",
+        "notebook_path": "/Repos/team/contracts/dc43_pipeline",
+        "target_schema": "main.governance"
+      }
+    },
+    "governance_service": {
+      "embedded_monolith": {},
+      "direct_runtime": {},
+      "remote_api": {
+        "base_url": "https://governance.example.com",
+        "api_token": "Optional bearer token"
+      }
+    },
+    "governance_deployment": {
+      "local_python": {
+        "command": "uvicorn dc43_contracts_app.server:app --reload --port 8000"
+      },
+      "local_docker": {},
+      "aws_terraform": {
+        "aws_region": "us-east-1",
+        "cluster_name": "dc43-governance",
+        "ecr_image_uri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dc43-backends:latest",
+        "backend_token": "Optional shared secret",
+        "contract_store_mode": "filesystem",
+        "contract_filesystem": "fs-0123456789abcdef0",
+        "contract_storage_path": "/contracts",
+        "contract_store_dsn": "postgresql+psycopg://user:pass@host:5432/contracts",
+        "contract_store_dsn_secret_arn": "arn:aws:secretsmanager:...",
+        "contract_store_table": "contracts",
+        "contract_store_schema": "governance",
+        "private_subnet_ids": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+        "load_balancer_subnet_ids": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+        "service_security_group_id": "sg-0123456789abcdef0",
+        "load_balancer_security_group_id": "sg-0123456789abcdef0",
+        "certificate_arn": "arn:aws:acm:...",
+        "vpc_id": "vpc-0123456789abcdef0",
+        "task_cpu": "512",
+        "task_memory": "1024",
+        "container_port": "8001",
+        "desired_count": "2",
+        "health_check_path": "/health",
+        "health_check_interval": "30",
+        "health_check_timeout": "5",
+        "health_check_healthy_threshold": "2",
+        "health_check_unhealthy_threshold": "2",
+        "log_retention_days": "30"
+      },
+      "azure_terraform": {
+        "subscription_id": "00000000-0000-0000-0000-000000000000",
+        "resource_group_name": "rg-dc43-governance",
+        "location": "westeurope",
+        "container_registry": "dc43.azurecr.io",
+        "container_registry_username": "dc43",
+        "container_registry_password": "\u2022\u2022\u2022\u2022\u2022\u2022",
+        "image_tag": "dc43-backends:latest",
+        "backend_token": "Optional shared secret",
+        "contract_store_mode": "filesystem",
+        "contract_storage": "/contracts",
+        "contract_share_name": "contracts",
+        "contract_share_quota_gb": "100",
+        "contract_store_dsn": "sqlserver://user:pass@host:1433;database=contracts",
+        "contract_store_table": "contracts",
+        "contract_store_schema": "governance",
+        "container_app_environment_name": "dc43-env",
+        "container_app_name": "dc43-service-backends",
+        "ingress_port": "8001",
+        "min_replicas": "1",
+        "max_replicas": "3",
+        "container_cpu": "0.5",
+        "container_memory": "1.0Gi",
+        "tags": "env=dev, owner=data-platform"
+      },
+      "not_required": {}
+    },
+    "governance_extensions": {
+      "none": {},
+      "unity_catalog": {
+        "dataset_prefix": "table:",
+        "workspace_profile": "unity-admin",
+        "workspace_url": "https://adb-1234567890123456.7.azuredatabricks.net",
+        "catalog": "main",
+        "schema": "contracts",
+        "token": "dapi...",
+        "static_properties": "owner=governance-team,environment=prod"
+      },
+      "custom_module": {
+        "module_path": "acme.governance.hooks",
+        "config_path": "/workspace/config/governance_hook.yml"
+      }
+    },
+    "user_interface": {
+      "local_web": {},
+      "remote_portal": {
+        "portal_url": "https://contracts.acme.com"
+      }
+    },
+    "ui_deployment": {
+      "local_python": {
+        "command": "uvicorn dc43_contracts_app.server:app --reload --port 8000"
+      },
+      "local_docker": {},
+      "skip_hosting": {},
+      "aws_terraform": {
+        "aws_region": "us-east-1",
+        "cluster_name": "dc43-ui",
+        "service_name": "dc43-contracts-ui",
+        "ecr_image_uri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dc43-contracts:latest",
+        "private_subnet_ids": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+        "load_balancer_subnet_ids": "subnet-1a2b3c4d, subnet-4d3c2b1a",
+        "service_security_group_id": "sg-0123456789abcdef0",
+        "load_balancer_security_group_id": "sg-0123456789abcdef0",
+        "certificate_arn": "arn:aws:acm:...",
+        "vpc_id": "vpc-0123456789abcdef0",
+        "container_port": "8000",
+        "desired_count": "2",
+        "task_cpu": "512",
+        "task_memory": "1024",
+        "health_check_path": "/health",
+        "health_check_interval": "30",
+        "health_check_timeout": "5",
+        "health_check_healthy_threshold": "2",
+        "health_check_unhealthy_threshold": "2",
+        "log_retention_days": "30"
+      },
+      "azure_terraform": {
+        "subscription_id": "00000000-0000-0000-0000-000000000000",
+        "resource_group_name": "rg-dc43-ui",
+        "location": "westeurope",
+        "container_registry": "dc43.azurecr.io",
+        "container_registry_username": "dc43",
+        "container_registry_password": "\u2022\u2022\u2022\u2022\u2022\u2022",
+        "image_tag": "dc43-contracts:latest",
+        "container_app_environment_name": "dc43-ui-env",
+        "container_app_name": "dc43-contracts-ui",
+        "ingress_port": "8000",
+        "min_replicas": "1",
+        "max_replicas": "3",
+        "container_cpu": "0.5",
+        "container_memory": "1.0Gi",
+        "tags": "env=dev, owner=data-platform"
+      }
+    },
+    "demo_automation": {
+      "skip_demo": {},
+      "local_python": {},
+      "local_docker": {}
+    },
+    "authentication": {
+      "none": {},
+      "basic": {
+        "username": "governance-admin",
+        "password": "\u2022\u2022\u2022\u2022\u2022\u2022"
+      },
+      "oauth_oidc": {
+        "issuer_url": "https://login.microsoftonline.com/<tenant>/v2.0",
+        "client_id": "00000000-0000-0000-0000-000000000000",
+        "client_secret": "\u2022\u2022\u2022\u2022\u2022\u2022",
+        "redirect_uri": "https://contracts.acme.com/oauth/callback"
+      }
+    },
+    "docs_assistant": {
+      "disabled": {},
+      "openai_embedded": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "embedding_model": "text-embedding-3-small",
+        "api_key_env": "OPENAI_API_KEY",
+        "docs_path": "~/dc43/docs",
+        "index_path": "~/dc43/docs-index"
+      }
+    }
+  }
+}
