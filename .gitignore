@@ -15,3 +15,4 @@ release-artifacts/
 .DS_Store
 .github/.tmp/
 .ignored
+dc43_docs_chat/

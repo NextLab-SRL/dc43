@@ -1,6 +1,8 @@
 # dc43-service-backends changelog
 
 ## [Unreleased]
+
+## [0.21.0.0] - 2025-10-23
 ### Added
 - Data product backends now consume the shared ODPS helpers from
   `dc43-service-clients` so they can operate without the core package during

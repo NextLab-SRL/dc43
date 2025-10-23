@@ -1,6 +1,8 @@
 # dc43-demo-app changelog
 
 ## [Unreleased]
+
+## [0.21.0.0] - 2025-10-23
 ### Added
 - DLT execution mode for the orders_enriched scenario with a shared
   `run_dlt_pipeline` helper, LocalDLTHarness integration, and regression tests
