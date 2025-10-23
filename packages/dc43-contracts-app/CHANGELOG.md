@@ -1,6 +1,8 @@
 # dc43-contracts-app changelog
 
 ## [Unreleased]
+
+## [0.21.0.0] - 2025-10-23
 ### Added
 - The setup wizard now exposes a sample generator button on Step 2 that loads
   realistic placeholders from `static/setup-wizard-template.json`, letting
