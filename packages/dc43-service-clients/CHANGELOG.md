@@ -1,6 +1,8 @@
 # dc43-service-clients changelog
 
 ## [Unreleased]
+
+## [0.21.0.0] - 2025-10-23
 ### Added
 - Bundled ODPS helpers so the package can run its tests without the core
   distribution installed and to provide a single import path for downstream

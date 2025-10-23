@@ -1,6 +1,8 @@
 # dc43 changelog
 
 ## [Unreleased]
+
+## [0.21.0.0] - 2025-10-23
 ### Added
 - Added a setup wizard sample generator that fills the configuration forms from
   a static template so demos and tests can start from realistic placeholder
