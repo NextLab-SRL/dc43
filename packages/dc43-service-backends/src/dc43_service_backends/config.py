@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping
+from typing import Any, Iterable, Mapping, MutableMapping, Sequence
+import json
 import os
+import re
 
 import tomllib
+
+try:
+    import tomlkit
+except ModuleNotFoundError:  # pragma: no cover - exercised via fallback tests
+    tomlkit = None
 
 __all__ = [
     "ContractStoreConfig",
@@ -23,6 +30,95 @@ __all__ = [
     "dumps",
     "dump",
 ]
+
+
+_BARE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _format_key(value: str) -> str:
+    """Return ``value`` formatted as a TOML key."""
+
+    if _BARE_KEY_PATTERN.match(value):
+        return value
+    return json.dumps(value)
+
+
+def _format_value(value: Any) -> str:
+    """Return ``value`` rendered as TOML without relying on ``tomlkit``."""
+
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if value is None:
+        return '""'
+    if isinstance(value, Mapping):
+        if not value:
+            return "{}"
+        items = [
+            f"{_format_key(str(key))} = {_format_value(item)}"
+            for key, item in value.items()
+        ]
+        return "{ " + ", ".join(items) + " }"
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        values = ", ".join(_format_value(item) for item in value)
+        return f"[ {values} ]" if values else "[]"
+    return json.dumps(str(value))
+
+
+def _join_table(parts: Iterable[str]) -> str:
+    """Return the TOML dotted path for ``parts``."""
+
+    return ".".join(_format_key(part) for part in parts)
+
+
+def _write_table(
+    mapping: Mapping[str, Any],
+    lines: list[str],
+    prefix: tuple[str, ...] = (),
+) -> None:
+    """Append TOML lines representing ``mapping`` to ``lines``."""
+
+    scalar_items: list[tuple[str, Any]] = []
+    table_items: list[tuple[str, Mapping[str, Any]]] = []
+
+    for key, value in mapping.items():
+        key_str = str(key)
+        if isinstance(value, Mapping):
+            table_items.append((key_str, value))
+            continue
+        scalar_items.append((key_str, value))
+
+    for key, value in scalar_items:
+        lines.append(f"{_format_key(key)} = {_format_value(value)}")
+
+    for key, value in table_items:
+        table_prefix = prefix + (key,)
+        has_scalars = any(not isinstance(item, Mapping) for item in value.values())
+        if has_scalars or not value:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.append(f"[{_join_table(table_prefix)}]")
+        _write_table(value, lines, table_prefix)
+
+
+def _toml_dumps(payload: Mapping[str, Any]) -> str:
+    """Return TOML for ``payload`` using ``tomlkit`` when available."""
+
+    if tomlkit is not None:  # pragma: no branch
+        return tomlkit.dumps(payload)
+    lines: list[str] = []
+    _write_table(payload, lines)
+    if not lines:
+        return ""
+    text = "\n".join(lines)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
 
 
 @dataclass(slots=True)
@@ -107,9 +203,19 @@ class UnityCatalogConfig:
     enabled: bool = False
     dataset_prefix: str = "table:"
     workspace_profile: str | None = None
-    workspace_host: str | None = None
+    workspace_url: str | None = None
     workspace_token: str | None = None
     static_properties: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def workspace_host(self) -> str | None:
+        """Backwards-compatible accessor for legacy ``workspace_host`` keys."""
+
+        return self.workspace_url
+
+    @workspace_host.setter
+    def workspace_host(self, value: str | None) -> None:
+        self.workspace_url = value
 
 
 @dataclass(slots=True)
@@ -382,7 +488,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     unity_enabled = False
     unity_prefix = "table:"
     unity_profile = None
-    unity_host = None
+    unity_url = None
     unity_token = None
     unity_static: dict[str, str] = {}
     if isinstance(unity_section, MutableMapping):
@@ -393,9 +499,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         profile_raw = unity_section.get("workspace_profile")
         if isinstance(profile_raw, str) and profile_raw.strip():
             unity_profile = profile_raw.strip()
-        host_raw = unity_section.get("workspace_host")
+        host_raw = unity_section.get("workspace_url")
+        if host_raw is None:
+            host_raw = unity_section.get("workspace_host")
         if isinstance(host_raw, str) and host_raw.strip():
-            unity_host = host_raw.strip()
+            unity_url = host_raw.strip()
         token_raw = unity_section.get("workspace_token")
         if isinstance(token_raw, str) and token_raw.strip():
             unity_token = token_raw.strip()
@@ -547,7 +655,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
 
     env_host = os.getenv("DATABRICKS_HOST")
     if env_host:
-        unity_host = env_host.strip() or None
+        unity_url = env_host.strip() or None
 
     env_workspace_token = os.getenv("DATABRICKS_TOKEN") or os.getenv("DC43_DATABRICKS_TOKEN")
     if env_workspace_token:
@@ -668,7 +776,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             enabled=unity_enabled,
             dataset_prefix=unity_prefix,
             workspace_profile=unity_profile,
-            workspace_host=unity_host,
+            workspace_url=unity_url,
             workspace_token=unity_token,
             static_properties=unity_static,
         ),
@@ -796,12 +904,12 @@ def _unity_catalog_mapping(config: UnityCatalogConfig) -> dict[str, Any]:
     mapping: dict[str, Any] = {}
     if config.enabled:
         mapping["enabled"] = True
-    if config.dataset_prefix and config.dataset_prefix != "table:":
+    if config.dataset_prefix:
         mapping["dataset_prefix"] = config.dataset_prefix
     if config.workspace_profile:
         mapping["workspace_profile"] = config.workspace_profile
-    if config.workspace_host:
-        mapping["workspace_host"] = config.workspace_host
+    if config.workspace_url:
+        mapping["workspace_url"] = config.workspace_url
     if config.workspace_token:
         mapping["workspace_token"] = config.workspace_token
     if config.static_properties:
@@ -888,64 +996,18 @@ def config_to_mapping(config: ServiceBackendsConfig) -> dict[str, Any]:
     return payload
 
 
-def _toml_escape(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace("\b", "\\b")
-        .replace("\f", "\\f")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-        .replace('"', '\\"')
-    )
+def _toml_ready_value(value: Any) -> Any:
+    """Return ``value`` converted into TOML-friendly primitives."""
 
-
-def _format_toml_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
     if isinstance(value, Path):
-        return f'"{_toml_escape(str(value))}"'
-    if isinstance(value, str):
-        return f'"{_toml_escape(value)}"'
-    if isinstance(value, (list, tuple, set)):
-        items = ", ".join(_format_toml_value(item) for item in value)
-        return f"[{items}]"
-    if isinstance(value, MutableMapping):
-        items = []
-        for key, item in value.items():
-            items.append(f"{key} = {_format_toml_value(item)}")
-        return "{ " + ", ".join(items) + " }"
-    raise TypeError(f"Unsupported TOML value: {value!r}")
-
-
-def _toml_lines(mapping: Mapping[str, Any], prefix: tuple[str, ...] = ()) -> list[str]:
-    lines: list[str] = []
-    scalars: list[tuple[str, Any]] = []
-    tables: list[tuple[str, Mapping[str, Any]]] = []
-
-    for key, value in mapping.items():
-        if isinstance(value, Mapping):
-            tables.append((key, value))
-        else:
-            scalars.append((key, value))
-
-    if prefix:
-        lines.append(f"[{'.'.join(prefix)}]")
-
-    for key, value in scalars:
-        lines.append(f"{key} = {_format_toml_value(value)}")
-
-    for index, (key, value) in enumerate(tables):
-        sub_lines = _toml_lines(value, prefix + (key,))
-        if lines and sub_lines:
-            lines.append("")
-        elif not lines and index > 0:
-            lines.append("")
-        lines.extend(sub_lines)
-
-    return lines
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _toml_ready_value(item) for key, item in value.items()}
+    if isinstance(value, set):
+        return [_toml_ready_value(item) for item in sorted(value, key=repr)]
+    if isinstance(value, (list, tuple)):
+        return [_toml_ready_value(item) for item in value]
+    return value
 
 
 def dumps(config: ServiceBackendsConfig) -> str:
@@ -954,10 +1016,10 @@ def dumps(config: ServiceBackendsConfig) -> str:
     mapping = config_to_mapping(config)
     if not mapping:
         return ""
-    lines = _toml_lines(mapping)
-    if not lines:
+    prepared = _toml_ready_value(mapping)
+    if not prepared:
         return ""
-    return "\n".join(lines) + "\n"
+    return _toml_dumps(prepared)
 
 
 def dump(path: str | os.PathLike[str], config: ServiceBackendsConfig) -> None:

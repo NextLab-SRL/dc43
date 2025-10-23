@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 ### Added
+- The setup wizard now exposes a sample generator button on Step 2 that loads
+  realistic placeholders from `static/setup-wizard-template.json`, letting
+  contributors populate every selected module before refining the values for
+  their environment.
 - Setup bundle archives now ship a ready-to-run `requirements.txt`, cross-platform
   environment bootstrap scripts, and Docker build/publish helpers so teams can
   stand up virtual environments or prebuilt images without manual packaging.
@@ -35,8 +39,16 @@
 - Switched the default docs chat embedding provider to Hugging Face so cache builds run locally by
   default while leaving OpenAI as an opt-in for hosted embeddings; templates and docs reflect the
   new default values.
+- Published a comprehensive configuration reference that lists every setup wizard module,
+  exported field, and related environment override so operators can review available options in one place.
 
 ### Changed
+- Setup wizard exports, backend configuration, and docs-chat helpers now agree
+  on the `workspace_url` field and new regression tests cover the shared TOML
+  serializers for both the contracts UI and service backend bundles.
+- Setup bundle archives now include per-module TOML exports capturing the raw
+  wizard field values, and regression coverage verifies every submitted value
+  is written to the generated configuration files.
 - The setup architecture view only renders modules that have been explicitly selected or are
   required by user-driven dependencies, preventing unrelated services from appearing in fresh
   configurations.
@@ -84,6 +96,10 @@
 - Added Hugging Face embedding support alongside OpenAI so large repositories can be indexed
   offline; templates, environment references, and getting-started guides now highlight the
   `embedding_provider` option and the persisted index workflow.
+- Migrated the contracts app configuration writer to `tomlkit` so exported wizard bundles
+  rely on the same well-supported serializer as the backend services.
+- Added regression coverage that exercises every contracts-app configuration field and keeps
+  the documentation reference in sync with the wizard options.
 
 ### Fixed
 - Adjusted the documentation assistant to discover repository Markdown when running from
@@ -96,3 +112,10 @@
   trees no longer trigger OpenAI "max tokens per request" errors when the assistant starts.
 - Reordered the docs assistant chat output so the processing log appears before the
   answer, keeping the final response visible as the most recent chat bubble.
+- Added regression coverage that posts each module/option combination to the setup wizard
+  and asserts the persisted configuration retains every provided field, guarding against
+  future persistence regressions.
+- Verified that the exported contracts-app and backend TOML files round-trip through the
+  loader dataclasses so no wizard field goes missing in the generated configuration.
+- Added a fallback serializer so contracts-app configuration dumps still produce TOML (and
+  the package tests run) when `tomlkit` is absent from the environment.

@@ -16,7 +16,7 @@
     transition: background-color 0.2s ease, color 0.2s ease;
   }
 </style>
-<div id="setup-root" data-current-step="{{ step }}">
+<div id="setup-root" data-current-step="{{ step }}" data-template-url="{{ url_for('static', path='setup-wizard-template.json') }}">
   <div class="d-flex flex-wrap justify-content-between align-items-center mb-4">
     <div>
       <h1 class="mb-1">Environment setup</h1>
@@ -157,6 +157,11 @@
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-body">
         <h2 class="h6 text-uppercase text-muted mb-3">Configuration checklist</h2>
+        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 mb-3">
+          <p class="text-muted small mb-0">Populate every field with realistic sample values sourced from the wizard template.</p>
+          <button type="button" class="btn btn-outline-success btn-sm ms-lg-auto" data-template-fill data-template-busy-text="Generating sample values…">Generate sample configuration</button>
+        </div>
+        <div class="alert alert-info d-none small mb-3" role="status" aria-live="polite" data-template-feedback></div>
         {% if selected_groups %}
         {% for group in selected_groups %}
         <div class="mb-2">

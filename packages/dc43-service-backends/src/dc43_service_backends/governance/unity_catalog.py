@@ -122,8 +122,8 @@ def _default_workspace_builder(config: UnityCatalogConfig) -> Any:
     kwargs: dict[str, Any] = {}
     if config.workspace_profile:
         kwargs["profile"] = config.workspace_profile
-    if config.workspace_host:
-        kwargs["host"] = config.workspace_host
+    if config.workspace_url:
+        kwargs["host"] = config.workspace_url
     if config.workspace_token:
         kwargs["token"] = config.workspace_token
     return WorkspaceClient(**kwargs)

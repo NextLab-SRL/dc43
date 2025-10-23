@@ -83,6 +83,11 @@ if (!root) {
   const stepOneProgress = stepOneContainer ? stepOneContainer.querySelector("[data-step1-progress]") : null;
 
   const stepOneForm = stepOneContainer ? stepOneContainer.closest("form") : null;
+  const templateUrl = root.getAttribute("data-template-url");
+  const templateButton = root.querySelector("[data-template-fill]");
+  const templateFeedback = root.querySelector("[data-template-feedback]");
+  let templateCache = null;
+  let templatePromise = null;
 
   function ensureAutoSelectedSet() {
     if (!(setupState.autoSelected instanceof Set)) {
@@ -428,6 +433,161 @@ if (!root) {
       setupState.configuration[moduleKey] = {};
     }
     return setupState.configuration[moduleKey];
+  }
+
+  function clearTemplateFeedback() {
+    if (!templateFeedback) {
+      return;
+    }
+    templateFeedback.classList.add("d-none");
+    templateFeedback.classList.remove("alert-success", "alert-warning", "alert-danger");
+    if (!templateFeedback.classList.contains("alert-info")) {
+      templateFeedback.classList.add("alert-info");
+    }
+    templateFeedback.textContent = "";
+  }
+
+  function showTemplateFeedback(kind, message) {
+    if (!templateFeedback) {
+      return;
+    }
+    const variants = ["info", "success", "warning", "danger"];
+    const classNames = variants.map((variant) => `alert-${variant}`);
+    templateFeedback.classList.remove(...classNames);
+    const variant = variants.includes(kind) ? kind : "info";
+    templateFeedback.classList.add(`alert-${variant}`);
+    templateFeedback.classList.remove("d-none");
+    templateFeedback.textContent = message;
+  }
+
+  async function loadTemplateData() {
+    if (!templateUrl) {
+      throw new Error("Sample configuration template URL is not available.");
+    }
+    if (templateCache) {
+      return templateCache;
+    }
+    if (templatePromise) {
+      return templatePromise;
+    }
+    templatePromise = fetch(templateUrl, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Template fetch failed with status ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        templateCache = data;
+        return data;
+      })
+      .finally(() => {
+        templatePromise = null;
+      });
+    return templatePromise;
+  }
+
+  function applyTemplateValues(template) {
+    const modulesTemplate = template && typeof template === "object" && template.modules ? template.modules : {};
+    const result = {
+      applied: 0,
+      total: 0,
+      missing: [],
+    };
+    if (!modulesTemplate || typeof modulesTemplate !== "object") {
+      return result;
+    }
+    const selections = setupState.selected || {};
+    Object.entries(selections).forEach(([moduleKey, optionKeyRaw]) => {
+      const optionKey = String(optionKeyRaw);
+      const moduleTemplate = modulesTemplate[moduleKey];
+      if (!moduleTemplate || typeof moduleTemplate !== "object") {
+        result.missing.push(moduleKey);
+        return;
+      }
+      const optionTemplate = moduleTemplate[optionKey];
+      if (!optionTemplate || typeof optionTemplate !== "object") {
+        result.missing.push(`${moduleKey}:${optionKey}`);
+        return;
+      }
+      const entries = Object.entries(optionTemplate);
+      if (entries.length === 0) {
+        markExplicitSelected(moduleKey, true);
+      }
+      entries.forEach(([fieldName, rawValue]) => {
+        result.total += 1;
+        const value = rawValue == null ? "" : String(rawValue);
+        const selector = `[name="config__${moduleKey}__${fieldName}"]`;
+        const field = root.querySelector(selector);
+        if (
+          field instanceof HTMLInputElement ||
+          field instanceof HTMLTextAreaElement ||
+          field instanceof HTMLSelectElement
+        ) {
+          if (field.value !== value) {
+            field.value = value;
+          }
+          field.dispatchEvent(new Event("input", { bubbles: true }));
+          result.applied += 1;
+        } else {
+          const configuration = ensureConfiguration(moduleKey);
+          configuration[fieldName] = value;
+        }
+      });
+    });
+    return result;
+  }
+
+  function bindTemplateGenerator() {
+    if (!templateButton) {
+      return;
+    }
+    if (!templateUrl) {
+      templateButton.disabled = true;
+      templateButton.classList.add("disabled");
+      return;
+    }
+    const idleLabel = templateButton.textContent || "";
+    const busyLabel = templateButton.getAttribute("data-template-busy-text") || "Generating sample values…";
+    templateButton.addEventListener("click", async () => {
+      if (templateButton.hasAttribute("data-template-busy")) {
+        return;
+      }
+      templateButton.setAttribute("data-template-busy", "1");
+      templateButton.disabled = true;
+      templateButton.setAttribute("aria-busy", "true");
+      templateButton.textContent = busyLabel;
+      clearTemplateFeedback();
+      try {
+        const template = await loadTemplateData();
+        const { applied, total, missing } = applyTemplateValues(template || {});
+        if (applied > 0) {
+          let message = `Applied ${applied} sample value${applied === 1 ? "" : "s"}.`;
+          if (total > applied || (Array.isArray(missing) && missing.length > 0)) {
+            const missingText = missing.length ? ` Some modules were skipped: ${missing.join(", ")}.` : "";
+            showTemplateFeedback("warning", `${message}${missingText}`);
+          } else {
+            showTemplateFeedback("success", message);
+          }
+        } else {
+          showTemplateFeedback(
+            "warning",
+            "No matching fields were found for the sample template. Check your selections and try again."
+          );
+        }
+      } catch (error) {
+        console.error("Unable to apply setup wizard sample configuration", error);
+        showTemplateFeedback(
+          "danger",
+          "Loading the sample configuration failed. Refresh the page or update the static template."
+        );
+      } finally {
+        templateButton.textContent = idleLabel;
+        templateButton.removeAttribute("aria-busy");
+        templateButton.removeAttribute("data-template-busy");
+        templateButton.disabled = false;
+      }
+    });
   }
 
   function safeFocus(element) {
@@ -1388,6 +1548,7 @@ if (!root) {
   bindStepOneInteractions();
   bindStepOneWizard();
   bindConfigurationInputs();
+  bindTemplateGenerator();
   bindWizardNav();
   updateWizardVisibility();
   updateWizardNav();

@@ -82,6 +82,7 @@ from .config import (
     WorkspaceConfig,
     dumps as dump_contracts_app_config,
     load_config,
+    mapping_to_toml,
 )
 from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
@@ -4001,7 +4002,7 @@ def _service_backends_config_from_state(
         if prefix_value:
             unity_cfg.dataset_prefix = prefix_value
         unity_cfg.workspace_profile = _clean_str(module.get("workspace_profile"))
-        unity_cfg.workspace_host = _clean_str(module.get("workspace_url"))
+        unity_cfg.workspace_url = _clean_str(module.get("workspace_url"))
         unity_cfg.workspace_token = _clean_str(module.get("token"))
         catalog_value = _clean_str(module.get("catalog"))
         schema_value = _clean_str(module.get("schema"))
@@ -4018,10 +4019,10 @@ def _service_backends_config_from_state(
         if module_path:
             governance_builders = (module_path,)
 
-    if not unity_cfg.workspace_host:
+    if not unity_cfg.workspace_url:
         for host in databricks_hosts:
             if host:
-                unity_cfg.workspace_host = host
+                unity_cfg.workspace_url = host
                 break
     if not unity_cfg.workspace_profile:
         for profile in databricks_profiles:
@@ -4906,6 +4907,66 @@ def _start_stack_script() -> str:
     )
 
 
+
+def _toml_ready(value: Any) -> Any:
+    """Normalise ``value`` into TOML-compatible primitives."""
+
+    if value is None:
+        return None
+    if isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        payload: Dict[str, Any] = {}
+        for key, raw in value.items():
+            cleaned_key = str(key)
+            cleaned_value = _toml_ready(raw)
+            if cleaned_value is None:
+                continue
+            payload[cleaned_key] = cleaned_value
+        return payload
+    if isinstance(value, (list, tuple, set)):
+        items: list[Any] = []
+        for raw in value:
+            cleaned = _toml_ready(raw)
+            if cleaned is None:
+                continue
+            items.append(cleaned)
+        return items
+    return str(value)
+
+
+def _wizard_module_toml(
+    module_key: str,
+    module_config: Mapping[str, Any],
+    selected_option: str | None,
+) -> tuple[str, str] | None:
+    """Return archive path and TOML text for ``module_config``."""
+
+    payload: Dict[str, Any] = {}
+    if selected_option:
+        payload["selected_option"] = selected_option
+
+    safe_key = module_key.replace("/", "-")
+    path = f"dc43-setup/config/modules/{safe_key}.toml"
+
+    normalised: Dict[str, Any] = {}
+    for field_name, raw_value in module_config.items():
+        cleaned_value = _toml_ready(raw_value)
+        if cleaned_value is None:
+            continue
+        normalised[str(field_name)] = cleaned_value
+
+    payload.update(normalised)
+
+    toml_text = mapping_to_toml(payload)
+    if not toml_text:
+        return None
+
+    return path, toml_text
+
+
 def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
     """Return README text for the setup export archive."""
 
@@ -4921,6 +4982,7 @@ def _setup_bundle_readme(payload: Mapping[str, Any]) -> str:
         "- modules/<module>.json — per-module configuration stubs for automation.",
         "- config/dc43-service-backends.toml — drop-in configuration for the backend services.",
         "- config/dc43-contracts-app.toml — configuration for the web interface.",
+        "- config/modules/<module>.toml — raw field values captured for each wizard module.",
         "- scripts/bootstrap_pipeline.py — helper to load the configuration from pipelines.",
         "- examples/ — integration-aware starter projects provided by each integration.",
         "- requirements.txt — pinned Python dependencies for the starter projects and tooling.",
@@ -4998,6 +5060,34 @@ def _build_setup_bundle(state: Mapping[str, Any]) -> Tuple[io.BytesIO, Dict[str,
                 "dc43-setup/config/dc43-contracts-app.toml",
                 contracts_app_toml,
             )
+
+        configuration_raw = state.get("configuration") if isinstance(state, Mapping) else {}
+        selected_raw = state.get("selected_options") if isinstance(state, Mapping) else {}
+        configuration: Dict[str, Mapping[str, Any]]
+        if isinstance(configuration_raw, Mapping):
+            configuration = {
+                str(module_key): module_config
+                for module_key, module_config in configuration_raw.items()
+                if isinstance(module_config, Mapping)
+            }
+        else:
+            configuration = {}
+        if isinstance(selected_raw, Mapping):
+            selected = {
+                str(module_key): str(option)
+                for module_key, option in selected_raw.items()
+                if option is not None
+            }
+        else:
+            selected = {}
+
+        for module_key, module_config in configuration.items():
+            module_selected = selected.get(module_key)
+            result = _wizard_module_toml(module_key, module_config, module_selected)
+            if not result:
+                continue
+            path, text = result
+            archive.writestr(path, text)
 
         bootstrap_script = _pipeline_bootstrap_script(state)
         script_info = zipfile.ZipInfo("dc43-setup/scripts/bootstrap_pipeline.py")

@@ -46,7 +46,7 @@ token = ""
 enabled = false
 dataset_prefix = "table:"
 workspace_profile = ""
-workspace_host = ""
+workspace_url = ""
 workspace_token = ""
 
 [governance_store]

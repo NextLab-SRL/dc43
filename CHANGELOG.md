@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Added
+- Added a setup wizard sample generator that fills the configuration forms from
+  a static template so demos and tests can start from realistic placeholder
+  values before customising them.
 - Added a generated Mermaid dependency graph and supporting script so internal package
   relationships are easier to audit during releases.
 - Introduced Playwright-based contracts setup wizard UI automation, including
@@ -21,8 +24,16 @@
 - Updated the docs-chat index CLI to fail fast when the assistant configuration
   is incomplete and to print a summary of the indexed sources after a
   successful warm-up.
+- Documented every setup wizard module, TOML key, and environment override in a
+  single configuration reference under `docs/` so teams can audit available knobs
+  without cross-referencing multiple guides.
+- Bundled per-module TOML exports in the setup archive and expanded tests to
+  ensure every submitted wizard value persists into generated configuration files.
 
 ### Changed
+- Normalised TOML writers across the demo launcher and backend configuration so
+  every export uses the shared serializer, documentation calls the field
+  `workspace_url`, and tests assert the generated TOML mirrors wizard input.
 - Updated the release automation to tag the contracts-app and HTTP backend Docker
   images with their package versions, documented the ECR setup flow, and added a
   manual smoke publish path for validating AWS credentials.
@@ -86,6 +97,13 @@
   its test suite without duplicating runs.
 - Ensured the demo-app CI lane installs `open-data-contract-standard` so the demo pipeline
   and UI tests can exercise the backend helpers without missing dependencies.
+- Replaced the hand-written TOML emitters with `tomlkit` so configuration bundles reuse a
+  well-supported serializer and match the loaders' expectations across the setup wizard,
+  contracts UI, and backend services.
+- Hardened the configuration docs by adding regression tests that assert every wizard field
+  and dataclass option is documented across the reference guides.
+- Expanded the service backend configuration guide with Unity Catalog workspace examples so
+  Delta deployments spell out how to capture hosts, tokens, and CLI profiles in TOML.
 
 ### Fixed
 - Updated the `dc43-demo` launcher to merge any exported `DC43_CONTRACTS_APP_CONFIG`
@@ -104,3 +122,9 @@
 - Ensure the docs assistant displays its final response as the last chat bubble,
   moving the processing log above the answer so users no longer mistake the
   status summary for the reply.
+- Added regression coverage that posts each setup wizard configuration option and
+  asserts the saved `setup_state.json` retains every provided field so future
+  changes cannot silently drop user input.
+- Added a lightweight TOML writer fallback so backend and contracts configuration
+  dumps continue to work (and their tests run) even when `tomlkit` isn't installed
+  in the execution environment.
