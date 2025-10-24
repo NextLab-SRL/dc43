@@ -12,7 +12,7 @@ Environment variables
   (default: ``3.0.2``).
 """
 
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional, Callable
 from collections.abc import Iterable, Mapping
 import os
 import json
@@ -31,6 +31,32 @@ import open_data_contract_standard as _odcs_pkg  # type: ignore
 
 ODCS_REQUIRED = os.getenv("DC43_ODCS_REQUIRED", "3.0.2")
 BITOL_SCHEMA_URL = f"https://bitol.io/schema/{ODCS_REQUIRED}"
+
+
+# Provide backwards-compatible attribute aliases for ODCS models. Older parts of
+# the codebase and downstream integrations expect ``contract_id``/``contract_version``
+# attributes on ``OpenDataContractStandard`` instances whereas the upstream model
+# exposes ``id``/``version``. Installing lightweight ``property`` aliases keeps both
+# spellings in sync without mutating the stored payloads.
+def _alias(attr: str) -> Callable[[OpenDataContractStandard], Any]:
+    return lambda self: getattr(self, attr)
+
+
+def _alias_setter(attr: str) -> Callable[[OpenDataContractStandard, Any], None]:
+    return lambda self, value: setattr(self, attr, value)
+
+
+if not hasattr(OpenDataContractStandard, "contract_id"):
+    OpenDataContractStandard.contract_id = property(  # type: ignore[assignment]
+        _alias("id"),
+        _alias_setter("id"),
+    )
+
+if not hasattr(OpenDataContractStandard, "contract_version"):
+    OpenDataContractStandard.contract_version = property(  # type: ignore[assignment]
+        _alias("version"),
+        _alias_setter("version"),
+    )
 
 
 def as_odcs_dict(obj: OpenDataContractStandard) -> Dict[str, Any]:

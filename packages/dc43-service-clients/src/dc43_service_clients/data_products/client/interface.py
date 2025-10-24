@@ -12,6 +12,9 @@ from .._compat import DataProductRegistrationResult
 class DataProductServiceClient(Protocol):
     """Expose operations provided by the data product management service."""
 
+    def put(self, product: OpenDataProductStandard) -> None:
+        """Persist ``product`` so that it can be retrieved later."""
+
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:
         ...
 

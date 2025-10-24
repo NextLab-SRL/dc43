@@ -40,6 +40,9 @@ class LocalContractServiceClient(ContractServiceClient):
             backend = _LocalContractServiceBackend(store)
         self._backend = backend
 
+    def put(self, contract: OpenDataContractStandard) -> None:
+        self._backend.put(contract)
+
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         return self._backend.get(contract_id, contract_version)
 
