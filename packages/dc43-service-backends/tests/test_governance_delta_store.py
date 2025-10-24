@@ -3,6 +3,78 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from types import SimpleNamespace
+import sys
+import types
+
+
+def _install_pyspark_stub() -> None:
+    if "pyspark" in sys.modules:
+        return
+
+    pyspark = types.ModuleType("pyspark")
+    sql_module = types.ModuleType("pyspark.sql")
+
+    class _StubSparkSession:  # pragma: no cover - attribute container only
+        pass
+
+    class _StubDataFrame:  # pragma: no cover - attribute container only
+        pass
+
+    sql_module.SparkSession = _StubSparkSession
+    sql_module.DataFrame = _StubDataFrame
+
+    functions_module = types.ModuleType("pyspark.sql.functions")
+
+    class _StubColumn:  # pragma: no cover - attribute container only
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    def _col(name: str) -> _StubColumn:
+        return _StubColumn(name)
+
+    functions_module.col = _col
+
+    types_module = types.ModuleType("pyspark.sql.types")
+
+    class _StubStructField(tuple):
+        def __new__(cls, name: str, data_type: object, nullable: bool) -> "_StubStructField":
+            return tuple.__new__(cls, (name, data_type, nullable))
+
+    class _StubStructType(list):
+        def __init__(self, fields: list[_StubStructField]):
+            super().__init__(fields)
+
+    def _boolean_type() -> str:
+        return "boolean"
+
+    def _string_type() -> str:
+        return "string"
+
+    types_module.StructField = _StubStructField
+    types_module.StructType = _StubStructType
+    types_module.BooleanType = _boolean_type
+    types_module.StringType = _string_type
+
+    utils_module = types.ModuleType("pyspark.sql.utils")
+
+    class _StubAnalysisException(Exception):
+        pass
+
+    utils_module.AnalysisException = _StubAnalysisException
+
+    pyspark.sql = sql_module
+    sql_module.functions = functions_module
+    sql_module.types = types_module
+    sql_module.utils = utils_module
+
+    sys.modules["pyspark"] = pyspark
+    sys.modules["pyspark.sql"] = sql_module
+    sys.modules["pyspark.sql.functions"] = functions_module
+    sys.modules["pyspark.sql.types"] = types_module
+    sys.modules["pyspark.sql.utils"] = utils_module
+
+
+_install_pyspark_stub()
 
 
 class _StubFileSystem:

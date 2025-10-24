@@ -7,6 +7,11 @@
   folders) during initialisation so Databricks deployments see the metadata
   artefacts as soon as the service starts.
 
+### Changed
+- Delta governance storage now requires `pyspark` at import time and directs
+  users to install the `dc43-service-backends[spark]` extra instead of relying on
+  in-module stubs for schema types.
+
 ## [0.21.0.0] - 2025-10-23
 ### Added
 - Data product backends now consume the shared ODPS helpers from
