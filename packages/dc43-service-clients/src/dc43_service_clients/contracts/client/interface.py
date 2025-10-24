@@ -10,6 +10,9 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 class ContractServiceClient(Protocol):
     """Actions exposed by a contract management service."""
 
+    def put(self, contract: OpenDataContractStandard) -> None:
+        """Persist ``contract`` making it retrievable by consumers."""
+
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         ...
 

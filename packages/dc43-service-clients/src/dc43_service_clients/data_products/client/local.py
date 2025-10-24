@@ -35,6 +35,9 @@ class LocalDataProductServiceClient(DataProductServiceClient):
             backend = _LocalDataProductServiceBackend()
         self._backend = backend
 
+    def put(self, product: OpenDataProductStandard) -> None:
+        self._backend.put(product)
+
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:
         return self._backend.get(data_product_id, version)
 

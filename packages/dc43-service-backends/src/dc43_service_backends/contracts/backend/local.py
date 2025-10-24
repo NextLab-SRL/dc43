@@ -17,6 +17,9 @@ class LocalContractServiceBackend(ContractServiceBackend):
     def __init__(self, store: ContractStore) -> None:
         self._store = store
 
+    def put(self, contract: OpenDataContractStandard) -> None:  # noqa: D401 - short docstring
+        self._store.put(contract)
+
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         return self._store.get(contract_id, contract_version)
 

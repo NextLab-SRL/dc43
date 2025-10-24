@@ -20,7 +20,12 @@ try:
     from dc43_service_backends.data_products import LocalDataProductServiceBackend
 except ModuleNotFoundError:  # pragma: no cover - exercise fallback when backends missing
     from dc43_service_clients.testing import LocalDataProductServiceBackend
-from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
+from dc43_service_clients.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    OpenDataProductStandard,
+    to_model as to_data_product_model,
+)
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality import ObservationPayload
 from dc43_service_clients.data_products.client.remote import RemoteDataProductServiceClient
@@ -122,6 +127,22 @@ class _ServiceBackendMock:
 
     def _handle_contracts(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
         segments = path.strip("/").split("/")
+        if len(segments) >= 4 and segments[2] == "versions" and method == "PUT":
+            contract_id, contract_version = segments[1], segments[3]
+            payload = self._read_json(request)
+            try:
+                contract = OpenDataContractStandard.model_validate(payload)
+            except Exception as exc:  # pragma: no cover - malformed payload guard
+                return httpx.Response(status_code=400, json={"detail": str(exc)})
+            if contract.id and contract.id != contract_id:
+                return httpx.Response(status_code=400, json={"detail": "contract id mismatch"})
+            if contract.version and contract.version != contract_version:
+                return httpx.Response(status_code=400, json={"detail": "contract version mismatch"})
+            contract.id = contract_id
+            contract.version = contract_version
+            self._contracts[contract_version] = contract
+            self._contract = contract
+            return httpx.Response(status_code=204)
         if len(segments) >= 4 and segments[2] == "versions" and method == "GET":
             contract_id, contract_version = segments[1], segments[3]
             if not self._ensure_contract(contract_id, contract_version):
@@ -132,7 +153,7 @@ class _ServiceBackendMock:
             contract_id = segments[1]
             if not self._ensure_contract(contract_id):
                 return httpx.Response(status_code=404, json={"detail": "Unknown contract"})
-            return httpx.Response(status_code=200, json=list(self._contracts.keys()))
+            return httpx.Response(status_code=200, json=sorted(self._contracts.keys()))
         if len(segments) == 3 and segments[2] == "latest" and method == "GET":
             contract_id = segments[1]
             if not self._ensure_contract(contract_id):
@@ -184,6 +205,22 @@ class _ServiceBackendMock:
         product_id = segments[1]
         backend = self._data_products
 
+        if len(segments) >= 4 and segments[2] == "versions" and method == "PUT":
+            version = segments[3]
+            payload = self._read_json(request)
+            try:
+                product = to_data_product_model(payload)
+            except Exception as exc:  # pragma: no cover - malformed payload guard
+                return httpx.Response(status_code=400, json={"detail": str(exc)})
+            if product.id and product.id != product_id:
+                return httpx.Response(status_code=400, json={"detail": "product id mismatch"})
+            if product.version and product.version != version:
+                return httpx.Response(status_code=400, json={"detail": "product version mismatch"})
+            product.id = product_id
+            product.version = version
+            backend.put(product)
+            return httpx.Response(status_code=204)
+
         if len(segments) >= 4 and segments[2] == "versions" and method == "GET":
             version = segments[3]
             try:
@@ -200,7 +237,7 @@ class _ServiceBackendMock:
 
         if len(segments) == 3 and segments[2] == "versions" and method == "GET":
             versions = backend.list_versions(product_id)
-            return httpx.Response(status_code=200, json=list(versions))
+            return httpx.Response(status_code=200, json=sorted(versions))
 
         if len(segments) == 3 and segments[2] == "input-ports" and method == "POST":
             payload = self._read_json(request)
@@ -419,6 +456,19 @@ def test_remote_contract_client_roundtrip(http_clients):
     latest = contract_client.latest(contract.id)
     assert latest is not None and latest.version == contract.version
 
+    updated_payload = contract.model_dump(by_alias=True, exclude_none=True)
+    updated_payload["version"] = "1.1.0"
+    updated_contract = OpenDataContractStandard.model_validate(updated_payload)
+    contract_client.put(updated_contract)
+
+    versions = contract_client.list_versions(contract.id)
+    assert versions == [contract.version, "1.1.0"]
+
+    latest = contract_client.latest(contract.id)
+    assert latest is not None and latest.version == "1.1.0"
+    stored = contract_client.get(contract.id, "1.1.0")
+    assert stored.version == "1.1.0"
+
     # Linking succeeds even though the local backend is a no-op for dataset metadata.
     contract_client.link_dataset_contract(
         dataset_id="orders",
@@ -533,6 +583,27 @@ def test_remote_data_product_resolve_output_contract(http_clients):
         port_name="primary",
     )
     assert contract_ref == (contract.id, contract.version)
+
+
+def test_remote_data_product_client_persists_products(http_clients):
+    dp_client: RemoteDataProductServiceClient = http_clients["data_product"]
+
+    product = OpenDataProductStandard(
+        id="dp.catalog",
+        status="draft",
+        version="0.1.0",
+        name="Catalog",  # optional metadata to ensure serialization
+    )
+    dp_client.put(product)
+
+    retrieved = dp_client.get("dp.catalog", "0.1.0")
+    assert retrieved.version == "0.1.0"
+
+    versions = dp_client.list_versions("dp.catalog")
+    assert versions == ["0.1.0"]
+
+    latest = dp_client.latest("dp.catalog")
+    assert latest is not None and latest.version == "0.1.0"
 
 
 def test_http_clients_require_authentication(service_backend):

@@ -20,6 +20,7 @@ from dc43_service_clients.odps import (
     DataProductInputPort,
     DataProductOutputPort,
     as_odps_dict as as_odps_product_dict,
+    to_model as to_data_product_model,
 )
 from dc43_service_clients.data_quality.transport import (
     decode_observation_payload,
@@ -39,6 +40,7 @@ from .contracts import ContractServiceBackend
 from .data_products import DataProductServiceBackend
 from .data_quality import DataQualityServiceBackend
 from .governance.backend import GovernanceServiceBackend
+from .core.odcs import to_model as to_contract_model
 
 
 class _LinkDatasetPayload(BaseModel):
@@ -147,6 +149,25 @@ def build_app(
     # ------------------------------------------------------------------
     # Contract service endpoints
     # ------------------------------------------------------------------
+    @router.put("/contracts/{contract_id}/versions/{contract_version}", status_code=204)
+    def put_contract(contract_id: str, contract_version: str, payload: Mapping[str, Any]) -> None:
+        try:
+            contract = to_contract_model(dict(payload))
+        except Exception as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=f"invalid contract payload: {exc}") from exc
+
+        payload_id = str(contract.id) if getattr(contract, "id", None) else None
+        if payload_id and payload_id != contract_id:
+            raise HTTPException(status_code=400, detail="contract.id does not match request path")
+
+        payload_version = str(contract.version) if getattr(contract, "version", None) else None
+        if payload_version and payload_version != contract_version:
+            raise HTTPException(status_code=400, detail="contract.version does not match request path")
+
+        contract.id = contract_id
+        contract.version = contract_version
+        contract_backend.put(contract)
+
     @router.get("/contracts/{contract_id}/versions/{contract_version}")
     def get_contract(contract_id: str, contract_version: str) -> Mapping[str, Any]:
         try:
@@ -189,6 +210,25 @@ def build_app(
     # ------------------------------------------------------------------
     # Data product endpoints
     # ------------------------------------------------------------------
+    @router.put("/data-products/{data_product_id}/versions/{version}", status_code=204)
+    def put_data_product(data_product_id: str, version: str, payload: Mapping[str, Any]) -> None:
+        try:
+            product = to_data_product_model(dict(payload))
+        except Exception as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=f"invalid data product payload: {exc}") from exc
+
+        payload_id = str(product.id) if getattr(product, "id", None) else None
+        if payload_id and payload_id != data_product_id:
+            raise HTTPException(status_code=400, detail="data_product.id does not match request path")
+
+        payload_version = str(product.version) if getattr(product, "version", None) else None
+        if payload_version and payload_version != version:
+            raise HTTPException(status_code=400, detail="data_product.version does not match request path")
+
+        product.id = data_product_id
+        product.version = version
+        data_product_backend.put(product)
+
     @router.get("/data-products/{data_product_id}/versions/{version}")
     def get_data_product(data_product_id: str, version: str) -> Mapping[str, Any]:
         try:

@@ -63,6 +63,24 @@ class RemoteContractServiceClient(ContractServiceClient):
             return f"{self._base_url}{path}"
         return path
 
+    def put(self, contract: OpenDataContractStandard) -> None:
+        contract_id = str(contract.id)
+        contract_version = str(contract.version)
+        if not contract_id:
+            raise ValueError("Contract requires an id")
+        if not contract_version:
+            raise ValueError("Contract requires a version")
+        payload = contract.model_dump(by_alias=True, exclude_none=True)
+        response = ensure_response(
+            self._client.put(
+                self._request_path(
+                    f"/contracts/{contract_id}/versions/{contract_version}"
+                ),
+                json=payload,
+            )
+        )
+        response.raise_for_status()
+
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         response = ensure_response(
             self._client.get(

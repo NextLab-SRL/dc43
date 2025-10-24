@@ -10,6 +10,9 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 class ContractServiceBackend(Protocol):
     """Operations exposed by a contract management service runtime."""
 
+    def put(self, contract: OpenDataContractStandard) -> None:
+        """Persist ``contract`` making it available for downstream consumers."""
+
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         ...
 
