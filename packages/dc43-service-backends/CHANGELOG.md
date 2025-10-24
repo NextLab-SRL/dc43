@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Delta governance store now bootstraps its status, link, and activity tables (or
+  folders) during initialisation so Databricks deployments see the metadata
+  artefacts as soon as the service starts.
+
 ## [0.21.0.0] - 2025-10-23
 ### Added
 - Data product backends now consume the shared ODPS helpers from

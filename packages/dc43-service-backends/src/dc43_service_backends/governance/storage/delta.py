@@ -14,6 +14,7 @@ from .interface import GovernanceStore
 try:  # pragma: no cover - optional dependency guard
     from pyspark.sql import DataFrame, SparkSession
     from pyspark.sql.functions import col
+    from pyspark.sql.types import BooleanType, StringType, StructField, StructType
     from pyspark.sql.utils import AnalysisException
 except ModuleNotFoundError as exc:  # pragma: no cover - surfaced via builder guards
     raise ModuleNotFoundError(
@@ -32,6 +33,7 @@ class DeltaGovernanceStore(GovernanceStore):
         status_table: str | None = None,
         activity_table: str | None = None,
         link_table: str | None = None,
+        bootstrap_tables: bool = True,
     ) -> None:
         if not base_path and not (status_table and activity_table and link_table):
             raise ValueError(
@@ -42,6 +44,40 @@ class DeltaGovernanceStore(GovernanceStore):
         self._status_table = status_table
         self._activity_table = activity_table
         self._link_table = link_table
+
+        if bootstrap_tables:
+            self.bootstrap()
+
+    _STATUS_SCHEMA = StructType(
+        [
+            StructField("dataset_id", StringType(), False),
+            StructField("dataset_version", StringType(), True),
+            StructField("contract_id", StringType(), False),
+            StructField("contract_version", StringType(), True),
+            StructField("recorded_at", StringType(), False),
+            StructField("deleted", BooleanType(), False),
+            StructField("payload", StringType(), False),
+        ]
+    )
+    _LINK_SCHEMA = StructType(
+        [
+            StructField("dataset_id", StringType(), False),
+            StructField("dataset_version", StringType(), True),
+            StructField("contract_id", StringType(), False),
+            StructField("contract_version", StringType(), True),
+            StructField("linked_at", StringType(), False),
+        ]
+    )
+    _ACTIVITY_SCHEMA = StructType(
+        [
+            StructField("dataset_id", StringType(), False),
+            StructField("dataset_version", StringType(), True),
+            StructField("contract_id", StringType(), False),
+            StructField("contract_version", StringType(), True),
+            StructField("recorded_at", StringType(), False),
+            StructField("payload", StringType(), False),
+        ]
+    )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -54,6 +90,54 @@ class DeltaGovernanceStore(GovernanceStore):
         path = self._base_path / name
         path.mkdir(parents=True, exist_ok=True)
         return str(path)
+
+    def _delta_folder_exists(self, folder: str | None) -> bool:
+        if not folder:
+            return False
+        path = Path(folder)
+        return (path / "_delta_log").exists()
+
+    def _ensure_delta_target(
+        self,
+        *,
+        table: str | None,
+        folder: str | None,
+        schema: StructType,
+    ) -> None:
+        table_exists = bool(table and self._spark.catalog.tableExists(table))
+        if table_exists:
+            return
+        folder_exists = self._delta_folder_exists(folder)
+        if not table and folder_exists:
+            return
+
+        df = self._spark.createDataFrame([], schema)
+        writer = (
+            df.write.format("delta")
+            .mode("overwrite")
+            .option("overwriteSchema", "true")
+        )
+        if table:
+            writer.saveAsTable(table)
+        elif folder:
+            Path(folder).mkdir(parents=True, exist_ok=True)
+            writer.option("path", folder).save()
+        else:  # pragma: no cover - defensive guard
+            raise RuntimeError("DeltaGovernanceStore bootstrap target unspecified")
+
+    def bootstrap(self) -> None:
+        """Ensure Delta tables or folders exist for governance artefacts."""
+
+        targets = (
+            ("status", self._status_table, self._STATUS_SCHEMA),
+            ("links", self._link_table, self._LINK_SCHEMA),
+            ("activity", self._activity_table, self._ACTIVITY_SCHEMA),
+        )
+        for name, table, schema in targets:
+            folder = self._table_path(name) if self._base_path else None
+            if not table and not folder:
+                continue
+            self._ensure_delta_target(table=table, folder=folder, schema=schema)
 
     def _write(self, df: DataFrame, *, table: str | None, folder: str | None) -> None:
         writer = df.write.format("delta").mode("append")
