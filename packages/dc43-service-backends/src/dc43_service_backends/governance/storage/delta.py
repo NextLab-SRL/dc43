@@ -108,6 +108,34 @@ class DeltaGovernanceStore(GovernanceStore):
         path = Path(folder)
         return (path / "_delta_log").exists()
 
+    def _table_exists(self, table: str | None) -> bool:
+        if not table:
+            return False
+
+        if hasattr(self._spark, "sql"):
+            parts = table.split(".")
+            if len(parts) == 3:
+                catalog, schema, name = parts
+
+                def _escape(value: str) -> str:
+                    return value.replace("'", "''")
+
+                try:
+                    query = (
+                        "SELECT 1 FROM system.information_schema.tables "
+                        f"WHERE table_catalog = '{_escape(catalog)}' "
+                        f"AND table_schema = '{_escape(schema)}' "
+                        f"AND table_name = '{_escape(name)}' "
+                        "LIMIT 1"
+                    )
+                    rows = self._spark.sql(query).collect()
+                    if rows:
+                        return True
+                except Exception:  # pragma: no cover - fall back to catalog lookup
+                    pass
+
+        return bool(self._spark.catalog.tableExists(table))
+
     def _ensure_delta_target(
         self,
         *,
@@ -115,7 +143,7 @@ class DeltaGovernanceStore(GovernanceStore):
         folder: str | None,
         schema: StructType,
     ) -> None:
-        table_exists = bool(table and self._spark.catalog.tableExists(table))
+        table_exists = self._table_exists(table)
         if table_exists:
             return
         folder_exists = self._delta_folder_exists(folder)

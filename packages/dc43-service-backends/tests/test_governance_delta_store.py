@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -98,17 +99,30 @@ class _RecordingDataFrame:
         return _RecordingWriter(self._records)
 
 
+class _StubSqlResult:
+    def __init__(self, exists: bool) -> None:
+        self._exists = exists
+
+    def collect(self) -> list[object]:
+        if self._exists:
+            return [SimpleNamespace(result=1)]
+        return []
+
+
 class _StubSpark:
     def __init__(
         self,
         *,
         existing_tables: set[str] | None = None,
         filesystem_paths: set[str] | None = None,
+        information_schema: set[tuple[str, str, str]] | None = None,
     ) -> None:
         self._records: list[dict[str, object]] = []
         self._schemas: list[object] = []
         self._existing_tables = existing_tables or set()
+        self._information_schema = information_schema or set()
         self.catalog = SimpleNamespace(tableExists=self._table_exists)
+        self._sql_queries: list[str] = []
         if filesystem_paths is not None:
             path_factory = _StubPathFactory(filesystem_paths)
             self._jvm = SimpleNamespace(
@@ -131,9 +145,29 @@ class _StubSpark:
     def schemas(self) -> list[object]:
         return self._schemas
 
+    @property
+    def sql_queries(self) -> list[str]:
+        return self._sql_queries
+
     def createDataFrame(self, data: list[object], schema: object) -> _RecordingDataFrame:
         self._schemas.append(schema)
         return _RecordingDataFrame(self._records)
+
+    def sql(self, query: str) -> _StubSqlResult:
+        self._sql_queries.append(query)
+        if "system.information_schema.tables" not in query:
+            return _StubSqlResult(False)
+        matches = dict(re.findall(r"table_(catalog|schema|name)\s*=\s*'([^']*)'", query))
+        catalog = matches.get("catalog")
+        schema = matches.get("schema")
+        name = matches.get("name")
+        exists = (
+            catalog is not None
+            and schema is not None
+            and name is not None
+            and (catalog, schema, name) in self._information_schema
+        )
+        return _StubSqlResult(exists)
 
 
 def _tables(records: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -179,6 +213,27 @@ def test_bootstrap_skips_existing_tables() -> None:
         "analytics.governance.activity",
         "analytics.governance.links",
     }
+
+
+def test_bootstrap_skips_tables_detected_via_information_schema() -> None:
+    spark = _StubSpark(
+        information_schema={("analytics", "governance", "status")}
+    )
+    DeltaGovernanceStore(
+        spark,
+        status_table="analytics.governance.status",
+        activity_table="analytics.governance.activity",
+        link_table="analytics.governance.links",
+    )
+
+    tables = _tables(spark.records)
+    assert {entry["target"] for entry in tables} == {
+        "analytics.governance.activity",
+        "analytics.governance.links",
+    }
+    assert any(
+        "information_schema.tables" in query for query in spark.sql_queries
+    )
 
 
 def test_bootstrap_initialises_delta_folders(tmp_path: Path) -> None:
