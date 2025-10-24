@@ -94,6 +94,17 @@ class DeltaGovernanceStore(GovernanceStore):
     def _delta_folder_exists(self, folder: str | None) -> bool:
         if not folder:
             return False
+
+        if hasattr(self._spark, "_jvm") and hasattr(self._spark, "_jsc"):
+            try:
+                jvm = self._spark._jvm
+                jpath = jvm.org.apache.hadoop.fs.Path(str(folder))
+                fs = jpath.getFileSystem(self._spark._jsc.hadoopConfiguration())
+                delta_log_path = jvm.org.apache.hadoop.fs.Path(jpath, "_delta_log")
+                return fs.exists(delta_log_path)
+            except Exception:  # pragma: no cover - fall back to local checks
+                pass
+
         path = Path(folder)
         return (path / "_delta_log").exists()
 
