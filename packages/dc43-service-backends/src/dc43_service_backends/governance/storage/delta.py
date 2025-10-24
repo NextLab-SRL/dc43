@@ -5,21 +5,42 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
 from .interface import GovernanceStore
+
+if TYPE_CHECKING:  # pragma: no cover - import only for static typing
+    from pyspark.sql import DataFrame, SparkSession
+    from pyspark.sql.functions import Column
+else:  # pragma: no cover - fallback assignments for runtime typing
+    DataFrame = SparkSession = Column = Any  # type: ignore[assignment]
 
 try:  # pragma: no cover - optional dependency guard
     from pyspark.sql import DataFrame, SparkSession
     from pyspark.sql.functions import col
     from pyspark.sql.types import BooleanType, StringType, StructField, StructType
     from pyspark.sql.utils import AnalysisException
-except ModuleNotFoundError as exc:  # pragma: no cover - surfaced via builder guards
-    raise ModuleNotFoundError(
-        "pyspark is required to use the DeltaGovernanceStore."
-    ) from exc
+except ModuleNotFoundError:  # pragma: no cover - allow import without pyspark
+    AnalysisException = Exception  # type: ignore[assignment]
+
+    def col(_name: str) -> "Column":  # type: ignore[override]
+        raise ModuleNotFoundError("pyspark is required for DataFrame column operations.")
+
+    class StructField(tuple):  # minimal stub for schema definitions
+        def __new__(cls, name: str, data_type: object, nullable: bool) -> "StructField":
+            return tuple.__new__(cls, (name, data_type, nullable))
+
+    class StructType(list):  # minimal stub for schema definitions
+        def __init__(self, fields: Sequence[StructField]):
+            super().__init__(fields)
+
+    def BooleanType() -> str:  # type: ignore[misc]
+        return "boolean"
+
+    def StringType() -> str:  # type: ignore[misc]
+        return "string"
 
 
 class DeltaGovernanceStore(GovernanceStore):
