@@ -197,7 +197,7 @@ class DeltaGovernanceStore(GovernanceStore):
             if table:
                 return self._spark.table(table)
             if folder:
-                if not Path(folder).exists():
+                if not self._delta_folder_exists(folder):
                     return None
                 return self._spark.read.format("delta").load(folder)
         except AnalysisException:
