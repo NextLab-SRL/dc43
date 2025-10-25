@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Added `generate_contract_dataset` testing helper to materialise Faker-powered
+  sample datasets aligned with ODCS contracts and write them to the configured
+  storage path for integration tests.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional updates landed for this distribution. Metadata is bumped for the
