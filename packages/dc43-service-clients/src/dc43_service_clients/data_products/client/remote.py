@@ -78,6 +78,22 @@ class RemoteDataProductServiceClient(DataProductServiceClient):
         changed = bool(payload.get("changed")) if isinstance(payload, Mapping) else False
         return DataProductRegistrationResult(product=product, changed=changed)
 
+    def put(self, product: OpenDataProductStandard) -> None:
+        product_id = str(product.id)
+        version = str(product.version) if product.version is not None else ""
+        if not product_id:
+            raise ValueError("Data product requires an id")
+        if not version:
+            raise ValueError("Data product requires a version")
+        payload = product.to_dict()
+        response = ensure_response(
+            self._client.put(
+                self._request_path(f"/data-products/{product_id}/versions/{version}"),
+                json=payload,
+            )
+        )
+        response.raise_for_status()
+
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:
         response = ensure_response(
             self._client.get(

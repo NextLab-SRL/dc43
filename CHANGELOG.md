@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.22.0.0] - 2025-10-25
+### Changed
+- No functional changes. Bumped the version to align release metadata for the
+  0.22.0.0 publication.
+
 ## [0.21.0.0] - 2025-10-23
 ### Added
 - Added a setup wizard sample generator that fills the configuration forms from

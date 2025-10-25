@@ -142,6 +142,75 @@ def _normalise_path_ref(path: Optional[str | Iterable[str]]) -> Optional[str]:
     return path
 
 
+def _supports_dataframe_checkpointing(df: DataFrame) -> bool:
+    """Return ``True`` when the active Spark cluster supports checkpointing."""
+
+    try:
+        spark = df.sparkSession
+    except Exception:  # pragma: no cover - defensive, matches write path guard
+        return True
+
+    try:
+        conf = spark.sparkContext.getConf()
+    except Exception:  # pragma: no cover - fallback to legacy behaviour
+        return True
+
+    indicators: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("spark.databricks.service.serverless.enabled", ("true", "1", "yes")),
+        ("spark.databricks.service.serverless", ("true", "1", "yes")),
+        ("spark.databricks.service.clusterSource", ("serverless",)),
+        ("spark.databricks.clusterUsageTags.clusterAllType", ("serverless",)),
+    )
+
+    for key, matches in indicators:
+        try:
+            raw_value = conf.get(key, "")
+        except Exception:  # pragma: no cover - SparkConf guards can raise
+            raw_value = ""
+        value = str(raw_value).lower()
+        if value and any(match in value for match in matches):
+            return False
+
+    return True
+
+
+def _looks_like_table_reference(value: str) -> bool:
+    """Return ``True`` when ``value`` resembles a table identifier."""
+
+    if "://" in value:
+        return False
+    if any(sep in value for sep in ("/", "\\")):
+        return False
+    return "." in value
+
+
+def _promote_delta_path_to_table(
+    *,
+    path: Optional[str],
+    table: Optional[str],
+    format: Optional[str],
+    spark: Optional[SparkSession] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Return adjusted ``(path, table)`` when Delta references point to tables."""
+
+    if table is not None or not isinstance(path, str) or not _looks_like_table_reference(path):
+        return path, table
+
+    if (format or "").lower() == "delta":
+        return None, path
+
+    if spark is not None:
+        catalog = getattr(spark, "catalog", None)
+        if catalog is not None:
+            try:
+                if catalog.tableExists(path):
+                    return None, path
+            except Exception:  # pragma: no cover - Spark catalog guards
+                pass
+
+    return path, table
+
+
 def dataset_id_from_ref(*, table: Optional[str] = None, path: Optional[str | Iterable[str]] = None) -> str:
     """Build a dataset id from a table name or path (``table:...``/``path:...``)."""
 
@@ -567,6 +636,7 @@ class ContractFirstDatasetLocator:
         path: Optional[str],
         table: Optional[str],
         format: Optional[str],
+        spark: Optional[SparkSession] = None,
     ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[Server]]:
         server: Optional[Server] = None
         if contract and contract.servers:
@@ -579,6 +649,12 @@ class ContractFirstDatasetLocator:
                 table = c_table
             if c_format is not None and format is None:
                 format = c_format
+        path, table = _promote_delta_path_to_table(
+            path=path,
+            table=table,
+            format=format,
+            spark=spark,
+        )
         return path, table, format, server
 
     def _resolution(
@@ -637,7 +713,13 @@ class ContractFirstDatasetLocator:
         path: Optional[str],
         table: Optional[str],
     ) -> DatasetResolution:  # noqa: D401 - short docstring
-        path, table, format, _ = self._resolve_base(contract, path=path, table=table, format=format)
+        path, table, format, _ = self._resolve_base(
+            contract,
+            path=path,
+            table=table,
+            format=format,
+            spark=spark,
+        )
         return self._resolution(
             contract,
             path=path,
@@ -655,7 +737,13 @@ class ContractFirstDatasetLocator:
         path: Optional[str],
         table: Optional[str],
     ) -> DatasetResolution:  # noqa: D401 - short docstring
-        path, table, format, _ = self._resolve_base(contract, path=path, table=table, format=format)
+        path, table, format, _ = self._resolve_base(
+            contract,
+            path=path,
+            table=table,
+            format=format,
+            spark=None,
+        )
         return self._resolution(
             contract,
             path=path,
@@ -3320,9 +3408,20 @@ def _execute_write_request(
     df_to_write = request.df
     checkpointed = False
     streaming_handles: list[Any] = []
+    mode = (request.mode or "").lower()
+    should_checkpoint = (
+        not request.streaming and request.path and mode == "overwrite"
+    )
+    if should_checkpoint and not _supports_dataframe_checkpointing(df_to_write):
+        logger.info(
+            "Skipping dataframe checkpoint for %s because caching is unsupported",
+            request.path,
+        )
+        should_checkpoint = False
+
     if request.streaming:
         pass
-    elif request.path and request.mode.lower() == "overwrite":
+    elif should_checkpoint:
         try:
             df_to_write = df_to_write.localCheckpoint(eager=True)
         except Exception:  # pragma: no cover - defensive fallback

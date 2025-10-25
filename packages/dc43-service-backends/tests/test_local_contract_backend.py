@@ -3,24 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List
 
+from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+
 from dc43_service_backends.contracts.backend.local import LocalContractServiceBackend
 from dc43_service_backends.contracts.backend.stores.interface import ContractStore
-
-
-@dataclass
-class _StoredContract:
-    contract_id: str
-    version: str
+from dc43_service_backends.core.odcs import build_odcs
 
 
 class InMemoryStore(ContractStore):
     def __init__(self) -> None:
-        self._data: Dict[tuple[str, str], _StoredContract] = {}
+        self._data: Dict[tuple[str, str], OpenDataContractStandard] = {}
 
-    def put(self, contract: _StoredContract) -> None:  # type: ignore[override]
-        self._data[(contract.contract_id, contract.version)] = contract
+    def put(self, contract: OpenDataContractStandard) -> None:  # type: ignore[override]
+        self._data[(str(contract.id), str(contract.version))] = contract
 
-    def get(self, contract_id: str, version: str) -> _StoredContract:  # type: ignore[override]
+    def get(self, contract_id: str, version: str) -> OpenDataContractStandard:  # type: ignore[override]
         return self._data[(contract_id, version)]
 
     def list_contracts(self) -> List[str]:  # type: ignore[override]
@@ -30,15 +27,20 @@ class InMemoryStore(ContractStore):
         return sorted(version for (cid, version) in self._data if cid == contract_id)
 
 
-def make_contract(contract_id: str, version: str) -> _StoredContract:
-    return _StoredContract(contract_id=contract_id, version=version)
+def make_contract(contract_id: str, version: str) -> OpenDataContractStandard:
+    return build_odcs(
+        contract_id=contract_id,
+        version=version,
+        kind="DatasetContract",
+        api_version="3.0.2",
+    )
 
 
 def test_local_backend_delegates_to_store():
     store = InMemoryStore()
     backend = LocalContractServiceBackend(store)
     contract = make_contract("orders", "1.0.0")
-    store.put(contract)
+    backend.put(contract)
 
     assert backend.get("orders", "1.0.0") == contract
     assert backend.list_versions("orders") == ["1.0.0"]
@@ -48,7 +50,7 @@ def test_local_backend_delegates_to_store():
 def test_link_dataset_contract_keeps_contract_available():
     store = InMemoryStore()
     backend = LocalContractServiceBackend(store)
-    store.put(make_contract("orders", "1.0.0"))
+    backend.put(make_contract("orders", "1.0.0"))
 
     backend.link_dataset_contract(
         dataset_id="table.orders",
