@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.22.0.0] - 2025-10-25
+### Changed
+- No behavioural updates. Bumped version markers for the 0.22.0.0 release.
+
 ### Added
 - Delta governance store now bootstraps its status, link, and activity tables (or
   folders) during initialisation so Databricks deployments see the metadata

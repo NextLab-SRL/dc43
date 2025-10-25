@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.22.0.0] - 2025-10-25
+### Changed
+- No code changes. Updated metadata for the 0.22.0.0 release cycle.
+
 ## [0.21.0.0] - 2025-10-23
 ### Added
 - Bundled ODPS helpers so the package can run its tests without the core
