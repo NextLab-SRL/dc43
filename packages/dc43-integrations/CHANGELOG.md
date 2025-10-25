@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.22.0.0] - 2025-10-25
+### Changed
+- No functional updates landed for this distribution. Metadata is bumped for the
+  0.22.0.0 release rollout.
+
 ## [0.21.0.0] - 2025-10-23
 ### Added
 - Spark and Delta Live Tables setup-bundle providers now export complete

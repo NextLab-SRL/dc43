@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.22.0.0] - 2025-10-25
+### Changed
+- No functional updates in this cycle. Version metadata bumped for the
+  0.22.0.0 release.
+
 ## [0.21.0.0] - 2025-10-23
 ### Added
 - DLT execution mode for the orders_enriched scenario with a shared
