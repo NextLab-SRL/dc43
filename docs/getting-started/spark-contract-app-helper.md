@@ -98,8 +98,7 @@ write_strategy = NoOpWriteViolationStrategy(allowed_contract_statuses=("active",
 
 df, status = read_with_governance(
     spark,
-    governance_service=governance_client,
-    request=GovernanceSparkReadRequest(
+    GovernanceSparkReadRequest(
         context=GovernanceReadContext(
             contract={
                 "contract_id": "orders_enriched",
@@ -107,13 +106,13 @@ df, status = read_with_governance(
             }
         )
     ),
+    governance_service=governance_client,
     status_strategy=read_status,
     enforce=True,
 )
 
 write_with_governance(
     df=df,
-    governance_service=governance_client,
     request=GovernanceSparkWriteRequest(
         context={
             "contract": {
@@ -122,6 +121,7 @@ write_with_governance(
             }
         }
     ),
+    governance_service=governance_client,
     violation_strategy=write_strategy,
     return_status=True,
 )

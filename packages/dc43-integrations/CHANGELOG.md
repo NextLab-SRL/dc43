@@ -27,6 +27,9 @@
   governance client plus a single orchestration payload describing contract
   references, data product bindings, dataset locators, and Spark-specific
   overrides.
+- Reordered the governance helper signatures so requests sit directly after the
+  Spark/DataFrame argument and the governance client follows, matching the
+  expected call flow in documentation and tests.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

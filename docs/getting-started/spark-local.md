@@ -74,8 +74,7 @@ read_strategy = DefaultReadStatusStrategy(
 
 orders_df, status = read_with_governance(
     spark,
-    governance_service=governance_client,
-    request=GovernanceSparkReadRequest(
+    GovernanceSparkReadRequest(
         context=GovernanceReadContext(
             contract={
                 "contract_id": "sales.orders",
@@ -84,6 +83,7 @@ orders_df, status = read_with_governance(
         ),
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
+    governance_service=governance_client,
     status_strategy=read_strategy,
     enforce=True,
     auto_cast=True,
@@ -103,7 +103,6 @@ orchestrator (for example Databricks Jobs) needs the metadata.
 ```python
 write_with_governance(
     df=orders_df,
-    governance_service=governance_client,
     request=GovernanceSparkWriteRequest(
         context={
             "contract": {
@@ -113,6 +112,7 @@ write_with_governance(
         },
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
+    governance_service=governance_client,
     enforce=True,
     auto_cast=True,
 )

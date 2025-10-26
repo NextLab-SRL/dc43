@@ -14,6 +14,9 @@
   take `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest` containers,
   reducing function signatures to a single governance client plus an orchestration
   payload that describes contracts, data product bindings, and Spark overrides.
+- Governance Spark helpers now position the request payload immediately after
+  the Spark/DataFrame argument, with the governance client supplied next, so
+  call sites read in the same order as the underlying orchestration flow.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

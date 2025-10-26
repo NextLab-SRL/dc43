@@ -230,7 +230,6 @@ governance = load_governance_client("/path/to/dc43.toml")
 
 write_with_governance(
     df=orders_df,
-    governance_service=governance,
     request=GovernanceSparkWriteRequest(
         context={
             "contract": {
@@ -241,6 +240,7 @@ write_with_governance(
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
         mode="append",
     ),
+    governance_service=governance,
     enforce=True,
     auto_cast=True,
 )
@@ -303,8 +303,7 @@ from dc43_service_clients import load_governance_client
 governance = load_governance_client("/path/to/dc43.toml")
 df, status = read_with_governance(
     spark,
-    governance_service=governance,
-    request=GovernanceSparkReadRequest(
+    GovernanceSparkReadRequest(
         context={
             "contract": {
                 "contract_id": "sales.orders",
@@ -313,6 +312,7 @@ df, status = read_with_governance(
         },
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
+    governance_service=governance,
     return_status=True,
 )
 print(status.status, status.reason)
@@ -331,7 +331,6 @@ from dc43_service_clients import load_governance_client
 governance = load_governance_client("/path/to/dc43.toml")
 vr, status = write_with_governance(
     df=orders_df,
-    governance_service=governance,
     request=GovernanceSparkWriteRequest(
         context={
             "contract": {
@@ -341,6 +340,7 @@ vr, status = write_with_governance(
         },
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
+    governance_service=governance,
     enforce=False,  # continue writing
     return_status=True,
 )

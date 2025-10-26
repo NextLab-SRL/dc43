@@ -2238,9 +2238,9 @@ def read_with_contract(
 @overload
 def read_with_governance(
     spark: SparkSession,
+    request: GovernanceSparkReadRequest | Mapping[str, object],
     *,
     governance_service: GovernanceServiceClient,
-    request: GovernanceSparkReadRequest | Mapping[str, object],
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[True] = True,
@@ -2251,9 +2251,9 @@ def read_with_governance(
 @overload
 def read_with_governance(
     spark: SparkSession,
+    request: GovernanceSparkReadRequest | Mapping[str, object],
     *,
     governance_service: GovernanceServiceClient,
-    request: GovernanceSparkReadRequest | Mapping[str, object],
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[False],
@@ -2264,9 +2264,9 @@ def read_with_governance(
 @overload
 def read_with_governance(
     spark: SparkSession,
+    request: GovernanceSparkReadRequest | Mapping[str, object],
     *,
     governance_service: GovernanceServiceClient,
-    request: GovernanceSparkReadRequest | Mapping[str, object],
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = True,
@@ -2276,17 +2276,14 @@ def read_with_governance(
 
 def read_with_governance(
     spark: SparkSession,
+    request: GovernanceSparkReadRequest | Mapping[str, object],
     *,
     governance_service: GovernanceServiceClient,
-    request: GovernanceSparkReadRequest | Mapping[str, object],
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = True,
 ) -> DataFrame | tuple[DataFrame, Optional[ValidationResult]]:
     """Read a DataFrame relying solely on governance context resolution."""
-
-    if governance_service is None:
-        raise ValueError("governance_service is required for read_with_governance")
 
     if not isinstance(request, GovernanceSparkReadRequest):
         if isinstance(request, Mapping):
@@ -2444,10 +2441,10 @@ def read_stream_with_contract(
 
 @overload
 def read_stream_with_governance(
-    *,
     spark: SparkSession,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkReadRequest | Mapping[str, object],
+    *,
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[True] = True,
@@ -2457,10 +2454,10 @@ def read_stream_with_governance(
 
 @overload
 def read_stream_with_governance(
-    *,
     spark: SparkSession,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkReadRequest | Mapping[str, object],
+    *,
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[False],
@@ -2470,10 +2467,10 @@ def read_stream_with_governance(
 
 @overload
 def read_stream_with_governance(
-    *,
     spark: SparkSession,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkReadRequest | Mapping[str, object],
+    *,
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = True,
@@ -2482,18 +2479,15 @@ def read_stream_with_governance(
 
 
 def read_stream_with_governance(
-    *,
     spark: SparkSession,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkReadRequest | Mapping[str, object],
+    *,
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = True,
 ) -> DataFrame | tuple[DataFrame, Optional[ValidationResult]]:
     """Streaming variant of :func:`read_with_governance`."""
-
-    if governance_service is None:
-        raise ValueError("governance_service is required for read_stream_with_governance")
 
     if not isinstance(request, GovernanceSparkReadRequest):
         if isinstance(request, Mapping):
@@ -3575,8 +3569,8 @@ def write_with_contract(
 def write_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[True],
@@ -3589,8 +3583,8 @@ def write_with_governance(
 def write_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[False] = False,
@@ -3603,8 +3597,8 @@ def write_with_governance(
 def write_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = False,
@@ -3616,8 +3610,8 @@ def write_with_governance(
 def write_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = False,
@@ -3800,8 +3794,8 @@ def write_stream_with_contract(
 def write_stream_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[True],
@@ -3816,8 +3810,8 @@ def write_stream_with_governance(
 def write_stream_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: Literal[False] = False,
@@ -3832,8 +3826,8 @@ def write_stream_with_governance(
 def write_stream_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = False,
@@ -3847,8 +3841,8 @@ def write_stream_with_governance(
 def write_stream_with_governance(
     *,
     df: DataFrame,
-    governance_service: GovernanceServiceClient,
     request: GovernanceSparkWriteRequest | Mapping[str, object],
+    governance_service: GovernanceServiceClient,
     enforce: bool = True,
     auto_cast: bool = True,
     return_status: bool = False,

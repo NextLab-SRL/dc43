@@ -49,8 +49,7 @@ from dc43_service_clients import load_governance_client
 governance = load_governance_client()
 validated_df, status = read_with_governance(
     spark,
-    governance_service=governance,
-    request=GovernanceSparkReadRequest(
+    GovernanceSparkReadRequest(
         context={
             "contract": {
                 "contract_id": "sales.orders",
@@ -59,6 +58,7 @@ validated_df, status = read_with_governance(
         },
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
+    governance_service=governance,
     return_status=True,
 )
 ```

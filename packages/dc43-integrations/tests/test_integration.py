@@ -63,7 +63,6 @@ def test_governance_wrappers_require_only_governance_client(
 
     validation, status = write_with_governance(
         df=df,
-        governance_service=governance,
         request=GovernanceSparkWriteRequest(
             context={
                 "contract": {
@@ -74,6 +73,7 @@ def test_governance_wrappers_require_only_governance_client(
             path=str(contract_path),
             format="parquet",
         ),
+        governance_service=governance,
         return_status=True,
     )
 
@@ -82,8 +82,7 @@ def test_governance_wrappers_require_only_governance_client(
 
     read_df, read_status = read_with_governance(
         spark,
-        governance_service=governance,
-        request=GovernanceSparkReadRequest(
+        GovernanceSparkReadRequest(
             context=GovernanceReadContext(
                 contract={
                     "contract_id": contract.id,
@@ -93,6 +92,7 @@ def test_governance_wrappers_require_only_governance_client(
             path=str(contract_path),
             format="parquet",
         ),
+        governance_service=governance,
         return_status=True,
     )
 
