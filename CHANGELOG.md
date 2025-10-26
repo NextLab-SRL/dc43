@@ -40,6 +40,9 @@
 - Made `dc43_service_clients` lazy-load its bootstrap helpers so importing the
   package no longer requires `dc43_service_backends`, ensuring the bundled
   `pytest` entry point works in isolated client-only environments.
+- Deferred importing the SQL governance store until SQLAlchemy is available so
+  client-only environments can run the service-client test suite without pulling
+  in optional backend dependencies.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed
