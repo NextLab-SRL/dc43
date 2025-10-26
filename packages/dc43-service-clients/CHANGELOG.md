@@ -16,6 +16,9 @@
 - Guarded governance/bootstrap tests with `pytest.importorskip` so the package
   skips cleanly when `dc43_service_backends` is not installed, avoiding
   import-time failures in minimal CI environments.
+- Deferred importing the bootstrap module at package import time so the
+  `dc43-service-clients` distribution no longer requires
+  `dc43_service_backends` just to expose its top-level helpers.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

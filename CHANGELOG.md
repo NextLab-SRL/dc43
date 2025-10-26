@@ -37,6 +37,9 @@
 - Guarded the service-clients bootstrap tests with `pytest.importorskip` so the
   package test suite skips gracefully when optional backend dependencies are not
   installed.
+- Made `dc43_service_clients` lazy-load its bootstrap helpers so importing the
+  package no longer requires `dc43_service_backends`, ensuring the bundled
+  `pytest` entry point works in isolated client-only environments.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed
