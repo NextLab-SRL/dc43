@@ -238,7 +238,12 @@ def contract_expectations(
     governance_service: GovernanceServiceClient,
     expectation_predicates: Mapping[str, str] | None = None,
 ) -> Callable[[F], F]:
-    """Return a decorator binding a DLT asset to contract expectations."""
+    """Return a decorator binding a DLT asset to contract expectations.
+
+    The decorator mirrors :func:`~dc43_integrations.spark.io.read_with_governance`
+    by sourcing every contract lookup through ``governance_service``; no
+    secondary contract or data-quality clients are required.
+    """
 
     binding = _prepare_contract_binding(
         governance_service=governance_service,
@@ -264,7 +269,12 @@ def contract_table(
     expectation_predicates: Mapping[str, str] | None = None,
     **table_kwargs: Any,
 ) -> Callable[[F], F]:
-    """Return a decorator producing a contract-aware ``@dlt.table`` asset."""
+    """Return a decorator producing a contract-aware ``@dlt.table`` asset.
+
+    Contract resolution, expectation plans, and registration flow solely through
+    the supplied governance service, keeping annotations aligned with the
+    ``read_with_governance``/``write_with_governance`` helpers.
+    """
 
     binding = _prepare_contract_binding(
         governance_service=governance_service,
@@ -292,7 +302,12 @@ def contract_view(
     expectation_predicates: Mapping[str, str] | None = None,
     **view_kwargs: Any,
 ) -> Callable[[F], F]:
-    """Return a decorator producing a contract-aware ``@dlt.view`` asset."""
+    """Return a decorator producing a contract-aware ``@dlt.view`` asset.
+
+    Just like the read/write wrappers, the annotation only depends on the
+    governance client; it resolves contracts and fetches expectation plans
+    without explicit contract or data-quality services.
+    """
 
     binding = _prepare_contract_binding(
         governance_service=governance_service,

@@ -24,6 +24,9 @@
 - Delta Live Tables helpers now resolve contracts and expectation plans through
   the governance client, so notebooks bind contracts using the same
   governance-first contexts as the Spark IO wrappers.
+- Clarified in the DLT docs and annotations that they rely exclusively on the
+  governance service, mirroring the `read_with_governance`/`write_with_governance`
+  entry points.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

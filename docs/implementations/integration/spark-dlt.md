@@ -35,7 +35,10 @@ The canonical implementation lives in [`src/dc43_integrations/spark`](../../pack
 * [`dc43_integrations.spark.data_quality`](../../packages/dc43-integrations/src/dc43_integrations/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
 * [`dc43_service_clients.governance`](../../packages/dc43-service-clients/src/dc43_service_clients/governance) — Client APIs that link contracts, evaluate observations, and interact with governance backends.
 
-Pipelines typically import these helpers directly:
+Pipelines typically import these helpers directly. The annotations mirror the
+``read_with_governance``/``write_with_governance`` wrappers—only the governance
+client is required, which resolves the contract, fetches expectation plans, and
+records activity on behalf of the pipeline:
 
 ```python
 from dc43_integrations.spark.io import (

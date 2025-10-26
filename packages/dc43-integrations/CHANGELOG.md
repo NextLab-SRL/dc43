@@ -34,6 +34,8 @@
   `contract_expectations`) now accept governance read contexts and resolve
   expectation plans through the governance service so pipelines initialise only
   the governance client when binding contracts.
+- Documented that the DLT annotations depend solely on the governance client,
+  matching the usage expectations established by the Spark governance wrappers.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

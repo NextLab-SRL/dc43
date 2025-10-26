@@ -248,6 +248,10 @@ write_with_governance(
 
 3) DLT usage (inside a pipeline notebook)
 
+DLT annotations follow the same governance-first philosophy as the Spark IO
+helpers: the decorator only needs a governance client and a context describing
+the contract (or future data product binding).
+
 ```python
 import dlt
 from dc43_integrations.spark.dlt import contract_table
