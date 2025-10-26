@@ -18,7 +18,7 @@ from open_data_contract_standard.model import (
     Server,
 )
 
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
@@ -122,7 +122,7 @@ def main() -> None:
 
             with LocalDLTHarness(spark, module=dlt_module) as harness:
 
-                @contract_table(
+                @governed_table(
                     dlt_module,
                     context={
                         "contract": {

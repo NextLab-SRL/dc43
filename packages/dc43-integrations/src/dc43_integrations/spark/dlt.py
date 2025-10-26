@@ -231,7 +231,7 @@ def _prepare_contract_binding(
     )
 
 
-def contract_expectations(
+def governed_expectations(
     dlt_module: Any,
     *,
     context: "GovernanceReadContextLike",
@@ -261,7 +261,7 @@ def contract_expectations(
     return decorator
 
 
-def contract_table(
+def governed_table(
     dlt_module: Any,
     *,
     context: "GovernanceReadContextLike",
@@ -269,7 +269,7 @@ def contract_table(
     expectation_predicates: Mapping[str, str] | None = None,
     **table_kwargs: Any,
 ) -> Callable[[F], F]:
-    """Return a decorator producing a contract-aware ``@dlt.table`` asset.
+    """Return a decorator producing a governance-aware ``@dlt.table`` asset.
 
     Contract resolution, expectation plans, and registration flow solely through
     the supplied governance service, keeping annotations aligned with the
@@ -294,7 +294,7 @@ def contract_table(
     return decorator
 
 
-def contract_view(
+def governed_view(
     dlt_module: Any,
     *,
     context: "GovernanceReadContextLike",
@@ -302,7 +302,7 @@ def contract_view(
     expectation_predicates: Mapping[str, str] | None = None,
     **view_kwargs: Any,
 ) -> Callable[[F], F]:
-    """Return a decorator producing a contract-aware ``@dlt.view`` asset.
+    """Return a decorator producing a governance-aware ``@dlt.view`` asset.
 
     Just like the read/write wrappers, the annotation only depends on the
     governance client; it resolves contracts and fetches expectation plans
@@ -333,7 +333,7 @@ __all__ = [
     "apply_dlt_expectations",
     "expectation_decorators",
     "expectations_from_validation_details",
-    "contract_expectations",
-    "contract_table",
-    "contract_view",
+    "governed_expectations",
+    "governed_table",
+    "governed_view",
 ]

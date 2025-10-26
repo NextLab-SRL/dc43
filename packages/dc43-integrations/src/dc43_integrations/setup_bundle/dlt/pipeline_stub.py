@@ -69,7 +69,7 @@ def _dlt_pipeline_module() -> str:
         from pyspark.sql import functions as F
 
         from bootstrap_pipeline import build_dlt_context, load_service_clients
-        from dc43_integrations.spark.dlt import contract_expectations, contract_table
+        from dc43_integrations.spark.dlt import governed_expectations, governed_table
 
 
         CONTRACT_ID = "replace-with-contract-id"
@@ -81,7 +81,7 @@ def _dlt_pipeline_module() -> str:
         GOVERNANCE_SERVICE = SUITE.governance
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             context={
                 "contract": {
@@ -99,7 +99,7 @@ def _dlt_pipeline_module() -> str:
 
 
         @dlt.table(comment="Validated dataset derived from the bronze layer.")
-        @contract_expectations(
+        @governed_expectations(
             dlt,
             context={
                 "contract": {

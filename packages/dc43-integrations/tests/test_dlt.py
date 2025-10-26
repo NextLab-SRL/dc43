@@ -12,11 +12,11 @@ from dc43_integrations.spark.dlt import (
     DLTContractBinding,
     DLTExpectations,
     apply_dlt_expectations,
-    contract_expectations,
-    contract_table,
-    contract_view,
     expectation_decorators,
     expectations_from_validation_details,
+    governed_expectations,
+    governed_table,
+    governed_view,
 )
 from dc43_service_clients.governance.models import GovernanceReadContext, ResolvedReadPlan
 from open_data_contract_standard.model import Description, OpenDataContractStandard
@@ -177,7 +177,7 @@ class _StubGovernanceService:
         return list(self.plan)
 
 
-def test_contract_expectations_registers_dlt_annotations():
+def test_governed_expectations_registers_dlt_annotations():
     contract = _make_contract("1.2.0")
     plan = [
         {"key": "required", "predicate": "x IS NOT NULL"},
@@ -186,7 +186,7 @@ def test_contract_expectations_registers_dlt_annotations():
     service = _StubGovernanceService(contract=contract, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_expectations(
+    decorator = governed_expectations(
         dlt,
         context={
             "contract": {
@@ -215,13 +215,13 @@ def test_contract_expectations_registers_dlt_annotations():
     assert resolve_calls, "resolve_read_context should be invoked"
 
 
-def test_contract_expectations_supports_minimum_version_selector():
+def test_governed_expectations_supports_minimum_version_selector():
     contract_new = _make_contract("1.3.0")
     plan = [{"key": "rule", "predicate": "x > 0"}]
     service = _StubGovernanceService(contract=contract_new, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_expectations(
+    decorator = governed_expectations(
         dlt,
         context={
             "contract": {
@@ -244,13 +244,13 @@ def test_contract_expectations_supports_minimum_version_selector():
     assert context.contract.version_selector == ">=1.1.0"
 
 
-def test_contract_table_wraps_dlt_table_and_preserves_binding():
+def test_governed_table_wraps_dlt_table_and_preserves_binding():
     contract = _make_contract("2.0.0")
     plan = [{"key": "rule", "predicate": "amount > 0"}]
     service = _StubGovernanceService(contract=contract, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_table(
+    decorator = governed_table(
         dlt,
         name="orders",
         context={"contract": {"contract_id": contract.id, "contract_version": contract.version}},
@@ -268,13 +268,13 @@ def test_contract_table_wraps_dlt_table_and_preserves_binding():
     assert binding.expectations.enforced == {"rule": "amount > 0"}
 
 
-def test_contract_view_wraps_dlt_view():
+def test_governed_view_wraps_dlt_view():
     contract = _make_contract("3.1.0")
     plan = [{"key": "rule", "predicate": "status IN ('OK')", "optional": True}]
     service = _StubGovernanceService(contract=contract, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_view(
+    decorator = governed_view(
         dlt,
         materialized="false",
         context={"contract": {"contract_id": contract.id, "contract_version": contract.version}},

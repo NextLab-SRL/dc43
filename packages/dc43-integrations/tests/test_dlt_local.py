@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_clients.governance.models import GovernanceReadContext, ResolvedReadPlan
@@ -17,7 +17,7 @@ dlt = ensure_dlt_module(allow_stub=True)
 
 
 @pytest.mark.usefixtures("spark")
-def test_local_harness_runs_contract_table(spark, tmp_path):
+def test_local_harness_runs_governed_table(spark, tmp_path):
     store = FSContractStore(str(tmp_path / "contracts"))
     contract = build_orders_contract(tmp_path / "data")
     store.put(contract)
@@ -59,7 +59,7 @@ def test_local_harness_runs_contract_table(spark, tmp_path):
 
     with LocalDLTHarness(spark) as harness:
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders",
             context={

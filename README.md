@@ -254,13 +254,13 @@ the contract (or future data product binding).
 
 ```python
 import dlt
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_service_clients import load_governance_client
 
 governance = load_governance_client()
 
 
-@contract_table(
+@governed_table(
     dlt,
     context={
         "contract": {

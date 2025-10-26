@@ -1740,8 +1740,7 @@ def run_pipeline(
             "expected_contract_version": expected_version,
             "dataset_name": dataset_name,
             "dataset_version": dataset_version,
-            "contract_service": contracts_server.contract_service,
-            "data_quality_service": contracts_server.dq_service,
+            "governance_service": contracts_server.governance_service,
             "run_type": run_type,
         }
         df = output_transform(df, transform_context)

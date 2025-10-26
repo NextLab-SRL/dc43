@@ -78,19 +78,19 @@ Keep the integration layer thin: it should delegate to the contract drafter, DQ 
 
 Quality enforcement inside DLT notebooks should reuse the SQL predicates computed by the governance stack. When a
 pipeline is declarative you can attach the contract directly to a table/view definition with
-:func:`~dc43_integrations.spark.dlt.contract_table` or :func:`~dc43_integrations.spark.dlt.contract_view`. The decorators
+:func:`~dc43_integrations.spark.dlt.governed_table` or :func:`~dc43_integrations.spark.dlt.governed_view`. The decorators
 resolve the requested contract through the governance service, ask it for the expectation plan, and register the resulting predicates
 with DLT while wrapping ``@dlt.table`` / ``@dlt.view``:
 
 ```python
 import dlt
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_service_clients import load_governance_client
 
 governance = load_governance_client()
 
 
-@contract_table(
+@governed_table(
     dlt,
     context={
         "contract": {
@@ -107,7 +107,7 @@ def orders():
 
 The decorated function keeps a ``__dc43_contract_binding__`` attribute containing the resolved contract id/version and
 the frozen expectation plan so orchestration steps can forward the metadata to governance tooling. Equivalent helpers
-exist for views (``contract_view``), and the lower-level
+exist for views (``governed_view``), and the lower-level
 :func:`~dc43_integrations.spark.dlt.expectations_from_validation_details` helper remains available when a pipeline wants
 to recycle predicates produced by :func:`~dc43_integrations.spark.io.write_with_governance` or manual evaluations; the
 returned :class:`~dc43_integrations.spark.dlt.DLTExpectations` object exposes both decorator and imperative application
@@ -126,7 +126,7 @@ outcome of every expectation evaluation:
 ```python
 from pyspark.sql import SparkSession
 
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 from dc43_service_clients import load_governance_client
 
@@ -136,7 +136,7 @@ governance = load_governance_client()
 
 with LocalDLTHarness(spark, module=dlt) as harness:
 
-    @contract_table(
+    @governed_table(
         dlt,
         name="orders",
         context={
@@ -164,7 +164,7 @@ with the root project), execute::
     python packages/dc43-integrations/examples/dlt_contract_pipeline.py
 
 The script materialises a tiny bronze dataset, decorates a DLT table with
-``contract_table``, prints the expectation summary emitted by the harness, and
+``governed_table``, prints the expectation summary emitted by the harness, and
 optionally persists the validated rows when ``--output`` is provided.
 
 ## Versioned layouts and Delta time travel

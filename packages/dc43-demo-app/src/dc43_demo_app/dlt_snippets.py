@@ -11,8 +11,8 @@ def _orders_enriched_base_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -21,13 +21,16 @@ def _orders_enriched_base_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Join curated orders with customers before publishing.",
         )
         def orders_enriched():
@@ -69,8 +72,8 @@ def _dq_failure_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -79,13 +82,16 @@ def _dq_failure_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Deliberately break the amount expectation to surface a blocking verdict.",
         )
         def orders_enriched():
@@ -128,8 +134,8 @@ def _schema_and_dq_failure_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -138,13 +144,16 @@ def _schema_and_dq_failure_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==2.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "2.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Drop columns and shrink amounts to trigger schema plus DQ drift.",
         )
         def orders_enriched():
@@ -188,8 +197,8 @@ def _draft_guard_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
 
 
         def ensure_active_contract(contract_id: str, version: str) -> None:
@@ -204,13 +213,16 @@ def _draft_guard_snippet() -> str:
         ensure_active_contract("orders_enriched", "3.0.0")
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched_draft",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==3.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "3.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Execution stops before this table while the contract remains in draft.",
         )
         def orders_enriched_draft():
@@ -225,8 +237,8 @@ def _draft_override_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -235,13 +247,16 @@ def _draft_override_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==3.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "3.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Test draft contracts with curated inputs while documenting overrides.",
         )
         def orders_enriched():
@@ -293,8 +308,8 @@ def _read_latest_blocked_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             ContractFirstDatasetLocator,
@@ -305,13 +320,16 @@ def _read_latest_blocked_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Force the latest orders slice through validation to surface a block.",
         )
         def orders_enriched():
@@ -356,8 +374,8 @@ def _read_valid_subset_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -366,13 +384,16 @@ def _read_valid_subset_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Consume the curated valid orders subset while observing outcomes.",
         )
         def orders_enriched():
@@ -417,8 +438,8 @@ def _valid_subset_violation_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -427,13 +448,16 @@ def _valid_subset_violation_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Start from the curated subset but degrade rows to record violations.",
         )
         def orders_enriched():
@@ -482,8 +506,8 @@ def _data_product_roundtrip_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, data_product_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, data_product_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -493,13 +517,16 @@ def _data_product_roundtrip_snippet() -> str:
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Join the upstream data product feed with customers before publishing the governed table.",
         )
         def orders_enriched():
@@ -554,8 +581,8 @@ def _read_override_full_snippet() -> str:
         from dataclasses import dataclass
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -586,13 +613,16 @@ def _read_override_full_snippet() -> str:
                 return dataframe, status
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Force a blocked slice through the pipeline while recording the override.",
         )
         def orders_enriched():
@@ -640,8 +670,8 @@ def _split_lenient_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
@@ -652,13 +682,16 @@ def _split_lenient_snippet() -> str:
         from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Prepare the joined dataset; the write step will route rejects via the split strategy.",
         )
         def orders_enriched():
