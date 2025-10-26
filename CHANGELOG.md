@@ -21,6 +21,9 @@
   building read/write requests from scenario context so presenters initialise
   only the governance client while still recording contract metadata, dataset
   versions, and status payloads in the workspace registry.
+- Delta Live Tables helpers now resolve contracts and expectation plans through
+  the governance client, so notebooks bind contracts using the same
+  governance-first contexts as the Spark IO wrappers.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

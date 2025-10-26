@@ -17,16 +17,10 @@ from typing import (
     cast,
 )
 
-from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
-
-from dc43_service_backends.core.odcs import contract_identity
-from dc43_service_backends.core.versioning import SemVer
+from dc43_service_clients.governance.client.interface import GovernanceServiceClient
+from dc43_service_clients.governance.models import GovernanceReadContext
 if TYPE_CHECKING:  # pragma: no cover - typing-only imports
-    from dc43_service_clients.contracts.client.interface import ContractServiceClient
-    from dc43_service_clients.data_quality.client.interface import DataQualityServiceClient
-else:  # pragma: no cover - runtime stubs avoid optional deps
-    ContractServiceClient = Any  # type: ignore[assignment]
-    DataQualityServiceClient = Any  # type: ignore[assignment]
+    from typing_extensions import TypeAlias
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +128,20 @@ class DLTContractBinding:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+if TYPE_CHECKING:  # pragma: no cover - typing-only alias
+    GovernanceReadContextLike: "TypeAlias" = GovernanceReadContext | Mapping[str, object]
+
+
+def _ensure_read_context(request: "GovernanceReadContextLike") -> GovernanceReadContext:
+    """Normalise mappings into :class:`GovernanceReadContext` instances."""
+
+    if isinstance(request, GovernanceReadContext):
+        return request
+    if isinstance(request, Mapping):
+        return GovernanceReadContext(**dict(request))
+    raise TypeError("context must be a GovernanceReadContext or mapping")
+
+
 def _attach_binding(target: Any, binding: DLTContractBinding) -> None:
     """Expose contract metadata on the decorated callable."""
 
@@ -188,55 +196,6 @@ def expectations_from_validation_details(details: Mapping[str, Any]) -> DLTExpec
     return DLTExpectations(enforced={}, observed={})
 
 
-def _select_version(versions: Sequence[str], minimum: str) -> str:
-    """Return the highest version satisfying ``>= minimum``."""
-
-    base = SemVer.parse(minimum)
-    best: tuple[int, int, int] | None = None
-    best_value: str | None = None
-    for candidate in versions:
-        try:
-            parsed = SemVer.parse(candidate)
-        except ValueError:
-            if candidate == minimum:
-                return candidate
-            continue
-        key = (parsed.major, parsed.minor, parsed.patch)
-        if key < (base.major, base.minor, base.patch):
-            continue
-        if best is None or key > best:
-            best = key
-            best_value = candidate
-    if best_value is None:
-        raise ValueError(f"No versions found satisfying >= {minimum}")
-    return best_value
-
-
-def _resolve_contract(
-    *,
-    contract_id: str,
-    expected_version: str | None,
-    service: ContractServiceClient,
-) -> OpenDataContractStandard:
-    """Fetch a contract respecting version selectors."""
-
-    if expected_version is None:
-        contract = service.latest(contract_id)
-        if contract is None:
-            raise ValueError(f"No versions available for contract {contract_id}")
-        return contract
-
-    if expected_version.startswith("=="):
-        return service.get(contract_id, expected_version[2:])
-
-    if expected_version.startswith(">="):
-        base = expected_version[2:]
-        version = _select_version(list(service.list_versions(contract_id)), base)
-        return service.get(contract_id, version)
-
-    return service.get(contract_id, expected_version)
-
-
 def _freeze_expectation_plan(
     plan: Iterable[Mapping[str, Any]],
 ) -> Tuple[Mapping[str, Any], ...]:
@@ -249,29 +208,25 @@ def _freeze_expectation_plan(
 
 def _prepare_contract_binding(
     *,
-    contract_id: str,
-    expected_contract_version: str | None,
-    contract_service: ContractServiceClient,
-    data_quality_service: DataQualityServiceClient,
+    governance_service: GovernanceServiceClient,
+    context: GovernanceReadContext,
     expectation_predicates: Mapping[str, str] | None,
 ) -> DLTContractBinding:
-    contract = _resolve_contract(
-        contract_id=contract_id,
-        expected_version=expected_contract_version,
-        service=contract_service,
-    )
-    contract_id_value, contract_version = contract_identity(contract)
-    plan = _freeze_expectation_plan(
-        data_quality_service.describe_expectations(contract=contract)
+    plan = governance_service.resolve_read_context(context=context)
+    expectation_plan = _freeze_expectation_plan(
+        governance_service.describe_expectations(
+            contract_id=plan.contract_id,
+            contract_version=plan.contract_version,
+        )
     )
     expectations = DLTExpectations.from_expectation_plan(
-        plan,
+        expectation_plan,
         fallback_predicates=expectation_predicates,
     )
     return DLTContractBinding(
-        contract_id=contract_id_value,
-        contract_version=contract_version,
-        expectation_plan=plan,
+        contract_id=plan.contract_id,
+        contract_version=plan.contract_version,
+        expectation_plan=expectation_plan,
         expectations=expectations,
     )
 
@@ -279,19 +234,15 @@ def _prepare_contract_binding(
 def contract_expectations(
     dlt_module: Any,
     *,
-    contract_id: str,
-    contract_service: ContractServiceClient,
-    data_quality_service: DataQualityServiceClient,
-    expected_contract_version: str | None = None,
+    context: "GovernanceReadContextLike",
+    governance_service: GovernanceServiceClient,
     expectation_predicates: Mapping[str, str] | None = None,
 ) -> Callable[[F], F]:
     """Return a decorator binding a DLT asset to contract expectations."""
 
     binding = _prepare_contract_binding(
-        contract_id=contract_id,
-        expected_contract_version=expected_contract_version,
-        contract_service=contract_service,
-        data_quality_service=data_quality_service,
+        governance_service=governance_service,
+        context=_ensure_read_context(context),
         expectation_predicates=expectation_predicates,
     )
 
@@ -308,20 +259,16 @@ def contract_expectations(
 def contract_table(
     dlt_module: Any,
     *,
-    contract_id: str,
-    contract_service: ContractServiceClient,
-    data_quality_service: DataQualityServiceClient,
-    expected_contract_version: str | None = None,
+    context: "GovernanceReadContextLike",
+    governance_service: GovernanceServiceClient,
     expectation_predicates: Mapping[str, str] | None = None,
     **table_kwargs: Any,
 ) -> Callable[[F], F]:
     """Return a decorator producing a contract-aware ``@dlt.table`` asset."""
 
     binding = _prepare_contract_binding(
-        contract_id=contract_id,
-        expected_contract_version=expected_contract_version,
-        contract_service=contract_service,
-        data_quality_service=data_quality_service,
+        governance_service=governance_service,
+        context=_ensure_read_context(context),
         expectation_predicates=expectation_predicates,
     )
     table_decorator = dlt_module.table(**table_kwargs)
@@ -340,20 +287,16 @@ def contract_table(
 def contract_view(
     dlt_module: Any,
     *,
-    contract_id: str,
-    contract_service: ContractServiceClient,
-    data_quality_service: DataQualityServiceClient,
-    expected_contract_version: str | None = None,
+    context: "GovernanceReadContextLike",
+    governance_service: GovernanceServiceClient,
     expectation_predicates: Mapping[str, str] | None = None,
     **view_kwargs: Any,
 ) -> Callable[[F], F]:
     """Return a decorator producing a contract-aware ``@dlt.view`` asset."""
 
     binding = _prepare_contract_binding(
-        contract_id=contract_id,
-        expected_contract_version=expected_contract_version,
-        contract_service=contract_service,
-        data_quality_service=data_quality_service,
+        governance_service=governance_service,
+        context=_ensure_read_context(context),
         expectation_predicates=expectation_predicates,
     )
     view_decorator = dlt_module.view(**view_kwargs)

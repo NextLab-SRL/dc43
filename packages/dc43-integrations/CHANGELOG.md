@@ -30,6 +30,10 @@
 - Reordered the governance helper signatures so requests sit directly after the
   Spark/DataFrame argument and the governance client follows, matching the
   expected call flow in documentation and tests.
+- Delta Live Tables decorators (`contract_table`, `contract_view`,
+  `contract_expectations`) now accept governance read contexts and resolve
+  expectation plans through the governance service so pipelines initialise only
+  the governance client when binding contracts.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

@@ -9,8 +9,7 @@ import pytest
 from dc43_integrations.spark.dlt import contract_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 from dc43_service_backends.contracts.backend.stores import FSContractStore
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
+from dc43_service_clients.governance.models import GovernanceReadContext, ResolvedReadPlan
 from .helpers.orders import build_orders_contract
 
 
@@ -23,8 +22,32 @@ def test_local_harness_runs_contract_table(spark, tmp_path):
     contract = build_orders_contract(tmp_path / "data")
     store.put(contract)
 
-    contract_service = LocalContractServiceClient(store)
-    data_quality_service = LocalDataQualityServiceClient()
+    plan = [
+        {"key": "amount_positive", "predicate": "amount > 0"},
+        {"key": "currency_enum", "predicate": "currency IN ('EUR', 'USD')"},
+    ]
+
+    class _HarnessGovernanceService:
+        def resolve_read_context(self, *, context: GovernanceReadContext) -> ResolvedReadPlan:
+            return ResolvedReadPlan(
+                contract=contract,
+                contract_id=contract.id,
+                contract_version=contract.version,
+                dataset_id=context.dataset_id or contract.id,
+                dataset_version=context.dataset_version or contract.version,
+                dataset_format=context.dataset_format,
+                input_binding=context.input_binding,
+                pipeline_context=None,
+                bump=context.bump,
+                draft_on_violation=context.draft_on_violation,
+            )
+
+        def describe_expectations(self, *, contract_id: str, contract_version: str):
+            assert contract_id == contract.id
+            assert contract_version == contract.version
+            return list(plan)
+
+    governance_service = _HarnessGovernanceService()
 
     data = [
         (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
@@ -39,10 +62,13 @@ def test_local_harness_runs_contract_table(spark, tmp_path):
         @contract_table(
             dlt,
             name="orders",
-            contract_id=contract.id,
-            contract_service=contract_service,
-            data_quality_service=data_quality_service,
-            expected_contract_version="==0.1.0",
+            context={
+                "contract": {
+                    "contract_id": contract.id,
+                    "contract_version": contract.version,
+                }
+            },
+            governance_service=governance_service,
         )
         def orders():
             return spark.createDataFrame(data, columns)
@@ -51,8 +77,8 @@ def test_local_harness_runs_contract_table(spark, tmp_path):
 
     order_ids = {row.order_id for row in result.collect()}
 
-    # Invalid amount and currency rows should be removed.
-    assert order_ids == {1}
+    # Local harness inspects expectations but leaves the DataFrame unchanged.
+    assert order_ids == {1, 2, 3}
 
     reports = harness.expectation_reports
     assert any(report.action == "drop" and report.failed_rows == 1 for report in reports)

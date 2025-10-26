@@ -250,21 +250,22 @@ write_with_governance(
 
 ```python
 import dlt
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.data_quality import LocalDataQualityServiceClient
 from dc43_integrations.spark.dlt import contract_table
+from dc43_service_clients import load_governance_client
 
-contract_service = LocalContractServiceClient(store)
-data_quality_service = LocalDataQualityServiceClient()
+governance = load_governance_client()
 
 
 @contract_table(
     dlt,
+    context={
+        "contract": {
+            "contract_id": "sales.orders",
+            "version_selector": ">=0.1.0",
+        }
+    },
+    governance_service=governance,
     name="orders",
-    contract_id="sales.orders",
-    contract_service=contract_service,
-    data_quality_service=data_quality_service,
-    expected_contract_version=">=0.1.0",
 )
 def orders():
     df = spark.read.stream.table("bronze.sales_orders_raw")

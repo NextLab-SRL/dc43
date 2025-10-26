@@ -68,7 +68,7 @@ def _dlt_pipeline_module() -> str:
         import dlt
         from pyspark.sql import functions as F
 
-        from bootstrap_pipeline import build_dlt_context, load_backends
+        from bootstrap_pipeline import build_dlt_context, load_service_clients
         from dc43_integrations.spark.dlt import contract_expectations, contract_table
 
 
@@ -76,18 +76,20 @@ def _dlt_pipeline_module() -> str:
         CONTRACT_VERSION = "replace-with-contract-version"
         SOURCE_TABLE = "replace-with-source-table"
 
-        SUITE = load_backends()
+        SUITE = load_service_clients()
         CONTEXT = build_dlt_context()
-        CONTRACT_SERVICE = SUITE.contract
-        DATA_QUALITY_SERVICE = SUITE.data_quality
+        GOVERNANCE_SERVICE = SUITE.governance
 
 
         @contract_table(
             dlt,
-            contract_id=CONTRACT_ID,
-            contract_service=CONTRACT_SERVICE,
-            data_quality_service=DATA_QUALITY_SERVICE,
-            expected_contract_version=f"=={CONTRACT_VERSION}",
+            context={
+                "contract": {
+                    "contract_id": CONTRACT_ID,
+                    "contract_version": CONTRACT_VERSION,
+                }
+            },
+            governance_service=GOVERNANCE_SERVICE,
             table_properties={"quality": "bronze"},
         )
         def bronze_contract_input():
@@ -99,10 +101,13 @@ def _dlt_pipeline_module() -> str:
         @dlt.table(comment="Validated dataset derived from the bronze layer.")
         @contract_expectations(
             dlt,
-            contract_id=CONTRACT_ID,
-            contract_service=CONTRACT_SERVICE,
-            data_quality_service=DATA_QUALITY_SERVICE,
-            expected_contract_version=f"=={CONTRACT_VERSION}",
+            context={
+                "contract": {
+                    "contract_id": CONTRACT_ID,
+                    "contract_version": CONTRACT_VERSION,
+                }
+            },
+            governance_service=GOVERNANCE_SERVICE,
         )
         def silver_contract_view():
             """Apply lightweight transformations that preserve the contract."""
