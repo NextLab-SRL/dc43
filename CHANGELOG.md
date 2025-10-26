@@ -17,6 +17,10 @@
 - Governance Spark helpers now position the request payload immediately after
   the Spark/DataFrame argument, with the governance client supplied next, so
   call sites read in the same order as the underlying orchestration flow.
+- Demo Spark and streaming scenarios now rely on the governance helpers,
+  building read/write requests from scenario context so presenters initialise
+  only the governance client while still recording contract metadata, dataset
+  versions, and status payloads in the workspace registry.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

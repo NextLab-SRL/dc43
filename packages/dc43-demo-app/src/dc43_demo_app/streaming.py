@@ -18,9 +18,12 @@ from pyspark.sql.streaming import StreamingQuery, StreamingQueryException
 
 from dc43_integrations.spark.io import (
     StaticDatasetLocator,
-    read_stream_with_contract,
-    write_stream_with_contract,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
+    read_stream_with_governance,
+    write_stream_with_governance,
 )
+from dc43_service_clients.governance import GovernanceReadContext, GovernanceWriteContext
 from dc43_service_clients.data_quality import ValidationResult
 
 from .contracts_api import (
@@ -909,15 +912,20 @@ def _scenario_valid(
         }
     )
 
-    df, read_status = read_stream_with_contract(
-        spark=spark,
-        contract_id=_INPUT_CONTRACT,
-        contract_service=contract_service,
-        expected_contract_version=f"=={_CONTRACT_VERSIONS[_INPUT_CONTRACT]}",
-        data_quality_service=dq_service,
-        governance_service=governance_service,
+    read_request = GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": _INPUT_CONTRACT,
+                "version_selector": f"=={_CONTRACT_VERSIONS[_INPUT_CONTRACT]}",
+            }
+        ),
         dataset_locator=StaticDatasetLocator(dataset_version=None),
         options={"rowsPerSecond": "6", "numPartitions": "1"},
+    )
+    df, read_status = read_stream_with_governance(
+        spark,
+        read_request,
+        governance_service=governance_service,
     )
     input_details = _sanitize_validation_details(
         read_status.details if read_status else {}
@@ -944,18 +952,23 @@ def _scenario_valid(
     def _forward(event: Mapping[str, Any]) -> None:
         _emit(event)
 
-    validation = write_stream_with_contract(
-        df=processed_df,
-        contract_id=_OUTPUT_CONTRACT,
-        contract_service=contract_service,
-        expected_contract_version=f"=={_CONTRACT_VERSIONS[_OUTPUT_CONTRACT]}",
-        data_quality_service=dq_service,
-        governance_service=governance_service,
+    write_request = GovernanceSparkWriteRequest(
+        context=GovernanceWriteContext(
+            contract={
+                "contract_id": _OUTPUT_CONTRACT,
+                "version_selector": f"=={_CONTRACT_VERSIONS[_OUTPUT_CONTRACT]}",
+            }
+        ),
         dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
         options={
             "checkpointLocation": str(checkpoint),
             "queryName": f"demo_stream_valid_{dataset_version}",
         },
+    )
+    validation = write_stream_with_governance(
+        df=processed_df,
+        request=write_request,
+        governance_service=governance_service,
         enforce=run_type == "enforce",
         on_streaming_batch=_forward,
     )
