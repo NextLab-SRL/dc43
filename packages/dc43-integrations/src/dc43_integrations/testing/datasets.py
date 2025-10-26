@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 import re
+from urllib.parse import urlparse
 
 from faker import Faker
 from open_data_contract_standard.model import (  # type: ignore
@@ -292,6 +293,17 @@ class _CachingLocator(DatasetLocatorStrategy):
         return self._write_resolution
 
 
+def _storage_path_from_resolution(raw: str) -> Path | str:
+    """Return an appropriate representation for a resolved storage path."""
+
+    parsed = urlparse(raw)
+    if parsed.scheme and (parsed.netloc or raw.startswith(f"{parsed.scheme}:/")):
+        # Preserve remote/storage-specific URIs such as s3://bucket or dbfs:/mnt/data
+        return raw
+
+    return Path(raw)
+
+
 def generate_contract_dataset(
     spark: SparkSession,
     contract: OpenDataContractStandard,
@@ -304,7 +316,7 @@ def generate_contract_dataset(
     mode: str = "overwrite",
     governance_service: GovernanceServiceClient | None = None,
     dataset_locator: DatasetLocatorStrategy | None = None,
-) -> tuple[DataFrame, Path]:
+) -> tuple[DataFrame, Path | str]:
     """Generate a Spark ``DataFrame`` aligned to ``contract`` and persist it."""
 
     if rows <= 0:
@@ -375,7 +387,7 @@ def generate_contract_dataset(
     if not resolved_path_value:
         raise ValueError("Contract server does not define a storage path")
 
-    storage_path = Path(resolved_path_value)
+    storage_path = _storage_path_from_resolution(resolved_path_value)
 
     return df, storage_path
 

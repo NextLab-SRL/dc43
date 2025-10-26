@@ -12,6 +12,7 @@ from open_data_contract_standard.model import (  # type: ignore
 
 from dc43_integrations.spark.io import ContractVersionLocator, StaticDatasetLocator
 from dc43_integrations.testing import generate_contract_dataset
+from dc43_integrations.testing.datasets import _storage_path_from_resolution
 from dc43_service_clients.data_quality import ValidationResult
 from dc43_service_clients.governance.models import QualityAssessment
 
@@ -164,3 +165,15 @@ def test_generate_contract_dataset_supports_governance_override(spark, tmp_path)
     assert governance.links == [
         (contract.id, contract.version, contract.id, contract.version)
     ]
+
+
+def test_storage_path_from_resolution_preserves_remote_uri():
+    remote = "s3://bucket/contracts/orders"
+    assert _storage_path_from_resolution(remote) == remote
+
+
+def test_storage_path_from_resolution_normalises_local_path(tmp_path):
+    local = tmp_path / "dataset"
+    resolved = _storage_path_from_resolution(str(local))
+    assert isinstance(resolved, Path)
+    assert resolved == local
