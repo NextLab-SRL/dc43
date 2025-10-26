@@ -13,6 +13,9 @@
   `describe_expectations`) and include validation payloads in
   `QualityAssessment` responses so integrations can operate solely through the
   governance API.
+- Guarded governance/bootstrap tests with `pytest.importorskip` so the package
+  skips cleanly when `dc43_service_backends` is not installed, avoiding
+  import-time failures in minimal CI environments.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

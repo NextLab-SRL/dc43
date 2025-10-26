@@ -30,6 +30,13 @@
 - Clarified in the DLT docs and annotations that they rely exclusively on the
   governance service, mirroring the `read_with_governance`/`write_with_governance`
   entry points.
+- Updated the Spark setup bundle and integration helper stubs to emit
+  governance-only read/write snippets and refreshed the getting-started guides
+  (local, remote, Databricks, contracts app) to showcase
+  `read_with_governance`/`write_with_governance` plus the new request objects.
+- Guarded the service-clients bootstrap tests with `pytest.importorskip` so the
+  package test suite skips gracefully when optional backend dependencies are not
+  installed.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

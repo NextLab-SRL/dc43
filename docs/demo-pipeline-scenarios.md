@@ -20,7 +20,7 @@ is simple:
 1. Read from an existing data product output using `read_from_data_product` so
    the contract is resolved automatically.
 2. Persist an intermediate dataset that is only governed by a contract with
-   `write_with_contract_id` (the contract-only helper).
+   `write_with_contract_id` (which now forwards to the governance client under the hood).
 3. Load the intermediate dataset with `read_from_contract` and publish the
    final slice through `write_to_data_product`, which registers the output port
    if it already exists and aborts the pipeline if a draft must be created.
@@ -106,7 +106,7 @@ All dataset versions default to an ISO-8601 timestamp captured at write time. Wh
 
 #### Draft contract blocked
 - **Target contract:** Draft `orders_enriched:3.0.0` marked as `draft` in the contract store.
-- **Dataset versions:** None; `write_with_contract` raises before the write executes because the default policy only allows active contracts.
+- **Dataset versions:** None; `write_with_governance` raises before the write executes because the default policy only allows active contracts.
 - **Outcome:** Enforcement surfaces the contract status failure and no new dataset version is recorded.
 
 #### Allow draft contract
@@ -117,7 +117,7 @@ All dataset versions default to an ISO-8601 timestamp captured at write time. Wh
 
 #### Invalid input blocked
 - **Target contract:** `orders_enriched:1.1.0`, but strict enforcement stops at the read stage.
-- **Dataset versions:** None; `read_with_contract` raises because governance records `orders latest → 2025-09-28` as `block`.
+- **Dataset versions:** None; `read_with_governance` raises because governance records `orders latest → 2025-09-28` as `block`.
 - **Outcome:** Highlights the default behaviour when mixed-validity inputs arrive. The stub governance entry also references `orders::valid latest__valid → 2025-09-28` and `orders::reject latest__reject → 2025-09-28` so downstream jobs know where to look for remediated slices.
 
 #### Prefer valid subset

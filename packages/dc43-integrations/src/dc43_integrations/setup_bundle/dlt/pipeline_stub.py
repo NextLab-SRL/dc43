@@ -116,7 +116,19 @@ def _dlt_pipeline_module() -> str:
             return df.withColumn("processed_at", F.current_timestamp())
 
 
-        @dlt.table(comment="Publish a gold table ready for downstream consumption.")
+        @governed_table(
+            dlt,
+            name="gold_contract_output",
+            context={
+                "contract": {
+                    "contract_id": CONTRACT_ID,
+                    "contract_version": CONTRACT_VERSION,
+                }
+            },
+            governance_service=GOVERNANCE_SERVICE,
+            comment="Publish a gold table ready for downstream consumption.",
+            table_properties={"quality": "gold"},
+        )
         def gold_contract_output():
             df = dlt.read("silver_contract_view")
             if "is_valid" in df.columns:

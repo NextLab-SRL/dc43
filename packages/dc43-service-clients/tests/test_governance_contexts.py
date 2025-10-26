@@ -10,6 +10,8 @@ from open_data_contract_standard.model import (  # type: ignore
     Server,
 )
 
+pytest.importorskip("dc43_service_backends")
+
 from dc43_service_backends.contracts.backend.local import LocalContractServiceBackend
 from dc43_service_backends.contracts.backend.stores.filesystem import FSContractStore
 from dc43_service_backends.data_quality import LocalDataQualityServiceBackend

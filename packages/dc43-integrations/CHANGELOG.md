@@ -36,6 +36,10 @@
   the governance client when binding contracts.
 - Documented that the DLT annotations depend solely on the governance client,
   matching the usage expectations established by the Spark governance wrappers.
+- Updated the Spark setup bundle and generated pipeline stubs to call the
+  governance-only read/write helpers and emit `GovernanceSparkReadRequest`/
+  `GovernanceSparkWriteRequest` payloads, with accompanying guide updates for
+  Databricks, remote Spark, and the contracts app integration helper.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

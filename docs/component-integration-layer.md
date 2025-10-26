@@ -48,25 +48,25 @@ warehouses, streaming frameworks, REST services, or ELT tools.
 ## Data product bindings and draft enforcement
 
 Spark pipelines can now declare Open Data Product Standard (ODPS) bindings when
-calling the integration helpers. Dedicated wrappers surface the most common
-flows:
+calling the integration helpers. Governance-first wrappers surface the most
+common flows:
 
-- `read_from_contract` / `write_with_contract_id` accept contract identifiers
-  directly, keeping the signature laser-focused on contract lookups and
-  validation knobs.
-- `read_from_data_product` / `write_to_data_product` resolve contracts directly
-  from the data product service when a binding points at an existing port.
+- `read_with_governance` / `write_with_governance` accept
+  `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest` payloads so callers
+  describe the contract or port they want to interact with while keeping Spark
+  overrides (format, dataset locator, streaming callbacks) in one place.
+- Convenience helpers such as `read_from_contract`, `write_with_contract_id`,
+  `read_from_data_product`, and `write_to_data_product` now build those
+  governance requests under the hood. They remain available for incremental
+  migrations and to shorten common snippets, but no longer require individual
+  contract/data-product clients.
 
-Batch pipelines typically call into the governance-only wrappers
-(`read_with_governance` / `write_with_governance`) while streaming jobs reuse
+Batch pipelines typically call into the governance-only wrappers while streaming jobs reuse
 `read_stream_with_governance` / `write_stream_with_governance`. Callers describe
 their intent through `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest`
 objects, which combine the `GovernanceReadContext`/`GovernanceWriteContext`
 payloads with Spark-specific overrides (format, dataset locator, streaming
-callbacks). Legacy functions that accept explicit contract or data-quality
-clients remain available for incremental migrations. All helpers share the same
-contract-resolution core under the hood so callers can mix and match parameters
-as needed. Passing both a binding and a contract id continues to pin the run to
+callbacks). Passing both a binding and a contract id continues to pin the run to
 the requested contract while recording the port metadata.
 
 Whenever a read or write registers a new input/output port the integration

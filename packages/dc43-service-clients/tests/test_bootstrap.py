@@ -1,3 +1,8 @@
+import pytest
+
+
+pytest.importorskip("dc43_service_backends")
+
 from dc43_service_backends.config import GovernanceStoreConfig, ServiceBackendsConfig
 from dc43_service_clients import load_governance_client, load_service_clients
 from dc43_service_clients.governance import (

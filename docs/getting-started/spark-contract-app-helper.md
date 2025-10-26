@@ -71,7 +71,8 @@ you need the container to spawn the backend locally.
 2. For each transformation, choose the integration strategy (Spark batch, Delta Live Tables, streaming, ...).
 3. Click **Generate stub**. The helper calls `/api/integration-helper/stub` to assemble a tailored Spark snippet.
 4. Copy the highlighted code block and paste it into your notebook or repo. The snippet already imports
-   `write_with_contract`, sets up the expected contract version, and includes TODO markers for business-specific logic.
+   the governance-first helpers (``read_with_governance``/``write_with_governance``), sets up the expected contract
+   version, and includes TODO markers for business-specific logic.
 
 You can switch the target language from the dropdown above the stub (for example to Python or SQL) and regenerate as often as
 needed.
