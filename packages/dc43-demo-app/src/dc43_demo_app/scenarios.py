@@ -422,7 +422,7 @@ def run_orders_enriched_ok(
             "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.0.0</code>"
             " and lets the decorator generate <code>dlt.expect_all</code> calls.</li>"
             "<li><strong>Writes:</strong> Persists <code>orders_enriched</code>"
-            " via <code>write_with_contract</code> after the DLT table enforces the expectations.</li>"
+            " via <code>write_with_governance</code> after the DLT table enforces the expectations.</li>"
             "<li><strong>Status:</strong> Both the harness reports and the post-write validation return OK.</li>"
             "</ul>"
         ),
@@ -461,7 +461,7 @@ def run_orders_enriched_ok(
                   <code>LocalDLTHarness</code>, allowing notebooks that rely on
                   <code>@dlt.table</code> to exercise contract expectations
                   locally. The resulting dataframe is then persisted with
-                  <code>write_with_contract</code> so history, telemetry, and
+                  <code>write_with_governance</code> so history, telemetry, and
                   record-keeping match the Spark-only run.
                 </p>
                 """,
