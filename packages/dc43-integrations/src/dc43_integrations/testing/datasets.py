@@ -16,11 +16,11 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import types as T
 
 from dc43_service_backends.core.odcs import list_properties
+from dc43_service_backends.governance.backend import LocalGovernanceServiceBackend
 from dc43_service_clients.contracts import ContractServiceClient
-from dc43_service_clients.data_quality import (
-    DataQualityServiceClient,
-    LocalDataQualityServiceClient,
-)
+from dc43_service_clients.data_quality import LocalDataQualityServiceClient
+from dc43_service_clients.governance import GovernanceServiceClient
+from dc43_service_clients.governance.client.local import LocalGovernanceServiceClient
 from dc43_integrations.spark.data_quality import spark_type_name
 from dc43_integrations.spark.io import (
     ContractVersionLocator,
@@ -302,8 +302,7 @@ def generate_contract_dataset(
     faker_locale: str | None = None,
     seed: int | None = None,
     mode: str = "overwrite",
-    contract_service: ContractServiceClient | None = None,
-    data_quality_service: DataQualityServiceClient | None = None,
+    governance_service: GovernanceServiceClient | None = None,
     dataset_locator: DatasetLocatorStrategy | None = None,
 ) -> tuple[DataFrame, Path]:
     """Generate a Spark ``DataFrame`` aligned to ``contract`` and persist it."""
@@ -343,8 +342,14 @@ def generate_contract_dataset(
     locator = dataset_locator or ContractVersionLocator(dataset_version=target_version)
     caching_locator = _CachingLocator(locator)
 
-    dq_client = data_quality_service or LocalDataQualityServiceClient()
-    service = contract_service or _InlineContractService(contract)
+    dq_client = LocalDataQualityServiceClient()
+    service = _InlineContractService(contract)
+    governance_client = governance_service or LocalGovernanceServiceClient(
+        LocalGovernanceServiceBackend(
+            contract_client=service,
+            dq_client=dq_client,
+        )
+    )
 
     expected_version = f"=={contract.version}" if contract.version else None
     resolved_path = str(path) if path is not None else None
@@ -358,6 +363,7 @@ def generate_contract_dataset(
         mode=mode,
         enforce=False,
         data_quality_service=dq_client,
+        governance_service=governance_client,
         dataset_locator=caching_locator,
     )
 

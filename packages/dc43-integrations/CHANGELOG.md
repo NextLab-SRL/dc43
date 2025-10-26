@@ -6,6 +6,9 @@
 - Added `generate_contract_dataset` testing helper to materialise Faker-powered
   sample datasets aligned with ODCS contracts and write them to the configured
   storage path for integration tests.
+- `generate_contract_dataset` now wires governance orchestration through a
+  provided or inline governance client instead of requesting contract and data
+  quality services directly, simplifying integration overrides.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

@@ -12,6 +12,9 @@ from open_data_contract_standard.model import (  # type: ignore
 
 from dc43_integrations.spark.io import ContractVersionLocator, StaticDatasetLocator
 from dc43_integrations.testing import generate_contract_dataset
+from dc43_service_clients.data_quality import ValidationResult
+from dc43_service_clients.governance.models import QualityAssessment
+
 from .helpers.orders import build_orders_contract
 
 
@@ -85,3 +88,79 @@ def test_generate_contract_dataset_resolves_relative_paths_and_seed(spark, tmp_p
     assert [tuple(row) for row in df_one.collect()] == [tuple(row) for row in df_two.collect()]
     assert any(path_one.iterdir())
     assert any(path_two.iterdir())
+
+
+class RecordingGovernanceService:
+    def __init__(self) -> None:
+        self.evaluations: list[tuple[str, str, str]] = []
+        self.links: list[tuple[str, str, str, str]] = []
+
+    def evaluate_dataset(
+        self,
+        *,
+        contract_id: str,
+        contract_version: str,
+        dataset_id: str,
+        dataset_version: str,
+        validation: ValidationResult | None,
+        observations,
+        bump: str = "minor",
+        context = None,
+        pipeline_context = None,
+        operation: str = "write",
+        draft_on_violation: bool = False,
+    ) -> QualityAssessment:
+        self.evaluations.append((contract_id, dataset_id, dataset_version))
+        # consume observations so downstream code can reuse cached metrics
+        payload = observations()
+        status = validation or ValidationResult(
+            ok=True,
+            errors=[],
+            warnings=[],
+            metrics={},
+            status="ok",
+        )
+        status.merge_details({"schema": payload.schema, "metrics": payload.metrics})
+        return QualityAssessment(status=status, draft=None, observations_reused=payload.reused)
+
+    def review_validation_outcome(self, **_kwargs):
+        return None
+
+    def link_dataset_contract(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        contract_id: str,
+        contract_version: str,
+    ) -> None:
+        self.links.append((dataset_id, dataset_version, contract_id, contract_version))
+
+    def get_linked_contract_version(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str | None = None,
+    ) -> str | None:
+        return None
+
+
+def test_generate_contract_dataset_supports_governance_override(spark, tmp_path):
+    contract = build_orders_contract(tmp_path / "orders")
+    governance = RecordingGovernanceService()
+
+    df, path = generate_contract_dataset(
+        spark,
+        contract,
+        rows=2,
+        seed=42,
+        governance_service=governance,
+    )
+
+    assert df.count() == 2
+    assert path.parent == tmp_path / "orders"
+    assert governance.evaluations
+    assert governance.evaluations[0][0] == contract.id
+    assert governance.links == [
+        (contract.id, contract.version, contract.id, contract.version)
+    ]
