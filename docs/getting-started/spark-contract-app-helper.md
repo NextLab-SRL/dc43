@@ -85,7 +85,11 @@ pipeline behaviour. If you need to run development jobs against a draft
 contract, configure the provided strategies directly in the stub:
 
 ```python
-from dc43_integrations.spark.io import DefaultReadStatusStrategy
+from dc43_integrations.spark.io import (
+    DefaultReadStatusStrategy,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
+)
 from dc43_integrations.spark.violation_strategy import NoOpWriteViolationStrategy
 from dc43_service_clients.governance import GovernanceReadContext
 
@@ -95,11 +99,13 @@ write_strategy = NoOpWriteViolationStrategy(allowed_contract_statuses=("active",
 df, status = read_with_governance(
     spark,
     governance_service=governance_client,
-    context=GovernanceReadContext(
-        contract={
-            "contract_id": "orders_enriched",
-            "version_selector": "==3.0.0",
-        }
+    request=GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": "orders_enriched",
+                "version_selector": "==3.0.0",
+            }
+        )
     ),
     status_strategy=read_status,
     enforce=True,
@@ -107,9 +113,15 @@ df, status = read_with_governance(
 
 write_with_governance(
     df=df,
-    contract_id="orders_enriched",
-    expected_contract_version="==3.0.0",
     governance_service=governance_client,
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "orders_enriched",
+                "contract_version": "3.0.0",
+            }
+        }
+    ),
     violation_strategy=write_strategy,
     return_status=True,
 )

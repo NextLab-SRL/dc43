@@ -22,6 +22,11 @@
   `GovernanceReadContext` payloads to capture contract references or
   data-product input bindings directly when resolving datasets through the
   governance client.
+- Introduced `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest` so the
+  governance wrappers (batch and streaming) collapse their signatures down to a
+  governance client plus a single orchestration payload describing contract
+  references, data product bindings, dataset locators, and Spark-specific
+  overrides.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

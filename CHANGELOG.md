@@ -10,6 +10,10 @@
   `GovernanceReadContext` payloads so pipelines can declare contract references
   or data product bindings explicitly when resolving datasets through
   governance.
+- `read_with_governance`/`write_with_governance` (and streaming variants) now
+  take `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest` containers,
+  reducing function signatures to a single governance client plus an orchestration
+  payload that describes contracts, data product bindings, and Spark overrides.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

@@ -61,7 +61,10 @@ from dc43_service_clients.governance import GovernanceReadContext
 from dc43_integrations.spark.io import (
     ContractVersionLocator,
     DefaultReadStatusStrategy,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
     read_with_governance,
+    write_with_governance,
 )
 
 governance_client = load_governance_client(Path.home() / ".config/dc43/dc43-service-backends.toml")
@@ -72,13 +75,15 @@ read_strategy = DefaultReadStatusStrategy(
 orders_df, status = read_with_governance(
     spark,
     governance_service=governance_client,
-    context=GovernanceReadContext(
-        contract={
-            "contract_id": "sales.orders",
-            "version_selector": ">=0.1.0",
-        }
+    request=GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        ),
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     status_strategy=read_strategy,
     enforce=True,
     auto_cast=True,
@@ -96,15 +101,18 @@ orchestrator (for example Databricks Jobs) needs the metadata.
 ### Validate writes before publishing
 
 ```python
-from dc43_integrations.spark.io import write_with_governance
-
 write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    expected_contract_version=">=0.1.0",
     governance_service=governance_client,
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    mode="append",
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
     enforce=True,
     auto_cast=True,
 )

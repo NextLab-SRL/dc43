@@ -14,6 +14,8 @@ from dc43_integrations.spark.io import (
     write_to_data_product,
     write_with_contract,
     write_with_governance,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
     StaticDatasetLocator,
     ContractVersionLocator,
     DatasetResolution,
@@ -61,11 +63,17 @@ def test_governance_wrappers_require_only_governance_client(
 
     validation, status = write_with_governance(
         df=df,
-        contract_id=contract.id,
-        expected_contract_version=f"=={contract.version}",
         governance_service=governance,
-        path=str(contract_path),
-        format="parquet",
+        request=GovernanceSparkWriteRequest(
+            context={
+                "contract": {
+                    "contract_id": contract.id,
+                    "contract_version": contract.version,
+                }
+            },
+            path=str(contract_path),
+            format="parquet",
+        ),
         return_status=True,
     )
 
@@ -75,14 +83,16 @@ def test_governance_wrappers_require_only_governance_client(
     read_df, read_status = read_with_governance(
         spark,
         governance_service=governance,
-        context=GovernanceReadContext(
-            contract={
-                "contract_id": contract.id,
-                "contract_version": contract.version,
-            }
+        request=GovernanceSparkReadRequest(
+            context=GovernanceReadContext(
+                contract={
+                    "contract_id": contract.id,
+                    "contract_version": contract.version,
+                }
+            ),
+            path=str(contract_path),
+            format="parquet",
         ),
-        path=str(contract_path),
-        format="parquet",
         return_status=True,
     )
 

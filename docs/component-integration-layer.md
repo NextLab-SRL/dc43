@@ -59,12 +59,15 @@ flows:
 
 Batch pipelines typically call into the governance-only wrappers
 (`read_with_governance` / `write_with_governance`) while streaming jobs reuse
-`read_stream_with_governance` / `write_stream_with_governance`. Legacy
-functions that accept explicit contract or data-quality clients remain
-available for incremental migrations. All helpers share the same
-contract-resolution core under the hood so callers can mix and match
-parameters as needed. Passing both a binding and a contract id continues to pin
-the run to the requested contract while recording the port metadata.
+`read_stream_with_governance` / `write_stream_with_governance`. Callers describe
+their intent through `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest`
+objects, which combine the `GovernanceReadContext`/`GovernanceWriteContext`
+payloads with Spark-specific overrides (format, dataset locator, streaming
+callbacks). Legacy functions that accept explicit contract or data-quality
+clients remain available for incremental migrations. All helpers share the same
+contract-resolution core under the hood so callers can mix and match parameters
+as needed. Passing both a binding and a contract id continues to pin the run to
+the requested contract while recording the port metadata.
 
 Whenever a read or write registers a new input/output port the integration
 layer aborts the pipeline: the service returns a draft ODPS document and dc43

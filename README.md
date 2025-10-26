@@ -223,17 +223,24 @@ from dc43_service_clients import load_governance_client
 from dc43_integrations.spark.io import (
     write_with_governance,
     ContractVersionLocator,
+    GovernanceSparkWriteRequest,
 )
 
 governance = load_governance_client("/path/to/dc43.toml")
 
 write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    expected_contract_version=">=0.1.0",
     governance_service=governance,
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    mode="append",
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        mode="append",
+    ),
     enforce=True,
     auto_cast=True,
 )
@@ -286,16 +293,26 @@ latest = store.latest("sales.orders")
 5) DQ/DO orchestration on read
 
 ```python
-from dc43_integrations.spark.io import read_with_governance, ContractVersionLocator
+from dc43_integrations.spark.io import (
+    read_with_governance,
+    ContractVersionLocator,
+    GovernanceSparkReadRequest,
+)
 from dc43_service_clients import load_governance_client
 
 governance = load_governance_client("/path/to/dc43.toml")
 df, status = read_with_governance(
     spark,
-    contract_id="sales.orders",
-    expected_contract_version="==0.1.0",
     governance_service=governance,
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    request=GovernanceSparkReadRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": "==0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
     return_status=True,
 )
 print(status.status, status.reason)
@@ -304,18 +321,27 @@ print(status.status, status.reason)
 6) Quality status check on write
 
 ```python
-from dc43_integrations.spark.io import write_with_governance, ContractVersionLocator
+from dc43_integrations.spark.io import (
+    write_with_governance,
+    ContractVersionLocator,
+    GovernanceSparkWriteRequest,
+)
 from dc43_service_clients import load_governance_client
 
 governance = load_governance_client("/path/to/dc43.toml")
 vr, status = write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    mode="append",
-    enforce=False,                 # continue writing
     governance_service=governance,
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
+    enforce=False,  # continue writing
     return_status=True,
 )
 if status and status.status == "block":
