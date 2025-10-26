@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+- Introduced governance-first Spark IO wrappers and updated documentation/tests
+  so pipelines can rely on a single governance client instead of wiring
+  contract/data-quality services manually.
+- `read_with_governance` and its streaming counterpart now accept
+  `GovernanceReadContext` payloads so pipelines can declare contract references
+  or data product bindings explicitly when resolving datasets through
+  governance.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional changes. Bumped the version to align release metadata for the

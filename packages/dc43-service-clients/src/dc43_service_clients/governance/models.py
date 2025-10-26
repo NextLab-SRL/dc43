@@ -1,14 +1,19 @@
-"""Shared models for the governance orchestration service."""
+"""Shared models leveraged by governance clients and backends."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Sequence, Union
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43_service_clients.data_quality import ValidationResult
-
+from dc43_service_clients.data_products.models import (
+    DataProductInputBinding,
+    DataProductOutputBinding,
+    normalise_input_binding,
+    normalise_output_binding,
+)
 
 PipelineContextSpec = Union[
     "PipelineContext",
@@ -18,7 +23,7 @@ PipelineContextSpec = Union[
 ]
 
 
-@dataclass
+@dataclass(slots=True)
 class GovernanceCredentials:
     """Authentication payload cached by the governance service."""
 
@@ -27,7 +32,7 @@ class GovernanceCredentials:
     extra: Optional[Mapping[str, object]] = None
 
 
-@dataclass
+@dataclass(slots=True)
 class PipelineContext:
     """Descriptor describing the pipeline triggering a governance interaction."""
 
@@ -46,7 +51,7 @@ class PipelineContext:
         return payload
 
 
-@dataclass
+@dataclass(slots=True)
 class QualityDraftContext:
     """Context forwarded when proposing a draft to governance."""
 
@@ -58,13 +63,125 @@ class QualityDraftContext:
     pipeline_context: Optional[Mapping[str, object]] = None
 
 
-@dataclass
+@dataclass(slots=True)
 class QualityAssessment:
     """Outcome returned after consulting the governance service."""
 
     status: Optional[ValidationResult]
+    validation: Optional[ValidationResult] = None
     draft: Optional[OpenDataContractStandard] = None
     observations_reused: bool = False
+
+
+@dataclass(slots=True)
+class ContractReference:
+    """Describe a contract that should participate in a governance interaction."""
+
+    contract_id: str
+    contract_version: Optional[str] = None
+    version_selector: Optional[str] = None
+
+    def resolved_version(self) -> Optional[str]:
+        """Return an explicit version embedded in the reference when present."""
+
+        if self.contract_version:
+            return self.contract_version
+        if self.version_selector:
+            selector = self.version_selector.strip()
+            if selector.lower() in {"latest", "newest"}:
+                return None
+            if selector.startswith("=="):
+                candidate = selector[2:].strip()
+                return candidate or None
+        return None
+
+
+@dataclass(slots=True)
+class GovernanceReadContext:
+    """Specification forwarded by callers before a governed read."""
+
+    contract: Optional[ContractReference] = None
+    input_binding: Optional[DataProductInputBinding] = None
+    dataset_id: Optional[str] = None
+    dataset_version: Optional[str] = None
+    dataset_format: Optional[str] = None
+    pipeline_context: Optional[PipelineContextSpec] = None
+    bump: str = "minor"
+    draft_on_violation: bool = False
+
+    def __post_init__(self) -> None:
+        if self.contract is not None and not isinstance(self.contract, ContractReference):
+            if isinstance(self.contract, Mapping):
+                self.contract = ContractReference(**dict(self.contract))  # type: ignore[arg-type]
+            else:
+                raise TypeError("contract must be a ContractReference or mapping")
+        if self.input_binding is not None and not isinstance(
+            self.input_binding, DataProductInputBinding
+        ):
+            resolved = normalise_input_binding(self.input_binding)  # type: ignore[arg-type]
+            if resolved is None:
+                raise ValueError("input_binding specification is invalid")
+            self.input_binding = resolved
+
+
+@dataclass(slots=True)
+class GovernanceWriteContext:
+    """Specification describing a governed write interaction."""
+
+    contract: Optional[ContractReference] = None
+    output_binding: Optional[DataProductOutputBinding] = None
+    dataset_id: Optional[str] = None
+    dataset_version: Optional[str] = None
+    dataset_format: Optional[str] = None
+    pipeline_context: Optional[PipelineContextSpec] = None
+    bump: str = "minor"
+    draft_on_violation: bool = False
+
+    def __post_init__(self) -> None:
+        if self.contract is not None and not isinstance(self.contract, ContractReference):
+            if isinstance(self.contract, Mapping):
+                self.contract = ContractReference(**dict(self.contract))  # type: ignore[arg-type]
+            else:
+                raise TypeError("contract must be a ContractReference or mapping")
+        if self.output_binding is not None and not isinstance(
+            self.output_binding, DataProductOutputBinding
+        ):
+            resolved = normalise_output_binding(self.output_binding)  # type: ignore[arg-type]
+            if resolved is None:
+                raise ValueError("output_binding specification is invalid")
+            self.output_binding = resolved
+
+
+@dataclass(slots=True)
+class ResolvedReadPlan:
+    """Outcome returned by governance when resolving read contexts."""
+
+    contract: OpenDataContractStandard
+    contract_id: str
+    contract_version: str
+    dataset_id: str
+    dataset_version: str
+    dataset_format: Optional[str] = None
+    input_binding: Optional[DataProductInputBinding] = None
+    pipeline_context: Optional[Mapping[str, object]] = None
+    bump: str = "minor"
+    draft_on_violation: bool = False
+
+
+@dataclass(slots=True)
+class ResolvedWritePlan:
+    """Resolved specification for governed writes."""
+
+    contract: OpenDataContractStandard
+    contract_id: str
+    contract_version: str
+    dataset_id: str
+    dataset_version: str
+    dataset_format: Optional[str] = None
+    output_binding: Optional[DataProductOutputBinding] = None
+    pipeline_context: Optional[Mapping[str, object]] = None
+    bump: str = "minor"
+    draft_on_violation: bool = False
 
 
 def normalise_pipeline_context(
@@ -194,4 +311,9 @@ __all__ = [
     "merge_draft_context",
     "merge_pipeline_context",
     "normalise_pipeline_context",
+    "ContractReference",
+    "GovernanceReadContext",
+    "GovernanceWriteContext",
+    "ResolvedReadPlan",
+    "ResolvedWritePlan",
 ]

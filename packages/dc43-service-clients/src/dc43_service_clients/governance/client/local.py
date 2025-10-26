@@ -9,14 +9,19 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
 from dc43_service_clients.governance.models import (
     GovernanceCredentials,
+    GovernanceReadContext,
+    GovernanceWriteContext,
     PipelineContextSpec,
     QualityAssessment,
     QualityDraftContext,
+    ResolvedReadPlan,
+    ResolvedWritePlan,
 )
 from .interface import GovernanceServiceClient
 
 if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
     from dc43_service_backends.contracts import ContractServiceBackend, ContractStore
+    from dc43_service_backends.data_products import DataProductServiceBackend
     from dc43_service_backends.data_quality import DataQualityServiceBackend
     from dc43_service_backends.governance.backend import (
         GovernanceServiceBackend,
@@ -24,6 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
     )
 else:  # pragma: no cover - satisfy type checkers without importing at runtime
     ContractServiceBackend = ContractStore = DataQualityServiceBackend = object  # type: ignore
+    DataProductServiceBackend = object  # type: ignore
     GovernanceServiceBackend = LocalGovernanceServiceBackend = object  # type: ignore
 
 
@@ -32,6 +38,38 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
 
     def __init__(self, backend: "GovernanceServiceBackend") -> None:
         self._backend = backend
+
+    def get_contract(
+        self,
+        *,
+        contract_id: str,
+        contract_version: str,
+    ) -> OpenDataContractStandard:
+        return self._backend.get_contract(
+            contract_id=contract_id,
+            contract_version=contract_version,
+        )
+
+    def latest_contract(
+        self,
+        *,
+        contract_id: str,
+    ) -> Optional[OpenDataContractStandard]:
+        return self._backend.latest_contract(contract_id=contract_id)
+
+    def list_contract_versions(self, *, contract_id: str) -> Sequence[str]:
+        return self._backend.list_contract_versions(contract_id=contract_id)
+
+    def describe_expectations(
+        self,
+        *,
+        contract_id: str,
+        contract_version: str,
+    ) -> Sequence[Mapping[str, object]]:
+        return self._backend.describe_expectations(
+            contract_id=contract_id,
+            contract_version=contract_version,
+        )
 
     def configure_auth(
         self,
@@ -168,24 +206,84 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
             dataset_version=dataset_version,
         )
 
+    def resolve_read_context(
+        self,
+        *,
+        context: GovernanceReadContext,
+    ) -> ResolvedReadPlan:
+        return self._backend.resolve_read_context(context=context)
+
+    def resolve_write_context(
+        self,
+        *,
+        context: GovernanceWriteContext,
+    ) -> ResolvedWritePlan:
+        return self._backend.resolve_write_context(context=context)
+
+    def evaluate_read_plan(
+        self,
+        *,
+        plan: ResolvedReadPlan,
+        validation: ValidationResult | None,
+        observations: Callable[[], ObservationPayload],
+    ) -> QualityAssessment:
+        return self._backend.evaluate_read_plan(
+            plan=plan,
+            validation=validation,
+            observations=observations,
+        )
+
+    def evaluate_write_plan(
+        self,
+        *,
+        plan: ResolvedWritePlan,
+        validation: ValidationResult | None,
+        observations: Callable[[], ObservationPayload],
+    ) -> QualityAssessment:
+        return self._backend.evaluate_write_plan(
+            plan=plan,
+            validation=validation,
+            observations=observations,
+        )
+
+    def register_read_activity(
+        self,
+        *,
+        plan: ResolvedReadPlan,
+        assessment: QualityAssessment,
+    ) -> None:
+        self._backend.register_read_activity(plan=plan, assessment=assessment)
+
+    def register_write_activity(
+        self,
+        *,
+        plan: ResolvedWritePlan,
+        assessment: QualityAssessment,
+    ) -> None:
+        self._backend.register_write_activity(plan=plan, assessment=assessment)
+
 
 def build_local_governance_service(
     store: "ContractStore",
     *,
     contract_backend: "ContractServiceBackend | None" = None,
     dq_backend: "DataQualityServiceBackend | None" = None,
+    data_product_backend: "DataProductServiceBackend | None" = None,
 ) -> LocalGovernanceServiceClient:
     """Construct a governance client wired against local backend stubs."""
 
     from dc43_service_backends.contracts import LocalContractServiceBackend
     from dc43_service_backends.data_quality import LocalDataQualityServiceBackend
     from dc43_service_backends.governance.backend import LocalGovernanceServiceBackend
+    from dc43_service_backends.data_products import LocalDataProductServiceBackend
 
     contract_backend = contract_backend or LocalContractServiceBackend(store)
     dq_backend = dq_backend or LocalDataQualityServiceBackend()
+    data_product_backend = data_product_backend or LocalDataProductServiceBackend()
     backend = LocalGovernanceServiceBackend(
         contract_client=contract_backend,
         dq_client=dq_backend,
+        data_product_client=data_product_backend,
         draft_store=store,
     )
     return LocalGovernanceServiceClient(backend)

@@ -10,8 +10,10 @@ from dc43_service_clients.contracts import LocalContractServiceClient
 from dc43_integrations.spark.io import (
     read_from_data_product,
     read_with_contract,
+    read_with_governance,
     write_to_data_product,
     write_with_contract,
+    write_with_governance,
     StaticDatasetLocator,
     ContractVersionLocator,
     DatasetResolution,
@@ -22,7 +24,10 @@ from dc43_integrations.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
 )
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
-from dc43_service_clients.governance import build_local_governance_service
+from dc43_service_clients.governance import (
+    GovernanceReadContext,
+    build_local_governance_service,
+)
 from dc43_service_backends.data_products import DataProductRegistrationResult
 from dc43_service_backends.core.odps import (
     DataProductInputPort,
@@ -40,6 +45,49 @@ def persist_contract(
     store = FSContractStore(str(tmp_path / "contracts"))
     store.put(contract)
     return store, LocalContractServiceClient(store), LocalDataQualityServiceClient()
+
+
+def test_governance_wrappers_require_only_governance_client(
+    spark, tmp_path: Path
+) -> None:
+    contract_path = tmp_path / "orders"
+    contract = build_orders_contract(contract_path)
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+
+    source_path = tmp_path / "source"
+    materialise_orders(spark, source_path)
+    df = spark.read.format("parquet").load(str(source_path))
+
+    validation, status = write_with_governance(
+        df=df,
+        contract_id=contract.id,
+        expected_contract_version=f"=={contract.version}",
+        governance_service=governance,
+        path=str(contract_path),
+        format="parquet",
+        return_status=True,
+    )
+
+    assert validation.ok
+    assert status is not None and status.ok
+
+    read_df, read_status = read_with_governance(
+        spark,
+        governance_service=governance,
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": contract.id,
+                "contract_version": contract.version,
+            }
+        ),
+        path=str(contract_path),
+        format="parquet",
+        return_status=True,
+    )
+
+    assert read_status is not None and read_status.ok
+    assert read_df.count() == df.count()
 
 
 class StubDataProductService:
@@ -1033,3 +1081,39 @@ def test_contract_version_locator_latest_respects_active_alias(tmp_path: Path) -
         str(base_dir / "2023-12-31" / "orders.json"),
         str(base_dir / "2024-01-01" / "orders.json"),
     }
+
+
+def test_read_write_with_governance_only(spark, tmp_path: Path) -> None:
+    source_dir = materialise_orders(spark, tmp_path / "source")
+    target_dir = tmp_path / "target"
+    contract = build_orders_contract(str(target_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+
+    df = spark.read.format("parquet").load(str(source_dir))
+    result = write_with_contract(
+        df=df,
+        contract_id=contract.id,
+        expected_contract_version=f"=={contract.version}",
+        path=str(target_dir),
+        format="parquet",
+        mode="overwrite",
+        enforce=True,
+        auto_cast=True,
+        governance_service=governance,
+    )
+
+    assert result.ok
+
+    read_df, status = read_with_contract(
+        spark,
+        contract_id=contract.id,
+        expected_contract_version=f"=={contract.version}",
+        path=str(target_dir),
+        format="parquet",
+        governance_service=governance,
+        return_status=True,
+    )
+
+    assert read_df.count() == 2
+    assert status is not None

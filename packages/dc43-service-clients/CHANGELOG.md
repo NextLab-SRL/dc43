@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- Introduced `load_service_clients` and `load_governance_client` helpers to
+  provision local or remote service clients directly from backend
+  configuration, providing a single entry point for application bootstrap.
+
+### Changed
+- Governance clients now expose contract discovery helpers (`get_contract`,
+  `latest_contract`, `list_contract_versions`, and
+  `describe_expectations`) and include validation payloads in
+  `QualityAssessment` responses so integrations can operate solely through the
+  governance API.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No code changes. Updated metadata for the 0.22.0.0 release cycle.

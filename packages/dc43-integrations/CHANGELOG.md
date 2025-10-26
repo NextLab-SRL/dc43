@@ -10,6 +10,19 @@
   provided or inline governance client instead of requesting contract and data
   quality services directly, simplifying integration overrides.
 
+### Changed
+- Spark read/write helpers can now operate with only a governance client. When
+  provided, the governance service resolves contracts, describes expectations,
+  and evaluates data-quality observations without requiring separate contract or
+  data-quality clients, reducing the boilerplate for notebooks and pipelines.
+- Added `read_with_governance`/`write_with_governance` wrappers (and streaming
+  counterparts) plus refreshed docs/tests so common flows just pass a governance
+  client loaded from configuration.
+- `read_with_governance` and `read_stream_with_governance` now accept
+  `GovernanceReadContext` payloads to capture contract references or
+  data-product input bindings directly when resolving datasets through the
+  governance client.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional updates landed for this distribution. Metadata is bumped for the

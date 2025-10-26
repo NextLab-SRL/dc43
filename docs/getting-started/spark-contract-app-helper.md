@@ -87,26 +87,28 @@ contract, configure the provided strategies directly in the stub:
 ```python
 from dc43_integrations.spark.io import DefaultReadStatusStrategy
 from dc43_integrations.spark.violation_strategy import NoOpWriteViolationStrategy
+from dc43_service_clients.governance import GovernanceReadContext
 
 read_status = DefaultReadStatusStrategy(allowed_contract_statuses=("active", "draft"))
 write_strategy = NoOpWriteViolationStrategy(allowed_contract_statuses=("active", "draft"))
 
-df, status = read_with_contract(
+df, status = read_with_governance(
     spark,
-    contract_id="orders_enriched",
-    expected_contract_version="==3.0.0",
-    contract_service=contract_client,
-    data_quality_service=dq_client,
+    governance_service=governance_client,
+    context=GovernanceReadContext(
+        contract={
+            "contract_id": "orders_enriched",
+            "version_selector": "==3.0.0",
+        }
+    ),
     status_strategy=read_status,
     enforce=True,
 )
 
-write_with_contract(
+write_with_governance(
     df=df,
     contract_id="orders_enriched",
     expected_contract_version="==3.0.0",
-    contract_service=contract_client,
-    data_quality_service=dq_client,
     governance_service=governance_client,
     violation_strategy=write_strategy,
     return_status=True,
