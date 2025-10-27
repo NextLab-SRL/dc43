@@ -1323,19 +1323,22 @@ def _run_data_product_flow(
         "port_name": output_cfg.get("port_name"),
     }
 
-    final_result, final_status = write_to_data_product(
-        df=stage_read_df,
-        data_product_service=contracts_server.data_product_service,
-        data_product_output=dp_binding,
-        contract_id=output_contract_id,
-        contract_service=contracts_server.contract_service,
-        expected_contract_version=expected_output_version,
-        data_quality_service=contracts_server.dq_service,
-        governance_service=governance,
+    write_contract_ref: dict[str, Any] | None = None
+    if output_contract_id:
+        write_contract_ref = {"contract_id": output_contract_id}
+        if output_contract_version:
+            write_contract_ref["contract_version"] = output_contract_version
+        if expected_output_version:
+            write_contract_ref.setdefault("version_selector", expected_output_version)
+
+    write_request = GovernanceSparkWriteRequest(
+        context=GovernanceWriteContext(
+            contract=write_contract_ref,
+            output_binding=dp_binding,
+            dataset_id=output_dataset_name,
+            dataset_version=output_dataset_version,
+        ),
         dataset_locator=output_locator,
-        mode="overwrite",
-        enforce=False,
-        return_status=True,
         pipeline_context=_context(
             "data-product-write",
             {
@@ -1346,6 +1349,15 @@ def _run_data_product_flow(
                 "examples_limit": examples_limit,
             },
         ),
+        mode="overwrite",
+    )
+
+    final_result, final_status = write_with_governance(
+        df=stage_read_df,
+        request=write_request,
+        governance_service=governance,
+        enforce=False,
+        return_status=True,
     )
 
     try:

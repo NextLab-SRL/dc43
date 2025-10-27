@@ -1145,15 +1145,20 @@ def _scenario_dq_rejects(
         }
     )
 
-    df, read_status = read_stream_with_contract(
-        spark=spark,
-        contract_id=_INPUT_CONTRACT,
-        contract_service=contract_service,
-        expected_contract_version=f"=={_CONTRACT_VERSIONS[_INPUT_CONTRACT]}",
-        data_quality_service=dq_service,
-        governance_service=governance_service,
+    read_request = GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": _INPUT_CONTRACT,
+                "version_selector": f"=={_CONTRACT_VERSIONS[_INPUT_CONTRACT]}",
+            },
+        ),
         dataset_locator=StaticDatasetLocator(dataset_version=None),
         options={"rowsPerSecond": "6", "numPartitions": "1"},
+    )
+    df, read_status = read_stream_with_governance(
+        spark,
+        read_request,
+        governance_service=governance_service,
     )
     input_details = _sanitize_validation_details(
         read_status.details if read_status else {}
@@ -1191,18 +1196,25 @@ def _scenario_dq_rejects(
     def _forward(event: Mapping[str, Any]) -> None:
         _emit(event)
 
-    validation = write_stream_with_contract(
-        df=mutated_df,
-        contract_id=_OUTPUT_CONTRACT,
-        contract_service=contract_service,
-        expected_contract_version=f"=={_CONTRACT_VERSIONS[_OUTPUT_CONTRACT]}",
-        data_quality_service=dq_service,
-        governance_service=governance_service,
+    write_request = GovernanceSparkWriteRequest(
+        context=GovernanceWriteContext(
+            contract={
+                "contract_id": _OUTPUT_CONTRACT,
+                "version_selector": f"=={_CONTRACT_VERSIONS[_OUTPUT_CONTRACT]}",
+            },
+            dataset_id=_OUTPUT_CONTRACT,
+            dataset_version=dataset_version,
+        ),
         dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
         options={
             "checkpointLocation": str(checkpoint),
             "queryName": f"demo_stream_dq_{dataset_version}",
         },
+    )
+    validation = write_stream_with_governance(
+        df=mutated_df,
+        request=write_request,
+        governance_service=governance_service,
         enforce=run_type == "enforce",
         on_streaming_batch=_forward,
     )
@@ -1473,15 +1485,20 @@ def _scenario_schema_break(
         }
     )
 
-    df, read_status = read_stream_with_contract(
-        spark=spark,
-        contract_id=_INPUT_CONTRACT,
-        contract_service=contract_service,
-        expected_contract_version=f"=={_CONTRACT_VERSIONS[_INPUT_CONTRACT]}",
-        data_quality_service=dq_service,
-        governance_service=governance_service,
+    read_request = GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": _INPUT_CONTRACT,
+                "version_selector": f"=={_CONTRACT_VERSIONS[_INPUT_CONTRACT]}",
+            },
+        ),
         dataset_locator=StaticDatasetLocator(dataset_version=None),
         options={"rowsPerSecond": "6", "numPartitions": "1"},
+    )
+    df, read_status = read_stream_with_governance(
+        spark,
+        read_request,
+        governance_service=governance_service,
     )
     input_details = _sanitize_validation_details(
         read_status.details if read_status else {}
@@ -1520,18 +1537,25 @@ def _scenario_schema_break(
     broken_df = df.drop("value")
     checkpoint = _checkpoint_dir("schema_break", version=dataset_version)
     try:
-        validation = write_stream_with_contract(
-            df=broken_df,
-            contract_id=_OUTPUT_CONTRACT,
-            contract_service=contract_service,
-            expected_contract_version=f"=={_CONTRACT_VERSIONS[_OUTPUT_CONTRACT]}",
-            data_quality_service=dq_service,
-            governance_service=governance_service,
+        write_request = GovernanceSparkWriteRequest(
+            context=GovernanceWriteContext(
+                contract={
+                    "contract_id": _OUTPUT_CONTRACT,
+                    "version_selector": f"=={_CONTRACT_VERSIONS[_OUTPUT_CONTRACT]}",
+                },
+                dataset_id=_OUTPUT_CONTRACT,
+                dataset_version=dataset_version,
+            ),
             dataset_locator=StaticDatasetLocator(dataset_version=dataset_version),
             options={
                 "checkpointLocation": str(checkpoint),
                 "queryName": f"demo_stream_schema_{dataset_version}",
             },
+        )
+        validation = write_stream_with_governance(
+            df=broken_df,
+            request=write_request,
+            governance_service=governance_service,
             enforce=run_type == "enforce",
         )
         queries = _extract_query_handles(validation.details)

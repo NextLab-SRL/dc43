@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Mapping
 
 from open_data_contract_standard.model import (  # type: ignore
     Description,
@@ -92,9 +93,16 @@ def test_generate_contract_dataset_resolves_relative_paths_and_seed(spark, tmp_p
 
 
 class RecordingGovernanceService:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        contracts: Mapping[tuple[str, str], OpenDataContractStandard] | None = None,
+    ) -> None:
         self.evaluations: list[tuple[str, str, str]] = []
         self.links: list[tuple[str, str, str, str]] = []
+        self._contracts: dict[tuple[str, str], OpenDataContractStandard] = {}
+        if contracts:
+            self._contracts.update(contracts)
 
     def evaluate_dataset(
         self,
@@ -145,10 +153,33 @@ class RecordingGovernanceService:
     ) -> str | None:
         return None
 
+    def get_contract(self, *, contract_id: str, contract_version: str) -> OpenDataContractStandard:
+        contract = self._contracts.get((contract_id, contract_version))
+        if contract is None:
+            raise ValueError(f"Unknown contract {contract_id}:{contract_version}")
+        return contract
+
+    def latest_contract(self, *, contract_id: str) -> OpenDataContractStandard | None:
+        matches = [
+            contract
+            for (cid, _), contract in self._contracts.items()
+            if cid == contract_id
+        ]
+        if not matches:
+            return None
+        return sorted(matches, key=lambda contract: contract.version)[-1]
+
+    def list_contract_versions(self, *, contract_id: str) -> list[str]:
+        return sorted(
+            version for (cid, version) in self._contracts if cid == contract_id
+        )
+
 
 def test_generate_contract_dataset_supports_governance_override(spark, tmp_path):
     contract = build_orders_contract(tmp_path / "orders")
-    governance = RecordingGovernanceService()
+    governance = RecordingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+    )
 
     df, path = generate_contract_dataset(
         spark,

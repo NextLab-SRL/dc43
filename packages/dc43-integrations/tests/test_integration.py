@@ -3,7 +3,7 @@ from typing import Any, Mapping, Optional, Tuple
 
 import pytest
 
-from open_data_contract_standard.model import OpenDataContractStandard
+from open_data_contract_standard.model import DataQuality, OpenDataContractStandard
 
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_clients.contracts import LocalContractServiceClient
@@ -187,7 +187,7 @@ class StubDataProductService:
 
 
 def test_read_blocks_on_draft_contract_status(spark, tmp_path: Path) -> None:
-    data_dir = materialise_orders(spark, tmp_path)
+    data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
     contract.status = "draft"
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
@@ -205,7 +205,7 @@ def test_read_blocks_on_draft_contract_status(spark, tmp_path: Path) -> None:
 
 
 def test_read_allows_draft_contract_with_strategy(spark, tmp_path: Path) -> None:
-    data_dir = materialise_orders(spark, tmp_path)
+    data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
     contract.status = "draft"
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
@@ -228,7 +228,7 @@ def test_read_allows_draft_contract_with_strategy(spark, tmp_path: Path) -> None
 
 
 def test_read_registers_data_product_input_port(spark, tmp_path: Path) -> None:
-    data_dir = materialise_orders(spark, tmp_path)
+    data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
@@ -251,7 +251,7 @@ def test_read_registers_data_product_input_port(spark, tmp_path: Path) -> None:
 
 
 def test_read_skips_registration_when_input_port_exists(spark, tmp_path: Path) -> None:
-    data_dir = materialise_orders(spark, tmp_path)
+    data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
@@ -275,7 +275,7 @@ def test_read_skips_registration_when_input_port_exists(spark, tmp_path: Path) -
 
 
 def test_read_resolves_contract_from_data_product_port(spark, tmp_path: Path) -> None:
-    data_dir = materialise_orders(spark, tmp_path)
+    data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
@@ -712,7 +712,7 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
 
 
 def test_write_registers_data_product_output_port(spark, tmp_path: Path) -> None:
-    data_dir = materialise_orders(spark, tmp_path)
+    data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
@@ -739,7 +739,7 @@ def test_write_registers_data_product_output_port(spark, tmp_path: Path) -> None
 
 
 def test_write_skips_registration_when_output_exists(spark, tmp_path: Path) -> None:
-    data_dir = materialise_orders(spark, tmp_path)
+    data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, contract)
     governance = build_local_governance_service(store)
@@ -767,7 +767,7 @@ def test_write_skips_registration_when_output_exists(spark, tmp_path: Path) -> N
 
 
 def test_data_product_pipeline_roundtrip(spark, tmp_path: Path) -> None:
-    source_dir = materialise_orders(spark, tmp_path)
+    source_dir = materialise_orders(spark, tmp_path / "source")
     source_contract = build_orders_contract(str(source_dir))
     store, contract_service, dq_service = persist_contract(tmp_path, source_contract)
     governance = build_local_governance_service(store)

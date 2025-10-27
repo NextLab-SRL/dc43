@@ -539,13 +539,16 @@ class StreamingObservationWriter:
             )
             return validation
 
-        result = _evaluate_with_service(
-            contract=self.contract,
-            service=self.data_quality_service,
-            schema=schema,
-            metrics=metrics,
-            reused=False,
-        )
+        if self.data_quality_service is not None:
+            result = _evaluate_with_service(
+                contract=self.contract,
+                service=self.data_quality_service,
+                schema=schema,
+                metrics=metrics,
+                reused=False,
+            )
+        else:
+            result = self._evaluate_without_service(schema=schema, metrics=metrics)
         self._latest_batch_id = batch_id
         status = "ok"
         if result.errors:
@@ -624,6 +627,57 @@ class StreamingObservationWriter:
             }
         )
         return query
+
+    def _evaluate_without_service(
+        self,
+        *,
+        schema: Mapping[str, Mapping[str, Any]],
+        metrics: Mapping[str, Any],
+    ) -> ValidationResult:
+        """Return a validation outcome without a dedicated DQ service."""
+
+        violation_counts: Dict[str, float] = {}
+        for key, value in metrics.items():
+            if not isinstance(key, str) or not key.startswith("violations."):
+                continue
+            suffix = key.partition(".")[2]
+            try:
+                violation_counts[suffix] = float(value)
+            except (TypeError, ValueError):
+                continue
+
+        errors: list[str] = []
+        warnings: list[str] = []
+        for descriptor in self.expectation_plan:
+            if not isinstance(descriptor, Mapping):
+                continue
+            key = descriptor.get("key")
+            if not isinstance(key, str):
+                continue
+            count = violation_counts.get(key, 0.0)
+            if count <= 0:
+                continue
+            message = f"Expectation {key} reported {int(count)} violation(s)"
+            if bool(descriptor.get("optional")):
+                warnings.append(message)
+            else:
+                errors.append(message)
+
+        ok = not errors
+        status = "ok"
+        if errors:
+            status = "block"
+        elif warnings:
+            status = "warn"
+
+        return ValidationResult(
+            ok=ok,
+            errors=errors,
+            warnings=warnings,
+            metrics=dict(metrics),
+            schema=dict(schema),
+            status=status,
+        )
 
 logger = logging.getLogger(__name__)
 
@@ -3143,7 +3197,7 @@ class BaseWriteExecutor:
         checkpoint_option = None
         if options_dict:
             checkpoint_option = options_dict.get("checkpointLocation")
-        if streaming_active and contract and data_quality_service is not None:
+        if streaming_active and contract:
             observation_writer = StreamingObservationWriter(
                 contract=contract,
                 expectation_plan=expectation_plan,
