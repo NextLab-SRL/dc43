@@ -54,6 +54,7 @@ import tempfile
 import textwrap
 from datetime import datetime, timezone
 from collections import Counter
+from decimal import Decimal
 import zipfile
 
 import httpx
@@ -310,6 +311,26 @@ def _format_recorded_at(value: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
 
 
+def _coerce_numeric(value: object | None) -> float | None:
+    """Return ``value`` as a :class:`float` when it resembles a number."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
 def _format_metric_value(numeric: object | None, raw: object | None) -> str:
     """Return the preferred display string for a metric value."""
 
@@ -345,6 +366,8 @@ def _empty_metrics_summary() -> Dict[str, Any]:
         "previous": [],
         "history": [],
         "metric_keys": [],
+        "numeric_metric_keys": [],
+        "chronological_history": [],
     }
 
 
@@ -356,6 +379,7 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
 
     grouped: dict[tuple[str, str, str, str], Dict[str, Any]] = {}
     keys: set[str] = set()
+    numeric_keys: set[str] = set()
     for entry in entries:
         recorded_at = str(entry.get("status_recorded_at") or "")
         dataset_version = str(entry.get("dataset_version") or "")
@@ -379,7 +403,9 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         if metric_key:
             keys.add(metric_key)
         metric_value = entry.get("metric_value")
-        numeric_value = entry.get("metric_numeric_value")
+        numeric_value = _coerce_numeric(entry.get("metric_numeric_value"))
+        if metric_key and numeric_value is not None:
+            numeric_keys.add(metric_key)
         group["metrics"].append(
             {
                 "key": metric_key,
@@ -401,7 +427,9 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         "latest": latest,
         "previous": previous,
         "history": snapshots,
+        "chronological_history": list(reversed(snapshots)),
         "metric_keys": sorted(keys),
+        "numeric_metric_keys": sorted(numeric_keys),
     }
 
 

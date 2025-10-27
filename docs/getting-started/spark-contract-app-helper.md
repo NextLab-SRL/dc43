@@ -71,8 +71,10 @@ Once the UI is running, open any dataset or contract entry from the catalog to
 review the metrics recorded by the governance service. The dataset view groups
 observations by the status timestamp so you can see the latest snapshot alongside
 earlier runs, while the contract overview highlights the same metrics filtered to
-the active version. This makes it easy to validate row counts, violation totals,
-and other KPIs without querying the backend directly.
+the active version. Numeric metrics now render as interactive charts, letting you
+hover across the timeline to reveal dataset versions, contract revisions, and the
+recorded values. This makes it easy to validate row counts, violation totals, and
+other KPIs without querying the backend directly.
 
 ## 4. Generate a Spark stub
 

@@ -59,10 +59,37 @@
     {% set metrics_summary = metrics_summary | default({}) %}
     {% set latest_metrics = metrics_summary.get('latest') %}
     {% set previous_metrics = metrics_summary.get('previous', []) %}
+    {% set chronological_history = metrics_summary.get('chronological_history', []) %}
+    {% set numeric_metric_keys = metrics_summary.get('numeric_metric_keys', []) %}
     {% if metrics_error %}
     <div class="alert alert-warning">
       <strong>Metrics unavailable.</strong>
       <div class="small mb-0">{{ metrics_error }}</div>
+    </div>
+    {% endif %}
+    {% if numeric_metric_keys and chronological_history %}
+    <div class="card mb-3" id="contract-metric-trends">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+          <strong>Metric trends</strong>
+          <span class="text-muted ms-2">{{ contract.id }} {{ contract.version }}</span>
+        </div>
+        <div class="text-muted small">
+          {% if latest_metrics %}
+          Latest {{ latest_metrics.recorded_label or latest_metrics.recorded_at or 'snapshot' }}
+          {% else %}
+          Latest snapshot
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="chart-wrapper">
+          <canvas id="contractMetricsChart" aria-label="Metric history chart" role="img"></canvas>
+        </div>
+      </div>
+      <div class="card-footer small text-muted">
+        Hover points to explore recorded timestamps, dataset versions, and upstream contract links. Only metrics with numeric values are plotted.
+      </div>
     </div>
     {% endif %}
     {% if latest_metrics %}
@@ -581,5 +608,117 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchPreview();
 });
 </script>
+{% endblock %}
+{% block page_scripts %}
+{{ super() }}
+{% if numeric_metric_keys and chronological_history %}
+<script>
+  (function () {
+    const canvas = document.getElementById('contractMetricsChart');
+    if (!canvas || !window.Chart) {
+      return;
+    }
+    const history = {{ chronological_history | tojson }};
+    const metricKeys = {{ numeric_metric_keys | tojson }};
+    if (!Array.isArray(history) || !Array.isArray(metricKeys) || !history.length || !metricKeys.length) {
+      return;
+    }
+    const labels = history.map((snapshot) => snapshot.recorded_label || snapshot.recorded_at || 'Snapshot');
+    const datasetVersions = history.map((snapshot) => snapshot.dataset_version || '');
+    const contractLabels = history.map((snapshot) => {
+      if (!snapshot.contract_id) {
+        return '';
+      }
+      return snapshot.contract_version ? `${snapshot.contract_id}:${snapshot.contract_version}` : snapshot.contract_id;
+    });
+    const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6610f2', '#20c997', '#6f42c1', '#0dcaf0', '#ffc107', '#343a40'];
+    const datasets = metricKeys.map((key, index) => {
+      const colour = palette[index % palette.length];
+      const data = history.map((snapshot) => {
+        const metric = (snapshot.metrics || []).find((item) => item.key === key);
+        if (metric && metric.numeric_value !== null && metric.numeric_value !== undefined) {
+          const value = Number(metric.numeric_value);
+          return Number.isFinite(value) ? value : null;
+        }
+        return null;
+      });
+      if (!data.some((value) => value !== null)) {
+        return null;
+      }
+      return {
+        label: key,
+        data,
+        spanGaps: true,
+        tension: 0.25,
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 4,
+        borderColor: colour,
+        backgroundColor: `${colour}33`,
+      };
+    }).filter(Boolean);
+    if (!datasets.length) {
+      const wrapper = canvas.closest('.card');
+      if (wrapper) {
+        wrapper.classList.add('d-none');
+      }
+      return;
+    }
+    new window.Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
+        },
+        scales: {
+          y: {
+            ticks: {
+              precision: 3,
+            },
+            title: {
+              display: true,
+              text: 'Value',
+            },
+          },
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              title(items) {
+                if (!items.length) {
+                  return '';
+                }
+                const index = items[0].dataIndex;
+                const lines = [];
+                if (labels[index]) {
+                  lines.push(labels[index]);
+                }
+                if (datasetVersions[index]) {
+                  lines.push(`Dataset ${datasetVersions[index]}`);
+                }
+                if (contractLabels[index]) {
+                  lines.push(contractLabels[index]);
+                }
+                return lines;
+              },
+            },
+          },
+          legend: {
+            display: true,
+          },
+        },
+      },
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}
 
