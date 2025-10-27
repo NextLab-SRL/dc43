@@ -132,13 +132,19 @@ contract = OpenDataContractStandard(
     </section>
 
     <section>
-      <h2>2. Read with Contract</h2>
-      <pre><code class="language-python">orders_df, status = read_with_contract(
+      <h2>2. Read with Governance</h2>
+      <pre><code class="language-python">orders_df, status = read_with_governance(
     spark,
-    contract_id="orders",
-    contract_service=LocalContractServiceClient(store),
+    GovernanceSparkReadRequest(
+        context={
+            "contract": {
+                "contract_id": "orders",
+                "contract_version": "0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
     governance_service=governance,
-    dataset_locator=ContractVersionLocator(dataset_version="latest")
 )</code></pre>
     </section>
 

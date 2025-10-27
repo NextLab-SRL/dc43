@@ -11,6 +11,11 @@
   quality services directly, simplifying integration overrides.
 
 ### Changed
+- Deprecated contract- and data-product-centric helpers (`read_with_contract`,
+  `write_with_contract`, their streaming counterparts, and related aliases).
+  They continue to forward into the governance flow but now emit
+  ``DeprecationWarning`` notices so callers migrate to the governance-only
+  entry points.
 - Spark read/write helpers can now operate with only a governance client. When
   provided, the governance service resolves contracts, describes expectations,
   and evaluates data-quality observations without requiring separate contract or
@@ -40,6 +45,10 @@
   governance-only read/write helpers and emit `GovernanceSparkReadRequest`/
   `GovernanceSparkWriteRequest` payloads, with accompanying guide updates for
   Databricks, remote Spark, and the contracts app integration helper.
+- Expanded Spark integration tests to exercise governance-first read/write
+  flows across data product bindings, DQ violations, and format guardrails, and
+  aligned the helper behaviour so governance-only calls report review-required
+  registrations just like the legacy contract wrappers.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

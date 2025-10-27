@@ -49,6 +49,40 @@ def persist_contract(
     return store, LocalContractServiceClient(store), LocalDataQualityServiceClient()
 
 
+def _gov_read_request(
+    contract: Optional[OpenDataContractStandard] = None,
+    *,
+    context_overrides: Optional[Mapping[str, Any]] = None,
+    **overrides: Any,
+) -> GovernanceSparkReadRequest:
+    context: dict[str, Any] = {}
+    if context_overrides:
+        context.update(context_overrides)
+    if contract is not None and "contract" not in context:
+        context["contract"] = {
+            "contract_id": contract.id,
+            "contract_version": contract.version,
+        }
+    return GovernanceSparkReadRequest(context=context, **overrides)
+
+
+def _gov_write_request(
+    contract: Optional[OpenDataContractStandard] = None,
+    *,
+    context_overrides: Optional[Mapping[str, Any]] = None,
+    **overrides: Any,
+) -> GovernanceSparkWriteRequest:
+    context: dict[str, Any] = {}
+    if context_overrides:
+        context.update(context_overrides)
+    if contract is not None and "contract" not in context:
+        context["contract"] = {
+            "contract_id": contract.id,
+            "contract_version": contract.version,
+        }
+    return GovernanceSparkWriteRequest(context=context, **overrides)
+
+
 def test_governance_wrappers_require_only_governance_client(
     spark, tmp_path: Path
 ) -> None:
@@ -227,6 +261,48 @@ def test_read_allows_draft_contract_with_strategy(spark, tmp_path: Path) -> None
     assert status is not None
 
 
+def test_read_with_governance_blocks_on_draft_contract_status(
+    spark, tmp_path: Path
+) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-draft")
+    contract = build_orders_contract(str(data_dir))
+    contract.status = "draft"
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+
+    with pytest.raises(ValueError, match="draft"):
+        read_with_governance(
+            spark,
+            _gov_read_request(contract),
+            governance_service=governance,
+        )
+
+
+def test_read_with_governance_allows_draft_contract_with_strategy(
+    spark, tmp_path: Path
+) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-draft-allowed")
+    contract = build_orders_contract(str(data_dir))
+    contract.status = "draft"
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+
+    df, status = read_with_governance(
+        spark,
+        _gov_read_request(
+            contract,
+            status_strategy=DefaultReadStatusStrategy(
+                allowed_contract_statuses=("active", "draft"),
+            ),
+        ),
+        governance_service=governance,
+        return_status=True,
+    )
+
+    assert df.count() == 2
+    assert status is not None
+
+
 def test_read_registers_data_product_input_port(spark, tmp_path: Path) -> None:
     data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
@@ -303,6 +379,88 @@ def test_read_resolves_contract_from_data_product_port(spark, tmp_path: Path) ->
     assert dp_service.input_calls[0]["source_output_port"] == "primary"
 
 
+def test_read_with_governance_registers_input_binding(spark, tmp_path: Path) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-input")
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    dp_service = StubDataProductService()
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+
+    with pytest.raises(RuntimeError, match="requires review"):
+        read_with_governance(
+            spark,
+            _gov_read_request(
+                contract,
+                context_overrides={"input_binding": {"data_product": "dp.analytics"}},
+            ),
+            governance_service=governance,
+        )
+
+    assert dp_service.input_calls
+    assert dp_service.input_calls[0]["data_product_id"] == "dp.analytics"
+
+
+def test_read_with_governance_skips_registration_when_input_exists(
+    spark, tmp_path: Path
+) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-input-existing")
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    dp_service = StubDataProductService(registration_changed=False)
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+
+    df, status = read_with_governance(
+        spark,
+        _gov_read_request(
+            contract,
+            context_overrides={"input_binding": {"data_product": "dp.analytics"}},
+        ),
+        governance_service=governance,
+        return_status=True,
+    )
+
+    assert df.count() == 2
+    assert status is not None
+    assert dp_service.input_calls
+    assert dp_service.input_calls[0]["data_product_id"] == "dp.analytics"
+
+
+def test_read_with_governance_resolves_contract_from_input_binding(
+    spark, tmp_path: Path
+) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-dp-binding")
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    dp_service = StubDataProductService(
+        contract_ref={"primary": (contract.id, contract.version)}, registration_changed=False
+    )
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+
+    df, status = read_with_governance(
+        spark,
+        _gov_read_request(
+            None,
+            context_overrides={
+                "input_binding": {
+                    "data_product": "dp.analytics",
+                    "port_name": "primary",
+                    "source_data_product": "dp.analytics",
+                    "source_output_port": "primary",
+                }
+            },
+            path=str(data_dir),
+            format="parquet",
+        ),
+        governance_service=governance,
+        return_status=True,
+    )
+
+    assert df.count() == 2
+    assert status is not None
+    assert dp_service.input_calls
+    assert dp_service.input_calls[0]["source_output_port"] == "primary"
+
+
 def test_write_blocks_on_deprecated_contract_status(spark, tmp_path: Path) -> None:
     dest_dir = tmp_path / "dq"
     contract = build_orders_contract(str(dest_dir))
@@ -355,6 +513,67 @@ def test_write_allows_deprecated_contract_with_relaxed_strategy(
     assert result.ok
 
 
+def test_write_with_governance_blocks_on_deprecated_contract_status(
+    spark, tmp_path: Path
+) -> None:
+    dest_dir = tmp_path / "gov-dq"
+    contract = build_orders_contract(str(dest_dir))
+    contract.status = "deprecated"
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    with pytest.raises(ValueError, match="deprecated"):
+        write_with_governance(
+            df=df,
+            request=_gov_write_request(
+                contract,
+                path=str(dest_dir),
+                format="parquet",
+                mode="overwrite",
+            ),
+            governance_service=governance,
+        )
+
+
+def test_write_with_governance_allows_deprecated_contract_with_relaxed_strategy(
+    spark, tmp_path: Path
+) -> None:
+    dest_dir = tmp_path / "gov-relaxed"
+    contract = build_orders_contract(str(dest_dir))
+    contract.status = "deprecated"
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    result = write_with_governance(
+        df=df,
+        request=_gov_write_request(
+            contract,
+            path=str(dest_dir),
+            format="parquet",
+            mode="overwrite",
+        ),
+        governance_service=governance,
+        violation_strategy=NoOpWriteViolationStrategy(
+            allowed_contract_statuses=("active", "deprecated"),
+        ),
+        return_status=False,
+    )
+
+    assert result.ok
+
+
 def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
     data_dir = tmp_path / "parquet"
     contract = build_orders_contract(str(data_dir))
@@ -379,6 +598,34 @@ def test_dq_integration_blocks(spark, tmp_path: Path) -> None:
         governance_service=governance,
         return_status=True,
     )
+    assert status is not None
+    assert status.status == "block"
+    details = status.details or {}
+    errors = details.get("errors") or []
+    assert errors
+    assert any("currency" in str(message) for message in errors)
+
+
+def test_read_with_governance_dq_integration_blocks(spark, tmp_path: Path) -> None:
+    data_dir = tmp_path / "gov-parquet"
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        (2, 102, datetime(2024, 1, 2, 10, 0, 0), 20.5, "INR"),
+    ]
+    df = spark.createDataFrame(data, ["order_id", "customer_id", "order_ts", "amount", "currency"])
+    df.write.mode("overwrite").format("parquet").save(str(data_dir))
+
+    _, status = read_with_governance(
+        spark,
+        _gov_read_request(contract),
+        governance_service=governance,
+        enforce=False,
+        return_status=True,
+    )
+
     assert status is not None
     assert status.status == "block"
     details = status.details or {}
@@ -417,6 +664,43 @@ def test_write_violation_blocks_by_default(spark, tmp_path: Path) -> None:
     assert errors
     assert any("amount" in str(message) for message in errors)
     assert not result.ok  # violations surface as blocking failures
+
+
+def test_write_with_governance_violation_blocks_by_default(
+    spark, tmp_path: Path
+) -> None:
+    dest_dir = tmp_path / "gov-dq"
+    contract = build_orders_contract(str(dest_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+            (2, 102, datetime(2024, 1, 2, 10, 0, 0), -5.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    result, status = write_with_governance(
+        df=df,
+        request=_gov_write_request(
+            contract,
+            path=str(dest_dir),
+            format="parquet",
+            mode="overwrite",
+        ),
+        governance_service=governance,
+        enforce=False,
+        return_status=True,
+    )
+
+    assert status is not None
+    assert status.status == "block"
+    details = status.details or {}
+    errors = details.get("errors") or []
+    assert errors
+    assert any("amount" in str(message) for message in errors)
+    assert not result.ok
 
 
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
@@ -529,6 +813,34 @@ def test_read_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
             format="json",
             enforce=False,
             data_quality_service=dq_service,
+    )
+    assert any(
+        "format json does not match contract server format parquet" in m
+        for m in caplog.messages
+    )
+
+
+def test_read_with_governance_warn_on_format_mismatch(
+    spark, tmp_path: Path, caplog
+) -> None:
+    data_dir = tmp_path / "gov-json"
+    contract = build_orders_contract(str(data_dir), fmt="parquet")
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    df.write.mode("overwrite").json(str(data_dir))
+    with caplog.at_level(logging.WARNING):
+        read_with_governance(
+            spark,
+            _gov_read_request(contract, format="json"),
+            governance_service=governance,
+            enforce=False,
         )
     assert any(
         "format json does not match contract server format parquet" in m
@@ -558,6 +870,42 @@ def test_write_warn_on_format_mismatch(spark, tmp_path: Path, caplog):
             mode="overwrite",
             enforce=False,
             data_quality_service=dq_service,
+        )
+    assert any(
+        "Format json does not match contract server format parquet" in w
+        for w in result.warnings
+    )
+    assert any(
+        "format json does not match contract server format parquet" in m.lower()
+        for m in caplog.messages
+    )
+
+
+def test_write_with_governance_warn_on_format_mismatch(
+    spark, tmp_path: Path, caplog
+) -> None:
+    dest_dir = tmp_path / "gov-out"
+    contract = build_orders_contract(str(dest_dir), fmt="parquet")
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+    with caplog.at_level(logging.WARNING):
+        result = write_with_governance(
+            df=df,
+            request=_gov_write_request(
+                contract,
+                path=str(dest_dir),
+                format="json",
+                mode="overwrite",
+            ),
+            governance_service=governance,
+            enforce=False,
         )
     assert any(
         "Format json does not match contract server format parquet" in w
@@ -660,6 +1008,58 @@ def test_write_dq_violation_reports_status(spark, tmp_path: Path):
         )
 
 
+def test_write_with_governance_dq_violation_reports_status(
+    spark, tmp_path: Path
+) -> None:
+    dest_dir = tmp_path / "gov-dq-out"
+    contract = build_orders_contract(str(dest_dir))
+    contract.schema_[0].properties[3].quality = [DataQuality(mustBeGreaterThan=100)]
+    store, _, _ = persist_contract(tmp_path, contract)
+
+    data = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 50.0, "EUR"),
+        (2, 102, datetime(2024, 1, 2, 10, 0, 0), 60.0, "USD"),
+    ]
+    df = spark.createDataFrame(
+        data,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    governance = build_local_governance_service(store)
+    locator = StaticDatasetLocator(dataset_version="dq-out")
+    result, status = write_with_governance(
+        df=df,
+        request=_gov_write_request(
+            contract,
+            path=str(dest_dir),
+            format="parquet",
+            mode="overwrite",
+            dataset_locator=locator,
+        ),
+        governance_service=governance,
+        enforce=False,
+        return_status=True,
+    )
+
+    assert not result.ok
+    assert status is not None
+    assert status.status == "block"
+    assert status.details and status.details.get("violations", 0) > 0
+    with pytest.raises(ValueError):
+        write_with_governance(
+            df=df,
+            request=_gov_write_request(
+                contract,
+                path=str(dest_dir),
+                format="parquet",
+                mode="overwrite",
+                dataset_locator=locator,
+            ),
+            governance_service=governance,
+            enforce=True,
+        )
+
+
 def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     dest_dir = tmp_path / "upgrade"
     contract_v1 = build_orders_contract(str(dest_dir))
@@ -711,6 +1111,59 @@ def test_write_keeps_existing_link_for_contract_upgrade(spark, tmp_path: Path):
     )
 
 
+def test_write_with_governance_keeps_existing_link_for_contract_upgrade(
+    spark, tmp_path: Path
+) -> None:
+    dest_dir = tmp_path / "gov-upgrade"
+    contract_v1 = build_orders_contract(str(dest_dir))
+    data_ok = [
+        (1, 101, datetime(2024, 1, 1, 10, 0, 0), 500.0, "EUR"),
+        (2, 102, datetime(2024, 1, 2, 11, 0, 0), 750.0, "USD"),
+    ]
+    df_ok = spark.createDataFrame(
+        data_ok,
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    store = FSContractStore(str(tmp_path / "gov_upgrade_contracts"))
+    store.put(contract_v1)
+    governance = build_local_governance_service(store)
+    locator = StaticDatasetLocator(
+        dataset_version="2024-01-01",
+        dataset_id=f"path:{dest_dir}",
+    )
+    result, status_ok = write_with_governance(
+        df=df_ok,
+        request=_gov_write_request(
+            contract_v1,
+            path=str(dest_dir),
+            format="parquet",
+            mode="overwrite",
+            dataset_locator=locator,
+        ),
+        governance_service=governance,
+        enforce=False,
+        return_status=True,
+    )
+
+    assert result.ok
+    assert status_ok is not None
+    assert status_ok.status == "ok"
+
+    dataset_ref = f"path:{dest_dir}"
+    assert (
+        governance.get_linked_contract_version(dataset_id=dataset_ref)
+        == f"{contract_v1.id}:{contract_v1.version}"
+    )
+    assert (
+        governance.get_linked_contract_version(
+            dataset_id=dataset_ref,
+            dataset_version="2024-01-01",
+        )
+        == f"{contract_v1.id}:{contract_v1.version}"
+    )
+
+
 def test_write_registers_data_product_output_port(spark, tmp_path: Path) -> None:
     data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
@@ -738,6 +1191,33 @@ def test_write_registers_data_product_output_port(spark, tmp_path: Path) -> None
     assert dp_service.output_calls[0]["port_name"] == "primary"
 
 
+def test_write_with_governance_registers_output_binding(spark, tmp_path: Path) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-output")
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    dp_service = StubDataProductService()
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+    df = spark.read.parquet(str(data_dir))
+
+    with pytest.raises(RuntimeError, match="requires review"):
+        write_with_governance(
+            df=df,
+            request=_gov_write_request(
+                contract,
+                path=str(data_dir),
+                format="parquet",
+                mode="overwrite",
+                context_overrides={
+                    "output_binding": {"data_product": "dp.analytics", "port_name": "primary"}
+                },
+            ),
+            governance_service=governance,
+        )
+
+    assert dp_service.output_calls
+    assert dp_service.output_calls[0]["port_name"] == "primary"
+
+
 def test_write_skips_registration_when_output_exists(spark, tmp_path: Path) -> None:
     data_dir = materialise_orders(spark, tmp_path / "data")
     contract = build_orders_contract(str(data_dir))
@@ -757,6 +1237,35 @@ def test_write_skips_registration_when_output_exists(spark, tmp_path: Path) -> N
         governance_service=governance,
         data_product_service=dp_service,
         data_product_output={"data_product": "dp.analytics", "port_name": "primary"},
+        return_status=True,
+    )
+
+    assert result.ok
+    assert status is not None
+    assert dp_service.output_calls
+    assert dp_service.output_calls[0]["port_name"] == "primary"
+
+
+def test_write_with_governance_skips_output_registration(spark, tmp_path: Path) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-output-existing")
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    dp_service = StubDataProductService(registration_changed=False)
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+    df = spark.read.parquet(str(data_dir))
+
+    result, status = write_with_governance(
+        df=df,
+        request=_gov_write_request(
+            contract,
+            path=str(data_dir),
+            format="parquet",
+            mode="overwrite",
+            context_overrides={
+                "output_binding": {"data_product": "dp.analytics", "port_name": "primary"}
+            },
+        ),
+        governance_service=governance,
         return_status=True,
     )
 
@@ -830,6 +1339,81 @@ def test_data_product_pipeline_roundtrip(spark, tmp_path: Path) -> None:
         path=str(final_dir),
         mode="overwrite",
         data_quality_service=dq_service,
+        governance_service=governance,
+    )
+
+    assert result.ok
+    assert dp_service.input_calls
+    assert dp_service.output_calls
+
+
+def test_data_product_pipeline_roundtrip_with_governance(spark, tmp_path: Path) -> None:
+    source_dir = materialise_orders(spark, tmp_path / "gov-source")
+    source_contract = build_orders_contract(str(source_dir))
+    store, _, _ = persist_contract(tmp_path, source_contract)
+    dp_service = StubDataProductService(
+        contract_ref={"primary": (source_contract.id, source_contract.version)},
+        registration_changed=False,
+    )
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+
+    df_stage1, _ = read_with_governance(
+        spark,
+        _gov_read_request(
+            None,
+            context_overrides={
+                "input_binding": {
+                    "data_product": "dp.analytics",
+                    "source_data_product": "dp.analytics",
+                    "source_output_port": "primary",
+                }
+            },
+            path=str(source_dir),
+            format="parquet",
+        ),
+        governance_service=governance,
+        return_status=True,
+    )
+
+    stage_dir = tmp_path / "gov-stage"
+    intermediate_contract = build_orders_contract(str(stage_dir))
+    intermediate_contract.id = "dp.analytics.stage"
+    store.put(intermediate_contract)
+
+    write_with_governance(
+        df=df_stage1,
+        request=_gov_write_request(
+            intermediate_contract,
+            path=str(stage_dir),
+            format="parquet",
+            mode="overwrite",
+        ),
+        governance_service=governance,
+    )
+
+    stage_df, _ = read_with_governance(
+        spark,
+        _gov_read_request(intermediate_contract),
+        governance_service=governance,
+        return_status=True,
+    )
+
+    final_dir = tmp_path / "gov-final"
+    final_contract = build_orders_contract(str(final_dir))
+    final_contract.id = "dp.analytics.final"
+    store.put(final_contract)
+
+    result = write_with_governance(
+        df=stage_df,
+        request=_gov_write_request(
+            final_contract,
+            path=str(final_dir),
+            format="parquet",
+            mode="overwrite",
+            context_overrides={
+                "output_binding": {"data_product": "dp.analytics", "port_name": "primary"}
+            },
+        ),
         governance_service=governance,
     )
 
@@ -1101,26 +1685,24 @@ def test_read_write_with_governance_only(spark, tmp_path: Path) -> None:
     governance = build_local_governance_service(store)
 
     df = spark.read.format("parquet").load(str(source_dir))
-    result = write_with_contract(
+    result = write_with_governance(
         df=df,
-        contract_id=contract.id,
-        expected_contract_version=f"=={contract.version}",
-        path=str(target_dir),
-        format="parquet",
-        mode="overwrite",
+        request=_gov_write_request(
+            contract,
+            path=str(target_dir),
+            format="parquet",
+            mode="overwrite",
+        ),
+        governance_service=governance,
         enforce=True,
         auto_cast=True,
-        governance_service=governance,
     )
 
     assert result.ok
 
-    read_df, status = read_with_contract(
+    read_df, status = read_with_governance(
         spark,
-        contract_id=contract.id,
-        expected_contract_version=f"=={contract.version}",
-        path=str(target_dir),
-        format="parquet",
+        _gov_read_request(contract, path=str(target_dir), format="parquet"),
         governance_service=governance,
         return_status=True,
     )

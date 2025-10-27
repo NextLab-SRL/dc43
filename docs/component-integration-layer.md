@@ -57,9 +57,9 @@ common flows:
   overrides (format, dataset locator, streaming callbacks) in one place.
 - Convenience helpers such as `read_from_contract`, `write_with_contract_id`,
   `read_from_data_product`, and `write_to_data_product` now build those
-  governance requests under the hood. They remain available for incremental
-  migrations and to shorten common snippets, but no longer require individual
-  contract/data-product clients.
+  governance requests under the hood. They are **deprecated** and continue to
+  exist solely for incremental migrations—new pipelines should rely on the
+  governance-first helpers directly.
 
 Batch pipelines typically call into the governance-only wrappers while streaming jobs reuse
 `read_stream_with_governance` / `write_stream_with_governance`. Callers describe
