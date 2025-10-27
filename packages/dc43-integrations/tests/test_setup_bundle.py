@@ -61,7 +61,7 @@ def test_dlt_pipeline_stub_exposes_workspace_details() -> None:
     project_paths = {file.path for file in stub.project.files}
     assert {"README.md", "pipeline.py", "ops.py"}.issubset(project_paths)
     pipeline_module = next(file for file in stub.project.files if file.path == "pipeline.py")
-    assert "@contract_table" in pipeline_module.content
+    assert "@governed_table" in pipeline_module.content
     ops_module = next(file for file in stub.project.files if file.path == "ops.py")
     assert "register_output_port" in ops_module.content
 

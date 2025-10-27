@@ -68,17 +68,36 @@ class ControlledDQService(RecordingDQService):
 
 
 class RecordingGovernanceService:
-    """Governance stub that records dataset evaluations."""
+    """Governance stub that records dataset evaluations and serves contract lookups."""
 
     class Assessment:
-        def __init__(self, status: ValidationResult) -> None:
+        def __init__(
+            self,
+            status: ValidationResult,
+            *,
+            validation: ValidationResult | None = None,
+            draft: object | None = None,
+        ) -> None:
             self.status = status
-            self.draft = False
+            self.validation = validation
+            self.draft = draft
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        contracts: Mapping[tuple[str, str], OpenDataContractStandard] | None = None,
+        contract_service: LocalContractServiceClient | None = None,
+    ) -> None:
         self.evaluate_calls: list[dict[str, object]] = []
         self.review_calls: list[dict[str, object]] = []
         self.link_calls: list[dict[str, object]] = []
+        self._contracts: dict[tuple[str, str], OpenDataContractStandard] = {}
+        if contracts:
+            self._contracts.update(contracts)
+        self._contract_service = contract_service
+
+    def _register_contract(self, contract: OpenDataContractStandard) -> None:
+        self._contracts[(contract.id, contract.version)] = contract
 
     def evaluate_dataset(
         self,
@@ -91,6 +110,8 @@ class RecordingGovernanceService:
         observations,
         pipeline_context,
         operation: str,
+        bump: str = "minor",
+        draft_on_violation: bool = False,
     ) -> "RecordingGovernanceService.Assessment":  # type: ignore[override]
         payload = observations() if callable(observations) else observations
         self.evaluate_calls.append(
@@ -105,7 +126,9 @@ class RecordingGovernanceService:
             }
         )
         return RecordingGovernanceService.Assessment(
-            ValidationResult(ok=True, status="ok")
+            ValidationResult(ok=True, status="ok"),
+            validation=validation,
+            draft=None,
         )
 
     def review_validation_outcome(self, **kwargs):  # type: ignore[override]
@@ -114,6 +137,40 @@ class RecordingGovernanceService:
 
     def link_dataset_contract(self, **kwargs) -> None:  # type: ignore[override]
         self.link_calls.append(kwargs)
+
+    def get_contract(self, *, contract_id: str, contract_version: str) -> OpenDataContractStandard:
+        contract = self._contracts.get((contract_id, contract_version))
+        if contract is not None:
+            return contract
+        if self._contract_service is not None:
+            contract = self._contract_service.get(contract_id, contract_version)
+            self._register_contract(contract)
+            return contract
+        raise ValueError(f"Unknown contract {contract_id}:{contract_version}")
+
+    def latest_contract(self, *, contract_id: str) -> OpenDataContractStandard | None:
+        versions = [
+            contract
+            for (cid, _), contract in self._contracts.items()
+            if cid == contract_id
+        ]
+        if versions:
+            # Return the lexicographically greatest version for determinism.
+            return sorted(versions, key=lambda item: item.version)[-1]
+        if self._contract_service is not None:
+            contract = self._contract_service.latest(contract_id)
+            if contract is not None:
+                self._register_contract(contract)
+            return contract
+        return None
+
+    def list_contract_versions(self, *, contract_id: str) -> list[str]:
+        versions = [version for (cid, version) in self._contracts if cid == contract_id]
+        if versions:
+            return sorted(versions)
+        if self._contract_service is not None:
+            return list(self._contract_service.list_versions(contract_id))
+        return []
 
 
 def _stream_contract(tmp_path: Path) -> tuple[OpenDataContractStandard, LocalContractServiceClient]:
@@ -171,7 +228,10 @@ def test_streaming_read_invokes_dq_without_metrics(spark, tmp_path: Path) -> Non
 def test_streaming_read_surfaces_dataset_version(spark, tmp_path: Path) -> None:
     contract, service = _stream_contract(tmp_path)
     dq = RecordingDQService()
-    governance = RecordingGovernanceService()
+    governance = RecordingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+        contract_service=service,
+    )
     locator = StaticDatasetLocator(format="rate")
 
     df, status = read_stream_with_contract(
@@ -223,7 +283,10 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
     service = LocalContractServiceClient(store)
     dq = RecordingDQService()
     locator = StaticDatasetLocator(format="memory")
-    governance = RecordingGovernanceService()
+    governance = RecordingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+        contract_service=service,
+    )
 
     df = (
         spark.readStream.format("rate")
@@ -314,7 +377,10 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
     service = LocalContractServiceClient(store)
     dq = ControlledDQService(fail_after=3)
     locator = StaticDatasetLocator(format="memory")
-    governance = RecordingGovernanceService()
+    governance = RecordingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+        contract_service=service,
+    )
 
     df = (
         spark.readStream.format("rate")
@@ -380,7 +446,10 @@ def test_streaming_enforcement_stops_sink_on_failure(spark, tmp_path: Path) -> N
     contract, service = _stream_contract(tmp_path)
     dq = ControlledDQService(fail_after=2)
     locator = StaticDatasetLocator(format="memory")
-    governance = RecordingGovernanceService()
+    governance = RecordingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+        contract_service=service,
+    )
 
     df = (
         spark.readStream.format("rate")

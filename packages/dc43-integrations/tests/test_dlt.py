@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping
 
 import pytest
 
@@ -12,13 +12,14 @@ from dc43_integrations.spark.dlt import (
     DLTContractBinding,
     DLTExpectations,
     apply_dlt_expectations,
-    contract_expectations,
-    contract_table,
-    contract_view,
     expectation_decorators,
     expectations_from_validation_details,
+    governed_expectations,
+    governed_table,
+    governed_view,
 )
-from open_data_contract_standard.model import OpenDataContractStandard, Description
+from dc43_service_clients.governance.models import GovernanceReadContext, ResolvedReadPlan
+from open_data_contract_standard.model import Description, OpenDataContractStandard
 
 
 class _SpyDLT(SimpleNamespace):
@@ -141,51 +142,59 @@ def _make_contract(version: str = "1.0.0") -> OpenDataContractStandard:
     )
 
 
-class _StubContractService:
-    def __init__(self, contracts: Sequence[OpenDataContractStandard]) -> None:
-        self.contracts = {(c.id, c.version): c for c in contracts}
-        self.calls: list[tuple[str, tuple[str, ...]]] = []
-
-    def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
-        self.calls.append(("get", (contract_id, contract_version)))
-        return self.contracts[(contract_id, contract_version)]
-
-    def latest(self, contract_id: str) -> OpenDataContractStandard:
-        self.calls.append(("latest", (contract_id,)))
-        versions = sorted(v for (cid, v) in self.contracts if cid == contract_id)
-        return self.contracts[(contract_id, versions[-1])]
-
-    def list_versions(self, contract_id: str) -> Sequence[str]:
-        self.calls.append(("list_versions", (contract_id,)))
-        return [v for (cid, v) in sorted(self.contracts) if cid == contract_id]
-
-
-class _StubDataQualityService:
-    def __init__(self, plan: Iterable[Mapping[str, object]]) -> None:
+class _StubGovernanceService:
+    def __init__(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        plan: Iterable[Mapping[str, object]],
+    ) -> None:
+        self.contract = contract
         self.plan = list(plan)
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, object]] = []
 
-    def describe_expectations(self, *, contract: OpenDataContractStandard):
-        self.calls.append((contract.id, contract.version))
+    def resolve_read_context(self, *, context: GovernanceReadContext) -> ResolvedReadPlan:
+        self.calls.append(("resolve_read_context", context))
+        dataset_id = context.dataset_id or self.contract.id
+        dataset_version = context.dataset_version or self.contract.version
+        return ResolvedReadPlan(
+            contract=self.contract,
+            contract_id=self.contract.id,
+            contract_version=self.contract.version,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            dataset_format=context.dataset_format,
+            input_binding=context.input_binding,
+            pipeline_context=None,
+            bump=context.bump,
+            draft_on_violation=context.draft_on_violation,
+        )
+
+    def describe_expectations(self, *, contract_id: str, contract_version: str):
+        self.calls.append(("describe_expectations", contract_id, contract_version))
+        assert contract_id == self.contract.id
+        assert contract_version == self.contract.version
         return list(self.plan)
 
 
-def test_contract_expectations_registers_dlt_annotations():
+def test_governed_expectations_registers_dlt_annotations():
     contract = _make_contract("1.2.0")
     plan = [
         {"key": "required", "predicate": "x IS NOT NULL"},
         {"key": "optional", "predicate": "y > 0", "optional": True},
     ]
-    service = _StubContractService([contract])
-    dq = _StubDataQualityService(plan)
+    service = _StubGovernanceService(contract=contract, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_expectations(
+    decorator = governed_expectations(
         dlt,
-        contract_id=contract.id,
-        contract_service=service,
-        data_quality_service=dq,
-        expected_contract_version="==1.2.0",
+        context={
+            "contract": {
+                "contract_id": contract.id,
+                "contract_version": contract.version,
+            }
+        },
+        governance_service=service,
     )
 
     @decorator
@@ -202,22 +211,25 @@ def test_contract_expectations_registers_dlt_annotations():
     assert binding.contract_version == "1.2.0"
     assert binding.expectations.enforced == {"required": "x IS NOT NULL"}
     assert binding.expectation_plan[0]["key"] == "required"
+    resolve_calls = [call for call, *_ in service.calls if call == "resolve_read_context"]
+    assert resolve_calls, "resolve_read_context should be invoked"
 
 
-def test_contract_expectations_supports_minimum_version_selector():
-    contract_old = _make_contract("1.0.0")
+def test_governed_expectations_supports_minimum_version_selector():
     contract_new = _make_contract("1.3.0")
     plan = [{"key": "rule", "predicate": "x > 0"}]
-    service = _StubContractService([contract_old, contract_new])
-    dq = _StubDataQualityService(plan)
+    service = _StubGovernanceService(contract=contract_new, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_expectations(
+    decorator = governed_expectations(
         dlt,
-        contract_id="demo.contract",
-        contract_service=service,
-        data_quality_service=dq,
-        expected_contract_version=">=1.1.0",
+        context={
+            "contract": {
+                "contract_id": "demo.contract",
+                "version_selector": ">=1.1.0",
+            }
+        },
+        governance_service=service,
     )
 
     @decorator
@@ -226,22 +238,23 @@ def test_contract_expectations_supports_minimum_version_selector():
 
     binding = getattr(asset, "__dc43_contract_binding__")
     assert binding.contract_version == "1.3.0"
-    assert ("list_versions", ("demo.contract",)) in service.calls
+    resolve_entry = next(call for call in service.calls if call[0] == "resolve_read_context")
+    context = resolve_entry[1]
+    assert context.contract is not None
+    assert context.contract.version_selector == ">=1.1.0"
 
 
-def test_contract_table_wraps_dlt_table_and_preserves_binding():
+def test_governed_table_wraps_dlt_table_and_preserves_binding():
     contract = _make_contract("2.0.0")
     plan = [{"key": "rule", "predicate": "amount > 0"}]
-    service = _StubContractService([contract])
-    dq = _StubDataQualityService(plan)
+    service = _StubGovernanceService(contract=contract, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_table(
+    decorator = governed_table(
         dlt,
         name="orders",
-        contract_id=contract.id,
-        contract_service=service,
-        data_quality_service=dq,
+        context={"contract": {"contract_id": contract.id, "contract_version": contract.version}},
+        governance_service=service,
     )
 
     @decorator
@@ -255,19 +268,17 @@ def test_contract_table_wraps_dlt_table_and_preserves_binding():
     assert binding.expectations.enforced == {"rule": "amount > 0"}
 
 
-def test_contract_view_wraps_dlt_view():
+def test_governed_view_wraps_dlt_view():
     contract = _make_contract("3.1.0")
     plan = [{"key": "rule", "predicate": "status IN ('OK')", "optional": True}]
-    service = _StubContractService([contract])
-    dq = _StubDataQualityService(plan)
+    service = _StubGovernanceService(contract=contract, plan=plan)
     dlt = _SpyDLT()
 
-    decorator = contract_view(
+    decorator = governed_view(
         dlt,
         materialized="false",
-        contract_id=contract.id,
-        contract_service=service,
-        data_quality_service=dq,
+        context={"contract": {"contract_id": contract.id, "contract_version": contract.version}},
+        governance_service=service,
     )
 
     @decorator

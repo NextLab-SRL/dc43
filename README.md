@@ -219,23 +219,28 @@ contract = OpenDataContractStandard(
 2) Validate and write with Spark
 
 ```python
-from dc43_service_backends.contracts.backend.stores import FSContractStore
-from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_service_clients import load_governance_client
 from dc43_integrations.spark.io import (
-    write_with_contract,
+    write_with_governance,
     ContractVersionLocator,
+    GovernanceSparkWriteRequest,
 )
 
-store = FSContractStore(base_path="/mnt/contracts")
-contract_service = LocalContractServiceClient(store)
+governance = load_governance_client("/path/to/dc43.toml")
 
-write_with_contract(
+write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    contract_service=contract_service,
-    expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    mode="append",
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        mode="append",
+    ),
+    governance_service=governance,
     enforce=True,
     auto_cast=True,
 )
@@ -243,23 +248,28 @@ write_with_contract(
 
 3) DLT usage (inside a pipeline notebook)
 
+DLT annotations follow the same governance-first philosophy as the Spark IO
+helpers: the decorator only needs a governance client and a context describing
+the contract (or future data product binding).
+
 ```python
 import dlt
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.data_quality import LocalDataQualityServiceClient
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
+from dc43_service_clients import load_governance_client
 
-contract_service = LocalContractServiceClient(store)
-data_quality_service = LocalDataQualityServiceClient()
+governance = load_governance_client()
 
 
-@contract_table(
+@governed_table(
     dlt,
+    context={
+        "contract": {
+            "contract_id": "sales.orders",
+            "version_selector": ">=0.1.0",
+        }
+    },
+    governance_service=governance,
     name="orders",
-    contract_id="sales.orders",
-    contract_service=contract_service,
-    data_quality_service=data_quality_service,
-    expected_contract_version=">=0.1.0",
 )
 def orders():
     df = spark.read.stream.table("bronze.sales_orders_raw")
@@ -288,19 +298,26 @@ latest = store.latest("sales.orders")
 5) DQ/DO orchestration on read
 
 ```python
-from dc43_integrations.spark.io import read_with_contract, ContractVersionLocator
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.governance import build_local_governance_service
+from dc43_integrations.spark.io import (
+    read_with_governance,
+    ContractVersionLocator,
+    GovernanceSparkReadRequest,
+)
+from dc43_service_clients import load_governance_client
 
-governance = build_local_governance_service(store)
-contract_service = LocalContractServiceClient(store)
-df, status = read_with_contract(
+governance = load_governance_client("/path/to/dc43.toml")
+df, status = read_with_governance(
     spark,
-    contract_id="sales.orders",
-    contract_service=contract_service,
-    expected_contract_version="==0.1.0",
+    GovernanceSparkReadRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": "==0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
     governance_service=governance,
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     return_status=True,
 )
 print(status.status, status.reason)
@@ -309,19 +326,27 @@ print(status.status, status.reason)
 6) Quality status check on write
 
 ```python
-from dc43_integrations.spark.io import write_with_contract, ContractVersionLocator
-from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_integrations.spark.io import (
+    write_with_governance,
+    ContractVersionLocator,
+    GovernanceSparkWriteRequest,
+)
+from dc43_service_clients import load_governance_client
 
-contract_service = LocalContractServiceClient(store)
-vr, status = write_with_contract(
+governance = load_governance_client("/path/to/dc43.toml")
+vr, status = write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    contract_service=contract_service,
-    expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    mode="append",
-    enforce=False,                 # continue writing
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
     governance_service=governance,
+    enforce=False,  # continue writing
     return_status=True,
 )
 if status and status.status == "block":

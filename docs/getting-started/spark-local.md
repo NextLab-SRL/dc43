@@ -56,24 +56,34 @@ your business logic.
 ### Read contract-bound datasets
 
 ```python
-from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_service_clients import load_governance_client
+from dc43_service_clients.governance import GovernanceReadContext
 from dc43_integrations.spark.io import (
     ContractVersionLocator,
     DefaultReadStatusStrategy,
-    read_with_contract,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
+    read_with_governance,
+    write_with_governance,
 )
 
-contract_client = LocalContractServiceClient(contract_store)
+governance_client = load_governance_client(Path.home() / ".config/dc43/dc43-service-backends.toml")
 read_strategy = DefaultReadStatusStrategy(
     allowed_contract_statuses=("active", "draft"),
 )
 
-orders_df, status = read_with_contract(
+orders_df, status = read_with_governance(
     spark,
-    contract_id="sales.orders",
-    contract_service=contract_client,
-    expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        ),
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
+    governance_service=governance_client,
     status_strategy=read_strategy,
     enforce=True,
     auto_cast=True,
@@ -91,15 +101,18 @@ orchestrator (for example Databricks Jobs) needs the metadata.
 ### Validate writes before publishing
 
 ```python
-from dc43_integrations.spark.io import write_with_contract
-
-write_with_contract(
+write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    contract_service=contract_client,
-    expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    mode="append",
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
+    governance_service=governance_client,
     enforce=True,
     auto_cast=True,
 )

@@ -19,18 +19,19 @@ from dc43_service_backends.data_quality.backend.engine import (
     expectation_specs,
 )
 from dc43_service_clients.data_quality import ValidationResult
+from dc43_service_clients.governance import GovernanceReadContext, GovernanceWriteContext
 from dc43_integrations.spark.data_quality import attach_failed_expectations
 from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
     DefaultReadStatusStrategy,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
     ReadStatusContext,
     ReadStatusStrategy,
     StaticDatasetLocator,
-    read_from_data_product,
-    read_with_contract,
-    write_with_contract,
-    write_to_data_product,
+    read_with_governance,
+    write_with_governance,
 )
 from dc43_integrations.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
@@ -1053,16 +1054,13 @@ def _run_data_product_flow(
     )
     source_dp = input_binding.get("source_data_product")
     source_port = input_binding.get("source_output_port")
-    orders_df, orders_status = read_from_data_product(
-        spark,
-        data_product_service=contracts_server.data_product_service,
-        data_product_input=input_binding,
-        expected_contract_version=input_expected_version,
-        contract_service=contracts_server.contract_service,
-        data_quality_service=contracts_server.dq_service,
-        governance_service=governance,
+    orders_request = GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            input_binding=input_binding,
+            dataset_id=input_dataset_id,
+            dataset_version=input_dataset_version,
+        ),
         dataset_locator=input_locator,
-        return_status=True,
         pipeline_context=_context(
             "data-product-input",
             {
@@ -1094,6 +1092,12 @@ def _run_data_product_flow(
                 "examples_limit": examples_limit,
             },
         ),
+    )
+    orders_df, orders_status = read_with_governance(
+        spark,
+        orders_request,
+        governance_service=governance,
+        return_status=True,
     )
 
     orders_payload = _status_payload(orders_status)
@@ -1127,24 +1131,29 @@ def _run_data_product_flow(
         ),
         customers_cfg if isinstance(customers_cfg, Mapping) else None,
     )
-    customers_df, customers_status = read_with_contract(
+    customers_contract = {"contract_id": customers_contract_id}
+    if customers_version:
+        customers_contract["contract_version"] = customers_version
+    if customers_expected:
+        customers_contract.setdefault("version_selector", customers_expected)
+
+    customers_df, customers_status = read_with_governance(
         spark,
-        contract_id=customers_contract_id,
-        contract_service=contracts_server.contract_service,
-        expected_contract_version=customers_expected,
-        dataset_locator=customers_locator,
-        data_quality_service=contracts_server.dq_service,
+        GovernanceSparkReadRequest(
+            context={"contract": customers_contract},
+            dataset_locator=customers_locator,
+            pipeline_context=_context(
+                "customers-read",
+                {
+                    "contract_id": customers_contract_id,
+                    "contract_version": customers_version,
+                    "collect_examples": bool(collect_examples),
+                    "examples_limit": examples_limit,
+                },
+            ),
+        ),
         governance_service=governance,
         return_status=True,
-        pipeline_context=_context(
-            "customers-read",
-            {
-                "contract_id": customers_contract_id,
-                "contract_version": customers_version,
-                "collect_examples": bool(collect_examples),
-                "examples_limit": examples_limit,
-            },
-        ),
     )
 
     df = orders_df.join(customers_df, "customer_id", "left")
@@ -1171,27 +1180,36 @@ def _run_data_product_flow(
         base=ContractFirstDatasetLocator(),
     )
 
-    stage_result, stage_status = write_with_contract(
+    stage_contract_spec = {"contract_id": stage_contract_id}
+    if stage_contract_version:
+        stage_contract_spec["contract_version"] = stage_contract_version
+    if stage_expected_version:
+        stage_contract_spec.setdefault("version_selector", stage_expected_version)
+
+    stage_result, stage_status = write_with_governance(
         df=df,
-        contract_id=stage_contract_id,
-        contract_service=contracts_server.contract_service,
-        expected_contract_version=stage_expected_version,
-        data_quality_service=contracts_server.dq_service,
+        request=GovernanceSparkWriteRequest(
+            context={
+                "contract": stage_contract_spec,
+                "dataset_id": stage_dataset_name,
+                "dataset_version": stage_dataset_version,
+            },
+            dataset_locator=stage_locator,
+            mode="overwrite",
+            pipeline_context=_context(
+                "stage-write",
+                {
+                    "dataset": stage_dataset_name,
+                    "dataset_version": stage_dataset_version,
+                    "storage_path": str(stage_output_path),
+                    "collect_examples": bool(collect_examples),
+                    "examples_limit": examples_limit,
+                },
+            ),
+        ),
         governance_service=governance,
-        dataset_locator=stage_locator,
-        mode="overwrite",
         enforce=False,
         return_status=True,
-        pipeline_context=_context(
-            "stage-write",
-            {
-                "dataset": stage_dataset_name,
-                "dataset_version": stage_dataset_version,
-                "storage_path": str(stage_output_path),
-                "collect_examples": bool(collect_examples),
-                "examples_limit": examples_limit,
-            },
-        ),
     )
 
     try:
@@ -1256,27 +1274,32 @@ def _run_data_product_flow(
     stage_record.data_product_role = "intermediate"
     records.append(stage_record)
 
-    stage_read_df, stage_read_status = read_with_contract(
+    stage_read_contract = {"contract_id": stage_contract_id}
+    if stage_contract_version:
+        stage_read_contract["contract_version"] = stage_contract_version
+    if stage_expected_version:
+        stage_read_contract.setdefault("version_selector", stage_expected_version)
+
+    stage_read_df, stage_read_status = read_with_governance(
         spark,
-        contract_id=stage_contract_id,
-        contract_service=contracts_server.contract_service,
-        expected_contract_version=stage_expected_version,
-        data_quality_service=contracts_server.dq_service,
+        GovernanceSparkReadRequest(
+            context=GovernanceReadContext(contract=stage_read_contract),
+            dataset_locator=ContractVersionLocator(
+                dataset_version=stage_dataset_version,
+                base=ContractFirstDatasetLocator(),
+            ),
+            pipeline_context=_context(
+                "stage-read",
+                {
+                    "dataset": stage_dataset_name,
+                    "dataset_version": stage_dataset_version,
+                    "collect_examples": bool(collect_examples),
+                    "examples_limit": examples_limit,
+                },
+            ),
+        ),
         governance_service=governance,
-        dataset_locator=ContractVersionLocator(
-            dataset_version=stage_dataset_version,
-            base=ContractFirstDatasetLocator(),
-        ),
         return_status=True,
-        pipeline_context=_context(
-            "stage-read",
-            {
-                "dataset": stage_dataset_name,
-                "dataset_version": stage_dataset_version,
-                "collect_examples": bool(collect_examples),
-                "examples_limit": examples_limit,
-            },
-        ),
     )
 
     output_cfg = data_product_flow.get("output") if isinstance(data_product_flow, Mapping) else {}
@@ -1300,19 +1323,22 @@ def _run_data_product_flow(
         "port_name": output_cfg.get("port_name"),
     }
 
-    final_result, final_status = write_to_data_product(
-        df=stage_read_df,
-        data_product_service=contracts_server.data_product_service,
-        data_product_output=dp_binding,
-        contract_id=output_contract_id,
-        contract_service=contracts_server.contract_service,
-        expected_contract_version=expected_output_version,
-        data_quality_service=contracts_server.dq_service,
-        governance_service=governance,
+    write_contract_ref: dict[str, Any] | None = None
+    if output_contract_id:
+        write_contract_ref = {"contract_id": output_contract_id}
+        if output_contract_version:
+            write_contract_ref["contract_version"] = output_contract_version
+        if expected_output_version:
+            write_contract_ref.setdefault("version_selector", expected_output_version)
+
+    write_request = GovernanceSparkWriteRequest(
+        context=GovernanceWriteContext(
+            contract=write_contract_ref,
+            output_binding=dp_binding,
+            dataset_id=output_dataset_name,
+            dataset_version=output_dataset_version,
+        ),
         dataset_locator=output_locator,
-        mode="overwrite",
-        enforce=False,
-        return_status=True,
         pipeline_context=_context(
             "data-product-write",
             {
@@ -1323,6 +1349,15 @@ def _run_data_product_flow(
                 "examples_limit": examples_limit,
             },
         ),
+        mode="overwrite",
+    )
+
+    final_result, final_status = write_with_governance(
+        df=stage_read_df,
+        request=write_request,
+        governance_service=governance,
+        enforce=False,
+        return_status=True,
     )
 
     try:
@@ -1525,16 +1560,15 @@ def run_pipeline(
     )
 
     # Read primary orders dataset with its contract
-    orders_df, orders_status = read_with_contract(
-        spark,
-        contract_id="orders",
-        contract_service=contracts_server.contract_service,
-        expected_contract_version="==1.1.0",
-        governance_service=governance,
-        data_quality_service=contracts_server.dq_service,
+    orders_read_request = GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": "orders",
+                "version_selector": "==1.1.0",
+            }
+        ),
         dataset_locator=orders_locator,
         status_strategy=orders_strategy,
-        enforce=orders_enforce,
         pipeline_context=_context_for(
             "orders-read",
             {
@@ -1547,6 +1581,13 @@ def run_pipeline(
                 ),
             },
         ),
+    )
+    orders_df, orders_status = read_with_governance(
+        spark,
+        orders_read_request,
+        governance_service=governance,
+        enforce=orders_enforce,
+        return_status=True,
     )
     if treat_orders_blocking and orders_status and orders_status.status == "block":
         details = orders_status.reason or orders_status.details
@@ -1601,16 +1642,15 @@ def run_pipeline(
     )
 
     # Join with customers lookup dataset
-    customers_df, customers_status = read_with_contract(
-        spark,
-        contract_id="customers",
-        contract_service=contracts_server.contract_service,
-        expected_contract_version="==1.0.0",
-        governance_service=governance,
-        data_quality_service=contracts_server.dq_service,
+    customers_read_request = GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": "customers",
+                "version_selector": "==1.0.0",
+            }
+        ),
         dataset_locator=customers_locator,
         status_strategy=customers_strategy,
-        enforce=customers_enforce,
         pipeline_context=_context_for(
             "customers-read",
             {
@@ -1623,6 +1663,13 @@ def run_pipeline(
                 ),
             },
         ),
+    )
+    customers_df, customers_status = read_with_governance(
+        spark,
+        customers_read_request,
+        governance_service=governance,
+        enforce=customers_enforce,
+        return_status=True,
     )
     if treat_customers_blocking and customers_status and customers_status.status == "block":
         details = customers_status.reason or customers_status.details
@@ -1705,8 +1752,7 @@ def run_pipeline(
             "expected_contract_version": expected_version,
             "dataset_name": dataset_name,
             "dataset_version": dataset_version,
-            "contract_service": contracts_server.contract_service,
-            "data_quality_service": contracts_server.dq_service,
+            "governance_service": contracts_server.governance_service,
             "run_type": run_type,
         }
         df = output_transform(df, transform_context)
@@ -1717,6 +1763,29 @@ def run_pipeline(
         asset_name = transform_context.get("dlt_asset_name")
         if asset_name:
             write_context_extra.setdefault("dlt_asset", asset_name)
+
+    output_pipeline_context = _context_for("output-write", write_context_extra)
+    governance_write_request: GovernanceSparkWriteRequest | None = None
+    if contract_id_ref:
+        contract_spec: dict[str, Any] = {"contract_id": contract_id_ref}
+        resolved_version = (
+            getattr(output_contract, "version", None)
+            or contract_version
+        )
+        if resolved_version:
+            contract_spec["contract_version"] = resolved_version
+        if expected_version:
+            contract_spec.setdefault("version_selector", expected_version)
+        governance_write_request = GovernanceSparkWriteRequest(
+            context=GovernanceWriteContext(
+                contract=contract_spec,
+                dataset_id=dataset_name,
+                dataset_version=dataset_version,
+            ),
+            dataset_locator=locator,
+            mode="overwrite",
+            pipeline_context=output_pipeline_context,
+        )
 
     write_error: ValueError | None = None
     if output_contract and contract_status_enforce:
@@ -1749,39 +1818,39 @@ def run_pipeline(
             )
             output_status = None
         else:
-            result, output_status = write_with_contract(
+            if not governance_write_request:
+                raise ValueError("Output contract must be configured before publishing data.")
+            result, output_status = write_with_governance(
                 df=df,
-                contract_id=contract_id_ref,
-                contract_service=contracts_server.contract_service if contract_id_ref else None,
-                path=None if contract_id_ref else str(output_path),
-                format=None if contract_id_ref else getattr(server, "format", "parquet"),
-                mode="overwrite",
-                enforce=False,
-                data_quality_service=contracts_server.dq_service if contract_id_ref else None,
+                request=governance_write_request,
                 governance_service=governance,
-                dataset_locator=locator,
-                expected_contract_version=expected_version,
+                enforce=False,
                 return_status=True,
                 violation_strategy=strategy,
-                pipeline_context=_context_for("output-write", write_context_extra),
             )
     else:
-        result, output_status = write_with_contract(
-            df=df,
-            contract_id=contract_id_ref,
-            contract_service=contracts_server.contract_service if contract_id_ref else None,
-            path=None if contract_id_ref else str(output_path),
-            format=None if contract_id_ref else getattr(server, "format", "parquet"),
-            mode="overwrite",
-            enforce=False,
-            data_quality_service=contracts_server.dq_service if contract_id_ref else None,
-            governance_service=governance,
-            dataset_locator=locator,
-            expected_contract_version=expected_version,
-            return_status=True,
-            violation_strategy=strategy,
-            pipeline_context=_context_for("output-write", write_context_extra),
-        )
+        if governance_write_request is None:
+            message = "Output contract must be configured before publishing data."
+            result = ValidationResult(
+                ok=False,
+                errors=[message],
+                warnings=[],
+                metrics={},
+                status="error",
+                reason=message,
+                details={"errors": [message]},
+            )
+            output_status = None
+            write_error = ValueError(message)
+        else:
+            result, output_status = write_with_governance(
+                df=df,
+                request=governance_write_request,
+                governance_service=governance,
+                enforce=False,
+                return_status=True,
+                violation_strategy=strategy,
+            )
 
     if output_status and output_contract:
         output_status = attach_failed_expectations(

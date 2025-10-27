@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+- Local governance backends now expose contract resolution helpers and include
+  underlying validation payloads when returning `QualityAssessment` objects so
+  clients relying solely on the governance layer retain access to detailed data
+  quality results.
+- Governance storage now guards the SQL backend import so environments without
+  SQLAlchemy can still import the package and run client-only tests without
+  pulling in optional dependencies.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No behavioural updates. Bumped version markers for the 0.22.0.0 release.

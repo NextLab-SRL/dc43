@@ -13,7 +13,10 @@ from dc43_service_clients.governance.client.local import (
     LocalGovernanceServiceClient,
     build_local_governance_service,
 )
-from dc43_service_clients.testing import LocalDataProductServiceBackend
+try:
+    from dc43_service_backends.data_products import LocalDataProductServiceBackend
+except ModuleNotFoundError:  # pragma: no cover - fallback when backends missing
+    from dc43_service_clients.testing import LocalDataProductServiceBackend
 
 from .contracts_records import (
     DatasetRecord,
@@ -45,10 +48,13 @@ DATASETS_FILE: Path = _WORKSPACE.datasets_file
 store = get_store()
 contract_service = LocalContractServiceClient(store=store)
 dq_service = LocalDataQualityServiceClient()
-governance_service: LocalGovernanceServiceClient = build_local_governance_service(store)
 _DATA_PRODUCT_BACKEND = LocalDataProductServiceBackend()
 for _doc in load_data_product_documents():
     _DATA_PRODUCT_BACKEND.put(_doc)
+governance_service: LocalGovernanceServiceClient = build_local_governance_service(
+    store,
+    data_product_backend=_DATA_PRODUCT_BACKEND,
+)
 data_product_service = LocalDataProductServiceClient(backend=_DATA_PRODUCT_BACKEND)
 
 

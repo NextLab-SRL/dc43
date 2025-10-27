@@ -7,7 +7,10 @@ from .client import (
     build_local_governance_service,
 )
 from .models import (
+    ContractReference,
     GovernanceCredentials,
+    GovernanceReadContext,
+    GovernanceWriteContext,
     PipelineContext,
     PipelineContextSpec,
     QualityAssessment,
@@ -19,7 +22,10 @@ __all__ = [
     "LocalGovernanceServiceClient",
     "RemoteGovernanceServiceClient",
     "build_local_governance_service",
+    "ContractReference",
     "GovernanceCredentials",
+    "GovernanceReadContext",
+    "GovernanceWriteContext",
     "PipelineContext",
     "PipelineContextSpec",
     "QualityAssessment",

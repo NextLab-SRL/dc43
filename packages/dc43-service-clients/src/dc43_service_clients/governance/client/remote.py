@@ -21,17 +21,29 @@ from dc43_service_clients.data_quality.transport import (
     decode_validation_result,
 )
 from dc43_service_clients.governance.models import (
+    GovernanceReadContext,
+    GovernanceWriteContext,
     GovernanceCredentials,
     PipelineContextSpec,
     QualityAssessment,
     QualityDraftContext,
+    ResolvedReadPlan,
+    ResolvedWritePlan,
 )
 from dc43_service_clients.governance.transport import (
     decode_contract,
+    decode_read_plan,
+    decode_write_plan,
     decode_quality_assessment,
+    encode_contract,
     encode_credentials,
     encode_draft_context,
+    encode_read_context,
+    encode_read_plan,
+    encode_write_context,
+    encode_write_plan,
     encode_pipeline_context,
+    encode_quality_assessment,
 )
 from .interface import GovernanceServiceClient
 
@@ -81,6 +93,80 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         if self._base_url and not path.startswith("http"):
             return f"{self._base_url}{path}"
         return path
+
+    def get_contract(
+        self,
+        *,
+        contract_id: str,
+        contract_version: str,
+    ) -> OpenDataContractStandard:
+        response = ensure_response(
+            self._client.get(
+                self._request_path(
+                    f"/contracts/{contract_id}/versions/{contract_version}"
+                ),
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, Mapping):
+            raise ValueError("Invalid contract payload from governance service")
+        result = decode_contract(payload)
+        if result is None:
+            raise ValueError("Contract response did not include a contract")
+        return result
+
+    def latest_contract(
+        self,
+        *,
+        contract_id: str,
+    ) -> Optional[OpenDataContractStandard]:
+        response = ensure_response(
+            self._client.get(
+                self._request_path(f"/contracts/{contract_id}/latest"),
+            )
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, Mapping):
+            return None
+        return decode_contract(payload)
+
+    def list_contract_versions(self, *, contract_id: str) -> Sequence[str]:
+        response = ensure_response(
+            self._client.get(
+                self._request_path(f"/contracts/{contract_id}/versions"),
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [str(item) for item in payload]
+        return []
+
+    def describe_expectations(
+        self,
+        *,
+        contract_id: str,
+        contract_version: str,
+    ) -> Sequence[Mapping[str, object]]:
+        contract = self.get_contract(
+            contract_id=contract_id,
+            contract_version=contract_version,
+        )
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/data-quality/expectations"),
+                json={"contract": encode_contract(contract)},
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in payload]
+        return []
 
     def configure_auth(
         self,
@@ -298,6 +384,122 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         if isinstance(payload, list):
             return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in payload]
         return []
+
+    def resolve_read_context(
+        self,
+        *,
+        context: GovernanceReadContext,
+    ) -> ResolvedReadPlan:
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/read/resolve"),
+                json={"context": encode_read_context(context)},
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, Mapping):
+            raise ValueError("Invalid read plan payload from governance service")
+        return decode_read_plan(payload)
+
+    def resolve_write_context(
+        self,
+        *,
+        context: GovernanceWriteContext,
+    ) -> ResolvedWritePlan:
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/write/resolve"),
+                json={"context": encode_write_context(context)},
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, Mapping):
+            raise ValueError("Invalid write plan payload from governance service")
+        return decode_write_plan(payload)
+
+    def evaluate_read_plan(
+        self,
+        *,
+        plan: ResolvedReadPlan,
+        validation: ValidationResult | None,
+        observations: Callable[[], ObservationPayload],
+    ) -> QualityAssessment:
+        payload = observations()
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/read/evaluate"),
+                json={
+                    "plan": encode_read_plan(plan),
+                    "validation": encode_validation_result(validation),
+                    "observations": encode_observation_payload(payload),
+                },
+            )
+        )
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, Mapping):
+            raise ValueError("Invalid read assessment payload from governance service")
+        return decode_quality_assessment(body)
+
+    def evaluate_write_plan(
+        self,
+        *,
+        plan: ResolvedWritePlan,
+        validation: ValidationResult | None,
+        observations: Callable[[], ObservationPayload],
+    ) -> QualityAssessment:
+        payload = observations()
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/write/evaluate"),
+                json={
+                    "plan": encode_write_plan(plan),
+                    "validation": encode_validation_result(validation),
+                    "observations": encode_observation_payload(payload),
+                },
+            )
+        )
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, Mapping):
+            raise ValueError("Invalid write assessment payload from governance service")
+        return decode_quality_assessment(body)
+
+    def register_read_activity(
+        self,
+        *,
+        plan: ResolvedReadPlan,
+        assessment: QualityAssessment,
+    ) -> None:
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/read/register"),
+                json={
+                    "plan": encode_read_plan(plan),
+                    "assessment": encode_quality_assessment(assessment),
+                },
+            )
+        )
+        response.raise_for_status()
+
+    def register_write_activity(
+        self,
+        *,
+        plan: ResolvedWritePlan,
+        assessment: QualityAssessment,
+    ) -> None:
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/write/register"),
+                json={
+                    "plan": encode_write_plan(plan),
+                    "assessment": encode_quality_assessment(assessment),
+                },
+            )
+        )
+        response.raise_for_status()
 
 
 __all__ = ["RemoteGovernanceServiceClient"]

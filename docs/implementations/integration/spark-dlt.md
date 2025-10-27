@@ -7,9 +7,9 @@ dc43 keeps governance logic decoupled from runtime execution. The integration la
 1. **Resolve runtime identifiers** (paths, tables, dataset versions) and map them to contract ids.
 2. **Validate and coerce data** using helpers from `dc43_integrations.spark.data_quality` while respecting enforcement flags.
 3. **Bridge runtime metrics** to the governance service so it can evaluate observations, record activity, and propose drafts when mismatches occur.
-4. **Expose ergonomic APIs** for pipelines (batch: `read_with_contract`,
-   `write_with_contract`; streaming: `read_stream_with_contract`,
-   `write_stream_with_contract`).
+4. **Expose ergonomic APIs** for pipelines (batch: `read_with_governance`,
+   `write_with_governance`; streaming: `read_stream_with_governance`,
+   `write_stream_with_governance`).
 
 ```mermaid
 flowchart TD
@@ -27,28 +27,41 @@ flowchart TD
 
 The canonical implementation lives in [`src/dc43_integrations/spark`](../../packages/dc43-integrations/src/dc43_integrations/spark):
 
-* `io.py` — High-level batch (`read_with_contract`, `write_with_contract`) and
-  streaming (`read_stream_with_contract`, `write_stream_with_contract`)
+* `io.py` — High-level batch (`read_with_governance`, `write_with_governance`) and
+  streaming (`read_stream_with_governance`, `write_stream_with_governance`)
   wrappers for Spark DataFrames along with dataset resolution helpers.
 * `dlt.py` — Helpers to apply expectation predicates inside Delta Live Tables pipelines. Expectation SQL is supplied by the
   data-quality service via validation results so that Delta expectations mirror backend verdicts.
 * [`dc43_integrations.spark.data_quality`](../../packages/dc43-integrations/src/dc43_integrations/spark/data_quality.py) — Schema snapshots and metric builders that rely on expectation descriptors supplied by the data-quality service.
 * [`dc43_service_clients.governance`](../../packages/dc43-service-clients/src/dc43_service_clients/governance) — Client APIs that link contracts, evaluate observations, and interact with governance backends.
 
-Pipelines typically import these helpers directly:
+Pipelines typically import these helpers directly. The annotations mirror the
+``read_with_governance``/``write_with_governance`` wrappers—only the governance
+client is required, which resolves the contract, fetches expectation plans, and
+records activity on behalf of the pipeline:
 
 ```python
-from dc43_integrations.spark.io import read_with_contract, write_with_contract, ContractVersionLocator
-from dc43_service_clients.contracts import LocalContractServiceClient
+from dc43_integrations.spark.io import (
+    read_with_governance,
+    write_with_governance,
+    ContractVersionLocator,
+    GovernanceSparkReadRequest,
+)
+from dc43_service_clients import load_governance_client
 
-contract_service = LocalContractServiceClient(store)
-validated_df, status = read_with_contract(
+governance = load_governance_client()
+validated_df, status = read_with_governance(
     spark,
-    contract_id="sales.orders",
-    contract_service=contract_service,
-    expected_contract_version=">=1.0.0",
+    GovernanceSparkReadRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=1.0.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+    ),
     governance_service=governance,
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
     return_status=True,
 )
 ```
@@ -63,29 +76,30 @@ Keep the integration layer thin: it should delegate to the contract drafter, DQ 
 
 ### Feeding Delta Live Tables expectations
 
-Quality enforcement inside DLT notebooks should reuse the SQL predicates computed by the data-quality service. When a
+Quality enforcement inside DLT notebooks should reuse the SQL predicates computed by the governance stack. When a
 pipeline is declarative you can attach the contract directly to a table/view definition with
-:func:`~dc43_integrations.spark.dlt.contract_table` or :func:`~dc43_integrations.spark.dlt.contract_view`. The decorators
-resolve the requested contract, ask the data-quality service for the expectation plan, and register the resulting predicates
+:func:`~dc43_integrations.spark.dlt.governed_table` or :func:`~dc43_integrations.spark.dlt.governed_view`. The decorators
+resolve the requested contract through the governance service, ask it for the expectation plan, and register the resulting predicates
 with DLT while wrapping ``@dlt.table`` / ``@dlt.view``:
 
 ```python
 import dlt
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.data_quality import LocalDataQualityServiceClient
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
+from dc43_service_clients import load_governance_client
 
-contract_service = LocalContractServiceClient(store)
-data_quality_service = LocalDataQualityServiceClient()
+governance = load_governance_client()
 
 
-@contract_table(
+@governed_table(
     dlt,
+    context={
+        "contract": {
+            "contract_id": "sales.orders",
+            "version_selector": ">=1.2.0",
+        }
+    },
+    governance_service=governance,
     name="orders",
-    contract_id="sales.orders",
-    expected_contract_version=">=1.2.0",
-    contract_service=contract_service,
-    data_quality_service=data_quality_service,
 )
 def orders():
     return spark.read.table("bronze.orders_raw")
@@ -93,9 +107,9 @@ def orders():
 
 The decorated function keeps a ``__dc43_contract_binding__`` attribute containing the resolved contract id/version and
 the frozen expectation plan so orchestration steps can forward the metadata to governance tooling. Equivalent helpers
-exist for views (``contract_view``), and the lower-level
+exist for views (``governed_view``), and the lower-level
 :func:`~dc43_integrations.spark.dlt.expectations_from_validation_details` helper remains available when a pipeline wants
-to recycle predicates produced by :func:`~dc43_integrations.spark.io.write_with_contract` or manual evaluations; the
+to recycle predicates produced by :func:`~dc43_integrations.spark.io.write_with_governance` or manual evaluations; the
 returned :class:`~dc43_integrations.spark.dlt.DLTExpectations` object exposes both decorator and imperative application
 methods.
 
@@ -112,20 +126,26 @@ outcome of every expectation evaluation:
 ```python
 from pyspark.sql import SparkSession
 
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
+from dc43_service_clients import load_governance_client
 
 spark = SparkSession.builder.master("local[2]").appName("demo").getOrCreate()
 dlt = ensure_dlt_module(allow_stub=True)
+governance = load_governance_client()
 
 with LocalDLTHarness(spark, module=dlt) as harness:
 
-    @contract_table(
+    @governed_table(
         dlt,
         name="orders",
-        contract_id="demo.orders",
-        contract_service=contract_service,  # reuse the clients prepared earlier
-        data_quality_service=data_quality_service,
+        context={
+            "contract": {
+                "contract_id": "demo.orders",
+                "version_selector": "latest",
+            }
+        },
+        governance_service=governance,
     )
     def orders():
         return spark.read.table("bronze.orders_raw")
@@ -144,7 +164,7 @@ with the root project), execute::
     python packages/dc43-integrations/examples/dlt_contract_pipeline.py
 
 The script materialises a tiny bronze dataset, decorates a DLT table with
-``contract_table``, prints the expectation summary emitted by the harness, and
+``governed_table``, prints the expectation summary emitted by the harness, and
 optionally persists the validated rows when ``--output`` is provided.
 
 ## Versioned layouts and Delta time travel

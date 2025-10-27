@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+- Pipeline and streaming demo scenarios now call the governance read/write
+  helpers with `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest`
+  payloads so presenters only need the governance client to resolve contracts,
+  data product bindings, and status reporting.
+- Demo DLT walkthroughs now import the renamed
+  ``governed_expectations``/``governed_table`` helpers so notebook snippets and
+  generated copy match the governance-first annotations.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional updates in this cycle. Version metadata bumped for the

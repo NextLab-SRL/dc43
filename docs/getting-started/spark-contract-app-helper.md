@@ -71,7 +71,8 @@ you need the container to spawn the backend locally.
 2. For each transformation, choose the integration strategy (Spark batch, Delta Live Tables, streaming, ...).
 3. Click **Generate stub**. The helper calls `/api/integration-helper/stub` to assemble a tailored Spark snippet.
 4. Copy the highlighted code block and paste it into your notebook or repo. The snippet already imports
-   `write_with_contract`, sets up the expected contract version, and includes TODO markers for business-specific logic.
+   the governance-first helpers (``read_with_governance``/``write_with_governance``), sets up the expected contract
+   version, and includes TODO markers for business-specific logic.
 
 You can switch the target language from the dropdown above the stub (for example to Python or SQL) and regenerate as often as
 needed.
@@ -85,28 +86,42 @@ pipeline behaviour. If you need to run development jobs against a draft
 contract, configure the provided strategies directly in the stub:
 
 ```python
-from dc43_integrations.spark.io import DefaultReadStatusStrategy
+from dc43_integrations.spark.io import (
+    DefaultReadStatusStrategy,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
+)
 from dc43_integrations.spark.violation_strategy import NoOpWriteViolationStrategy
+from dc43_service_clients.governance import GovernanceReadContext
 
 read_status = DefaultReadStatusStrategy(allowed_contract_statuses=("active", "draft"))
 write_strategy = NoOpWriteViolationStrategy(allowed_contract_statuses=("active", "draft"))
 
-df, status = read_with_contract(
+df, status = read_with_governance(
     spark,
-    contract_id="orders_enriched",
-    expected_contract_version="==3.0.0",
-    contract_service=contract_client,
-    data_quality_service=dq_client,
+    GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract={
+                "contract_id": "orders_enriched",
+                "version_selector": "==3.0.0",
+            }
+        )
+    ),
+    governance_service=governance_client,
     status_strategy=read_status,
     enforce=True,
 )
 
-write_with_contract(
+write_with_governance(
     df=df,
-    contract_id="orders_enriched",
-    expected_contract_version="==3.0.0",
-    contract_service=contract_client,
-    data_quality_service=dq_client,
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "orders_enriched",
+                "contract_version": "3.0.0",
+            }
+        }
+    ),
     governance_service=governance_client,
     violation_strategy=write_strategy,
     return_status=True,
