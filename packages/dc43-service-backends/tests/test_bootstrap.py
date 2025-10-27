@@ -27,6 +27,7 @@ from dc43_service_backends.data_quality.backend import (
     LocalDataQualityServiceBackend,
     RemoteDataQualityServiceBackend,
 )
+from dc43_service_backends.governance.backend import LocalGovernanceServiceBackend
 from dc43_service_backends.governance.storage import InMemoryGovernanceStore
 from dc43_service_backends.governance.storage.filesystem import FilesystemGovernanceStore
 
@@ -92,6 +93,9 @@ def test_build_backends_delta(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(suite.data_product, DeltaDataProductServiceBackend)
     assert isinstance(suite.data_quality, LocalDataQualityServiceBackend)
     assert isinstance(suite.governance_store, InMemoryGovernanceStore)
+    assert isinstance(suite.governance, LocalGovernanceServiceBackend)
+    assert isinstance(suite.contract_store, DeltaContractStore)
+    assert isinstance(suite.link_hooks, tuple)
 
 
 def test_build_data_quality_backend_local() -> None:
