@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- Surfaced governance metrics in the contracts app dataset and contract views
+  so operators can inspect recorded observations directly in the UI.
 - Deprecated contract/data-product Spark IO shims (`read_with_contract`,
   `write_with_contract`, and related helpers) in favour of the
   governance-first wrappers. Compatibility calls now emit

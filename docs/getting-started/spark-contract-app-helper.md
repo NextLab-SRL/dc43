@@ -65,6 +65,15 @@ docker run --rm \
 Override `DC43_CONTRACTS_APP_BACKEND_MODE=embedded` and mount `/contracts` if
 you need the container to spawn the backend locally.
 
+### Inspect governance metrics
+
+Once the UI is running, open any dataset or contract entry from the catalog to
+review the metrics recorded by the governance service. The dataset view groups
+observations by the status timestamp so you can see the latest snapshot alongside
+earlier runs, while the contract overview highlights the same metrics filtered to
+the active version. This makes it easy to validate row counts, violation totals,
+and other KPIs without querying the backend directly.
+
 ## 4. Generate a Spark stub
 
 1. Select one or more contracts from the catalog tree.

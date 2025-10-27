@@ -77,6 +77,89 @@
   </ul>
 </div>
 {% endif %}
+{% set metrics_summary = metrics_summary | default({}) %}
+{% set latest_metrics = metrics_summary.get('latest') %}
+{% set previous_metrics = metrics_summary.get('previous', []) %}
+{% if metrics_error %}
+<div class="alert alert-warning mt-3">
+  <strong>Metrics unavailable.</strong>
+  <div class="small mb-0">{{ metrics_error }}</div>
+</div>
+{% endif %}
+{% if latest_metrics %}
+<h2>Metrics</h2>
+<div class="card mb-3">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <strong>{{ latest_metrics.recorded_label or latest_metrics.recorded_at or 'Latest snapshot' }}</strong>
+      {% if latest_metrics.dataset_version %}
+      <span class="text-muted ms-2">Dataset {{ latest_metrics.dataset_version }}</span>
+      {% endif %}
+    </div>
+    {% if latest_metrics.contract_id %}
+    <div class="text-muted small">
+      Contract {{ latest_metrics.contract_id }}{% if latest_metrics.contract_version %}:{{ latest_metrics.contract_version }}{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr><th scope="col">Metric</th><th scope="col">Value</th></tr>
+      </thead>
+      <tbody>
+        {% for metric in latest_metrics.metrics %}
+        <tr>
+          <td><code>{{ metric.key }}</code></td>
+          <td>{{ metric.value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% elif not metrics_error %}
+<p class="text-muted">No metrics recorded for this dataset version.</p>
+{% endif %}
+{% if previous_metrics %}
+<details class="mb-3">
+  <summary>Earlier metric snapshots</summary>
+  <div class="mt-3">
+    {% for snapshot in previous_metrics %}
+    <div class="card mb-3">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+          <strong>{{ snapshot.recorded_label or snapshot.recorded_at or 'Snapshot' }}</strong>
+          {% if snapshot.dataset_version %}
+          <span class="text-muted ms-2">Dataset {{ snapshot.dataset_version }}</span>
+          {% endif %}
+        </div>
+        {% if snapshot.contract_id %}
+        <div class="text-muted small">
+          Contract {{ snapshot.contract_id }}{% if snapshot.contract_version %}:{{ snapshot.contract_version }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr><th scope="col">Metric</th><th scope="col">Value</th></tr>
+          </thead>
+          <tbody>
+            {% for metric in snapshot.metrics %}
+            <tr>
+              <td><code>{{ metric.key }}</code></td>
+              <td>{{ metric.value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
 {% set aux = output_details.get('auxiliary_datasets', []) %}
 {% if aux %}
 <h2>Auxiliary datasets</h2>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from datetime import datetime, timezone
 
 import pytest
 
@@ -97,6 +98,7 @@ class _ServiceBackendMock:
         self._dataset_links: dict[tuple[str, str], str] = {}
         self._governance_status: dict[tuple[str, str], ValidationResult] = {}
         self._pipeline_activity: list[dict[str, object]] = []
+        self._metrics: list[dict[str, object]] = []
         self._data_products = LocalDataProductServiceBackend()
         self._data_products.register_output_port(
             data_product_id="dp.analytics",
@@ -308,6 +310,37 @@ class _ServiceBackendMock:
         return httpx.Response(status_code=404, json={"detail": "Unknown data-product endpoint"})
 
     def _handle_governance(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
+        def _record(metric_result: ValidationResult, *, contract_id: str | None, contract_version: str | None, dataset_id: str, dataset_version: str) -> None:
+            metrics = metric_result.metrics if hasattr(metric_result, "metrics") else None
+            if not metrics:
+                return
+            recorded_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    numeric = float(value)
+                    serialized = str(value)
+                elif value is None:
+                    numeric = None
+                    serialized = None
+                else:
+                    try:
+                        serialized = json.dumps(value)
+                    except TypeError:
+                        serialized = str(value)
+                    numeric = None
+                self._metrics.append(
+                    {
+                        "dataset_id": dataset_id,
+                        "dataset_version": dataset_version,
+                        "contract_id": contract_id,
+                        "contract_version": contract_version,
+                        "status_recorded_at": recorded_at,
+                        "metric_key": str(key),
+                        "metric_value": serialized,
+                        "metric_numeric_value": numeric,
+                    }
+                )
+
         if path == "/governance/read/resolve" and method == "POST":
             context = self._read_json(request).get("context", {})
             try:
@@ -338,6 +371,13 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.read.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
             )
+            _record(
+                validation_result,
+                contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
+                contract_version=str(plan.get("contract_version")) if plan.get("contract_version") else None,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+            )
             reused = bool(observations.get("reused", False)) if isinstance(observations, Mapping) else False
             return httpx.Response(
                 status_code=200,
@@ -363,6 +403,13 @@ class _ServiceBackendMock:
             self._governance_status[(dataset_id, dataset_version)] = validation_result
             self._pipeline_activity.append(
                 {"event": "governance.write.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
+            )
+            _record(
+                validation_result,
+                contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
+                contract_version=str(plan.get("contract_version")) if plan.get("contract_version") else None,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
             )
             reused = bool(observations.get("reused", False)) if isinstance(observations, Mapping) else False
             return httpx.Response(
@@ -421,6 +468,13 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.evaluate", "dataset_id": str(dataset_id), "dataset_version": str(dataset_version)}
             )
+            _record(
+                validation_result,
+                contract_id=str(payload.get("contract_id")) if payload.get("contract_id") else None,
+                contract_version=str(payload.get("contract_version")) if payload.get("contract_version") else None,
+                dataset_id=str(dataset_id),
+                dataset_version=str(dataset_version),
+            )
             reused = bool(observations.get("reused", False)) if isinstance(observations, Mapping) else False
             return httpx.Response(
                 status_code=200,
@@ -471,6 +525,22 @@ class _ServiceBackendMock:
             if key not in self._dataset_links:
                 return httpx.Response(status_code=404, json={"detail": "Dataset not linked"})
             return httpx.Response(status_code=200, json={"contract_version": self._dataset_links[key]})
+        if path == "/governance/metrics" and method == "GET":
+            dataset_id = request.url.params.get("dataset_id")
+            if dataset_id is None:
+                return httpx.Response(status_code=400, json={"detail": "Missing dataset identifier"})
+            dataset_version = request.url.params.get("dataset_version")
+            contract_id = request.url.params.get("contract_id")
+            contract_version = request.url.params.get("contract_version")
+            entries = [
+                entry
+                for entry in self._metrics
+                if entry.get("dataset_id") == dataset_id
+                and (dataset_version is None or entry.get("dataset_version") == dataset_version)
+                and (contract_id is None or entry.get("contract_id") == contract_id)
+                and (contract_version is None or entry.get("contract_version") == contract_version)
+            ]
+            return httpx.Response(status_code=200, json=entries)
         if path == "/governance/activity" and method == "GET":
             dataset_id = request.url.params.get("dataset_id")
             dataset_version = request.url.params.get("dataset_version")
@@ -693,6 +763,13 @@ def test_remote_governance_client(http_clients):
         dataset_version="2024-01-01",
     )
     assert status is not None
+
+    metrics = governance_client.get_metrics(
+        dataset_id="orders",
+        dataset_version="2024-01-01",
+    )
+    assert metrics
+    assert any(entry.get("metric_key") == "row_count" for entry in metrics)
 
     governance_client.link_dataset_contract(
         dataset_id="orders",

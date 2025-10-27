@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from numbers import Number
 from typing import Mapping, Optional, Sequence
 
-from sqlalchemy import Column, MetaData, String, Table, Text, select
+from sqlalchemy import Column, Float, MetaData, String, Table, Text, select
 from sqlalchemy.engine import Engine
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
@@ -25,6 +26,7 @@ class SQLGovernanceStore(GovernanceStore):
         status_table: str = "dq_status",
         activity_table: str = "dq_activity",
         link_table: str = "dq_dataset_contract_links",
+        metrics_table: str = "dq_metrics",
     ) -> None:
         self._engine = engine
         metadata = MetaData(schema=schema)
@@ -54,6 +56,18 @@ class SQLGovernanceStore(GovernanceStore):
             Column("contract_id", String, nullable=False),
             Column("contract_version", String, nullable=False),
             Column("linked_at", String, nullable=False),
+        )
+        self._metrics = Table(
+            metrics_table,
+            metadata,
+            Column("dataset_id", String, nullable=False),
+            Column("dataset_version", String, nullable=True),
+            Column("contract_id", String, nullable=True),
+            Column("contract_version", String, nullable=True),
+            Column("status_recorded_at", String, nullable=False),
+            Column("metric_key", String, nullable=False),
+            Column("metric_value", Text, nullable=True),
+            Column("metric_numeric_value", Float, nullable=True),
         )
         metadata.create_all(engine)
 
@@ -130,6 +144,7 @@ class SQLGovernanceStore(GovernanceStore):
                 )
             return
 
+        recorded_at = self._now()
         payload = {
             "contract_id": contract_id,
             "contract_version": contract_version,
@@ -147,9 +162,38 @@ class SQLGovernanceStore(GovernanceStore):
             extra={
                 "contract_id": contract_id,
                 "contract_version": contract_version,
-                "recorded_at": self._now(),
+                "recorded_at": recorded_at,
             },
         )
+
+        metrics_entries = []
+        for key, value in (status.metrics or {}).items():
+            numeric_value: float | None = None
+            if isinstance(value, Number):
+                numeric_value = float(value)
+                serialized_value = str(value)
+            elif value is None:
+                serialized_value = None
+            else:
+                try:
+                    serialized_value = json.dumps(value)
+                except TypeError:
+                    serialized_value = str(value)
+            metrics_entries.append(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "status_recorded_at": recorded_at,
+                    "metric_key": str(key),
+                    "metric_value": serialized_value,
+                    "metric_numeric_value": numeric_value,
+                }
+            )
+        if metrics_entries:
+            with self._engine.begin() as conn:
+                conn.execute(self._metrics.insert(), metrics_entries)
 
     def load_status(
         self,
@@ -234,6 +278,51 @@ class SQLGovernanceStore(GovernanceStore):
         if row and row.contract_id and row.contract_version:
             return f"{row.contract_id}:{row.contract_version}"
         return None
+
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
+    def load_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        stmt = select(
+            self._metrics.c.dataset_id,
+            self._metrics.c.dataset_version,
+            self._metrics.c.contract_id,
+            self._metrics.c.contract_version,
+            self._metrics.c.status_recorded_at,
+            self._metrics.c.metric_key,
+            self._metrics.c.metric_value,
+            self._metrics.c.metric_numeric_value,
+        ).where(self._metrics.c.dataset_id == dataset_id)
+        if dataset_version is not None:
+            stmt = stmt.where(self._metrics.c.dataset_version == dataset_version)
+        if contract_id is not None:
+            stmt = stmt.where(self._metrics.c.contract_id == contract_id)
+        if contract_version is not None:
+            stmt = stmt.where(self._metrics.c.contract_version == contract_version)
+        stmt = stmt.order_by(
+            self._metrics.c.status_recorded_at,
+            self._metrics.c.metric_key,
+        )
+
+        records: list[Mapping[str, object]] = []
+        with self._engine.begin() as conn:
+            for row in conn.execute(stmt).all():
+                payload = dict(row._mapping)
+                numeric = payload.get("metric_numeric_value")
+                if numeric is not None:
+                    try:
+                        payload["metric_numeric_value"] = float(numeric)
+                    except (TypeError, ValueError):  # pragma: no cover - defensive
+                        payload["metric_numeric_value"] = None
+                records.append(payload)
+        return records
 
     # ------------------------------------------------------------------
     # Pipeline activity

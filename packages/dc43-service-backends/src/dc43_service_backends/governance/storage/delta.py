@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping, Optional, TYPE_CHECKING
+from numbers import Number
+from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
@@ -18,7 +19,13 @@ if TYPE_CHECKING:  # pragma: no cover - import only for static typing
 try:  # pragma: no cover - optional dependency guard
     from pyspark.sql import DataFrame, SparkSession
     from pyspark.sql.functions import col
-    from pyspark.sql.types import BooleanType, StringType, StructField, StructType
+    from pyspark.sql.types import (
+        BooleanType,
+        DoubleType,
+        StringType,
+        StructField,
+        StructType,
+    )
     from pyspark.sql.utils import AnalysisException
 except ModuleNotFoundError as exc:  # pragma: no cover - allow import without pyspark
     raise ModuleNotFoundError(
@@ -38,6 +45,7 @@ class DeltaGovernanceStore(GovernanceStore):
         status_table: str | None = None,
         activity_table: str | None = None,
         link_table: str | None = None,
+        metrics_table: str | None = None,
         bootstrap_tables: bool = True,
     ) -> None:
         if not base_path and not (status_table and activity_table and link_table):
@@ -49,6 +57,7 @@ class DeltaGovernanceStore(GovernanceStore):
         self._status_table = status_table
         self._activity_table = activity_table
         self._link_table = link_table
+        self._metrics_table = metrics_table
 
         if bootstrap_tables:
             self.bootstrap()
@@ -62,6 +71,18 @@ class DeltaGovernanceStore(GovernanceStore):
             StructField("recorded_at", StringType(), False),
             StructField("deleted", BooleanType(), False),
             StructField("payload", StringType(), False),
+        ]
+    )
+    _METRIC_SCHEMA = StructType(
+        [
+            StructField("dataset_id", StringType(), False),
+            StructField("dataset_version", StringType(), True),
+            StructField("contract_id", StringType(), False),
+            StructField("contract_version", StringType(), True),
+            StructField("status_recorded_at", StringType(), False),
+            StructField("metric_key", StringType(), False),
+            StructField("metric_value", StringType(), True),
+            StructField("metric_numeric_value", DoubleType(), True),
         ]
     )
     _LINK_SCHEMA = StructType(
@@ -176,6 +197,7 @@ class DeltaGovernanceStore(GovernanceStore):
             ("status", self._status_table, self._STATUS_SCHEMA),
             ("links", self._link_table, self._LINK_SCHEMA),
             ("activity", self._activity_table, self._ACTIVITY_SCHEMA),
+            ("metrics", self._metrics_table, self._METRIC_SCHEMA),
         )
         for name, table, schema in targets:
             folder = self._table_path(name) if self._base_path else None
@@ -216,12 +238,13 @@ class DeltaGovernanceStore(GovernanceStore):
         dataset_version: str,
         status: ValidationResult | None,
     ) -> None:
+        recorded_at = self._now()
         payload = {
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
             "contract_id": contract_id,
             "contract_version": contract_version,
-            "recorded_at": self._now(),
+            "recorded_at": recorded_at,
             "deleted": status is None,
             "payload": json.dumps(
                 {
@@ -239,6 +262,45 @@ class DeltaGovernanceStore(GovernanceStore):
         df = self._spark.createDataFrame([payload])
         folder = self._table_path("status") if self._base_path else None
         self._write(df, table=self._status_table, folder=folder)
+
+        if status is None:
+            return
+
+        metrics_records = []
+        for key, value in (status.metrics or {}).items():
+            numeric_value: float | None = None
+            if isinstance(value, Number):
+                numeric_value = float(value)
+                value_payload: str | None = str(value)
+            elif value is None:
+                value_payload = None
+            else:
+                try:
+                    value_payload = json.dumps(value)
+                except TypeError:
+                    value_payload = str(value)
+            metrics_records.append(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "status_recorded_at": recorded_at,
+                    "metric_key": str(key),
+                    "metric_value": value_payload,
+                    "metric_numeric_value": numeric_value,
+                }
+            )
+
+        if not metrics_records:
+            return
+
+        metrics_folder = self._table_path("metrics") if self._base_path else None
+        if not self._metrics_table and not metrics_folder:
+            return
+
+        metrics_df = self._spark.createDataFrame(metrics_records, self._METRIC_SCHEMA)
+        self._write(metrics_df, table=self._metrics_table, folder=metrics_folder)
 
     def load_status(
         self,
@@ -383,6 +445,47 @@ class DeltaGovernanceStore(GovernanceStore):
         if dataset_version is not None:
             return [ordered[0]] if ordered else []
         return ordered
+
+    # ------------------------------------------------------------------
+    # Metrics retrieval
+    # ------------------------------------------------------------------
+    def load_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        metrics_folder = self._table_path("metrics") if self._base_path else None
+        df = self._read(table=self._metrics_table, folder=metrics_folder)
+        if df is None:
+            return []
+
+        condition = col("dataset_id") == dataset_id
+        if dataset_version is not None:
+            condition = condition & (col("dataset_version") == dataset_version)
+        if contract_id is not None:
+            condition = condition & (col("contract_id") == contract_id)
+        if contract_version is not None:
+            condition = condition & (col("contract_version") == contract_version)
+
+        rows = (
+            df.filter(condition)
+            .orderBy(col("status_recorded_at"), col("metric_key"))
+            .collect()
+        )
+        entries: list[Mapping[str, object]] = []
+        for row in rows:
+            payload = row.asDict(recursive=False)
+            numeric_value = payload.get("metric_numeric_value")
+            if numeric_value is not None:
+                try:
+                    payload["metric_numeric_value"] = float(numeric_value)
+                except (TypeError, ValueError):  # pragma: no cover - defensive
+                    payload["metric_numeric_value"] = None
+            entries.append(payload)
+        return entries
 
 
 __all__ = ["DeltaGovernanceStore"]

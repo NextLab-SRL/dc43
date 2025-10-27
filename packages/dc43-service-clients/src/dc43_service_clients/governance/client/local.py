@@ -195,6 +195,21 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
             dataset_version=dataset_version,
         )
 
+    def get_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        return self._backend.get_metrics(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            contract_id=contract_id,
+            contract_version=contract_version,
+        )
+
     def get_pipeline_activity(
         self,
         *,

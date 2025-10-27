@@ -6,8 +6,9 @@ import json
 import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from numbers import Number
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
@@ -32,7 +33,7 @@ class FilesystemGovernanceStore(GovernanceStore):
     def __init__(self, base_path: str | os.PathLike[str]) -> None:
         self.base_path = Path(base_path).expanduser()
         self.base_path.mkdir(parents=True, exist_ok=True)
-        for subdir in ("status", "links", "pipeline_activity"):
+        for subdir in ("status", "links", "pipeline_activity", "metrics"):
             (self.base_path / subdir).mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -53,6 +54,11 @@ class FilesystemGovernanceStore(GovernanceStore):
 
     def _activity_path(self, dataset_id: str) -> Path:
         folder = self.base_path / "pipeline_activity"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f"{self._safe(dataset_id)}.json"
+
+    def _metrics_path(self, dataset_id: str) -> Path:
+        folder = self.base_path / "metrics"
         folder.mkdir(parents=True, exist_ok=True)
         return folder / f"{self._safe(dataset_id)}.json"
 
@@ -105,6 +111,16 @@ class FilesystemGovernanceStore(GovernanceStore):
             recorded_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         )
         self._write_json(path, asdict(record))
+
+        if status.metrics:
+            self._append_metrics(
+                contract_id=contract_id,
+                contract_version=contract_version,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+                recorded_at=record.recorded_at,
+                metrics=status.metrics,
+            )
 
     def load_status(
         self,
@@ -253,6 +269,98 @@ class FilesystemGovernanceStore(GovernanceStore):
             )
         )
         return entries
+
+    # ------------------------------------------------------------------
+    # Metric entries
+    # ------------------------------------------------------------------
+    def _append_metrics(
+        self,
+        *,
+        contract_id: str,
+        contract_version: str,
+        dataset_id: str,
+        dataset_version: str,
+        recorded_at: str,
+        metrics: Mapping[str, Any],
+    ) -> None:
+        path = self._metrics_path(dataset_id)
+        payload = self._read_json(path) or {"dataset_id": dataset_id, "versions": {}}
+        versions = payload.get("versions")
+        if not isinstance(versions, dict):
+            versions = {}
+        version_key = str(dataset_version)
+        records = versions.get(version_key)
+        if not isinstance(records, list):
+            records = []
+
+        def _normalise(value: Any) -> tuple[Any | None, float | None]:
+            if isinstance(value, Number):
+                return value, float(value)
+            if value is None:
+                return None, None
+            try:
+                json.dumps(value)
+                return value, None
+            except TypeError:
+                return str(value), None
+
+        for metric_key, metric_value in metrics.items():
+            value, numeric = _normalise(metric_value)
+            records.append(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "status_recorded_at": recorded_at,
+                    "metric_key": str(metric_key),
+                    "metric_value": value,
+                    "metric_numeric_value": numeric,
+                }
+            )
+
+        versions[version_key] = records
+        payload["versions"] = versions
+        self._write_json(path, payload)
+
+    def load_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        payload = self._read_json(self._metrics_path(dataset_id))
+        if not payload:
+            return []
+        versions = payload.get("versions")
+        if not isinstance(versions, Mapping):
+            return []
+
+        def _matches(entry: Mapping[str, object]) -> bool:
+            if dataset_version is not None and entry.get("dataset_version") != dataset_version:
+                return False
+            if contract_id is not None and entry.get("contract_id") != contract_id:
+                return False
+            if contract_version is not None and entry.get("contract_version") != contract_version:
+                return False
+            return True
+
+        records: list[Mapping[str, object]] = []
+        for record_list in versions.values():
+            if isinstance(record_list, list):
+                for entry in record_list:
+                    if isinstance(entry, Mapping) and _matches(entry):
+                        records.append(dict(entry))
+
+        records.sort(
+            key=lambda item: (
+                str(item.get("status_recorded_at", "")),
+                str(item.get("metric_key", "")),
+            )
+        )
+        return records
 
 
 __all__ = ["FilesystemGovernanceStore"]

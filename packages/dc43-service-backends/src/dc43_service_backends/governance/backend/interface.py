@@ -128,6 +128,16 @@ class GovernanceServiceBackend(Protocol):
     ) -> Optional[str]:
         ...
 
+    def get_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        ...
+
     def get_pipeline_activity(
         self,
         *,

@@ -362,6 +362,35 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
             return str(version) if version is not None else None
         return None
 
+    def get_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        params: dict[str, object] = {"dataset_id": dataset_id}
+        if dataset_version is not None:
+            params["dataset_version"] = dataset_version
+        if contract_id is not None:
+            params["contract_id"] = contract_id
+        if contract_version is not None:
+            params["contract_version"] = contract_version
+        response = ensure_response(
+            self._client.get(
+                self._request_path("/governance/metrics"),
+                params=params,
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in payload]
+        if isinstance(payload, Mapping):
+            return [dict(payload)]
+        return []
+
     def get_pipeline_activity(
         self,
         *,

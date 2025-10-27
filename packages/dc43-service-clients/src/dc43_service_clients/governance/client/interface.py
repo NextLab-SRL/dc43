@@ -84,6 +84,16 @@ class GovernanceServiceClient(Protocol):
     ) -> Optional[str]:
         ...
 
+    def get_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        ...
+
     def resolve_read_context(
         self,
         *,
