@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Changed
+- Deprecated contract/data-product Spark IO shims (`read_with_contract`,
+  `write_with_contract`, and related helpers) in favour of the
+  governance-first wrappers. Compatibility calls now emit
+  ``DeprecationWarning`` messages to steer pipelines towards
+  `read_with_governance`/`write_with_governance`.
 - Introduced governance-first Spark IO wrappers and updated documentation/tests
   so pipelines can rely on a single governance client instead of wiring
   contract/data-quality services manually.
@@ -43,6 +48,11 @@
 - Deferred importing the SQL governance store until SQLAlchemy is available so
   client-only environments can run the service-client test suite without pulling
   in optional backend dependencies.
+- Extended Spark governance coverage so read/write helpers mirror the
+  contract-based behaviours when data product registrations require review,
+  added comprehensive governance-first parity tests for data product bindings,
+  DQ blocks, and format warnings, and taught the governance backend to surface
+  review-required registrations instead of silently continuing.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

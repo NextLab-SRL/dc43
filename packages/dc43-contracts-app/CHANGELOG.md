@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- Updated the Spark pipeline stub and preview tooling to call
+  `read_with_governance`/`write_with_governance`, emitting governance request
+  payloads in generated snippets and surfacing deprecation messaging for the
+  legacy contract-based helpers.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional updates. Bumped the package metadata for the 0.22.0.0 release

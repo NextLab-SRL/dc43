@@ -11,7 +11,10 @@ from dc43_service_backends.core.odcs import contract_identity
 from dc43_service_backends.contracts import ContractServiceBackend, ContractStore
 from dc43_service_backends.contracts.drafting import draft_from_validation_result
 from dc43_service_backends.data_quality import DataQualityServiceBackend
-from dc43_service_backends.data_products import DataProductServiceBackend
+from dc43_service_backends.data_products import (
+    DataProductRegistrationResult,
+    DataProductServiceBackend,
+)
 from dc43_service_clients.contracts import ContractServiceClient
 from dc43_service_clients.data_quality import (
     DataQualityServiceClient,
@@ -604,7 +607,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             contract_id=plan.contract_id,
         )
         try:
-            register(
+            registration: Optional[DataProductRegistrationResult] = register(
                 data_product_id=binding.data_product,
                 port=port,
                 bump=binding.bump,
@@ -613,7 +616,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 source_output_port=binding.source_output_port,
             )
         except TypeError:
-            register(
+            registration = register(
                 data_product_id=binding.data_product,
                 port_name=port_name,
                 contract_id=plan.contract_id,
@@ -623,6 +626,12 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 source_data_product=binding.source_data_product,
                 source_output_port=binding.source_output_port,
             )
+        self._raise_if_registration_requires_review(
+            registration,
+            data_product=binding.data_product,
+            port_name=port_name,
+            binding_type="input",
+        )
 
     def _register_output_binding(self, *, plan: ResolvedWritePlan) -> None:
         binding = plan.output_binding
@@ -639,14 +648,14 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             contract_id=plan.contract_id,
         )
         try:
-            register(
+            registration: Optional[DataProductRegistrationResult] = register(
                 data_product_id=binding.data_product,
                 port=port,
                 bump=binding.bump,
                 custom_properties=binding.custom_properties,
             )
         except TypeError:
-            register(
+            registration = register(
                 data_product_id=binding.data_product,
                 port_name=port_name,
                 contract_id=plan.contract_id,
@@ -654,6 +663,34 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 bump=binding.bump,
                 custom_properties=binding.custom_properties,
             )
+        self._raise_if_registration_requires_review(
+            registration,
+            data_product=binding.data_product,
+            port_name=port_name,
+            binding_type="output",
+        )
+
+    def _raise_if_registration_requires_review(
+        self,
+        registration: Optional[DataProductRegistrationResult],
+        *,
+        data_product: str,
+        port_name: str,
+        binding_type: str,
+    ) -> None:
+        if registration is None or not getattr(registration, "changed", False):
+            return
+        product = getattr(registration, "product", None)
+        version = getattr(product, "version", None) or "<unknown>"
+        status = (getattr(product, "status", None) or "").lower()
+        if status != "draft":
+            raise RuntimeError(
+                f"Data product {binding_type} registration did not produce a draft version"
+            )
+        raise RuntimeError(
+            f"Data product {data_product} {binding_type} port {port_name} requires review "
+            f"at version {version}"
+        )
 
     def _status_from_validation(self, validation: ValidationResult, *, operation: str) -> ValidationResult:
         metrics = validation.metrics or {}

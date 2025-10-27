@@ -411,15 +411,16 @@ for Docker packaging notes and deployment options.
 ```mermaid
 flowchart LR
     subgraph Read
-      U[User code / Notebook] --> RWC{read_with_contract}
-      RWC --> SR["spark.read.format(...).load"]
-      RWC --> EV["ensure_version(contract)"]
+      U[User code / Notebook] --> RWG{read_with_governance}
+      RWG --> RC["resolve_read_context"]
+      RC --> SR["spark.read.format(...).load"]
+      RWG --> EV["ensure_version(contract)"]
       EV --> OBS[collect_observations]
       OBS --> DQS["dq_service.evaluate"]
       DQS -->|ok| AC["apply_contract (cast/order)"]
       DQS -->|errors & enforce| E1[Raise]
       AC --> DF[DataFrame ready]
-      RWC --> DQ{dq_client?}
+      RWG --> DQ{dq_client?}
       DQ -->|yes| GS["get_status(dataset@version, contract@version)"]
       GS -->|unknown/stale| CM[compute_metrics]
       CM --> SM[submit_metrics -> status]

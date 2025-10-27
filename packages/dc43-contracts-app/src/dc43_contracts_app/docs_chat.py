@@ -257,7 +257,7 @@ concrete next steps.
   the most relevant passages so the reader understands how to proceed.
 - When a question covers integrating dc43 with an orchestration or runtime
   (for example a Spark pipeline), call out the concrete helper APIs available in
-  the context—such as `read_with_contract`, `write_with_contract`,
+  the context—such as `read_with_governance`, `write_with_governance`,
   enforcement or status strategies—and outline the minimal steps or code needed
   to drop them into the workflow.
 - Mention the filename (for example `docs/implementations/spark.md` or

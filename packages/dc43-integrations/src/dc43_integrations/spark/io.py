@@ -23,6 +23,7 @@ from typing import (
     overload,
 )
 import logging
+import warnings
 import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -680,6 +681,16 @@ class StreamingObservationWriter:
         )
 
 logger = logging.getLogger(__name__)
+
+
+def _warn_deprecated(old: str, new: str) -> None:
+    """Emit a deprecation warning for legacy helpers."""
+
+    warnings.warn(
+        f"{old} is deprecated and will be removed in a future release; use {new} instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
 
 def _as_governance_service(
@@ -2043,6 +2054,8 @@ class BaseReadExecutor:
                     plan=self.plan,
                     assessment=assessment,
                 )
+            except RuntimeError:
+                raise
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception(
                     "Failed to register governance read activity for %s",
@@ -2264,7 +2277,13 @@ def read_with_contract(
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | tuple[DataFrame, Optional[ValidationResult]]:
-    """Read a batch DataFrame with contract enforcement and governance hooks."""
+    """Read a batch DataFrame with contract enforcement and governance hooks.
+
+    .. deprecated:: 0.0
+       Use :func:`read_with_governance` with a :class:`GovernanceSparkReadRequest`.
+    """
+
+    _warn_deprecated("read_with_contract", "read_with_governance")
 
     return _execute_read(
         BatchReadExecutor,
@@ -2468,7 +2487,13 @@ def read_stream_with_contract(
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | tuple[DataFrame, Optional[ValidationResult]]:
-    """Create a streaming ``DataFrame`` while enforcing an ODCS contract."""
+    """Create a streaming ``DataFrame`` while enforcing an ODCS contract.
+
+    .. deprecated:: 0.0
+       Use :func:`read_stream_with_governance` with a :class:`GovernanceSparkReadRequest`.
+    """
+
+    _warn_deprecated("read_stream_with_contract", "read_stream_with_governance")
 
     return _execute_read(
         StreamingReadExecutor,
@@ -2594,7 +2619,13 @@ def read_from_contract(
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
-    """Read and validate a dataset by referencing a contract identifier directly."""
+    """Read and validate a dataset by referencing a contract identifier directly.
+
+    .. deprecated:: 0.0
+       Use :func:`read_with_governance`.
+    """
+
+    _warn_deprecated("read_from_contract", "read_with_governance")
 
     return read_with_contract(
         spark,
@@ -2635,7 +2666,13 @@ def read_stream_from_contract(
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
-    """Streaming counterpart to :func:`read_from_contract`."""
+    """Streaming counterpart to :func:`read_from_contract`.
+
+    .. deprecated:: 0.0
+       Use :func:`read_stream_with_governance`.
+    """
+
+    _warn_deprecated("read_stream_from_contract", "read_stream_with_governance")
 
     return read_stream_with_contract(
         spark=spark,
@@ -2677,7 +2714,13 @@ def read_from_data_product(
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
-    """Read a dataset by resolving the contract from a data product input binding."""
+    """Read a dataset by resolving the contract from a data product input binding.
+
+    .. deprecated:: 0.0
+       Use :func:`read_with_governance` and resolve bindings through governance.
+    """
+
+    _warn_deprecated("read_from_data_product", "read_with_governance")
 
     return read_with_contract(
         spark,
@@ -2720,7 +2763,13 @@ def read_stream_from_data_product(
     pipeline_context: Optional[PipelineContextLike] = None,
     return_status: bool = True,
 ) -> DataFrame | Tuple[DataFrame, Optional[ValidationResult]]:
-    """Streaming counterpart to :func:`read_from_data_product`."""
+    """Streaming counterpart to :func:`read_from_data_product`.
+
+    .. deprecated:: 0.0
+       Use :func:`read_stream_with_governance` and resolve bindings through governance.
+    """
+
+    _warn_deprecated("read_stream_from_data_product", "read_stream_with_governance")
 
     return read_stream_with_contract(
         spark=spark,
@@ -3411,6 +3460,8 @@ class BaseWriteExecutor:
                 governance_client.register_write_activity(
                     plan=governance_plan, assessment=assessment
                 )
+            except RuntimeError:
+                raise
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception(
                     "Failed to register governance write activity for %s",
@@ -3592,7 +3643,13 @@ def write_with_contract(
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
-    """Write a batch ``DataFrame`` with contract enforcement."""
+    """Write a batch ``DataFrame`` with contract enforcement.
+
+    .. deprecated:: 0.0
+       Use :func:`write_with_governance` with a :class:`GovernanceSparkWriteRequest`.
+    """
+
+    _warn_deprecated("write_with_contract", "write_with_governance")
 
     return _execute_write(
         BatchWriteExecutor,
@@ -3816,7 +3873,13 @@ def write_stream_with_contract(
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
     on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
-    """Write a streaming ``DataFrame`` with contract enforcement."""
+    """Write a streaming ``DataFrame`` with contract enforcement.
+
+    .. deprecated:: 0.0
+       Use :func:`write_stream_with_governance` with a :class:`GovernanceSparkWriteRequest`.
+    """
+
+    _warn_deprecated("write_stream_with_contract", "write_stream_with_governance")
 
     return _execute_write(
         StreamingWriteExecutor,
@@ -3970,7 +4033,13 @@ def write_with_contract_id(
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
-    """Write a dataset by referencing a contract identifier directly."""
+    """Write a dataset by referencing a contract identifier directly.
+
+    .. deprecated:: 0.0
+       Use :func:`write_with_governance`.
+    """
+
+    _warn_deprecated("write_with_contract_id", "write_with_governance")
 
     return write_with_contract(
         df=df,
@@ -4015,7 +4084,13 @@ def write_stream_with_contract_id(
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
     on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
-    """Streaming counterpart to :func:`write_with_contract_id`."""
+    """Streaming counterpart to :func:`write_with_contract_id`.
+
+    .. deprecated:: 0.0
+       Use :func:`write_stream_with_governance`.
+    """
+
+    _warn_deprecated("write_stream_with_contract_id", "write_stream_with_governance")
 
     return write_stream_with_contract(
         df=df,
@@ -4062,7 +4137,13 @@ def write_to_data_product(
     return_status: bool = False,
     violation_strategy: Optional[WriteViolationStrategy] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
-    """Write a dataset using a data product output binding."""
+    """Write a dataset using a data product output binding.
+
+    .. deprecated:: 0.0
+       Use :func:`write_with_governance` and register bindings via governance.
+    """
+
+    _warn_deprecated("write_to_data_product", "write_with_governance")
 
     return write_with_contract(
         df=df,
@@ -4111,7 +4192,13 @@ def write_stream_to_data_product(
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy] = None,
     on_streaming_batch: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> ValidationResult | tuple[ValidationResult, Optional[ValidationResult]]:
-    """Streaming counterpart to :func:`write_to_data_product`."""
+    """Streaming counterpart to :func:`write_to_data_product`.
+
+    .. deprecated:: 0.0
+       Use :func:`write_stream_with_governance` and register bindings via governance.
+    """
+
+    _warn_deprecated("write_stream_to_data_product", "write_stream_with_governance")
 
     return write_stream_with_contract(
         df=df,

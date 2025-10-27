@@ -155,11 +155,13 @@ def test_resolve_write_context_prefers_contract_reference(governance_fixture):
         validation=ValidationResult(ok=True, status="ok"),
         observations=lambda: ObservationPayload(metrics={}, schema=None),
     )
-    backend.register_write_activity(plan=plan, assessment=assessment)
+    with pytest.raises(RuntimeError) as excinfo:
+        backend.register_write_activity(plan=plan, assessment=assessment)
 
     assert data_product_backend.last_output_call is not None
     assert data_product_backend.last_output_call["data_product_id"] == "dp.analytics"
     assert data_product_backend.last_output_call["port"].name == "derived"
+    assert "requires review" in str(excinfo.value)
 
 
 def test_resolve_write_context_from_existing_output(governance_fixture):
@@ -175,3 +177,10 @@ def test_resolve_write_context_from_existing_output(governance_fixture):
     plan = backend.resolve_write_context(context=context)
     assert plan.contract_id == contract.id
     assert plan.output_binding is not None
+
+    assessment = backend.evaluate_write_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+    backend.register_write_activity(plan=plan, assessment=assessment)

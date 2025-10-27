@@ -26,7 +26,8 @@ from dc43_integrations.spark.data_quality import spark_type_name
 from dc43_integrations.spark.io import (
     ContractVersionLocator,
     DatasetLocatorStrategy,
-    write_with_contract,
+    GovernanceSparkWriteRequest,
+    write_with_governance,
 )
 
 
@@ -363,20 +364,24 @@ def generate_contract_dataset(
         )
     )
 
-    expected_version = f"=={contract.version}" if contract.version else None
     resolved_path = str(path) if path is not None else None
 
-    write_with_contract(
-        df=df,
-        contract_id=contract.id,
-        contract_service=service,
-        expected_contract_version=expected_version,
+    request = GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": contract.id,
+                "contract_version": contract.version,
+            }
+        },
         path=resolved_path,
         mode=mode,
-        enforce=False,
-        data_quality_service=dq_client,
-        governance_service=governance_client,
         dataset_locator=caching_locator,
+    )
+    write_with_governance(
+        df=df,
+        request=request,
+        governance_service=governance_client,
+        enforce=False,
     )
 
     resolution = caching_locator.write_resolution

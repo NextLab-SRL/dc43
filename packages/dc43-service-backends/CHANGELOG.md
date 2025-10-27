@@ -10,6 +10,10 @@
 - Governance storage now guards the SQL backend import so environments without
   SQLAlchemy can still import the package and run client-only tests without
   pulling in optional dependencies.
+- Governance registration hooks now raise review-required errors when data
+  product input/output registrations create new drafts, matching the behaviour
+  of the legacy Spark contract helpers so governance-first pipelines surface the
+  same guardrails.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed
