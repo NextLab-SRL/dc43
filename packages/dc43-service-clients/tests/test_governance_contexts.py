@@ -151,5 +151,31 @@ def test_client_resolves_write_context(governance_client):
         validation=ValidationResult(ok=True, status="ok"),
         observations=lambda: ObservationPayload(metrics={}, schema=None),
     )
+    with pytest.raises(RuntimeError, match="requires review"):
+        client.register_write_activity(plan=plan, assessment=assessment)
+    assert data_product_backend.last_output_call is not None
+
+
+def test_client_register_write_activity_when_port_exists(governance_client):
+    client, data_product_backend, contract = governance_client
+
+    context = GovernanceWriteContext(
+        contract=ContractReference(
+            contract_id=contract.id,
+            contract_version=contract.version,
+        ),
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+        ),
+    )
+
+    plan = client.resolve_write_context(context=context)
+    assert plan.contract_version == contract.version
+    assessment = client.evaluate_write_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
     client.register_write_activity(plan=plan, assessment=assessment)
     assert data_product_backend.last_output_call is not None

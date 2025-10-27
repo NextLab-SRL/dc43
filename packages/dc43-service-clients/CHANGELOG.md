@@ -13,6 +13,9 @@
   `describe_expectations`) and include validation payloads in
   `QualityAssessment` responses so integrations can operate solely through the
   governance API.
+- Strengthened governance client coverage to ensure registering new
+  data-product output bindings surfaces the review-required runtime error,
+  mirroring the backend guardrails exercised by the Spark integration tests.
 - Guarded governance/bootstrap tests with `pytest.importorskip` so the package
   skips cleanly when `dc43_service_backends` is not installed, avoiding
   import-time failures in minimal CI environments.
