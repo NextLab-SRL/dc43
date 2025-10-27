@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,8 +9,14 @@ import types
 
 
 def _install_pyspark_stub() -> None:
-    if "pyspark" in sys.modules:
-        return
+    for name in [
+        "pyspark",
+        "pyspark.sql",
+        "pyspark.sql.functions",
+        "pyspark.sql.types",
+        "pyspark.sql.utils",
+    ]:
+        sys.modules.pop(name, None)
 
     pyspark = types.ModuleType("pyspark")
     sql_module = types.ModuleType("pyspark.sql")
@@ -47,12 +54,16 @@ def _install_pyspark_stub() -> None:
     def _boolean_type() -> str:
         return "boolean"
 
+    def _double_type() -> str:
+        return "double"
+
     def _string_type() -> str:
         return "string"
 
     types_module.StructField = _StubStructField
     types_module.StructType = _StubStructType
     types_module.BooleanType = _boolean_type
+    types_module.DoubleType = _double_type
     types_module.StringType = _string_type
 
     utils_module = types.ModuleType("pyspark.sql.utils")
@@ -118,6 +129,7 @@ class _StubPathFactory:
         return str(value)
 
 from dc43_service_backends.governance.storage.delta import DeltaGovernanceStore
+from dc43_service_clients.data_quality import ValidationResult
 
 
 class _RecordingWriter:
@@ -190,6 +202,7 @@ class _StubSpark:
         information_schema: set[tuple[str, str, str]] | None = None,
     ) -> None:
         self._records: list[dict[str, object]] = []
+        self._dataframes: list[dict[str, object]] = []
         self._schemas: list[object] = []
         self._existing_tables = existing_tables or set()
         self._information_schema = information_schema or set()
@@ -221,8 +234,13 @@ class _StubSpark:
     def sql_queries(self) -> list[str]:
         return self._sql_queries
 
-    def createDataFrame(self, data: list[object], schema: object) -> _RecordingDataFrame:
+    @property
+    def dataframes(self) -> list[dict[str, object]]:
+        return self._dataframes
+
+    def createDataFrame(self, data: list[object], schema: object | None = None) -> _RecordingDataFrame:
         self._schemas.append(schema)
+        self._dataframes.append({"data": list(data), "schema": schema})
         return _RecordingDataFrame(self._records)
 
     def sql(self, query: str) -> _StubSqlResult:
@@ -257,6 +275,7 @@ def test_bootstrap_creates_missing_delta_tables() -> None:
         status_table="analytics.governance.status",
         activity_table="analytics.governance.activity",
         link_table="analytics.governance.links",
+        metrics_table="analytics.governance.metrics",
     )
 
     tables = _tables(spark.records)
@@ -264,6 +283,29 @@ def test_bootstrap_creates_missing_delta_tables() -> None:
         "analytics.governance.status",
         "analytics.governance.activity",
         "analytics.governance.links",
+        "analytics.governance.metrics",
+    }
+    for entry in tables:
+        assert entry["format"] == "delta"
+        assert entry["mode"] == "overwrite"
+        assert entry["options"].get("overwriteSchema") == "true"
+
+
+def test_bootstrap_derives_metrics_table_name() -> None:
+    spark = _StubSpark()
+    DeltaGovernanceStore(
+        spark,
+        status_table="analytics.governance.status",
+        activity_table="analytics.governance.activity",
+        link_table="analytics.governance.links",
+    )
+
+    tables = _tables(spark.records)
+    assert {entry["target"] for entry in tables} == {
+        "analytics.governance.status",
+        "analytics.governance.activity",
+        "analytics.governance.links",
+        "analytics.governance.status_metrics",
     }
     for entry in tables:
         assert entry["format"] == "delta"
@@ -278,12 +320,14 @@ def test_bootstrap_skips_existing_tables() -> None:
         status_table="analytics.governance.status",
         activity_table="analytics.governance.activity",
         link_table="analytics.governance.links",
+        metrics_table="analytics.governance.metrics",
     )
 
     tables = _tables(spark.records)
     assert {entry["target"] for entry in tables} == {
         "analytics.governance.activity",
         "analytics.governance.links",
+        "analytics.governance.metrics",
     }
 
 
@@ -296,12 +340,14 @@ def test_bootstrap_skips_tables_detected_via_information_schema() -> None:
         status_table="analytics.governance.status",
         activity_table="analytics.governance.activity",
         link_table="analytics.governance.links",
+        metrics_table="analytics.governance.metrics",
     )
 
     tables = _tables(spark.records)
     assert {entry["target"] for entry in tables} == {
         "analytics.governance.activity",
         "analytics.governance.links",
+        "analytics.governance.metrics",
     }
     assert any(
         "information_schema.tables" in query for query in spark.sql_queries
@@ -317,6 +363,7 @@ def test_bootstrap_initialises_delta_folders(tmp_path: Path) -> None:
         "status",
         "links",
         "activity",
+        "metrics",
     }
     for entry in paths:
         assert entry["format"] == "delta"
@@ -335,6 +382,7 @@ def test_bootstrap_skips_existing_delta_folders(tmp_path: Path) -> None:
     assert {Path(str(entry["target"])).name for entry in paths} == {
         "links",
         "activity",
+        "metrics",
     }
 
 
@@ -349,3 +397,187 @@ def test_remote_delta_folder_detection_uses_spark_filesystem(tmp_path: Path) -> 
     )
 
     assert not spark.records
+
+
+def test_save_status_records_metrics_entries(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark, base_path=tmp_path)
+    store._now = lambda: "2024-03-01T00:00:00Z"  # type: ignore[assignment]
+
+    status = ValidationResult(status="ok", metrics={"violations.total": 3, "summary": {"passed": 10}})
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="1.0.0",
+        dataset_id="orders",
+        dataset_version="2024-02-29",
+        status=status,
+    )
+
+    metrics_frames = [
+        frame
+        for frame in spark.dataframes
+        if frame["schema"] is DeltaGovernanceStore._METRIC_SCHEMA and frame["data"]
+    ]
+    assert len(metrics_frames) == 1
+    rows = metrics_frames[0]["data"]
+    assert {row["metric_key"] for row in rows} == {"violations.total", "summary"}
+    total_row = next(row for row in rows if row["metric_key"] == "violations.total")
+    assert total_row["metric_numeric_value"] == 3.0
+    assert total_row["status_recorded_at"] == "2024-03-01T00:00:00Z"
+    summary_row = next(row for row in rows if row["metric_key"] == "summary")
+    assert json.loads(summary_row["metric_value"] or "{}") == {"passed": 10}
+    assert summary_row["metric_numeric_value"] is None
+
+
+def test_save_status_appends_metrics_to_table_target() -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(
+        spark,
+        status_table="analytics.status",
+        activity_table="analytics.activity",
+        link_table="analytics.links",
+        metrics_table="analytics.metrics",
+    )
+    store._now = lambda: "2024-04-05T12:00:00Z"  # type: ignore[assignment]
+
+    status = ValidationResult(status="ok", metrics={"violations.total": 1})
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    metric_writes = [entry for entry in spark.records if entry["target"] == "analytics.metrics"]
+    assert metric_writes
+    assert all(entry["type"] == "table" for entry in metric_writes)
+
+
+def test_save_status_appends_metrics_to_derived_table_target() -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(
+        spark,
+        status_table="analytics.status",
+        activity_table="analytics.activity",
+        link_table="analytics.links",
+    )
+    store._now = lambda: "2024-04-05T12:00:00Z"  # type: ignore[assignment]
+
+    status = ValidationResult(status="ok", metrics={"violations.total": 1})
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    metric_writes = [
+        entry
+        for entry in spark.records
+        if entry["target"] == "analytics.status_metrics"
+    ]
+    assert metric_writes
+    assert all(entry["type"] == "table" for entry in metric_writes)
+
+
+def test_load_metrics_filters_results(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark, base_path=tmp_path, bootstrap_tables=False)
+
+    rows = [
+        {
+            "dataset_id": "orders",
+            "dataset_version": "2024-03-01",
+            "contract_id": "contracts",
+            "contract_version": "1.0.0",
+            "status_recorded_at": "2024-03-02T00:00:00Z",
+            "metric_key": "violations.total",
+            "metric_value": "0",
+            "metric_numeric_value": 0.0,
+        },
+        {
+            "dataset_id": "orders",
+            "dataset_version": "2024-03-02",
+            "contract_id": "contracts",
+            "contract_version": "1.0.0",
+            "status_recorded_at": "2024-03-03T00:00:00Z",
+            "metric_key": "summary",
+            "metric_value": "{\"passed\": 10}",
+            "metric_numeric_value": None,
+        },
+        {
+            "dataset_id": "returns",
+            "dataset_version": "2024-03-01",
+            "contract_id": "contracts",
+            "contract_version": "1.0.0",
+            "status_recorded_at": "2024-03-02T00:00:00Z",
+            "metric_key": "violations.total",
+            "metric_value": "1",
+            "metric_numeric_value": 1.0,
+        },
+    ]
+
+    class _FakeRow(dict):
+        def asDict(self, recursive: bool = False) -> dict[str, object]:
+            return dict(self)
+
+    class _FakeDataFrame:
+        def __init__(self, data: list[dict[str, object]]) -> None:
+            self._data = data
+
+        def filter(self, _condition: object) -> "_FakeDataFrame":
+            return self
+
+        def orderBy(self, *_: object) -> "_FakeDataFrame":
+            return self
+
+        def collect(self) -> list[_FakeRow]:
+            return [_FakeRow(row) for row in self._data]
+
+    target_dataset_id = "orders"
+    target_version = "2024-03-01"
+
+    def _fake_read(**_: object) -> _FakeDataFrame:
+        filtered = [
+            row
+            for row in rows
+            if row["dataset_id"] == target_dataset_id and row["dataset_version"] == target_version
+        ]
+        return _FakeDataFrame(filtered)
+
+    store._read = _fake_read  # type: ignore[assignment]
+
+    from dc43_service_backends.governance.storage import delta as delta_module
+
+    class _StubColumn:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __eq__(self, _: object) -> "_StubColumn":
+            return self
+
+        def __and__(self, _: object) -> "_StubColumn":
+            return self
+
+        def desc(self) -> "_StubColumn":  # pragma: no cover - behaviour ignored in stub
+            return self
+
+    original_col = delta_module.col
+    delta_module.col = lambda name: _StubColumn(name)  # type: ignore[assignment]
+    try:
+        entries = store.load_metrics(
+            dataset_id=target_dataset_id,
+            dataset_version=target_version,
+        )
+    finally:
+        delta_module.col = original_col  # type: ignore[assignment]
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["metric_key"] == "violations.total"
+    assert entry["metric_numeric_value"] == 0.0

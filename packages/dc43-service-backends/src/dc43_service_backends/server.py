@@ -507,6 +507,21 @@ def build_app(
             raise HTTPException(status_code=404, detail="no contract linked")
         return {"contract_version": version}
 
+    @router.get("/governance/metrics")
+    def dataset_metrics(
+        dataset_id: str,
+        dataset_version: str | None = None,
+        contract_id: str | None = None,
+        contract_version: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        records = governance_backend.get_metrics(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            contract_id=contract_id,
+            contract_version=contract_version,
+        )
+        return list(jsonable_encoder(records))
+
     @router.get("/governance/activity")
     def pipeline_activity(dataset_id: str, dataset_version: str | None = None) -> list[Mapping[str, Any]]:
         records = governance_backend.get_pipeline_activity(

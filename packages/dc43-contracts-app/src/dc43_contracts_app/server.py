@@ -30,7 +30,18 @@ import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable, Callable, Set
+from typing import (
+    List,
+    Dict,
+    Any,
+    Tuple,
+    Mapping,
+    Optional,
+    Iterable,
+    Callable,
+    Set,
+    Sequence,
+)
 from uuid import uuid4
 from threading import Lock
 import threading
@@ -41,8 +52,9 @@ import re
 import shutil
 import tempfile
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import Counter
+from decimal import Decimal
 import zipfile
 
 import httpx
@@ -268,6 +280,157 @@ def _dq_status_payload(dataset_id: str, dataset_version: str) -> Optional[Dict[s
     if not path.exists():
         return None
     return _read_json_file(path)
+
+
+def _parse_iso_datetime(value: object) -> datetime | None:
+    """Return a :class:`datetime` parsed from ``value`` when possible."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _format_recorded_at(value: str) -> str:
+    """Return a human-friendly timestamp label for ``value``."""
+
+    dt = _parse_iso_datetime(value)
+    if dt is None:
+        return value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
+
+
+def _coerce_numeric(value: object | None) -> float | None:
+    """Return ``value`` as a :class:`float` when it resembles a number."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_metric_value(numeric: object | None, raw: object | None) -> str:
+    """Return the preferred display string for a metric value."""
+
+    if raw is not None:
+        if raw == "":
+            return "—"
+        if isinstance(raw, float):
+            return format(raw, "g")
+        return str(raw)
+    if numeric is not None:
+        if isinstance(numeric, float):
+            return format(numeric, "g")
+        return str(numeric)
+    return "—"
+
+
+def _metric_group_sort_key(item: Mapping[str, Any]) -> tuple[object, ...]:
+    sort_key = item.get("_sort_key")
+    recorded_at = str(item.get("recorded_at") or "")
+    dataset_version = str(item.get("dataset_version") or "")
+    contract_id = str(item.get("contract_id") or "")
+    contract_version = str(item.get("contract_version") or "")
+    if isinstance(sort_key, (int, float)):
+        return (0, -float(sort_key), recorded_at, dataset_version, contract_id, contract_version)
+    return (1, recorded_at, dataset_version, contract_id, contract_version)
+
+
+def _empty_metrics_summary() -> Dict[str, Any]:
+    """Return a metrics summary structure with no observations."""
+
+    return {
+        "latest": None,
+        "previous": [],
+        "history": [],
+        "metric_keys": [],
+        "numeric_metric_keys": [],
+        "chronological_history": [],
+    }
+
+
+def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any]:
+    """Group raw metric rows into timestamped snapshots for the templates."""
+
+    if not entries:
+        return _empty_metrics_summary()
+
+    grouped: dict[tuple[str, str, str, str], Dict[str, Any]] = {}
+    keys: set[str] = set()
+    numeric_keys: set[str] = set()
+    for entry in entries:
+        recorded_at = str(entry.get("status_recorded_at") or "")
+        dataset_version = str(entry.get("dataset_version") or "")
+        contract_id = str(entry.get("contract_id") or "")
+        contract_version = str(entry.get("contract_version") or "")
+        group_key = (recorded_at, dataset_version, contract_id, contract_version)
+        group = grouped.get(group_key)
+        if group is None:
+            dt = _parse_iso_datetime(recorded_at)
+            group = {
+                "recorded_at": recorded_at,
+                "recorded_label": _format_recorded_at(recorded_at) if recorded_at else "",
+                "dataset_version": dataset_version,
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+                "metrics": [],
+                "_sort_key": dt.timestamp() if dt is not None else None,
+            }
+            grouped[group_key] = group
+        metric_key = str(entry.get("metric_key") or "")
+        if metric_key:
+            keys.add(metric_key)
+        metric_value = entry.get("metric_value")
+        numeric_value = _coerce_numeric(entry.get("metric_numeric_value"))
+        if metric_key and numeric_value is not None:
+            numeric_keys.add(metric_key)
+        group["metrics"].append(
+            {
+                "key": metric_key,
+                "value": _format_metric_value(numeric_value, metric_value),
+                "raw_value": metric_value,
+                "numeric_value": numeric_value,
+            }
+        )
+
+    snapshots = sorted(grouped.values(), key=_metric_group_sort_key)
+    for snapshot in snapshots:
+        snapshot.pop("_sort_key", None)
+        snapshot["metrics"].sort(key=lambda item: item.get("key", ""))
+
+    latest = snapshots[0] if snapshots else None
+    previous = snapshots[1:] if len(snapshots) > 1 else []
+
+    return {
+        "latest": latest,
+        "previous": previous,
+        "history": snapshots,
+        "chronological_history": list(reversed(snapshots)),
+        "metric_keys": sorted(keys),
+        "numeric_metric_keys": sorted(numeric_keys),
+    }
 
 
 def _dataset_root_for(dataset_id: str, dataset_path: Optional[str] = None) -> Optional[Path]:
@@ -7228,6 +7391,32 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         for entry in version_records
     }
     default_index = len(version_list) - 1 if version_list else None
+    metrics_summary = _empty_metrics_summary()
+    metrics_error: str | None = None
+
+    if dataset_id:
+
+        def _load_contract_metrics() -> Sequence[Mapping[str, object]]:
+            _, _, governance_client = _thread_service_clients()
+            kwargs: dict[str, object] = {
+                "dataset_id": dataset_id,
+                "contract_id": cid,
+                "contract_version": ver,
+            }
+            return governance_client.get_metrics(**kwargs)
+
+        try:
+            metrics_records = await run_in_threadpool(_load_contract_metrics)
+        except Exception as exc:  # pragma: no cover - defensive fallback when backend fails
+            metrics_error = str(exc)
+            logger.exception(
+                "Failed to load governance metrics for contract %s:%s (dataset %s)",
+                cid,
+                ver,
+                dataset_id,
+            )
+        else:
+            metrics_summary = _summarise_metrics(metrics_records)
     context = {
         "request": request,
         "contract": contract_to_dict(contract),
@@ -7244,6 +7433,8 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "preview_default_index": default_index,
         "preview_dataset_id": dataset_id,
         "data_products": product_links,
+        "metrics_summary": metrics_summary,
+        "metrics_error": metrics_error,
     }
     return templates.TemplateResponse("contract_detail.html", context)
 
@@ -8519,12 +8710,43 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 except FileNotFoundError:
                     contract_obj = None
             preview = _dataset_preview(contract_obj, dataset_name, dataset_version)
+            metrics_summary = _empty_metrics_summary()
+            metrics_error: str | None = None
+
+            if r.dataset_name:
+
+                def _load_metrics() -> Sequence[Mapping[str, object]]:
+                    _, _, governance_client = _thread_service_clients()
+                    kwargs: dict[str, object] = {
+                        "dataset_id": r.dataset_name,
+                    }
+                    if r.dataset_version:
+                        kwargs["dataset_version"] = r.dataset_version
+                    if r.contract_id:
+                        kwargs["contract_id"] = r.contract_id
+                    if r.contract_version:
+                        kwargs["contract_version"] = r.contract_version
+                    return governance_client.get_metrics(**kwargs)
+
+                try:
+                    metrics_records = await run_in_threadpool(_load_metrics)
+                except Exception as exc:  # pragma: no cover - defensive fallback when backend fails
+                    metrics_error = str(exc)
+                    logger.exception(
+                        "Failed to load governance metrics for %s@%s",
+                        r.dataset_name,
+                        r.dataset_version,
+                    )
+                else:
+                    metrics_summary = _summarise_metrics(metrics_records)
             context = {
                 "request": request,
                 "record": r,
                 "contract": contract_to_dict(contract_obj) if contract_obj else None,
                 "data_preview": preview,
                 "data_products": associations,
+                "metrics_summary": metrics_summary,
+                "metrics_error": metrics_error,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")
