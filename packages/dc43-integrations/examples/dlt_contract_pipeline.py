@@ -18,11 +18,14 @@ from open_data_contract_standard.model import (
     Server,
 )
 
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 from dc43_service_backends.contracts.backend.stores import FSContractStore
+from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
+from dc43_service_backends.governance.storage.memory import InMemoryGovernanceStore
 from dc43_service_clients.contracts import LocalContractServiceClient
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
+from dc43_service_clients.governance.client.local import LocalGovernanceServiceClient
 
 
 def _build_contract(base_path: Path) -> OpenDataContractStandard:
@@ -100,6 +103,13 @@ def main() -> None:
 
             contract_service = LocalContractServiceClient(store)
             data_quality_service = LocalDataQualityServiceClient()
+            governance_backend = LocalGovernanceServiceBackend(
+                contract_client=contract_service,
+                dq_client=data_quality_service,
+                draft_store=store,
+                store=InMemoryGovernanceStore(),
+            )
+            governance_service = LocalGovernanceServiceClient(governance_backend)
             bronze_rows = [
                 (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
                 (2, 102, datetime(2024, 1, 2, 10, 0, 0), -5.0, "EUR"),
@@ -112,13 +122,16 @@ def main() -> None:
 
             with LocalDLTHarness(spark, module=dlt_module) as harness:
 
-                @contract_table(
+                @governed_table(
                     dlt_module,
+                    context={
+                        "contract": {
+                            "contract_id": contract.id,
+                            "contract_version": contract.version,
+                        }
+                    },
+                    governance_service=governance_service,
                     name="orders",
-                    contract_id=contract.id,
-                    contract_service=contract_service,
-                    data_quality_service=data_quality_service,
-                    expected_contract_version="==1.0.0",
                 )
                 def orders():
                     return bronze_df

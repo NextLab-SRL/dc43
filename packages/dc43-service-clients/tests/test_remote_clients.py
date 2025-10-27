@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from datetime import datetime, timezone
 
 import pytest
 
@@ -29,10 +30,16 @@ from dc43_service_clients.odps import (
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.data_quality import ObservationPayload
 from dc43_service_clients.data_products.client.remote import RemoteDataProductServiceClient
+from dc43_service_clients.data_products.models import DataProductOutputBinding
 from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
 from dc43_service_clients.data_quality.models import ValidationResult
 from dc43_service_clients.data_quality.transport import encode_validation_result
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
+from dc43_service_clients.governance import (
+    ContractReference,
+    GovernanceReadContext,
+    GovernanceWriteContext,
+)
 
 
 def _build_validation(payload: Mapping[str, object] | None) -> ValidationResult:
@@ -91,6 +98,7 @@ class _ServiceBackendMock:
         self._dataset_links: dict[tuple[str, str], str] = {}
         self._governance_status: dict[tuple[str, str], ValidationResult] = {}
         self._pipeline_activity: list[dict[str, object]] = []
+        self._metrics: list[dict[str, object]] = []
         self._data_products = LocalDataProductServiceBackend()
         self._data_products.register_output_port(
             data_product_id="dp.analytics",
@@ -100,6 +108,8 @@ class _ServiceBackendMock:
                 contract_id=contract.id,
             ),
         )
+        self._last_read_registration: Mapping[str, object] | None = None
+        self._last_write_registration: Mapping[str, object] | None = None
 
     def __call__(self, request: "httpx.Request") -> "httpx.Response":  # pragma: no cover - exercised in tests
         auth_error = self._require_token(request)
@@ -300,6 +310,151 @@ class _ServiceBackendMock:
         return httpx.Response(status_code=404, json={"detail": "Unknown data-product endpoint"})
 
     def _handle_governance(self, request: "httpx.Request", method: str, path: str) -> "httpx.Response":
+        def _record(metric_result: ValidationResult, *, contract_id: str | None, contract_version: str | None, dataset_id: str, dataset_version: str) -> None:
+            metrics = metric_result.metrics if hasattr(metric_result, "metrics") else None
+            if not metrics:
+                return
+            recorded_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    numeric = float(value)
+                    serialized = str(value)
+                elif value is None:
+                    numeric = None
+                    serialized = None
+                else:
+                    try:
+                        serialized = json.dumps(value)
+                    except TypeError:
+                        serialized = str(value)
+                    numeric = None
+                self._metrics.append(
+                    {
+                        "dataset_id": dataset_id,
+                        "dataset_version": dataset_version,
+                        "contract_id": contract_id,
+                        "contract_version": contract_version,
+                        "status_recorded_at": recorded_at,
+                        "metric_key": str(key),
+                        "metric_value": serialized,
+                        "metric_numeric_value": numeric,
+                    }
+                )
+
+        if path == "/governance/read/resolve" and method == "POST":
+            context = self._read_json(request).get("context", {})
+            try:
+                plan = self._build_plan_from_context(context, operation="read")
+            except ValueError as exc:
+                return httpx.Response(status_code=400, json={"detail": str(exc)})
+            return httpx.Response(status_code=200, json=plan)
+        if path == "/governance/write/resolve" and method == "POST":
+            context = self._read_json(request).get("context", {})
+            try:
+                plan = self._build_plan_from_context(context, operation="write")
+            except ValueError as exc:
+                return httpx.Response(status_code=400, json={"detail": str(exc)})
+            return httpx.Response(status_code=200, json=plan)
+        if path == "/governance/read/evaluate" and method == "POST":
+            payload = self._read_json(request)
+            try:
+                plan = self._build_plan_from_context(payload.get("plan", {}), operation="read")
+            except ValueError as exc:
+                return httpx.Response(status_code=400, json={"detail": str(exc)})
+            observations = payload.get("observations")
+            validation_result = _build_validation(
+                observations if isinstance(observations, Mapping) else None
+            )
+            dataset_id = str(plan["dataset_id"])
+            dataset_version = str(plan["dataset_version"])
+            self._governance_status[(dataset_id, dataset_version)] = validation_result
+            self._pipeline_activity.append(
+                {"event": "governance.read.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
+            )
+            _record(
+                validation_result,
+                contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
+                contract_version=str(plan.get("contract_version")) if plan.get("contract_version") else None,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+            )
+            reused = bool(observations.get("reused", False)) if isinstance(observations, Mapping) else False
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "status": encode_validation_result(validation_result),
+                    "validation": encode_validation_result(validation_result),
+                    "draft": None,
+                    "observations_reused": reused,
+                },
+            )
+        if path == "/governance/write/evaluate" and method == "POST":
+            payload = self._read_json(request)
+            try:
+                plan = self._build_plan_from_context(payload.get("plan", {}), operation="write")
+            except ValueError as exc:
+                return httpx.Response(status_code=400, json={"detail": str(exc)})
+            observations = payload.get("observations")
+            validation_result = _build_validation(
+                observations if isinstance(observations, Mapping) else None
+            )
+            dataset_id = str(plan["dataset_id"])
+            dataset_version = str(plan["dataset_version"])
+            self._governance_status[(dataset_id, dataset_version)] = validation_result
+            self._pipeline_activity.append(
+                {"event": "governance.write.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
+            )
+            _record(
+                validation_result,
+                contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
+                contract_version=str(plan.get("contract_version")) if plan.get("contract_version") else None,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+            )
+            reused = bool(observations.get("reused", False)) if isinstance(observations, Mapping) else False
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "status": encode_validation_result(validation_result),
+                    "validation": encode_validation_result(validation_result),
+                    "draft": None,
+                    "observations_reused": reused,
+                },
+            )
+        if path == "/governance/read/register" and method == "POST":
+            payload = self._read_json(request)
+            self._last_read_registration = payload
+            plan = payload.get("plan", {})
+            dataset_id = str(plan.get("dataset_id", ""))
+            dataset_version = str(plan.get("dataset_version", ""))
+            if dataset_id and dataset_version:
+                self._pipeline_activity.append(
+                    {
+                        "event": "governance.read.register",
+                        "dataset_id": dataset_id,
+                        "dataset_version": dataset_version,
+                    }
+                )
+            return httpx.Response(status_code=204)
+        if path == "/governance/write/register" and method == "POST":
+            payload = self._read_json(request)
+            self._last_write_registration = payload
+            plan = payload.get("plan", {})
+            contract_id = plan.get("contract_id")
+            contract_version = plan.get("contract_version")
+            dataset_id = plan.get("dataset_id")
+            dataset_version = plan.get("dataset_version")
+            if all([contract_id, contract_version, dataset_id, dataset_version]):
+                key = (str(dataset_id), str(dataset_version))
+                self._dataset_links[key] = f"{contract_id}:{contract_version}"
+                self._pipeline_activity.append(
+                    {
+                        "event": "governance.write.register",
+                        "dataset_id": key[0],
+                        "dataset_version": key[1],
+                    }
+                )
+            return httpx.Response(status_code=204)
         if path == "/governance/evaluate" and method == "POST":
             payload = self._read_json(request)
             dataset_id = payload.get("dataset_id")
@@ -313,11 +468,19 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.evaluate", "dataset_id": str(dataset_id), "dataset_version": str(dataset_version)}
             )
+            _record(
+                validation_result,
+                contract_id=str(payload.get("contract_id")) if payload.get("contract_id") else None,
+                contract_version=str(payload.get("contract_version")) if payload.get("contract_version") else None,
+                dataset_id=str(dataset_id),
+                dataset_version=str(dataset_version),
+            )
             reused = bool(observations.get("reused", False)) if isinstance(observations, Mapping) else False
             return httpx.Response(
                 status_code=200,
                 json={
                     "status": encode_validation_result(validation_result),
+                    "validation": encode_validation_result(validation_result),
                     "draft": None,
                     "observations_reused": reused,
                 },
@@ -362,6 +525,22 @@ class _ServiceBackendMock:
             if key not in self._dataset_links:
                 return httpx.Response(status_code=404, json={"detail": "Dataset not linked"})
             return httpx.Response(status_code=200, json={"contract_version": self._dataset_links[key]})
+        if path == "/governance/metrics" and method == "GET":
+            dataset_id = request.url.params.get("dataset_id")
+            if dataset_id is None:
+                return httpx.Response(status_code=400, json={"detail": "Missing dataset identifier"})
+            dataset_version = request.url.params.get("dataset_version")
+            contract_id = request.url.params.get("contract_id")
+            contract_version = request.url.params.get("contract_version")
+            entries = [
+                entry
+                for entry in self._metrics
+                if entry.get("dataset_id") == dataset_id
+                and (dataset_version is None or entry.get("dataset_version") == dataset_version)
+                and (contract_id is None or entry.get("contract_id") == contract_id)
+                and (contract_version is None or entry.get("contract_version") == contract_version)
+            ]
+            return httpx.Response(status_code=200, json=entries)
         if path == "/governance/activity" and method == "GET":
             dataset_id = request.url.params.get("dataset_id")
             dataset_version = request.url.params.get("dataset_version")
@@ -375,6 +554,40 @@ class _ServiceBackendMock:
         if path == "/governance/auth" and method == "POST":  # pragma: no cover - smoke path
             return httpx.Response(status_code=204)
         return httpx.Response(status_code=404, json={"detail": "Unknown governance endpoint"})
+
+    def _build_plan_from_context(self, context: Mapping[str, object], *, operation: str) -> dict[str, object]:
+        contract_spec = context.get("contract") if isinstance(context, Mapping) else None
+        contract_id = None
+        contract_version = None
+        if isinstance(contract_spec, Mapping):
+            contract_id = contract_spec.get("contract_id")
+            contract_version = contract_spec.get("contract_version")
+        if contract_id is None or contract_version is None:
+            contract_id = self._contract.id
+            contract_version = self._contract.version
+        if not self._ensure_contract(str(contract_id), str(contract_version)):
+            raise ValueError("unknown contract reference")
+        contract = self._contracts.get(str(contract_version), self._contract)
+        dataset_id = context.get("dataset_id") if isinstance(context, Mapping) else None
+        dataset_version = context.get("dataset_version") if isinstance(context, Mapping) else None
+        plan: dict[str, object] = {
+            "contract": _contract_payload(contract),
+            "contract_id": str(contract_id),
+            "contract_version": str(contract_version),
+            "dataset_id": dataset_id or contract.id,
+            "dataset_version": dataset_version or contract.version,
+            "dataset_format": context.get("dataset_format") if isinstance(context, Mapping) else None,
+            "pipeline_context": context.get("pipeline_context") if isinstance(context, Mapping) else None,
+            "bump": context.get("bump", "minor") if isinstance(context, Mapping) else "minor",
+            "draft_on_violation": bool(context.get("draft_on_violation", False))
+            if isinstance(context, Mapping)
+            else False,
+        }
+        if operation == "read":
+            plan["input_binding"] = context.get("input_binding") if isinstance(context, Mapping) else None
+        else:
+            plan["output_binding"] = context.get("output_binding") if isinstance(context, Mapping) else None
+        return plan
 
     def _ensure_contract(self, contract_id: str, contract_version: str | None = None) -> bool:
         if contract_id != self._contract.id:
@@ -509,6 +722,25 @@ def test_remote_governance_client(http_clients):
             "order_ts": {"odcs_type": "string", "nullable": True},
         },
     )
+    fetched = governance_client.get_contract(
+        contract_id=contract.id,
+        contract_version=contract.version,
+    )
+    assert fetched.version == contract.version
+
+    latest = governance_client.latest_contract(contract_id=contract.id)
+    assert latest is not None and latest.version == contract.version
+
+    versions = governance_client.list_contract_versions(contract_id=contract.id)
+    assert contract.version in versions
+
+    expectations = governance_client.describe_expectations(
+        contract_id=contract.id,
+        contract_version=contract.version,
+    )
+    assert isinstance(expectations, list)
+    assert expectations
+
     assessment = governance_client.evaluate_dataset(
         contract_id=contract.id,
         contract_version=contract.version,
@@ -532,6 +764,13 @@ def test_remote_governance_client(http_clients):
     )
     assert status is not None
 
+    metrics = governance_client.get_metrics(
+        dataset_id="orders",
+        dataset_version="2024-01-01",
+    )
+    assert metrics
+    assert any(entry.get("metric_key") == "row_count" for entry in metrics)
+
     governance_client.link_dataset_contract(
         dataset_id="orders",
         dataset_version="2024-01-01",
@@ -548,6 +787,45 @@ def test_remote_governance_client(http_clients):
     activity = governance_client.get_pipeline_activity(dataset_id="orders")
     assert isinstance(activity, list)
     assert activity
+
+    read_plan = governance_client.resolve_read_context(
+        context=GovernanceReadContext(
+            contract=ContractReference(
+                contract_id=contract.id,
+                contract_version=contract.version,
+            ),
+            dataset_id="orders",
+            dataset_version="2024-02-02",
+        )
+    )
+    assert read_plan.contract_version == contract.version
+    read_assessment = governance_client.evaluate_read_plan(
+        plan=read_plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: payload,
+    )
+    governance_client.register_read_activity(plan=read_plan, assessment=read_assessment)
+
+    write_plan = governance_client.resolve_write_context(
+        context=GovernanceWriteContext(
+            contract=ContractReference(
+                contract_id=contract.id,
+                contract_version=contract.version,
+            ),
+            output_binding=DataProductOutputBinding(
+                data_product="dp.analytics",
+                port_name="staging",
+            ),
+            dataset_id="orders_staging",
+            dataset_version="v1",
+        )
+    )
+    write_assessment = governance_client.evaluate_write_plan(
+        plan=write_plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: payload,
+    )
+    governance_client.register_write_activity(plan=write_plan, assessment=write_assessment)
 
 
 def test_remote_data_product_client_registers_ports(http_clients):

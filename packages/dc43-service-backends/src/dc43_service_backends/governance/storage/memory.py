@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Mapping, MutableMapping, Optional, Sequence
+from numbers import Number
+from typing import Dict, List, Mapping, MutableMapping, Optional, Sequence
 
 from dc43_service_clients.data_quality import ValidationResult
 
@@ -20,6 +22,7 @@ class InMemoryGovernanceStore(GovernanceStore):
         self._activity_log: Dict[str, MutableMapping[str, MutableMapping[str, object]]] = (
             defaultdict(dict)
         )
+        self._metrics: List[Dict[str, object]] = []
 
     # ------------------------------------------------------------------
     # Status persistence
@@ -36,8 +39,19 @@ class InMemoryGovernanceStore(GovernanceStore):
         key = (contract_id, contract_version, dataset_id, dataset_version)
         if status is None:
             self._status_cache.pop(key, None)
-        else:
-            self._status_cache[key] = status
+            return
+
+        recorded_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        self._status_cache[key] = status
+        if status.metrics:
+            self._record_metrics(
+                contract_id=contract_id,
+                contract_version=contract_version,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+                recorded_at=recorded_at,
+                metrics=status.metrics,
+            )
 
     def load_status(
         self,
@@ -81,6 +95,73 @@ class InMemoryGovernanceStore(GovernanceStore):
             if dataset_version is None or linked_version == dataset_version:
                 return value
         return None
+
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
+    def _record_metrics(
+        self,
+        *,
+        contract_id: str,
+        contract_version: str,
+        dataset_id: str,
+        dataset_version: str,
+        recorded_at: str,
+        metrics: Mapping[str, object],
+    ) -> None:
+        def _normalise(value: object) -> tuple[object | None, float | None]:
+            if isinstance(value, Number):
+                return value, float(value)
+            if value is None:
+                return None, None
+            try:
+                json.dumps(value)
+                return value, None
+            except TypeError:
+                return str(value), None
+
+        for metric_key, metric_value in metrics.items():
+            value, numeric = _normalise(metric_value)
+            self._metrics.append(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "status_recorded_at": recorded_at,
+                    "metric_key": str(metric_key),
+                    "metric_value": value,
+                    "metric_numeric_value": numeric,
+                }
+            )
+
+    def load_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        records: list[Dict[str, object]] = []
+        for entry in self._metrics:
+            if entry.get("dataset_id") != dataset_id:
+                continue
+            if dataset_version is not None and entry.get("dataset_version") != dataset_version:
+                continue
+            if contract_id is not None and entry.get("contract_id") != contract_id:
+                continue
+            if contract_version is not None and entry.get("contract_version") != contract_version:
+                continue
+            records.append(dict(entry))
+
+        records.sort(
+            key=lambda item: (
+                str(item.get("status_recorded_at", "")),
+                str(item.get("metric_key", "")),
+            )
+        )
+        return records
 
     # ------------------------------------------------------------------
     # Pipeline activity

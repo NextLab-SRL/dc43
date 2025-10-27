@@ -24,7 +24,7 @@ class MyStore(ContractStore):
     def list_versions(self, contract_id: str) -> list[str]: ...
 ```
 
-`write_with_contract` and `read_with_contract` call these methods to resolve the right specification during enforcement or
+`write_with_governance` and `read_with_governance` call these methods to resolve the right specification during enforcement or
 when promoting drafts. The store can additionally override `latest(...)` if it needs custom ordering (e.g., by status).
 
 ```mermaid

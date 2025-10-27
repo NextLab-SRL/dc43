@@ -422,7 +422,7 @@ def run_orders_enriched_ok(
             "<li><strong>Contract:</strong> Targets <code>orders_enriched:1.0.0</code>"
             " and lets the decorator generate <code>dlt.expect_all</code> calls.</li>"
             "<li><strong>Writes:</strong> Persists <code>orders_enriched</code>"
-            " via <code>write_with_contract</code> after the DLT table enforces the expectations.</li>"
+            " via <code>write_with_governance</code> after the DLT table enforces the expectations.</li>"
             "<li><strong>Status:</strong> Both the harness reports and the post-write validation return OK.</li>"
             "</ul>"
         ),
@@ -461,7 +461,7 @@ def run_orders_enriched_ok(
                   <code>LocalDLTHarness</code>, allowing notebooks that rely on
                   <code>@dlt.table</code> to exercise contract expectations
                   locally. The resulting dataframe is then persisted with
-                  <code>write_with_contract</code> so history, telemetry, and
+                  <code>write_with_governance</code> so history, telemetry, and
                   record-keeping match the Spark-only run.
                 </p>
                 """,
@@ -474,7 +474,7 @@ def run_orders_enriched_ok(
                   the demo workspace. The scenario emphasises:
                 </p>
                 <ul>
-                  <li>How <code>contract_table</code> converts contracts into
+                  <li>How <code>governed_table</code> converts contracts into
                       <code>dlt.expect_all</code> calls.</li>
                   <li>That the harness mirrors Databricks metadata so
                       declarative notebooks run unchanged.</li>
@@ -2891,16 +2891,49 @@ def _dlt_code_snippet(
     if snippet:
         return snippet
 
-    expected_line = (
-        f"    expected_contract_version=\"=={contract_version}\",\n" if contract_version else ""
-    )
+    version_selector = None
+    version_value = contract_version
+    if version_value:
+        if version_value.startswith("=="):
+            version_value = version_value[2:]
+        elif version_value.startswith(">="):
+            version_selector = version_value
+            version_value = None
+
+    if version_value or version_selector:
+        context_lines = [
+            "        context={\n",
+            "            \"contract\": {\n",
+            f"                \"contract_id\": \"{contract_id}\",\n",
+        ]
+        if version_value:
+            context_lines.append(
+                f"                \"contract_version\": \"{version_value}\",\n"
+            )
+        if version_selector:
+            context_lines.append(
+                f"                \"version_selector\": \"{version_selector}\",\n"
+            )
+        context_lines.extend([
+            "            }\n",
+            "        },\n",
+        ])
+        context_block = "".join(context_lines)
+    else:
+        context_block = (
+            "        context={\n"
+            "            \"contract\": {\n"
+            f"                \"contract_id\": \"{contract_id}\",\n"
+            "            }\n"
+            "        },\n"
+        )
     function_name = _sanitize_identifier(asset_name or contract_id)
     template = """
         import dlt
         from pyspark.sql import DataFrame, SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, dq_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
 
 
@@ -2911,13 +2944,11 @@ def _dlt_code_snippet(
             raise NotImplementedError("fill in the transformations")
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="{asset_name}",
-            contract_id="{contract_id}",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-        {expected_line}    # Optionally pass pre-rendered predicates via expectation_predicates.
+{context_block}        governance_service=governance_service,
+        # Optionally pass pre-rendered predicates via expectation_predicates.
         )
         def {function_name}() -> DataFrame:
             spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
@@ -2932,7 +2963,7 @@ def _dlt_code_snippet(
     return dedent(template).strip().format(
         asset_name=asset_name,
         contract_id=contract_id,
-        expected_line=expected_line,
+        context_block=context_block,
         function_name=function_name,
     )
 

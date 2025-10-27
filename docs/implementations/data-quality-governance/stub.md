@@ -13,7 +13,7 @@ pipelines where a full governance platform is not available.
   aggregates simple violation counts for convenience.
 * Supports `ok`, `warn`, `block`, and `unknown` statuses based on the
   submitted metrics and returns them as `ValidationResult` payloads.
-* Can be queried by `read_with_contract` / `write_with_contract` to gate
+* Can be queried by `read_with_governance` / `write_with_governance` to gate
   access to datasets.
 
 ### Storage layout

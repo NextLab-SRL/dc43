@@ -8,7 +8,7 @@ from pyspark.sql import DataFrame
 
 from .spark_compat import ensure_local_spark_builder
 
-from dc43_integrations.spark.dlt import contract_table
+from dc43_integrations.spark.dlt import governed_table
 from dc43_integrations.spark.dlt_local import LocalDLTHarness, ensure_dlt_module
 
 from . import pipeline
@@ -119,22 +119,31 @@ def _dlt_output_transform(
         raise ValueError("DLT mode requires an output contract id")
 
     expected_version = context.get("expected_contract_version")
-    contract_service = context.get("contract_service")
-    data_quality_service = context.get("data_quality_service")
+    governance_service = context.get("governance_service")
     asset_name = str(context.get("dlt_asset_name") or context.get("dataset_name") or contract_id)
+
+    if governance_service is None:
+        raise ValueError("DLT mode requires a governance service in the transform context")
 
     context["pipeline_engine"] = "dlt"
     context["dlt_asset_name"] = asset_name
 
+    contract_context: dict[str, Any] = {"contract_id": contract_id}
+    if expected_version:
+        if expected_version.startswith("=="):
+            contract_context["contract_version"] = expected_version[2:]
+        elif expected_version.startswith(">="):
+            contract_context["version_selector"] = expected_version
+        else:
+            contract_context["contract_version"] = expected_version
+
     with LocalDLTHarness(spark) as harness:
 
-        @contract_table(
+        @governed_table(
             databricks_dlt,
             name=asset_name,
-            contract_id=contract_id,
-            contract_service=contract_service,
-            data_quality_service=data_quality_service,
-            expected_contract_version=expected_version,
+            context={"contract": contract_context},
+            governance_service=governance_service,
         )
         def _dlt_table() -> DataFrame:
             return df

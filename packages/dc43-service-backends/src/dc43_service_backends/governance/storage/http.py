@@ -49,6 +49,9 @@ class HttpGovernanceStore(GovernanceStore):
     def _link_url(self, dataset_id: str, dataset_version: str) -> str:
         return f"/datasets/{dataset_id}/versions/{dataset_version}/link"
 
+    def _metrics_url(self, dataset_id: str) -> str:
+        return f"/datasets/{dataset_id}/metrics"
+
     # ------------------------------------------------------------------
     # Status persistence
     # ------------------------------------------------------------------
@@ -70,6 +73,8 @@ class HttpGovernanceStore(GovernanceStore):
                 "reason": status.reason,
                 "details": status.details,
             }
+            if status.metrics:
+                payload["metrics"] = dict(status.metrics)
         response = self._client.request(
             "DELETE" if status is None else "PUT",
             self._status_url(dataset_id, dataset_version),
@@ -141,6 +146,32 @@ class HttpGovernanceStore(GovernanceStore):
         if cid and cver:
             return f"{cid}:{cver}"
         return None
+
+    def load_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        params: dict[str, str] = {}
+        if dataset_version is not None:
+            params["dataset_version"] = dataset_version
+        if contract_id is not None:
+            params["contract_id"] = contract_id
+        if contract_version is not None:
+            params["contract_version"] = contract_version
+        response = self._client.get(self._metrics_url(dataset_id), params=params or None)
+        if response.status_code == 404:
+            return []
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, list):
+            return [dict(item) for item in data if isinstance(item, Mapping)]
+        if isinstance(data, Mapping):
+            return [dict(data)]
+        return []
 
     # ------------------------------------------------------------------
     # Pipeline activity

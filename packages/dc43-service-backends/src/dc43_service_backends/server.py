@@ -31,8 +31,15 @@ from dc43_service_clients.governance.transport import (
     decode_contract,
     decode_credentials,
     decode_draft_context,
+    decode_quality_assessment,
+    decode_read_context,
+    decode_read_plan,
+    decode_write_context,
+    decode_write_plan,
     encode_contract,
     encode_quality_assessment,
+    encode_read_plan,
+    encode_write_plan,
 )
 from dc43_service_clients.governance.models import QualityAssessment
 
@@ -116,6 +123,21 @@ class _GovernanceDraftPayload(BaseModel):
 
 class _AuthPayload(BaseModel):
     credentials: Optional[Mapping[str, Any]] = None
+
+
+class _GovernanceResolvePayload(BaseModel):
+    context: Mapping[str, Any]
+
+
+class _GovernancePlanEvaluatePayload(BaseModel):
+    plan: Mapping[str, Any]
+    validation: Optional[Mapping[str, Any]] = None
+    observations: Optional[Mapping[str, Any]] = None
+
+
+class _GovernanceRegisterPayload(BaseModel):
+    plan: Mapping[str, Any]
+    assessment: Mapping[str, Any]
 
 
 def _encode_assessment(assessment: QualityAssessment) -> Mapping[str, Any]:
@@ -329,6 +351,70 @@ def build_app(
         credentials = decode_credentials(payload.credentials)
         governance_backend.configure_auth(credentials)
 
+    @router.post("/governance/read/resolve")
+    def resolve_read_context(payload: _GovernanceResolvePayload) -> Mapping[str, Any]:
+        context = decode_read_context(payload.context)
+        if context is None:
+            raise HTTPException(status_code=400, detail="invalid read context")
+        plan = governance_backend.resolve_read_context(context=context)
+        return encode_read_plan(plan)
+
+    @router.post("/governance/write/resolve")
+    def resolve_write_context(payload: _GovernanceResolvePayload) -> Mapping[str, Any]:
+        context = decode_write_context(payload.context)
+        if context is None:
+            raise HTTPException(status_code=400, detail="invalid write context")
+        plan = governance_backend.resolve_write_context(context=context)
+        return encode_write_plan(plan)
+
+    @router.post("/governance/read/evaluate")
+    def evaluate_read_plan(payload: _GovernancePlanEvaluatePayload) -> Mapping[str, Any]:
+        try:
+            plan = decode_read_plan(payload.plan)
+        except ValueError as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        validation = decode_validation_result(payload.validation)
+        observations = decode_observation_payload(payload.observations or {})
+        assessment = governance_backend.evaluate_read_plan(
+            plan=plan,
+            validation=validation,
+            observations=lambda: observations,
+        )
+        return _encode_assessment(assessment)
+
+    @router.post("/governance/write/evaluate")
+    def evaluate_write_plan(payload: _GovernancePlanEvaluatePayload) -> Mapping[str, Any]:
+        try:
+            plan = decode_write_plan(payload.plan)
+        except ValueError as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        validation = decode_validation_result(payload.validation)
+        observations = decode_observation_payload(payload.observations or {})
+        assessment = governance_backend.evaluate_write_plan(
+            plan=plan,
+            validation=validation,
+            observations=lambda: observations,
+        )
+        return _encode_assessment(assessment)
+
+    @router.post("/governance/read/register", status_code=204)
+    def register_read_activity(payload: _GovernanceRegisterPayload) -> None:
+        try:
+            plan = decode_read_plan(payload.plan)
+        except ValueError as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        assessment = decode_quality_assessment(payload.assessment)
+        governance_backend.register_read_activity(plan=plan, assessment=assessment)
+
+    @router.post("/governance/write/register", status_code=204)
+    def register_write_activity(payload: _GovernanceRegisterPayload) -> None:
+        try:
+            plan = decode_write_plan(payload.plan)
+        except ValueError as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        assessment = decode_quality_assessment(payload.assessment)
+        governance_backend.register_write_activity(plan=plan, assessment=assessment)
+
     @router.post("/governance/evaluate")
     def evaluate_dataset(payload: _GovernanceEvaluatePayload) -> Mapping[str, Any]:
         validation = decode_validation_result(payload.validation)
@@ -420,6 +506,21 @@ def build_app(
         if version is None:
             raise HTTPException(status_code=404, detail="no contract linked")
         return {"contract_version": version}
+
+    @router.get("/governance/metrics")
+    def dataset_metrics(
+        dataset_id: str,
+        dataset_version: str | None = None,
+        contract_id: str | None = None,
+        contract_version: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        records = governance_backend.get_metrics(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            contract_id=contract_id,
+            contract_version=contract_version,
+        )
+        return list(jsonable_encoder(records))
 
     @router.get("/governance/activity")
     def pipeline_activity(dataset_id: str, dataset_version: str | None = None) -> list[Mapping[str, Any]]:

@@ -68,5 +68,15 @@ class GovernanceStore(Protocol):
     ) -> str | None:
         """Return the contract reference linked to the dataset if any."""
 
+    def load_metrics(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        contract_version: Optional[str] = None,
+    ) -> Sequence[Mapping[str, object]]:
+        """Return stored metric entries associated with the dataset."""
+
 
 __all__ = ["GovernanceStore"]

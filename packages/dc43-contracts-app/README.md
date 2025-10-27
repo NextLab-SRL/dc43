@@ -9,6 +9,9 @@ packaged deployments.
 
 - Browse and edit contracts, datasets, and data products backed by any dc43
   service implementation.
+- Inspect governance metrics alongside dataset and contract records with
+  interactive trend charts so operators can review historical observations
+  without leaving the UI.
 - Export integration helper bundles to bootstrap Spark or Delta pipelines.
 - Embed a documentation-driven chat assistant powered by LangChain and Gradio so
   teams can query the Markdown guides that ship with dc43.

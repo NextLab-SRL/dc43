@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+- Dataset and contract pages now surface governance metrics, highlighting the
+  latest snapshot and recent history so stewards can audit observations without
+  leaving the UI.
+- Introduced interactive trend charts for numeric governance metrics so teams
+  can explore timeseries directly from the dataset and contract detail pages.
+- Updated the Spark pipeline stub and preview tooling to call
+  `read_with_governance`/`write_with_governance`, emitting governance request
+  payloads in generated snippets and surfacing deprecation messaging for the
+  legacy contract-based helpers.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional updates. Bumped the package metadata for the 0.22.0.0 release

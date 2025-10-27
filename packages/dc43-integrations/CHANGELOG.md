@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+### Added
+- Added `generate_contract_dataset` testing helper to materialise Faker-powered
+  sample datasets aligned with ODCS contracts and write them to the configured
+  storage path for integration tests.
+- `generate_contract_dataset` now wires governance orchestration through a
+  provided or inline governance client instead of requesting contract and data
+  quality services directly, simplifying integration overrides.
+
+### Changed
+- Deprecated contract- and data-product-centric helpers (`read_with_contract`,
+  `write_with_contract`, their streaming counterparts, and related aliases).
+  They continue to forward into the governance flow but now emit
+  ``DeprecationWarning`` notices so callers migrate to the governance-only
+  entry points.
+- Spark read/write helpers can now operate with only a governance client. When
+  provided, the governance service resolves contracts, describes expectations,
+  and evaluates data-quality observations without requiring separate contract or
+  data-quality clients, reducing the boilerplate for notebooks and pipelines.
+- Added `read_with_governance`/`write_with_governance` wrappers (and streaming
+  counterparts) plus refreshed docs/tests so common flows just pass a governance
+  client loaded from configuration.
+- `read_with_governance` and `read_stream_with_governance` now accept
+  `GovernanceReadContext` payloads to capture contract references or
+  data-product input bindings directly when resolving datasets through the
+  governance client.
+- Introduced `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest` so the
+  governance wrappers (batch and streaming) collapse their signatures down to a
+  governance client plus a single orchestration payload describing contract
+  references, data product bindings, dataset locators, and Spark-specific
+  overrides.
+- Reordered the governance helper signatures so requests sit directly after the
+  Spark/DataFrame argument and the governance client follows, matching the
+  expected call flow in documentation and tests.
+- Delta Live Tables decorators (`governed_table`, `governed_view`,
+  `governed_expectations`) now accept governance read contexts and resolve
+  expectation plans through the governance service so pipelines initialise only
+  the governance client when binding contracts.
+- Documented that the DLT annotations depend solely on the governance client,
+  matching the usage expectations established by the Spark governance wrappers.
+- Updated the Spark setup bundle and generated pipeline stubs to call the
+  governance-only read/write helpers and emit `GovernanceSparkReadRequest`/
+  `GovernanceSparkWriteRequest` payloads, with accompanying guide updates for
+  Databricks, remote Spark, and the contracts app integration helper.
+- Expanded Spark integration tests to exercise governance-first read/write
+  flows across data product bindings, DQ violations, and format guardrails, and
+  aligned the helper behaviour so governance-only calls report review-required
+  registrations just like the legacy contract wrappers.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional updates landed for this distribution. Metadata is bumped for the

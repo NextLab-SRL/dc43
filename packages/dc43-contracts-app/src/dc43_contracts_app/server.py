@@ -30,7 +30,18 @@ import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Mapping, Optional, Iterable, Callable, Set
+from typing import (
+    List,
+    Dict,
+    Any,
+    Tuple,
+    Mapping,
+    Optional,
+    Iterable,
+    Callable,
+    Set,
+    Sequence,
+)
 from uuid import uuid4
 from threading import Lock
 import threading
@@ -41,8 +52,9 @@ import re
 import shutil
 import tempfile
 import textwrap
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import Counter
+from decimal import Decimal
 import zipfile
 
 import httpx
@@ -105,12 +117,17 @@ from packaging.version import Version, InvalidVersion
 # still load when pyspark is not installed (for example when running fast unit
 # tests).
 try:  # pragma: no cover - exercised indirectly when pyspark is available
-    from dc43_integrations.spark.io import ContractVersionLocator, read_with_contract
+    from dc43_integrations.spark.io import (
+        ContractVersionLocator,
+        GovernanceSparkReadRequest,
+        read_with_governance,
+    )
 except ModuleNotFoundError as exc:  # pragma: no cover - safety net for CI
     if exc.name != "pyspark":
         raise
     ContractVersionLocator = None  # type: ignore[assignment]
-    read_with_contract = None  # type: ignore[assignment]
+    GovernanceSparkReadRequest = None  # type: ignore[assignment]
+    read_with_governance = None  # type: ignore[assignment]
 
 _SPARK_SESSION: Any | None = None
 logger = logging.getLogger(__name__)
@@ -263,6 +280,157 @@ def _dq_status_payload(dataset_id: str, dataset_version: str) -> Optional[Dict[s
     if not path.exists():
         return None
     return _read_json_file(path)
+
+
+def _parse_iso_datetime(value: object) -> datetime | None:
+    """Return a :class:`datetime` parsed from ``value`` when possible."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _format_recorded_at(value: str) -> str:
+    """Return a human-friendly timestamp label for ``value``."""
+
+    dt = _parse_iso_datetime(value)
+    if dt is None:
+        return value
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
+
+
+def _coerce_numeric(value: object | None) -> float | None:
+    """Return ``value`` as a :class:`float` when it resembles a number."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_metric_value(numeric: object | None, raw: object | None) -> str:
+    """Return the preferred display string for a metric value."""
+
+    if raw is not None:
+        if raw == "":
+            return "—"
+        if isinstance(raw, float):
+            return format(raw, "g")
+        return str(raw)
+    if numeric is not None:
+        if isinstance(numeric, float):
+            return format(numeric, "g")
+        return str(numeric)
+    return "—"
+
+
+def _metric_group_sort_key(item: Mapping[str, Any]) -> tuple[object, ...]:
+    sort_key = item.get("_sort_key")
+    recorded_at = str(item.get("recorded_at") or "")
+    dataset_version = str(item.get("dataset_version") or "")
+    contract_id = str(item.get("contract_id") or "")
+    contract_version = str(item.get("contract_version") or "")
+    if isinstance(sort_key, (int, float)):
+        return (0, -float(sort_key), recorded_at, dataset_version, contract_id, contract_version)
+    return (1, recorded_at, dataset_version, contract_id, contract_version)
+
+
+def _empty_metrics_summary() -> Dict[str, Any]:
+    """Return a metrics summary structure with no observations."""
+
+    return {
+        "latest": None,
+        "previous": [],
+        "history": [],
+        "metric_keys": [],
+        "numeric_metric_keys": [],
+        "chronological_history": [],
+    }
+
+
+def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any]:
+    """Group raw metric rows into timestamped snapshots for the templates."""
+
+    if not entries:
+        return _empty_metrics_summary()
+
+    grouped: dict[tuple[str, str, str, str], Dict[str, Any]] = {}
+    keys: set[str] = set()
+    numeric_keys: set[str] = set()
+    for entry in entries:
+        recorded_at = str(entry.get("status_recorded_at") or "")
+        dataset_version = str(entry.get("dataset_version") or "")
+        contract_id = str(entry.get("contract_id") or "")
+        contract_version = str(entry.get("contract_version") or "")
+        group_key = (recorded_at, dataset_version, contract_id, contract_version)
+        group = grouped.get(group_key)
+        if group is None:
+            dt = _parse_iso_datetime(recorded_at)
+            group = {
+                "recorded_at": recorded_at,
+                "recorded_label": _format_recorded_at(recorded_at) if recorded_at else "",
+                "dataset_version": dataset_version,
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+                "metrics": [],
+                "_sort_key": dt.timestamp() if dt is not None else None,
+            }
+            grouped[group_key] = group
+        metric_key = str(entry.get("metric_key") or "")
+        if metric_key:
+            keys.add(metric_key)
+        metric_value = entry.get("metric_value")
+        numeric_value = _coerce_numeric(entry.get("metric_numeric_value"))
+        if metric_key and numeric_value is not None:
+            numeric_keys.add(metric_key)
+        group["metrics"].append(
+            {
+                "key": metric_key,
+                "value": _format_metric_value(numeric_value, metric_value),
+                "raw_value": metric_value,
+                "numeric_value": numeric_value,
+            }
+        )
+
+    snapshots = sorted(grouped.values(), key=_metric_group_sort_key)
+    for snapshot in snapshots:
+        snapshot.pop("_sort_key", None)
+        snapshot["metrics"].sort(key=lambda item: item.get("key", ""))
+
+    latest = snapshots[0] if snapshots else None
+    previous = snapshots[1:] if len(snapshots) > 1 else []
+
+    return {
+        "latest": latest,
+        "previous": previous,
+        "history": snapshots,
+        "chronological_history": list(reversed(snapshots)),
+        "metric_keys": sorted(keys),
+        "numeric_metric_keys": sorted(numeric_keys),
+    }
 
 
 def _dataset_root_for(dataset_id: str, dataset_path: Optional[str] = None) -> Optional[Path]:
@@ -6285,7 +6453,12 @@ def _spark_stub_for_selection(
 
     lines: List[str] = [
         "from pyspark.sql import SparkSession",
-        "from dc43_integrations.spark.io import read_with_contract, write_with_contract",
+        "from dc43_integrations.spark.io import (",
+        "    GovernanceSparkReadRequest,",
+        "    GovernanceSparkWriteRequest,",
+        "    read_with_governance,",
+        "    write_with_governance,",
+        ")",
     ]
     lines.append(
         "# Contract status guardrails reject draft/deprecated contracts unless the strategies opt in."
@@ -6298,15 +6471,11 @@ def _spark_stub_for_selection(
         )
     lines.extend(
         [
-            "from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient",
-            "from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient",
             "from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient",
             "",
             "# Generated by the DC43 integration helper",
             'BASE_URL = "http://dc43-services"',
             "",
-            "contract_client = RemoteContractServiceClient(base_url=BASE_URL)",
-            "dq_client = RemoteDataQualityServiceClient(base_url=BASE_URL)",
             "governance_client = RemoteGovernanceServiceClient(base_url=BASE_URL)",
             "",
             'spark = SparkSession.builder.appName("dc43-pipeline").getOrCreate()',
@@ -6379,20 +6548,27 @@ def _spark_stub_for_selection(
             lines.append(f"#   Location: {location}")
         if fmt:
             lines.append(f"#   Format: {fmt}")
-        lines.extend(
-            [
-                f"{df_var}, {status_var} = read_with_contract(",
-                "    spark,",
-                f"    contract_id={summary['id']!r},",
-                f"    expected_contract_version=\"=={summary['version']}\",",
-                "    contract_service=contract_client,",
-                "    data_quality_service=dq_client,",
-            ]
-        )
+        request_lines: List[str] = [
+            f"{df_var}, {status_var} = read_with_governance(",
+            "    spark,",
+            "    GovernanceSparkReadRequest(",
+            "        context={",
+            "            \"contract\": {",
+            f"                \"contract_id\": {summary['id']!r},",
+            f"                \"contract_version\": {summary['version']!r},",
+            "            },",
+            "        },",
+        ]
         if server.get("dataset"):
-            lines.append(f"    table={server['dataset']!r},")
-        lines.extend(
+            request_lines.append(f"        table={server['dataset']!r},")
+        if server.get("path"):
+            request_lines.append(f"        path={server['path']!r},")
+        if fmt:
+            request_lines.append(f"        format={fmt!r},")
+        request_lines.extend(
             [
+                "    ),",
+                "    governance_service=governance_client,",
                 "    enforce=True,",
                 "    auto_cast=True,",
                 "    return_status=True,",
@@ -6401,6 +6577,7 @@ def _spark_stub_for_selection(
                 "",
             ]
         )
+        lines.extend(request_lines)
         if read_mode == "strict":
             lines.extend(
                 [
@@ -6460,21 +6637,27 @@ def _spark_stub_for_selection(
             lines.append(f"#   Location: {location}")
         if fmt:
             lines.append(f"#   Format: {fmt}")
-        lines.extend(
-            [
-                f"{validation_var}, {status_var} = write_with_contract(",
-                "    df=transformed_df,  # TODO: replace with dataframe for this output",
-                f"    contract_id={summary['id']!r},",
-                f"    expected_contract_version=\"=={summary['version']}\",",
-                "    contract_service=contract_client,",
-                "    data_quality_service=dq_client,",
-                "    governance_service=governance_client,",
-            ]
-        )
+        write_lines: List[str] = [
+            f"{validation_var}, {status_var} = write_with_governance(",
+            "    df=transformed_df,  # TODO: replace with dataframe for this output",
+            "    request=GovernanceSparkWriteRequest(",
+            "        context={",
+            "            \"contract\": {",
+            f"                \"contract_id\": {summary['id']!r},",
+            f"                \"contract_version\": {summary['version']!r},",
+            "            },",
+            "        },",
+        ]
         if server.get("dataset"):
-            lines.append(f"    table={server['dataset']!r},")
-        lines.extend(
+            write_lines.append(f"        table={server['dataset']!r},")
+        if server.get("path"):
+            write_lines.append(f"        path={server['path']!r},")
+        if fmt:
+            write_lines.append(f"        format={fmt!r},")
+        write_lines.extend(
             [
+                "    ),",
+                "    governance_service=governance_client,",
                 "    violation_strategy=write_strategy,",
                 "    return_status=True,",
                 ")",
@@ -6484,6 +6667,7 @@ def _spark_stub_for_selection(
                 f"print(\"{summary['id']} write validation ok:\", {validation_var}.ok)",
             ]
         )
+        lines.extend(write_lines)
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -6498,12 +6682,12 @@ def _read_strategy_notes(
     mode = str(strategy.get("mode") or "status").lower()
     if mode == "strict":
         intro = (
-            "read_with_contract(... return_status=True) enforces schema alignment and the stub "
+            "read_with_governance(... return_status=True) enforces schema alignment and the stub "
             "raises a RuntimeError whenever validation verdicts are not OK."
         )
     else:
         intro = (
-            "read_with_contract(... return_status=True) enforces schema alignment and logs non-OK "
+            "read_with_governance(... return_status=True) enforces schema alignment and logs non-OK "
             "statuses so orchestration can branch on data quality verdicts."
         )
     intro += " Non-active contract statuses raise unless the strategy explicitly allows them."
@@ -6558,7 +6742,7 @@ def _write_strategy_notes(
         {
             "title": "Governance hand-off",
             "description": (
-                "write_with_contract(... return_status=True) records validation results and relays "
+                "write_with_governance(... return_status=True) records validation results and relays "
                 "dataset versions to the governance client so each pipeline run is traceable."
                 " By default non-active contracts are rejected; extend the contract-status options"
                 " on your chosen strategy when drafts should be allowed."
@@ -6688,7 +6872,11 @@ async def api_contract_preview(
     dataset_id: Optional[str] = None,
     limit: int = 100,
 ) -> Dict[str, Any]:
-    if read_with_contract is None or ContractVersionLocator is None:
+    if (
+        read_with_governance is None
+        or ContractVersionLocator is None
+        or GovernanceSparkReadRequest is None
+    ):
         raise HTTPException(status_code=503, detail="pyspark is required for data previews")
     try:
         contract = store.get(cid, ver)
@@ -6722,21 +6910,27 @@ async def api_contract_preview(
 
     try:
         def _load_preview() -> tuple[list[Mapping[str, Any]], list[str]]:
-            local_contract_service, local_dq_service, _ = _thread_service_clients()
+            _, _, governance_client = _thread_service_clients()
             spark = _spark_session()
             locator = ContractVersionLocator(
                 dataset_version=selected_version,
                 dataset_id=effective_dataset_id,
             )
-            df = read_with_contract(  # type: ignore[misc]
-                spark,
-                contract_id=cid,
-                contract_service=local_contract_service,
-                expected_contract_version=f"=={ver}",
+            request = GovernanceSparkReadRequest(
+                context={
+                    "contract": {
+                        "contract_id": cid,
+                        "contract_version": ver,
+                    }
+                },
                 dataset_locator=locator,
+            )
+            df = read_with_governance(  # type: ignore[misc]
+                spark,
+                request,
+                governance_service=governance_client,
                 enforce=False,
                 auto_cast=False,
-                data_quality_service=local_dq_service,
                 return_status=False,
             )
             rows_raw = [row.asDict(recursive=True) for row in df.limit(limit).collect()]
@@ -7197,6 +7391,32 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         for entry in version_records
     }
     default_index = len(version_list) - 1 if version_list else None
+    metrics_summary = _empty_metrics_summary()
+    metrics_error: str | None = None
+
+    if dataset_id:
+
+        def _load_contract_metrics() -> Sequence[Mapping[str, object]]:
+            _, _, governance_client = _thread_service_clients()
+            kwargs: dict[str, object] = {
+                "dataset_id": dataset_id,
+                "contract_id": cid,
+                "contract_version": ver,
+            }
+            return governance_client.get_metrics(**kwargs)
+
+        try:
+            metrics_records = await run_in_threadpool(_load_contract_metrics)
+        except Exception as exc:  # pragma: no cover - defensive fallback when backend fails
+            metrics_error = str(exc)
+            logger.exception(
+                "Failed to load governance metrics for contract %s:%s (dataset %s)",
+                cid,
+                ver,
+                dataset_id,
+            )
+        else:
+            metrics_summary = _summarise_metrics(metrics_records)
     context = {
         "request": request,
         "contract": contract_to_dict(contract),
@@ -7213,6 +7433,8 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "preview_default_index": default_index,
         "preview_dataset_id": dataset_id,
         "data_products": product_links,
+        "metrics_summary": metrics_summary,
+        "metrics_error": metrics_error,
     }
     return templates.TemplateResponse("contract_detail.html", context)
 
@@ -8488,12 +8710,43 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 except FileNotFoundError:
                     contract_obj = None
             preview = _dataset_preview(contract_obj, dataset_name, dataset_version)
+            metrics_summary = _empty_metrics_summary()
+            metrics_error: str | None = None
+
+            if r.dataset_name:
+
+                def _load_metrics() -> Sequence[Mapping[str, object]]:
+                    _, _, governance_client = _thread_service_clients()
+                    kwargs: dict[str, object] = {
+                        "dataset_id": r.dataset_name,
+                    }
+                    if r.dataset_version:
+                        kwargs["dataset_version"] = r.dataset_version
+                    if r.contract_id:
+                        kwargs["contract_id"] = r.contract_id
+                    if r.contract_version:
+                        kwargs["contract_version"] = r.contract_version
+                    return governance_client.get_metrics(**kwargs)
+
+                try:
+                    metrics_records = await run_in_threadpool(_load_metrics)
+                except Exception as exc:  # pragma: no cover - defensive fallback when backend fails
+                    metrics_error = str(exc)
+                    logger.exception(
+                        "Failed to load governance metrics for %s@%s",
+                        r.dataset_name,
+                        r.dataset_version,
+                    )
+                else:
+                    metrics_summary = _summarise_metrics(metrics_records)
             context = {
                 "request": request,
                 "record": r,
                 "contract": contract_to_dict(contract_obj) if contract_obj else None,
                 "data_preview": preview,
                 "data_products": associations,
+                "metrics_summary": metrics_summary,
+                "metrics_error": metrics_error,
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")

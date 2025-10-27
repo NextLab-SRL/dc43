@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+### Changed
+- Surfaced governance metrics in the contracts app dataset and contract views
+  so operators can inspect recorded observations directly in the UI.
+- Added interactive metric trend charts to those pages so numeric observations
+  plot as timelines with tooltips highlighting dataset versions and contract
+  revisions.
+- Deprecated contract/data-product Spark IO shims (`read_with_contract`,
+  `write_with_contract`, and related helpers) in favour of the
+  governance-first wrappers. Compatibility calls now emit
+  ``DeprecationWarning`` messages to steer pipelines towards
+  `read_with_governance`/`write_with_governance`.
+- Introduced governance-first Spark IO wrappers and updated documentation/tests
+  so pipelines can rely on a single governance client instead of wiring
+  contract/data-quality services manually.
+- `read_with_governance` and its streaming counterpart now accept
+  `GovernanceReadContext` payloads so pipelines can declare contract references
+  or data product bindings explicitly when resolving datasets through
+  governance.
+- `read_with_governance`/`write_with_governance` (and streaming variants) now
+  take `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest` containers,
+  reducing function signatures to a single governance client plus an orchestration
+  payload that describes contracts, data product bindings, and Spark overrides.
+- Governance Spark helpers now position the request payload immediately after
+  the Spark/DataFrame argument, with the governance client supplied next, so
+  call sites read in the same order as the underlying orchestration flow.
+- Demo Spark and streaming scenarios now rely on the governance helpers,
+  building read/write requests from scenario context so presenters initialise
+  only the governance client while still recording contract metadata, dataset
+  versions, and status payloads in the workspace registry.
+- Delta Live Tables helpers now resolve contracts and expectation plans through
+  the governance client, so notebooks bind contracts using the same
+  governance-first contexts as the Spark IO wrappers.
+- Renamed the DLT decorators to ``governed_expectations``/``governed_table``/
+  ``governed_view`` so annotation names align with the governance-only
+  orchestration model.
+- Clarified in the DLT docs and annotations that they rely exclusively on the
+  governance service, mirroring the `read_with_governance`/`write_with_governance`
+  entry points.
+- Updated the Spark setup bundle and integration helper stubs to emit
+  governance-only read/write snippets and refreshed the getting-started guides
+  (local, remote, Databricks, contracts app) to showcase
+  `read_with_governance`/`write_with_governance` plus the new request objects.
+- Guarded the service-clients bootstrap tests with `pytest.importorskip` so the
+  package test suite skips gracefully when optional backend dependencies are not
+  installed.
+- Made `dc43_service_clients` lazy-load its bootstrap helpers so importing the
+  package no longer requires `dc43_service_backends`, ensuring the bundled
+  `pytest` entry point works in isolated client-only environments.
+- Deferred importing the SQL governance store until SQLAlchemy is available so
+  client-only environments can run the service-client test suite without pulling
+  in optional backend dependencies.
+- Extended Spark governance coverage so read/write helpers mirror the
+  contract-based behaviours when data product registrations require review,
+  added comprehensive governance-first parity tests for data product bindings,
+  DQ blocks, and format warnings, and taught the governance backend to surface
+  review-required registrations instead of silently continuing.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No functional changes. Bumped the version to align release metadata for the

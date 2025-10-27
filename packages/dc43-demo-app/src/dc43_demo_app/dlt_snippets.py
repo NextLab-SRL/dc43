@@ -11,45 +11,59 @@ def _orders_enriched_base_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Join curated orders with customers before publishing.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2025-10-05__pinned"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2025-10-05__pinned"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             return orders.join(customers, "customer_id", "left")
@@ -69,45 +83,59 @@ def _dq_failure_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Deliberately break the amount expectation to surface a blocking verdict.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             df = orders.join(customers, "customer_id", "left")
@@ -128,45 +156,59 @@ def _schema_and_dq_failure_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==2.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "2.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Drop columns and shrink amounts to trigger schema plus DQ drift.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             df = orders.join(customers, "customer_id", "left")
@@ -188,8 +230,8 @@ def _draft_guard_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import contract_service, governance_service
+        from dc43_integrations.spark.dlt import governed_table
 
 
         def ensure_active_contract(contract_id: str, version: str) -> None:
@@ -204,13 +246,16 @@ def _draft_guard_snippet() -> str:
         ensure_active_contract("orders_enriched", "3.0.0")
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched_draft",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==3.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "3.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Execution stops before this table while the contract remains in draft.",
         )
         def orders_enriched_draft():
@@ -225,48 +270,62 @@ def _draft_override_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==3.0.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "3.0.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Test draft contracts with curated inputs while documenting overrides.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(
-                    dataset_id="orders::valid",
-                    dataset_version="latest__valid",
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(
+                        dataset_id="orders::valid",
+                        dataset_version="latest__valid",
+                    ),
+                    status_strategy=DefaultReadStatusStrategy(),
                 ),
-                status_strategy=DefaultReadStatusStrategy(),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             df = orders.join(customers, "customer_id", "left")
@@ -293,50 +352,64 @@ def _read_latest_blocked_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
+            DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             ContractFirstDatasetLocator,
             ContractVersionLocator,
-            DefaultReadStatusStrategy,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Force the latest orders slice through validation to surface a block.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=ContractVersionLocator(
-                    dataset_version="latest",
-                    base=ContractFirstDatasetLocator(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=ContractVersionLocator(
+                        dataset_version="latest",
+                        base=ContractFirstDatasetLocator(),
+                    ),
+                    status_strategy=DefaultReadStatusStrategy(),
                 ),
-                status_strategy=DefaultReadStatusStrategy(),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             return orders.join(customers, "customer_id", "left")
@@ -356,48 +429,62 @@ def _read_valid_subset_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Consume the curated valid orders subset while observing outcomes.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(
-                    dataset_id="orders::valid",
-                    dataset_version="latest__valid",
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(
+                        dataset_id="orders::valid",
+                        dataset_version="latest__valid",
+                    ),
+                    status_strategy=DefaultReadStatusStrategy(),
                 ),
-                status_strategy=DefaultReadStatusStrategy(),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             return orders.join(customers, "customer_id", "left")
@@ -417,48 +504,62 @@ def _valid_subset_violation_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Start from the curated subset but degrade rows to record violations.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(
-                    dataset_id="orders::valid",
-                    dataset_version="latest__valid",
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(
+                        dataset_id="orders::valid",
+                        dataset_version="latest__valid",
+                    ),
+                    status_strategy=DefaultReadStatusStrategy(),
                 ),
-                status_strategy=DefaultReadStatusStrategy(),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             df = orders.join(customers, "customer_id", "left")
@@ -482,51 +583,62 @@ def _data_product_roundtrip_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession, functions as F
 
-        from dc43_demo_app.contracts_api import contract_service, data_product_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             StaticDatasetLocator,
-            read_from_contract,
             read_from_data_product,
+            read_with_governance,
         )
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Join the upstream data product feed with customers before publishing the governed table.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_data_product(
+            orders = read_with_governance(
                 spark,
-                data_product_service=data_product_service,
-                data_product_input={
-                    "data_product": "dp.orders",
-                    "port_name": "orders-latest",
-                    "source_data_product": "dp.orders",
-                    "source_output_port": "orders-latest",
-                },
-                contract_service=contract_service,
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="latest"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "input_binding": {
+                            "data_product": "dp.orders",
+                            "port_name": "orders-latest",
+                            "source_data_product": "dp.orders",
+                            "source_output_port": "orders-latest",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="latest"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             df = orders.join(customers, "customer_id", "left")
@@ -554,14 +666,15 @@ def _read_override_full_snippet() -> str:
         from dataclasses import dataclass
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
             ReadStatusStrategy,
             StaticDatasetLocator,
-            read_from_contract,
+            read_with_governance,
         )
         from dc43_service_clients.data_quality import ValidationResult
 
@@ -586,13 +699,16 @@ def _read_override_full_snippet() -> str:
                 return dataframe, status
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Force a blocked slice through the pipeline while recording the override.",
         )
         def orders_enriched():
@@ -601,24 +717,34 @@ def _read_override_full_snippet() -> str:
                 note="Manual override: forced latest slice (→2025-09-28)",
                 target_status="warn",
             )
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="latest"),
-                status_strategy=override,
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="latest"),
+                    status_strategy=override,
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             return orders.join(customers, "customer_id", "left")
@@ -640,47 +766,62 @@ def _split_lenient_snippet() -> str:
         import dlt
         from pyspark.sql import SparkSession
 
-        from dc43_demo_app.contracts_api import contract_service, dq_service
-        from dc43_integrations.spark.dlt import contract_table
+        from dc43_demo_app.contracts_api import governance_service
+        from dc43_integrations.spark.dlt import governed_table
         from dc43_integrations.spark.dlt_local import LocalDLTHarness
         from dc43_integrations.spark.io import (
             DefaultReadStatusStrategy,
+            GovernanceSparkReadRequest,
+            GovernanceSparkWriteRequest,
             StaticDatasetLocator,
-            read_from_contract,
-            write_with_contract_id,
+            read_with_governance,
+            write_with_governance,
         )
         from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
 
 
-        @contract_table(
+        @governed_table(
             dlt,
             name="orders_enriched",
-            contract_id="orders_enriched",
-            contract_service=contract_service,
-            data_quality_service=dq_service,
-            expected_contract_version="==1.1.0",
+            context={
+                "contract": {
+                    "contract_id": "orders_enriched",
+                    "contract_version": "1.1.0",
+                }
+            },
+            governance_service=governance_service,
             comment="Prepare the joined dataset; the write step will route rejects via the split strategy.",
         )
         def orders_enriched():
             spark = SparkSession.getActiveSession()
-            orders = read_from_contract(
+            orders = read_with_governance(
                 spark,
-                contract_id="orders",
-                contract_service=contract_service,
-                expected_contract_version="1.1.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders",
+                            "contract_version": "1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
-            customers = read_from_contract(
+            customers = read_with_governance(
                 spark,
-                contract_id="customers",
-                contract_service=contract_service,
-                expected_contract_version="1.0.0",
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
-                status_strategy=DefaultReadStatusStrategy(),
+                GovernanceSparkReadRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "customers",
+                            "contract_version": "1.0.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version="2024-01-01"),
+                    status_strategy=DefaultReadStatusStrategy(),
+                ),
+                governance_service=governance_service,
                 return_status=False,
             )
             return orders.join(customers, "customer_id", "left")
@@ -697,13 +838,18 @@ def _split_lenient_snippet() -> str:
                 write_primary_on_violation=True,
             )
             version = datetime.now(timezone.utc).isoformat()
-            result = write_with_contract_id(
+            result = write_with_governance(
                 df=enriched_df,
-                contract_id="orders_enriched",
-                expected_contract_version="==1.1.0",
-                contract_service=contract_service,
-                data_quality_service=dq_service,
-                dataset_locator=StaticDatasetLocator(dataset_version=version),
+                request=GovernanceSparkWriteRequest(
+                    context={
+                        "contract": {
+                            "contract_id": "orders_enriched",
+                            "version_selector": "==1.1.0",
+                        },
+                    },
+                    dataset_locator=StaticDatasetLocator(dataset_version=version),
+                ),
+                governance_service=governance_service,
                 violation_strategy=strategy,
                 enforce=False,
             )

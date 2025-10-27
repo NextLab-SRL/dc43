@@ -5,7 +5,7 @@ Instead of hard-coding a single behaviour, adapters receive a `WriteViolationStr
 DataFrame, surface additional datasets, or keep the legacy pass-through behaviour.
 
 The mechanism lives in `dc43_integrations.spark.violation_strategy` and is
-consumed by both `write_with_contract` and `write_stream_with_contract` in the
+consumed by both `write_with_governance` and `write_stream_with_governance` in the
 Spark adapter.
 It is runtime-agnostic: other integrations can reuse the protocol to provide the same flexibility in warehouses or streaming engines.
 
@@ -25,8 +25,8 @@ the right strategy through configuration while reusing the same runtime orchestr
 
 ## Runtime flow
 
-The Spark adapter exposes `write_with_contract` for batch jobs and
-`write_stream_with_contract` for Structured Streaming. Each helper first aligns
+The Spark adapter exposes `write_with_governance` for batch jobs and
+`write_stream_with_governance` for Structured Streaming. Each helper first aligns
 the dataframe to the contract and runs a **preview validation** to
 decide whether enforcement should block the write and to give strategies enough context to plan additional actions. Once the plan is
 ready the adapter executes the writes and immediately revalidates each persisted subset so that metrics and schema snapshots reflect
@@ -35,7 +35,7 @@ the immutable dataset version produced by the run.
 ```mermaid
 sequenceDiagram
     participant Pipeline as Pipeline code
-    participant Adapter as write_with_contract
+    participant Adapter as write_with_governance
     participant Strategy as WriteViolationStrategy
     participant DQ as Data-quality manager
 
@@ -100,7 +100,7 @@ orchestration by propagating a non-OK `ValidationResult`.
 
 ### Reacting to the final status
 
-Integrations such as the demo pipeline inspect the validation status returned by `write_with_contract` in combination with the
+Integrations such as the demo pipeline inspect the validation status returned by `write_with_governance` in combination with the
 governance status. When warnings or auxiliary rejects are present the demo records the run with a `warning` status; if the
 strict decorator is used the run escalates to `error` even though the data was written. This keeps calling code in control:
 

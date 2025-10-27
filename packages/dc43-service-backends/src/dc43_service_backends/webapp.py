@@ -16,14 +16,8 @@ except ModuleNotFoundError as exc:  # pragma: no cover - raised when extras abse
 
 from .auth import bearer_token_dependency
 from .config import ServiceBackendsConfig, load_config
-from .bootstrap import (
-    build_contract_store,
-    build_data_product_backend,
-    build_data_quality_backend,
-    build_governance_store,
-)
+from .bootstrap import build_backends
 from .web import build_local_app
-from .governance.bootstrap import build_dataset_contract_link_hooks
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ServiceBackendsConfig | None = None
@@ -62,19 +56,19 @@ def create_app(config: ServiceBackendsConfig | None = None) -> FastAPI:
     """Build a FastAPI application backed by local filesystem services."""
 
     active_config = configure_from_config(config)
-    store = build_contract_store(active_config.contract_store)
-    data_product_backend = build_data_product_backend(active_config.data_product_store)
-    dq_backend = build_data_quality_backend(active_config.data_quality)
-    governance_store = build_governance_store(active_config.governance_store)
+    suite = build_backends(active_config)
     dependencies = _resolve_dependencies(active_config)
-    link_hooks = build_dataset_contract_link_hooks(active_config)
+    contract_store = suite.contract_store or getattr(suite.contract, "_store", None)
+    if contract_store is None:  # pragma: no cover - defensive guard
+        raise RuntimeError("build_backends did not expose a contract store")
     return build_local_app(
-        store,
+        contract_store,
         dependencies=dependencies,
-        data_product_backend=data_product_backend,
-        dq_backend=dq_backend,
-        governance_store=governance_store,
-        link_hooks=link_hooks or None,
+        contract_backend=suite.contract,
+        data_product_backend=suite.data_product,
+        dq_backend=suite.data_quality,
+        governance_backend=suite.governance,
+        governance_store=suite.governance_store,
     )
 
 

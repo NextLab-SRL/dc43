@@ -156,21 +156,17 @@ services.
 
 Create a small synthetic dataset that adheres to the contract and write it to a
 Unity Catalog table via the Spark IO helper. The helper enforces the contract
-before the data hits storage and registers the output port against the data
-product service.
+before the data hits storage and registers the output port through the
+governance service, so you no longer need to call the data product client
+directly.
 
 ```python
 from pyspark.sql import functions as F
 from dc43_integrations.spark.io import (
-    write_with_contract,
     ContractVersionLocator,
-    write_to_data_product,
+    GovernanceSparkWriteRequest,
+    write_with_governance,
 )
-from dc43_service_clients.contracts import LocalContractServiceClient
-from dc43_service_clients.data_products.client.local import LocalDataProductServiceClient
-
-contract_service = LocalContractServiceClient(contract_backend)
-data_product_service = LocalDataProductServiceClient(data_product_backend)
 
 orders_df = spark.createDataFrame(
     [
@@ -181,33 +177,31 @@ orders_df = spark.createDataFrame(
     schema="order_id long, customer_id long, order_ts string, amount double, currency string",
 ).withColumn("order_ts", F.to_timestamp("order_ts"))
 
-write_with_contract(
+validation, _ = write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    contract_service=contract_service,
-    expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    path="dbfs:/mnt/dc43-demo/delta/orders",
-    mode="overwrite",
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            },
+            "output_binding": {
+                "data_product": "dp.analytics.orders",
+                "port_name": "primary",
+                "physical_location": "governed.analytics.orders",
+            },
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        path="dbfs:/mnt/dc43-demo/delta/orders",
+        mode="overwrite",
+    ),
+    governance_service=suite.governance,
     enforce=True,
     auto_cast=True,
+    return_status=True,
 )
 
-write_to_data_product(
-    df=orders_df,
-    data_product_service=data_product_service,
-    data_product_output={
-        "data_product": "dp.analytics.orders",
-        "port_name": "primary",
-        "physical_location": "governed.analytics.orders",
-    },
-    contract_service=contract_service,
-    contract_id="sales.orders",
-    expected_contract_version=">=0.1.0",
-    mode="overwrite",
-    enforce=True,
-    auto_cast=True,
-)
+print("Validation status:", validation.status)
 ```
 
 Finally, create the Unity Catalog table that surfaces the managed Delta files:

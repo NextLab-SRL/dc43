@@ -51,30 +51,35 @@ token = "super-secret"
 Load it at runtime:
 
 ```python
-from dc43_service_backends.config import load_config
-from dc43_service_clients.contracts import RemoteContractServiceClient
+from dc43_service_clients import load_governance_client
 
-config = load_config("/path/to/dc43-service-backends.toml")
-service_client = RemoteContractServiceClient(
-    base_url=config.contract_store.base_url or "",
-    token=config.contract_store.token,
-)
+governance_service = load_governance_client("/path/to/dc43-service-backends.toml")
 ```
 
 ## 4. Enforce contracts from Spark
 
-Once the service client is initialised, the IO helpers behave the same way as in the local guide:
+Once the governance client is initialised, the IO helpers behave the same way as in the local guide:
 
 ```python
-from dc43_integrations.spark.io import write_with_contract, ContractVersionLocator
+from dc43_integrations.spark.io import (
+    ContractVersionLocator,
+    GovernanceSparkWriteRequest,
+    write_with_governance,
+)
 
-write_with_contract(
+write_with_governance(
     df=orders_df,
-    contract_id="sales.orders",
-    contract_service=service_client,
-    expected_contract_version=">=0.1.0",
-    dataset_locator=ContractVersionLocator(dataset_version="latest"),
-    mode="append",
+    request=GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=0.1.0",
+            }
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        mode="append",
+    ),
+    governance_service=governance_service,
     enforce=True,
     auto_cast=True,
 )

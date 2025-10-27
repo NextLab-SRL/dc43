@@ -1,18 +1,32 @@
-"""Serialisation helpers for governance service payloads."""
+"""Serialisation helpers shared by governance clients and servers."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
-from dc43_service_clients.data_quality.transport import encode_validation_result, decode_validation_result
+from dc43_service_clients.data_quality.transport import (
+    decode_validation_result,
+    encode_validation_result,
+)
+from dc43_service_clients.data_products.models import (
+    DataProductInputBinding,
+    DataProductOutputBinding,
+    normalise_input_binding,
+    normalise_output_binding,
+)
+
 from .models import (
+    ContractReference,
     GovernanceCredentials,
+    GovernanceReadContext,
+    GovernanceWriteContext,
     PipelineContextSpec,
     QualityAssessment,
     QualityDraftContext,
+    ResolvedReadPlan,
+    ResolvedWritePlan,
     merge_pipeline_context,
     normalise_pipeline_context,
 )
@@ -44,6 +58,71 @@ def decode_credentials(raw: Mapping[str, Any] | None) -> GovernanceCredentials |
     )
 
 
+def encode_contract_reference(reference: ContractReference | None) -> dict[str, Any] | None:
+    if reference is None:
+        return None
+    return {
+        "contract_id": reference.contract_id,
+        "contract_version": reference.contract_version,
+        "version_selector": reference.version_selector,
+    }
+
+
+def decode_contract_reference(raw: Mapping[str, Any] | None) -> ContractReference | None:
+    if raw is None:
+        return None
+    contract_id = raw.get("contract_id") or raw.get("contractId")
+    if not contract_id:
+        return None
+    return ContractReference(
+        contract_id=str(contract_id),
+        contract_version=str(raw.get("contract_version") or raw.get("contractVersion") or "").strip()
+        or None,
+        version_selector=str(raw.get("version_selector") or raw.get("versionSelector") or "").strip()
+        or None,
+    )
+
+
+def encode_input_binding(binding: DataProductInputBinding | None) -> dict[str, Any] | None:
+    if binding is None:
+        return None
+    payload: dict[str, Any] = {
+        "data_product": binding.data_product,
+        "port_name": binding.port_name,
+        "source_data_product": binding.source_data_product,
+        "source_output_port": binding.source_output_port,
+        "bump": binding.bump,
+    }
+    if binding.custom_properties is not None:
+        payload["custom_properties"] = dict(binding.custom_properties)
+    return payload
+
+
+def decode_input_binding(raw: Mapping[str, Any] | None) -> DataProductInputBinding | None:
+    if raw is None:
+        return None
+    return normalise_input_binding(raw)
+
+
+def encode_output_binding(binding: DataProductOutputBinding | None) -> dict[str, Any] | None:
+    if binding is None:
+        return None
+    payload: dict[str, Any] = {
+        "data_product": binding.data_product,
+        "port_name": binding.port_name,
+        "bump": binding.bump,
+    }
+    if binding.custom_properties is not None:
+        payload["custom_properties"] = dict(binding.custom_properties)
+    return payload
+
+
+def decode_output_binding(raw: Mapping[str, Any] | None) -> DataProductOutputBinding | None:
+    if raw is None:
+        return None
+    return normalise_output_binding(raw)
+
+
 def encode_draft_context(context: QualityDraftContext | None) -> dict[str, Any] | None:
     if context is None:
         return None
@@ -53,7 +132,9 @@ def encode_draft_context(context: QualityDraftContext | None) -> dict[str, Any] 
         "data_format": context.data_format,
         "dq_feedback": dict(context.dq_feedback) if isinstance(context.dq_feedback, Mapping) else context.dq_feedback,
         "draft_context": dict(context.draft_context) if isinstance(context.draft_context, Mapping) else context.draft_context,
-        "pipeline_context": dict(context.pipeline_context) if isinstance(context.pipeline_context, Mapping) else context.pipeline_context,
+        "pipeline_context": dict(context.pipeline_context)
+        if isinstance(context.pipeline_context, Mapping)
+        else context.pipeline_context,
     }
     return payload
 
@@ -91,10 +172,129 @@ def decode_pipeline_context(raw: Mapping[str, Any] | Sequence[tuple[str, Any]] |
     return None
 
 
+def encode_read_context(context: GovernanceReadContext) -> dict[str, Any]:
+    return {
+        "contract": encode_contract_reference(context.contract),
+        "input_binding": encode_input_binding(context.input_binding),
+        "dataset_id": context.dataset_id,
+        "dataset_version": context.dataset_version,
+        "dataset_format": context.dataset_format,
+        "pipeline_context": encode_pipeline_context(context.pipeline_context),
+        "bump": context.bump,
+        "draft_on_violation": context.draft_on_violation,
+    }
+
+
+def decode_read_context(raw: Mapping[str, Any]) -> GovernanceReadContext:
+    return GovernanceReadContext(
+        contract=decode_contract_reference(raw.get("contract")),
+        input_binding=decode_input_binding(raw.get("input_binding")),
+        dataset_id=raw.get("dataset_id"),
+        dataset_version=raw.get("dataset_version"),
+        dataset_format=raw.get("dataset_format"),
+        pipeline_context=raw.get("pipeline_context"),
+        bump=str(raw.get("bump") or "minor"),
+        draft_on_violation=bool(raw.get("draft_on_violation", False)),
+    )
+
+
+def encode_write_context(context: GovernanceWriteContext) -> dict[str, Any]:
+    return {
+        "contract": encode_contract_reference(context.contract),
+        "output_binding": encode_output_binding(context.output_binding),
+        "dataset_id": context.dataset_id,
+        "dataset_version": context.dataset_version,
+        "dataset_format": context.dataset_format,
+        "pipeline_context": encode_pipeline_context(context.pipeline_context),
+        "bump": context.bump,
+        "draft_on_violation": context.draft_on_violation,
+    }
+
+
+def decode_write_context(raw: Mapping[str, Any]) -> GovernanceWriteContext:
+    return GovernanceWriteContext(
+        contract=decode_contract_reference(raw.get("contract")),
+        output_binding=decode_output_binding(raw.get("output_binding")),
+        dataset_id=raw.get("dataset_id"),
+        dataset_version=raw.get("dataset_version"),
+        dataset_format=raw.get("dataset_format"),
+        pipeline_context=raw.get("pipeline_context"),
+        bump=str(raw.get("bump") or "minor"),
+        draft_on_violation=bool(raw.get("draft_on_violation", False)),
+    )
+
+
+def encode_read_plan(plan: ResolvedReadPlan) -> dict[str, Any]:
+    return {
+        "contract": encode_contract(plan.contract),
+        "contract_id": plan.contract_id,
+        "contract_version": plan.contract_version,
+        "dataset_id": plan.dataset_id,
+        "dataset_version": plan.dataset_version,
+        "dataset_format": plan.dataset_format,
+        "input_binding": encode_input_binding(plan.input_binding),
+        "pipeline_context": dict(plan.pipeline_context) if isinstance(plan.pipeline_context, Mapping) else plan.pipeline_context,
+        "bump": plan.bump,
+        "draft_on_violation": plan.draft_on_violation,
+    }
+
+
+def decode_read_plan(raw: Mapping[str, Any]) -> ResolvedReadPlan:
+    contract = decode_contract(raw.get("contract"))
+    if contract is None:
+        raise ValueError("Resolved plan payload missing contract definition")
+    return ResolvedReadPlan(
+        contract=contract,
+        contract_id=str(raw.get("contract_id")),
+        contract_version=str(raw.get("contract_version")),
+        dataset_id=str(raw.get("dataset_id")),
+        dataset_version=str(raw.get("dataset_version")),
+        dataset_format=raw.get("dataset_format"),
+        input_binding=decode_input_binding(raw.get("input_binding")),
+        pipeline_context=decode_pipeline_context(raw.get("pipeline_context")),
+        bump=str(raw.get("bump") or "minor"),
+        draft_on_violation=bool(raw.get("draft_on_violation", False)),
+    )
+
+
+def encode_write_plan(plan: ResolvedWritePlan) -> dict[str, Any]:
+    return {
+        "contract": encode_contract(plan.contract),
+        "contract_id": plan.contract_id,
+        "contract_version": plan.contract_version,
+        "dataset_id": plan.dataset_id,
+        "dataset_version": plan.dataset_version,
+        "dataset_format": plan.dataset_format,
+        "output_binding": encode_output_binding(plan.output_binding),
+        "pipeline_context": dict(plan.pipeline_context) if isinstance(plan.pipeline_context, Mapping) else plan.pipeline_context,
+        "bump": plan.bump,
+        "draft_on_violation": plan.draft_on_violation,
+    }
+
+
+def decode_write_plan(raw: Mapping[str, Any]) -> ResolvedWritePlan:
+    contract = decode_contract(raw.get("contract"))
+    if contract is None:
+        raise ValueError("Resolved plan payload missing contract definition")
+    return ResolvedWritePlan(
+        contract=contract,
+        contract_id=str(raw.get("contract_id")),
+        contract_version=str(raw.get("contract_version")),
+        dataset_id=str(raw.get("dataset_id")),
+        dataset_version=str(raw.get("dataset_version")),
+        dataset_format=raw.get("dataset_format"),
+        output_binding=decode_output_binding(raw.get("output_binding")),
+        pipeline_context=decode_pipeline_context(raw.get("pipeline_context")),
+        bump=str(raw.get("bump") or "minor"),
+        draft_on_violation=bool(raw.get("draft_on_violation", False)),
+    )
+
+
 def encode_quality_assessment(assessment: QualityAssessment) -> dict[str, Any]:
     draft = assessment.draft
     return {
         "status": encode_validation_result(assessment.status),
+        "validation": encode_validation_result(assessment.validation),
         "draft": draft.model_dump(by_alias=True, exclude_none=True) if isinstance(draft, OpenDataContractStandard) else None,
         "observations_reused": bool(assessment.observations_reused),
     }
@@ -102,12 +302,14 @@ def encode_quality_assessment(assessment: QualityAssessment) -> dict[str, Any]:
 
 def decode_quality_assessment(raw: Mapping[str, Any]) -> QualityAssessment:
     status = decode_validation_result(raw.get("status"))
+    validation = decode_validation_result(raw.get("validation"))
     draft_raw = raw.get("draft")
     draft = None
     if isinstance(draft_raw, Mapping):
         draft = OpenDataContractStandard.model_validate(dict(draft_raw))
     return QualityAssessment(
         status=status,
+        validation=validation,
         draft=draft,
         observations_reused=bool(raw.get("observations_reused", False)),
     )
@@ -132,10 +334,24 @@ def merge_pipeline_specs(*values: PipelineContextSpec | None) -> Optional[dict[s
 __all__ = [
     "encode_credentials",
     "decode_credentials",
+    "encode_contract_reference",
+    "decode_contract_reference",
+    "encode_input_binding",
+    "decode_input_binding",
+    "encode_output_binding",
+    "decode_output_binding",
     "encode_draft_context",
     "decode_draft_context",
     "encode_pipeline_context",
     "decode_pipeline_context",
+    "encode_read_context",
+    "decode_read_context",
+    "encode_write_context",
+    "decode_write_context",
+    "encode_read_plan",
+    "decode_read_plan",
+    "encode_write_plan",
+    "decode_write_plan",
     "encode_quality_assessment",
     "decode_quality_assessment",
     "encode_contract",
