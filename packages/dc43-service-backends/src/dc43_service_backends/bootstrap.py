@@ -43,6 +43,9 @@ from .data_quality.backend.engines import (
     NativeDataQualityEngine,
     SodaEngine,
 )
+from .governance.backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
+from .governance.bootstrap import build_dataset_contract_link_hooks
+from .governance.hooks import DatasetContractLinkHook
 from .governance.storage import (
     GovernanceStore,
     InMemoryGovernanceStore,
@@ -92,12 +95,16 @@ class BackendSuite:
     contract: ContractServiceBackend
     data_product: DataProductServiceBackend
     data_quality: DataQualityServiceBackend
+    governance: GovernanceServiceBackend
     governance_store: GovernanceStore
+    contract_store: ContractStore | None = None
+    link_hooks: tuple[DatasetContractLinkHook, ...] = ()
 
     def __iter__(self):
         yield self.contract
         yield self.data_product
         yield self.data_quality
+        yield self.governance
         yield self.governance_store
 
 
@@ -200,11 +207,15 @@ def build_contract_store(config: ContractStoreConfig) -> ContractStore:
     raise RuntimeError(f"Unsupported contract store type: {store_type}")
 
 
-def build_contract_backend(config: ContractStoreConfig) -> ContractServiceBackend:
+def build_contract_backend(
+    config: ContractStoreConfig,
+    *,
+    store: ContractStore | None = None,
+) -> ContractServiceBackend:
     """Return a local contract backend wired against ``config``."""
 
-    store = build_contract_store(config)
-    return LocalContractServiceBackend(store)
+    resolved_store = store or build_contract_store(config)
+    return LocalContractServiceBackend(resolved_store)
 
 
 def build_data_product_backend(config: DataProductStoreConfig) -> DataProductServiceBackend:
@@ -442,15 +453,30 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
 
 
 def build_backends(config: ServiceBackendsConfig) -> BackendSuite:
-    """Construct contract, data product, and DQ backends using ``config``."""
+    """Construct service backends and governance hooks using ``config``."""
 
-    contract_backend = build_contract_backend(config.contract_store)
+    contract_store = build_contract_store(config.contract_store)
+    contract_backend = build_contract_backend(
+        config.contract_store, store=contract_store
+    )
     data_product_backend = build_data_product_backend(config.data_product_store)
     dq_backend = build_data_quality_backend(config.data_quality)
     governance_store = build_governance_store(config.governance_store)
+    link_hooks = build_dataset_contract_link_hooks(config)
+    governance_backend = LocalGovernanceServiceBackend(
+        contract_client=contract_backend,
+        dq_client=dq_backend,
+        data_product_client=data_product_backend,
+        draft_store=contract_store,
+        link_hooks=link_hooks,
+        store=governance_store,
+    )
     return BackendSuite(
         contract=contract_backend,
         data_product=data_product_backend,
         data_quality=dq_backend,
+        governance=governance_backend,
         governance_store=governance_store,
+        contract_store=contract_store,
+        link_hooks=link_hooks,
     )

@@ -8,8 +8,6 @@ from typing import Optional
 
 from dc43_service_backends.bootstrap import BackendSuite, build_backends
 from dc43_service_backends.config import ServiceBackendsConfig, load_config
-from dc43_service_backends.governance.bootstrap import build_dataset_contract_link_hooks
-from dc43_service_backends.governance.backend import LocalGovernanceServiceBackend
 from dc43_service_clients.contracts import ContractServiceClient, LocalContractServiceClient
 from dc43_service_clients.data_products import (
     DataProductServiceClient,
@@ -65,16 +63,7 @@ def load_service_clients(
         return ServiceClientsSuite(config=config, governance=governance)
 
     backends = build_backends(config)
-    link_hooks = build_dataset_contract_link_hooks(config)
-    governance_backend = LocalGovernanceServiceBackend(
-        contract_client=backends.contract,
-        dq_client=backends.data_quality,
-        data_product_client=backends.data_product,
-        draft_store=getattr(backends.contract, "_store", None),
-        link_hooks=link_hooks,
-        store=backends.governance_store,
-    )
-    governance = LocalGovernanceServiceClient(governance_backend)
+    governance = LocalGovernanceServiceClient(backends.governance)
     contract_client = LocalContractServiceClient(backends.contract)
     dq_client = LocalDataQualityServiceClient(backends.data_quality)
     data_product_client: Optional[DataProductServiceClient] = None
