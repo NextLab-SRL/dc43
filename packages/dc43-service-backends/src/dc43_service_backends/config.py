@@ -186,6 +186,7 @@ class GovernanceStoreConfig:
     status_table: str | None = None
     activity_table: str | None = None
     link_table: str | None = None
+    metrics_table: str | None = None
     dsn: str | None = None
     schema: str | None = None
     base_url: str | None = None

@@ -420,6 +420,7 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
             status_table=config.status_table,
             activity_table=config.activity_table,
             link_table=config.link_table,
+            metrics_table=config.metrics_table,
         )
 
     if store_type in {"http", "remote"}:

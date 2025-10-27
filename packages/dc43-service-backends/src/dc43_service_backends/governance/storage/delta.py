@@ -58,6 +58,12 @@ class DeltaGovernanceStore(GovernanceStore):
         self._activity_table = activity_table
         self._link_table = link_table
         self._metrics_table = metrics_table
+        if not self._metrics_table and self._base_path is None:
+            reference_table = status_table or activity_table or link_table
+            if reference_table:
+                self._metrics_table = self._derive_related_table_name(
+                    reference_table, "metrics"
+                )
 
         if bootstrap_tables:
             self.bootstrap()
@@ -161,6 +167,15 @@ class DeltaGovernanceStore(GovernanceStore):
                     pass
 
         return bool(self._spark.catalog.tableExists(table))
+
+    @staticmethod
+    def _derive_related_table_name(table: str, suffix: str) -> str:
+        """Create a deterministic companion table name sharing ``table``'s scope."""
+
+        if "." in table:
+            prefix, name = table.rsplit(".", 1)
+            return f"{prefix}.{name}_{suffix}"
+        return f"{table}_{suffix}"
 
     def _ensure_delta_target(
         self,
