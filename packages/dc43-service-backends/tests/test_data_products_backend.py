@@ -10,6 +10,41 @@ from dc43_service_backends.data_products import (
 from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
 
 
+def test_local_backend_accepts_pydantic_like_payload() -> None:
+    backend = LocalDataProductServiceBackend()
+
+    class _PydanticLikeProduct:
+        def __init__(self) -> None:
+            self.id = "dp.sales"
+            self.status = "active"
+            self.version = "1.0.0"
+
+        def model_dump(self, **_: object) -> dict[str, object]:
+            return {
+                "apiVersion": "1.0.0",
+                "kind": "DataProduct",
+                "id": self.id,
+                "status": self.status,
+                "version": self.version,
+                "name": "Sales",
+                "description": {"purpose": "Provide Sales Information"},
+                "outputPorts": [
+                    {
+                        "name": "orders",
+                        "version": "1.0.0",
+                        "contractId": "contracts.orders",
+                    }
+                ],
+            }
+
+    backend.put(_PydanticLikeProduct())
+
+    stored = backend.get("dp.sales", "1.0.0")
+    assert stored.name == "Sales"
+    assert stored.output_ports[0].contract_id == "contracts.orders"
+    assert callable(getattr(stored, "clone"))
+
+
 def test_register_input_port_creates_draft_version() -> None:
     backend = LocalDataProductServiceBackend()
 
