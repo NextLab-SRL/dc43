@@ -42,18 +42,60 @@ class LocalDataProductServiceBackend(DataProductServiceBackend):
     def _existing_versions(self, data_product_id: str) -> Iterable[str]:
         return self._products.get(data_product_id, {}).keys()
 
+    def _clone_product(self, product: OpenDataProductStandard) -> OpenDataProductStandard:
+        """Return a detached copy of ``product``.
+
+        The backend historically stored :class:`OpenDataProductStandard` instances that
+        exposed a :func:`clone` helper implemented by the core dataclass.  Downstream
+        integrations started passing Pydantic-based payloads that provide ``dict``/``model_dump``
+        methods instead.  Accessing ``clone`` on those objects raises ``AttributeError`` which
+        breaks ``put``/``get`` calls.  To remain compatible, try the dedicated clone helper
+        first and progressively fall back to the serialisation hooks exposed by Pydantic
+        models before finally accepting raw mappings.
+        """
+
+        clone = getattr(product, "clone", None)
+        if callable(clone):
+            return clone()
+
+        to_dict = getattr(product, "to_dict", None)
+        if callable(to_dict):
+            payload = to_dict()
+            if isinstance(payload, Mapping):
+                return to_model(payload)
+
+        for attr in ("model_dump", "dict"):
+            serializer = getattr(product, attr, None)
+            if not callable(serializer):
+                continue
+            for kwargs in ({"by_alias": True, "exclude_none": True}, {}):
+                try:
+                    payload = serializer(**kwargs)
+                except TypeError:
+                    continue
+                if isinstance(payload, Mapping):
+                    return to_model(payload)
+
+        if isinstance(product, Mapping):
+            return to_model(product)
+
+        raise AttributeError(
+            "OpenDataProductStandard clone helpers unavailable for object of type "
+            f"{type(product)!r}"
+        )
+
     def put(self, product: OpenDataProductStandard) -> None:  # noqa: D401 - short docstring
         if not product.version:
             raise ValueError("Data product version is required")
         store = self._products.setdefault(product.id, {})
-        store[product.version] = product.clone()
+        store[product.version] = self._clone_product(product)
         self._latest[product.id] = product.version
 
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:  # noqa: D401
         versions = self._products.get(data_product_id)
         if not versions or version not in versions:
             raise FileNotFoundError(f"data product {data_product_id}:{version} not found")
-        return versions[version].clone()
+        return self._clone_product(versions[version])
 
     def latest(self, data_product_id: str) -> Optional[OpenDataProductStandard]:  # noqa: D401
         version = self._latest.get(data_product_id)
