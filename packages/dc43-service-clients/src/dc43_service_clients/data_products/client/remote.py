@@ -126,6 +126,35 @@ class RemoteDataProductServiceClient(DataProductServiceClient):
             return [str(item) for item in payload]
         return []
 
+    def list_data_products(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> Mapping[str, object]:
+        params: dict[str, object] = {}
+        if limit is not None:
+            params["limit"] = int(limit)
+        if offset:
+            params["offset"] = int(offset)
+        response = ensure_response(
+            self._client.get(
+                self._request_path("/data-products"),
+                params=params or None,
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, Mapping):
+            items = payload.get("items")
+            payload["items"] = [str(item) for item in items] if isinstance(items, list) else []
+            return payload
+        if isinstance(payload, list):
+            return {
+                "items": [str(item) for item in payload],
+                "total": len(payload),
+                "limit": limit,
+                "offset": offset,
+            }
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+
     def register_input_port(
         self,
         *,

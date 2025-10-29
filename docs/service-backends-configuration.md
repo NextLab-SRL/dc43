@@ -259,7 +259,8 @@ pipeline activity are persisted. Supported types are:
 | `http` | Delegates persistence to an external HTTP service implementing the governance store API. |
 
 Common keys include `root`/`base_path` (filesystem and Delta), `dsn` and
-`schema` (SQL), `status_table`/`activity_table`/`link_table` (SQL and Delta),
+`schema` (SQL), `status_table`/`activity_table`/`link_table`/`metrics_table`
+(SQL and Delta),
 and `base_url`/`token`/`headers` (HTTP). Environment overrides follow the
 pattern `DC43_GOVERNANCE_STORE_*`, for example
 `DC43_GOVERNANCE_STORE_TYPE`, `DC43_GOVERNANCE_STORE`,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 try:  # pragma: no cover - import guard exercised in packaging contexts
-    from fastapi import APIRouter, FastAPI, HTTPException, Response
+    from fastapi import APIRouter, FastAPI, HTTPException, Query, Response
     from fastapi.responses import RedirectResponse
     from fastapi.encoders import jsonable_encoder
 except ModuleNotFoundError as exc:  # pragma: no cover - raised when optional deps missing
@@ -190,6 +190,19 @@ def build_app(
         contract.version = contract_version
         contract_backend.put(contract)
 
+    @router.get("/contracts")
+    def list_contracts(
+        limit: int | None = Query(None, ge=0),
+        offset: int = Query(0, ge=0),
+    ) -> Mapping[str, Any]:
+        listing = contract_backend.list_contracts(limit=limit, offset=offset)
+        return {
+            "items": [str(value) for value in listing.items],
+            "total": int(listing.total),
+            "limit": listing.limit,
+            "offset": listing.offset,
+        }
+
     @router.get("/contracts/{contract_id}/versions/{contract_version}")
     def get_contract(contract_id: str, contract_version: str) -> Mapping[str, Any]:
         try:
@@ -250,6 +263,22 @@ def build_app(
         product.id = data_product_id
         product.version = version
         data_product_backend.put(product)
+
+    @router.get("/data-products")
+    def list_data_products(
+        limit: int | None = Query(None, ge=0),
+        offset: int = Query(0, ge=0),
+    ) -> Mapping[str, Any]:
+        try:
+            listing = data_product_backend.list_data_products(limit=limit, offset=offset)
+        except NotImplementedError as exc:  # pragma: no cover - backend does not support listings
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return {
+            "items": [str(value) for value in listing.items],
+            "total": int(listing.total),
+            "limit": listing.limit,
+            "offset": listing.offset,
+        }
 
     @router.get("/data-products/{data_product_id}/versions/{version}")
     def get_data_product(data_product_id: str, version: str) -> Mapping[str, Any]:

@@ -20,11 +20,26 @@ class DataProductRegistrationResult:
     changed: bool
 
 
+@dataclass(slots=True)
+class DataProductListing:
+    """Paginated collection of data product identifiers."""
+
+    items: Sequence[str]
+    total: int
+    limit: int | None = None
+    offset: int = 0
+
+
 class DataProductServiceBackend(Protocol):
     """Interface implemented by data product management backends."""
 
     def put(self, product: OpenDataProductStandard) -> None:
         """Persist ``product`` making it available for subsequent lookups."""
+
+    def list_data_products(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> DataProductListing:
+        """Return identifiers for data products tracked by the backend."""
 
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:
         """Return a specific version of ``data_product_id``."""
@@ -68,6 +83,7 @@ class DataProductServiceBackend(Protocol):
 
 __all__ = [
     "DataProductRegistrationResult",
+    "DataProductListing",
     "DataProductServiceBackend",
 ]
 

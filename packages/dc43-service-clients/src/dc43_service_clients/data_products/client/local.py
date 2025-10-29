@@ -47,6 +47,17 @@ class LocalDataProductServiceClient(DataProductServiceClient):
     def list_versions(self, data_product_id: str) -> list[str]:
         return list(self._backend.list_versions(data_product_id))
 
+    def list_data_products(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> Mapping[str, object]:
+        listing = self._backend.list_data_products(limit=limit, offset=offset)
+        return {
+            "items": [str(item) for item in listing.items],
+            "total": int(listing.total),
+            "limit": listing.limit,
+            "offset": listing.offset,
+        }
+
     def register_input_port(
         self,
         *,

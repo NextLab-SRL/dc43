@@ -4,9 +4,9 @@ from __future__ import annotations
 
 This application provides a small Bootstrap-powered UI to manage data
 contracts and run an example Spark pipeline that records dataset versions
-with their validation status. Contracts are stored on the local
-filesystem using :class:`~dc43_service_backends.contracts.backend.stores.FSContractStore` and dataset
-metadata lives in a JSON file.
+with their validation status. Contracts are served through the configured
+service backends (filesystem, SQL, Delta, etc.) and dataset metadata lives
+in a JSON file.
 
 Run the UI directly with::
 
@@ -44,7 +44,6 @@ from typing import (
 )
 from uuid import uuid4
 from threading import Lock
-import threading
 import json
 import importlib.metadata as importlib_metadata
 import os
@@ -63,11 +62,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
-from httpx import ASGITransport
 from fastapi.concurrency import run_in_threadpool
 
-from dc43_service_backends.contracts.backend.stores import FSContractStore
-from dc43_service_backends.web import build_local_app
 from dc43_service_backends.config import (
     AuthConfig as BackendAuthConfig,
     ContractStoreConfig as BackendContractStoreConfig,
@@ -79,10 +75,6 @@ from dc43_service_backends.config import (
     UnityCatalogConfig as BackendUnityCatalogConfig,
     dumps as dump_service_backends_config,
 )
-from dc43_service_clients._http_sync import close_client
-from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
-from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
-from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from dc43_service_clients.odps import OpenDataProductStandard
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
@@ -95,6 +87,23 @@ from .config import (
     dumps as dump_contracts_app_config,
     load_config,
     mapping_to_toml,
+)
+from .services import (
+    configure_backend,
+    contract_service_client,
+    contract_versions,
+    data_product_service_client,
+    data_quality_service_client,
+    get_contract,
+    governance_service_client,
+    latest_contract,
+    latest_data_product,
+    list_contract_ids,
+    list_data_product_ids,
+    put_contract,
+    service_backends_config,
+    store as _contract_store_adapter,
+    thread_service_clients,
 )
 from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
@@ -162,13 +171,64 @@ RECORDS_DIR: Path
 DATASETS_FILE: Path
 DATA_PRODUCTS_FILE: Path
 DQ_STATUS_DIR: Path
-store: FSContractStore
+
+store = _contract_store_adapter
+
+
+class _ServiceFacade:
+    """Lazy wrapper exposing service client methods via attribute access."""
+
+    def __init__(self, supplier: Callable[[], object | None], *, name: str, optional: bool = False) -> None:
+        self._supplier = supplier
+        self._name = name
+        self._optional = optional
+
+    def _client(self) -> object | None:
+        client = self._supplier()
+        if client is None and not self._optional:
+            raise RuntimeError(f"{self._name} client is not configured")
+        return client
+
+    def __getattr__(self, attribute: str) -> Any:  # pragma: no cover - thin proxy
+        client = self._client()
+        if client is None:
+            raise AttributeError(f"{self._name} client is not available")
+        return getattr(client, attribute)
+
+    def __bool__(self) -> bool:  # pragma: no cover - convenience for callers
+        if self._optional:
+            return self._supplier() is not None
+        return True
+
+
+contract_service = _ServiceFacade(contract_service_client, name="contract service")
+data_product_service = _ServiceFacade(
+    data_product_service_client,
+    name="data product service",
+    optional=True,
+)
+dq_service = _ServiceFacade(
+    data_quality_service_client,
+    name="data quality service",
+    optional=True,
+)
+governance_service = _ServiceFacade(
+    governance_service_client,
+    name="governance service",
+    optional=True,
+)
+
+
+def _thread_service_clients() -> tuple[Any, Any, Any]:
+    """Compatibility alias used by legacy tests and integrations."""
+
+    return thread_service_clients()
 
 
 def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     """Set the active filesystem layout for the application."""
 
-    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DATA_PRODUCTS_FILE, DQ_STATUS_DIR, store
+    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DATA_PRODUCTS_FILE, DQ_STATUS_DIR
 
     workspace.ensure()
     WORK_DIR = workspace.root
@@ -179,7 +239,6 @@ def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     DATA_PRODUCTS_FILE = workspace.data_products_file
     DQ_STATUS_DIR = workspace.dq_status_dir
     _WORKSPACE = workspace
-    store = FSContractStore(str(CONTRACT_DIR))
     try:
         os.environ.setdefault("DC43_CONTRACTS_APP_WORK_DIR", str(WORK_DIR))
     except Exception:  # pragma: no cover - defensive
@@ -217,10 +276,6 @@ def _current_config() -> ContractsAppConfig:
         if _ACTIVE_CONFIG is None:
             _ACTIVE_CONFIG = load_config()
         return _ACTIVE_CONFIG
-
-
-
-
 def _safe_fs_name(value: str) -> str:
     """Return a filesystem-friendly representation for governance ids."""
 
@@ -674,173 +729,6 @@ _VERSIONING_MODES: List[Tuple[str, str]] = [
     ("append", "Append-only log"),
 ]
 
-_backend_app: FastAPI | None = None
-_backend_transport: ASGITransport | None = None
-_backend_client: httpx.AsyncClient | None = None
-_backend_base_url: str = "http://dc43-services"
-_backend_mode: str = "embedded"
-_backend_token: str = ""
-_THREAD_CLIENTS = threading.local()
-contract_service: RemoteContractServiceClient
-dq_service: RemoteDataQualityServiceClient
-governance_service: RemoteGovernanceServiceClient
-
-
-def _close_backend_client() -> None:
-    """Best-effort close of the shared HTTP client."""
-
-    global _backend_client
-    client = _backend_client
-    if client is None:
-        return
-    try:
-        asyncio.run(client.aclose())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(client.aclose())
-        finally:
-            loop.close()
-    _backend_client = None
-
-
-def _clear_thread_clients() -> None:
-    """Dispose of thread-local HTTP clients for the current thread."""
-
-    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
-    if bundle is None:
-        return
-    try:
-        close_client(bundle["http_client"])
-    except Exception:  # pragma: no cover - defensive guard
-        logger.exception("Failed to close thread-local backend client")
-    finally:
-        _THREAD_CLIENTS.bundle = None
-
-
-def _thread_service_clients() -> tuple[
-    RemoteContractServiceClient,
-    RemoteDataQualityServiceClient,
-    RemoteGovernanceServiceClient,
-]:
-    """Return backend service clients scoped to the current thread."""
-
-    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
-    if bundle is not None and bundle.get("token") == _backend_token:
-        return (
-            bundle["contract"],
-            bundle["dq"],
-            bundle["governance"],
-        )
-
-    if bundle is not None:
-        try:
-            close_client(bundle["http_client"])
-        except Exception:  # pragma: no cover - defensive guard
-            logger.exception("Failed to recycle thread-local backend client")
-
-    if _backend_mode == "remote":
-        http_client: httpx.Client | httpx.AsyncClient = httpx.Client(
-            base_url=_backend_base_url or None,
-        )
-    else:
-        assert _backend_app is not None
-        http_client = httpx.AsyncClient(
-            transport=ASGITransport(app=_backend_app),
-            base_url=_backend_base_url or None,
-        )
-
-    contract = RemoteContractServiceClient(
-        base_url=_backend_base_url,
-        client=http_client,
-    )
-    dq = RemoteDataQualityServiceClient(
-        base_url=_backend_base_url,
-        client=http_client,
-    )
-    governance = RemoteGovernanceServiceClient(
-        base_url=_backend_base_url,
-        client=http_client,
-    )
-
-    _THREAD_CLIENTS.bundle = {
-        "token": _backend_token,
-        "http_client": http_client,
-        "contract": contract,
-        "dq": dq,
-        "governance": governance,
-    }
-    return contract, dq, governance
-
-
-def _initialise_backend(*, base_url: str | None = None) -> None:
-    """Configure service clients against an in-process or remote backend."""
-
-    global _backend_app, _backend_transport, _backend_client
-    global contract_service, dq_service, governance_service
-    global _backend_base_url, _backend_mode, _backend_token
-
-    _close_backend_client()
-    _clear_thread_clients()
-
-    client_base_url = (base_url.rstrip("/") if base_url else "http://dc43-services")
-
-    if base_url:
-        _backend_app = None
-        _backend_transport = None
-        _backend_client = httpx.AsyncClient(base_url=client_base_url)
-        _backend_mode = "remote"
-    else:
-        _backend_app = build_local_app(store)
-        _backend_transport = ASGITransport(app=_backend_app)
-        _backend_client = httpx.AsyncClient(
-            transport=_backend_transport,
-            base_url=client_base_url,
-        )
-        _backend_mode = "embedded"
-
-    _backend_base_url = client_base_url
-    _backend_token = uuid4().hex
-
-    contract_service = RemoteContractServiceClient(
-        base_url=client_base_url,
-        client=_backend_client,
-    )
-    dq_service = RemoteDataQualityServiceClient(
-        base_url=client_base_url,
-        client=_backend_client,
-    )
-    governance_service = RemoteGovernanceServiceClient(
-        base_url=client_base_url,
-        client=_backend_client,
-    )
-
-
-def configure_backend(
-    base_url: str | None = None, *, config: BackendConfig | None = None
-) -> None:
-    """Initialise service clients against the configured backend."""
-
-    if base_url is not None:
-        _initialise_backend(base_url=base_url or None)
-        return
-
-    env_url = os.getenv("DC43_CONTRACTS_APP_BACKEND_URL") or os.getenv(
-        "DC43_DEMO_BACKEND_URL"
-    )
-    if env_url:
-        _initialise_backend(base_url=env_url)
-        return
-
-    config = config or _current_config().backend
-    mode = (config.mode or "embedded").lower()
-    if mode == "remote":
-        target_url = config.base_url or config.process.url()
-        _initialise_backend(base_url=target_url)
-    else:
-        _initialise_backend(base_url=None)
-
-
 def _setup_state_path() -> Path:
     """Return the path that stores onboarding progress information."""
 
@@ -964,7 +852,10 @@ def _wait_for_backend(base_url: str, timeout: float = 30.0) -> None:
 
 
 async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[str, str]:
-    plan = await asyncio.to_thread(dq_service.describe_expectations, contract=contract)
+    service = data_quality_service_client()
+    if service is None:
+        return {}
+    plan = await asyncio.to_thread(service.describe_expectations, contract=contract)
     mapping: Dict[str, str] = {}
     for item in plan:
         key = item.get("key") if isinstance(item, Mapping) else None
@@ -6219,10 +6110,10 @@ def pop_flash(token: str) -> Tuple[str | None, str | None]:
 def load_contract_meta() -> List[Dict[str, Any]]:
     """Return contract info derived from the store without extra metadata."""
     meta: List[Dict[str, Any]] = []
-    for cid in store.list_contracts():
-        for ver in store.list_versions(cid):
+    for cid in list_contract_ids():
+        for ver in contract_versions(cid):
             try:
-                contract = store.get(cid, ver)
+                contract = get_contract(cid, ver)
             except FileNotFoundError:
                 continue
             server = (contract.servers or [None])[0]
@@ -6280,9 +6171,9 @@ def _integration_catalog() -> List[Dict[str, Any]]:
     """Return basic metadata for all stored contracts."""
 
     catalog: List[Dict[str, Any]] = []
-    for cid in sorted(store.list_contracts()):
+    for cid in sorted(list_contract_ids()):
         try:
-            versions = store.list_versions(cid)
+            versions = contract_versions(cid)
         except FileNotFoundError:
             continue
         sorted_versions = _sorted_versions(versions)
@@ -6291,7 +6182,7 @@ def _integration_catalog() -> List[Dict[str, Any]]:
         latest_contract: Optional[OpenDataContractStandard] = None
         for version in reversed(sorted_versions):
             try:
-                latest_contract = store.get(cid, version)
+                latest_contract = get_contract(cid, version)
                 break
             except FileNotFoundError:
                 continue
@@ -6328,7 +6219,7 @@ async def _load_integration_contract(cid: str, ver: str) -> IntegrationContractC
     """Return the contract and summary information for helper endpoints."""
 
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     expectations = await _expectation_predicates(contract)
@@ -6852,7 +6743,7 @@ async def api_contracts() -> List[Dict[str, Any]]:
 @router.get("/api/contracts/{cid}/{ver}")
 async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r.__dict__ for r in load_records() if r.contract_id == cid and r.contract_version == ver]
@@ -6879,7 +6770,7 @@ async def api_contract_preview(
     ):
         raise HTTPException(status_code=503, detail="pyspark is required for data previews")
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -6982,7 +6873,7 @@ async def api_datasets() -> List[Dict[str, Any]]:
 async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
     for r in load_records():
         if r.dataset_version == dataset_version:
-            contract = store.get(r.contract_id, r.contract_version)
+            contract = get_contract(r.contract_id, r.contract_version)
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
@@ -7263,7 +7154,7 @@ async def integration_helper(request: Request) -> HTMLResponse:
 
 @router.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
-    contract_ids = store.list_contracts()
+    contract_ids = list_contract_ids()
     return templates.TemplateResponse(
         "contracts.html", {"request": request, "contracts": contract_ids}
     )
@@ -7292,7 +7183,7 @@ async def create_contract(
         try:
             _validate_contract_payload(editor_state, editing=False)
             model = _build_contract_from_payload(editor_state)
-            store.put(model)
+            put_contract(model)
             return RedirectResponse(url="/contracts", status_code=303)
         except (ValidationError, ValueError) as exc:
             error = str(exc)
@@ -7310,7 +7201,7 @@ async def create_contract(
 
 @router.get("/contracts/{cid}", response_class=HTMLResponse)
 async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
-    versions = store.list_versions(cid)
+    versions = contract_versions(cid)
     if not versions:
         raise HTTPException(status_code=404, detail="Contract not found")
     records_by_version: Dict[str, List[DatasetRecord]] = {}
@@ -7322,7 +7213,7 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
     contracts = []
     for ver in versions:
         try:
-            contract = store.get(cid, ver)
+            contract = get_contract(cid, ver)
         except FileNotFoundError:
             continue
 
@@ -7363,7 +7254,7 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
 @router.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
 async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     records = load_records()
@@ -7772,11 +7663,11 @@ def _build_editor_meta(
     baseline_state: Optional[Mapping[str, Any]],
     baseline_contract: Optional[OpenDataContractStandard],
 ) -> Dict[str, Any]:
-    existing_contracts = sorted(store.list_contracts())
+    existing_contracts = sorted(list_contract_ids())
     version_map: Dict[str, List[str]] = {}
     for contract_id in existing_contracts:
         try:
-            versions = store.list_versions(contract_id)
+            versions = contract_versions(contract_id)
         except FileNotFoundError:
             versions = []
         version_map[contract_id] = _sorted_versions(versions)
@@ -7864,9 +7755,9 @@ def _validate_contract_payload(
         new_version = SemVer.parse(version)
     except ValueError as exc:
         raise ValueError(f"Invalid semantic version: {exc}") from exc
-    existing_contracts = set(store.list_contracts())
+    existing_contracts = set(list_contract_ids())
     existing_versions = (
-        set(store.list_versions(contract_id)) if contract_id in existing_contracts else set()
+        set(contract_versions(contract_id)) if contract_id in existing_contracts else set()
     )
     if editing:
         if base_contract_id and contract_id != base_contract_id:
@@ -8220,7 +8111,7 @@ def _build_contract_from_payload(payload: Mapping[str, Any]) -> OpenDataContract
 @router.get("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
 async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLResponse:
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     new_ver = _next_version(ver)
@@ -8251,7 +8142,7 @@ async def save_contract_edits(
     baseline_state: Optional[Dict[str, Any]] = None
     base_version = original_version or ver
     try:
-        baseline_contract = store.get(cid, base_version)
+        baseline_contract = get_contract(cid, base_version)
         baseline_state = json.loads(json.dumps(_contract_editor_state(baseline_contract)))
     except FileNotFoundError:
         baseline_contract = None
@@ -8272,7 +8163,7 @@ async def save_contract_edits(
                 base_version=base_version,
             )
             model = _build_contract_from_payload(editor_state)
-            store.put(model)
+            put_contract(model)
             return RedirectResponse(
                 url=f"/contracts/{model.id}/{model.version}", status_code=303
             )
@@ -8368,9 +8259,7 @@ def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: st
     return ""
 
 
-
-
-def _data_products_payload() -> List[Mapping[str, Any]]:
+def _data_products_payload_file() -> List[Mapping[str, Any]]:
     try:
         raw = json.loads(DATA_PRODUCTS_FILE.read_text())
     except (OSError, json.JSONDecodeError):
@@ -8382,12 +8271,24 @@ def _data_products_payload() -> List[Mapping[str, Any]]:
 
 def load_data_products() -> List[OpenDataProductStandard]:
     documents: List[OpenDataProductStandard] = []
-    for payload in _data_products_payload():
+    for product_id in list_data_product_ids():
         try:
-            documents.append(OpenDataProductStandard.from_dict(payload))
+            product = latest_data_product(product_id)
+        except Exception:  # pragma: no cover - defensive guard when backend fails
+            logger.exception("Failed to load data product %s", product_id)
+            continue
+        if product is not None:
+            documents.append(product)
+    if documents:
+        return documents
+
+    fallback: List[OpenDataProductStandard] = []
+    for payload in _data_products_payload_file():
+        try:
+            fallback.append(OpenDataProductStandard.from_dict(payload))
         except Exception:  # pragma: no cover - defensive
             continue
-    return documents
+    return fallback
 
 
 def _port_custom_map(port: Any) -> Dict[str, Any]:
@@ -8577,10 +8478,10 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
         )
         bucket["records"].append(record)
 
-    for contract_id in store.list_contracts():
-        for version in store.list_versions(contract_id):
+    for contract_id in list_contract_ids():
+        for version in contract_versions(contract_id):
             try:
-                contract = store.get(contract_id, version)
+                contract = get_contract(contract_id, version)
             except FileNotFoundError:
                 continue
             server_info = _server_details(contract) or {}
@@ -8706,7 +8607,7 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
             contract_obj: OpenDataContractStandard | None = None
             if r.contract_id and r.contract_version:
                 try:
-                    contract_obj = store.get(r.contract_id, r.contract_version)
+                    contract_obj = get_contract(r.contract_id, r.contract_version)
                 except FileNotFoundError:
                     contract_obj = None
             preview = _dataset_preview(contract_obj, dataset_name, dataset_version)
