@@ -27,6 +27,11 @@ structure stored under `configuration` in `setup_state.json`. Exported bundles
 also include per-module TOML files under `dc43-setup/config/modules/` that mirror
 the raw field values captured during setup.
 
+> **Note:** Standalone deployments no longer derive filesystem defaults for these
+> modules. The demo application registers optional workspace hints so its sample
+> flows still pre-populate paths; when running the contracts app on its own,
+> enter any filesystem locations required by the selected backends manually.
+
 ### Contracts storage backend (`contracts_backend`)
 
 #### Local filesystem (`filesystem`)

@@ -69,6 +69,9 @@
   docs chat caches now default to `~/.dc43/docs_chat/index` and operators can
   relocate setup wizard persistence via `DC43_CONTRACTS_APP_STATE_DIR` while
   the demo application retains the filesystem helpers for tutorials.
+- Removed workspace directory hints from the contracts app; demo integrations
+  now register optional filesystem paths when running the bundled scenarios,
+  keeping the standalone UI focused on service-backed metadata.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

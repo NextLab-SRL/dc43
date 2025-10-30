@@ -23,6 +23,9 @@
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under
   `~/.dc43-contracts-app` (overridable via `DC43_CONTRACTS_APP_STATE_DIR`).
+- Workspace directory hints are now supplied by demo integrations via the new
+  hint registration hook, so standalone deployments no longer synthesise
+  filesystem defaults for setup wizard modules.
 - Updated docs chat configuration and the `dc43-docs-chat-index` CLI to accept
   an optional base directory, defaulting cached embeddings to
   `~/.dc43/docs_chat/index` when no explicit `index_path` is supplied.

@@ -95,6 +95,7 @@ from .services import (
     service_backends_config,
     thread_service_clients,
 )
+from .hints import get_workspace_hints
 from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
 from open_data_contract_standard.model import (
@@ -203,43 +204,41 @@ def _thread_service_clients() -> tuple[Any, Any, Any]:
     return thread_service_clients()
 
 
-@dataclass(frozen=True)
-class _WorkspaceHints:
-    """Lightweight projection of the legacy workspace layout for UI hints."""
+def _workspace_hint(key: str, fallback: str = "") -> str:
+    """Return the configured workspace hint for ``key`` if available."""
 
-    root: Path
-    contracts_dir: Path
-    data_dir: Path
-    records_dir: Path
-    datasets_file: Path
-    dq_status_dir: Path
-    data_products_file: Path
-    products_dir: Path
+    hints = get_workspace_hints()
+    if hints:
+        value = hints.get(key)
+        if value:
+            return str(value)
 
-
-def _workspace_hints(config: ContractsAppConfig | None = None) -> _WorkspaceHints:
-    active = config or _current_config()
-    root = active.workspace.root
-    if root:
-        root_path = Path(root).expanduser()
-    else:
+    if key == "root":
         override = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv(
             "DC43_DEMO_WORK_DIR"
         )
         if override:
-            root_path = Path(override).expanduser()
-        else:
-            root_path = Path.home() / ".dc43" / "workspace"
-    return _WorkspaceHints(
-        root=root_path,
-        contracts_dir=root_path / "contracts",
-        data_dir=root_path / "data",
-        records_dir=root_path / "records",
-        datasets_file=root_path / "records" / "datasets.json",
-        dq_status_dir=root_path / "records" / "dq_state" / "status",
-        data_products_file=root_path / "records" / "data_products.json",
-        products_dir=root_path / "products",
-    )
+            return str(Path(override).expanduser())
+
+    return fallback
+
+
+def _workspace_hint_map() -> Mapping[str, str]:
+    """Return all registered workspace hints as a mapping."""
+
+    hints = get_workspace_hints()
+    if hints:
+        return dict(hints)
+    return {}
+
+
+def _workspace_default(key: str, fallback: str = "") -> Callable[[], str]:
+    """Return a ``default_factory`` that resolves ``key`` via workspace hints."""
+
+    def _factory() -> str:
+        return _workspace_hint(key, fallback)
+
+    return _factory
 
 
 def _state_root(config: ContractsAppConfig | None = None) -> Path:
@@ -654,14 +653,14 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Workspace root",
                         "placeholder": "/workspace",
                         "help": "Root directory that will be bound to `DC43_CONTRACTS_APP_WORK_DIR`.",
-                        "default_factory": lambda workspace: str(workspace.root),
+                        "default_factory": _workspace_default("root"),
                     },
                     {
                         "name": "contracts_dir",
                         "label": "Contracts directory",
                         "placeholder": "/workspace/contracts",
                         "help": "Path where contract files will be created (must be inside the workspace).",
-                        "default_factory": lambda workspace: str(workspace.contracts_dir),
+                        "default_factory": _workspace_default("contracts_dir"),
                     },
                 ],
                 "diagram": {
@@ -886,7 +885,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Products directory",
                         "placeholder": "/workspace/products",
                         "help": "Folder that stores published product descriptors (JSON/YAML).",
-                        "default_factory": lambda workspace: str(workspace.root / "products"),
+                        "default_factory": _workspace_default("products_dir"),
                     },
                 ],
                 "diagram": {
@@ -1104,7 +1103,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Expectations directory",
                         "placeholder": "/workspace/expectations",
                         "help": "Where `.yml`/`.json` suites defining rules are stored.",
-                        "default_factory": lambda workspace: str(workspace.records_dir / "expectations"),
+                        "default_factory": _workspace_default("expectations_dir"),
                     },
                     {
                         "name": "results_path",
@@ -1207,7 +1206,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Governance storage directory",
                         "placeholder": "/workspace/governance",
                         "help": "Root folder that will contain status, link, and pipeline activity subdirectories.",
-                        "default_factory": lambda workspace: str(workspace.root / "governance"),
+                        "default_factory": _workspace_default("governance_dir"),
                     },
                 ],
                 "diagram": {
@@ -1670,7 +1669,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "placeholder": "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                         "help": "Command used by developers to start the governance service locally.",
                         "optional": True,
-                        "default_factory": lambda workspace: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                        "default_factory": lambda: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                     },
                 ],
             },
@@ -2334,7 +2333,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "placeholder": "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                         "help": "Command your operators should run to bring up the UI locally.",
                         "optional": True,
-                        "default_factory": lambda workspace: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                        "default_factory": lambda: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                     },
                 ],
             },
@@ -2893,7 +2892,7 @@ def _serialise_field(
     field_meta: Mapping[str, Any],
     *,
     configuration: Mapping[str, Any],
-    workspace: ContractsAppWorkspace,
+    workspace: Mapping[str, str] | None,
 ) -> Dict[str, Any]:
     """Return template-friendly metadata for a setup field."""
 
@@ -2906,7 +2905,15 @@ def _serialise_field(
             default_factory = field_meta.get("default_factory")
             if callable(default_factory):
                 try:
-                    value = str(default_factory(workspace))
+                    value = str(default_factory())
+                except TypeError:
+                    if workspace is not None:
+                        try:
+                            value = str(default_factory(workspace))
+                        except Exception:  # pragma: no cover - defensive defaults
+                            value = ""
+                    else:
+                        value = ""
                 except Exception:  # pragma: no cover - defensive defaults
                     value = ""
     return {
@@ -4972,7 +4979,7 @@ def _build_setup_context(
     if state.get("completed") and step is None:
         requested_step = _SETUP_TOTAL_STEPS
 
-    workspace = _workspace_hints()
+    workspace = _workspace_hint_map()
 
     module_to_group: Dict[str, str] = {}
     for group_meta in SETUP_MODULE_GROUPS:

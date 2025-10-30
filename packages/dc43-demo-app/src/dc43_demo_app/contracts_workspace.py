@@ -11,6 +11,11 @@ from typing import Iterable, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard
 
+try:  # pragma: no cover - demo works even if contracts app not installed
+    from dc43_contracts_app.hints import register_workspace_hint_supplier
+except ImportError:  # pragma: no cover - optional dependency for demos
+    register_workspace_hint_supplier = None  # type: ignore[assignment]
+
 from .scenarios import _DEFAULT_SLICE, _INVALID_SLICE
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -256,6 +261,19 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
 
     global _CURRENT_WORKSPACE
     _CURRENT_WORKSPACE = workspace
+
+    if register_workspace_hint_supplier is not None:
+        def _demo_workspace_hints(active: ContractsAppWorkspace = workspace) -> dict[str, str]:
+            return {
+                "root": str(active.root),
+                "contracts_dir": str(active.contracts_dir),
+                "products_dir": str(active.root / "products"),
+                "expectations_dir": str(active.records_dir / "expectations"),
+                "governance_dir": str(active.root / "governance"),
+            }
+
+        register_workspace_hint_supplier(_demo_workspace_hints)
+
     return workspace, created
 
 
