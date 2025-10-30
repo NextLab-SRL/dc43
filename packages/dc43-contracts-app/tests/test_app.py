@@ -102,7 +102,7 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
             )
         ],
     )
-    contract_dir = Path(server.CONTRACT_DIR)
+    contract_dir = server.current_workspace().contracts_dir
     contract_file = contract_dir / contract_id / f"{contract_version}.json"
     contract_file.parent.mkdir(parents=True, exist_ok=True)
     original_contract = contract_file.read_text(encoding="utf-8") if contract_file.exists() else None

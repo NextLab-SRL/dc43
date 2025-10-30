@@ -156,7 +156,6 @@ _ACTIVE_CONFIG: ContractsAppConfig | None = None
 _WORKSPACE_LOCK = Lock()
 _WORKSPACE: ContractsAppWorkspace | None = None
 WORK_DIR: Path
-CONTRACT_DIR: Path
 DATA_DIR: Path
 RECORDS_DIR: Path
 DATASETS_FILE: Path
@@ -219,11 +218,10 @@ def _thread_service_clients() -> tuple[Any, Any, Any]:
 def configure_workspace(workspace: ContractsAppWorkspace) -> None:
     """Set the active filesystem layout for the application."""
 
-    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DATA_PRODUCTS_FILE, DQ_STATUS_DIR
+    global _WORKSPACE, WORK_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DATA_PRODUCTS_FILE, DQ_STATUS_DIR
 
     workspace.ensure()
     WORK_DIR = workspace.root
-    CONTRACT_DIR = workspace.contracts_dir
     DATA_DIR = workspace.data_dir
     RECORDS_DIR = workspace.records_dir
     DATASETS_FILE = workspace.datasets_file
@@ -8366,7 +8364,6 @@ def run(config_path: str | os.PathLike[str] | None = None) -> None:  # pragma: n
     backend_url = backend_cfg.base_url or process_cfg.url()
 
     env = os.environ.copy()
-    env.setdefault("DC43_CONTRACT_STORE", str(CONTRACT_DIR))
     cmd = [
         sys.executable,
         "-m",
