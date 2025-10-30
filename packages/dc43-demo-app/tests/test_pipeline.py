@@ -763,6 +763,15 @@ def test_demo_pipeline_blocks_draft_contract(tmp_path: Path) -> None:
         policy = output.get("contract_status_policy", {})
         assert policy.get("allowed") == ["active"]
     finally:
+        restored_payload = [dict(record.__dict__) for record in original_records]
+        datasets_file = Path(pipeline.DATASETS_FILE)
+        datasets_file.parent.mkdir(parents=True, exist_ok=True)
+        datasets_file.write_text(json.dumps(restored_payload, indent=2), encoding="utf-8")
+        SparkSession.builder.master("local[2]") \
+            .appName("dc43-tests") \
+            .config("spark.ui.enabled", "false") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .getOrCreate()
 
 
 def test_demo_pipeline_allows_draft_contract_with_override(tmp_path: Path) -> None:
