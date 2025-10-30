@@ -1,23 +1,14 @@
 from __future__ import annotations
 
-"""FastAPI demo application for dc43.
+"""Contracts application built on FastAPI.
 
-This application provides a small Bootstrap-powered UI to manage data
-contracts and run an example Spark pipeline that records dataset versions
-with their validation status. Contracts are served through the configured
-service backends (filesystem, SQL, Delta, etc.) and dataset metadata lives
-in a JSON file.
+This UI surfaces contract and data product metadata through the configured
+service backends. Run it locally with::
 
-Run the UI directly with::
+    uvicorn dc43_contracts_app.server:app --reload
 
-    uvicorn dc43_demo_app.server:app --reload
-
-or start the full demo (UI + HTTP backend) with::
-
-    dc43-demo
-
-Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
-``pyspark``.
+Optional dependencies needed: ``fastapi``, ``uvicorn`` and ``jinja2``. Data
+preview features additionally rely on ``pyspark``.
 """
 
 import asyncio
@@ -276,21 +267,6 @@ def _current_config() -> ContractsAppConfig:
         if _ACTIVE_CONFIG is None:
             _ACTIVE_CONFIG = load_config()
         return _ACTIVE_CONFIG
-def _safe_fs_name(value: str) -> str:
-    """Return a filesystem-friendly representation for governance ids."""
-
-    return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in value)
-
-
-def _read_json_file(path: Path) -> Optional[Dict[str, Any]]:
-    """Return decoded JSON for ``path`` or ``None`` on failure."""
-
-    try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
 def _version_sort_key(value: str) -> tuple[int, Tuple[int, int, int] | float | str, str]:
     """Sort versions treating ISO timestamps and SemVer intelligently."""
 
@@ -313,28 +289,6 @@ def _sort_versions(entries: Iterable[str]) -> List[str]:
     """Return ``entries`` sorted using :func:`_version_sort_key`."""
 
     return sorted(entries, key=_version_sort_key)
-
-
-def _dq_status_dir_for(dataset_id: str) -> Path:
-    """Return the directory that stores compatibility statuses for ``dataset_id``."""
-
-    return DQ_STATUS_DIR / _safe_fs_name(dataset_id)
-
-
-def _dq_status_path(dataset_id: str, dataset_version: str) -> Path:
-    """Return the JSON payload path for the supplied dataset/version pair."""
-
-    directory = _dq_status_dir_for(dataset_id)
-    return directory / f"{_safe_fs_name(dataset_version)}.json"
-
-
-def _dq_status_payload(dataset_id: str, dataset_version: str) -> Optional[Dict[str, Any]]:
-    """Load the compatibility payload if available."""
-
-    path = _dq_status_path(dataset_id, dataset_version)
-    if not path.exists():
-        return None
-    return _read_json_file(path)
 
 
 def _parse_iso_datetime(value: object) -> datetime | None:
@@ -486,231 +440,6 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         "metric_keys": sorted(keys),
         "numeric_metric_keys": sorted(numeric_keys),
     }
-
-
-def _dataset_root_for(dataset_id: str, dataset_path: Optional[str] = None) -> Optional[Path]:
-    """Return the directory that should contain materialised versions."""
-
-    base: Optional[Path] = None
-    if dataset_path:
-        try:
-            path = Path(dataset_path)
-        except (TypeError, ValueError):
-            path = None
-        if path is not None:
-            if path.suffix:
-                path = path.parent / path.stem
-            if not path.is_absolute():
-                path = (Path(DATA_DIR).parent / path).resolve()
-            base = path
-    if base is None and dataset_id:
-        base = DATA_DIR / dataset_id.replace("::", "__")
-    return base
-
-
-def _version_marker_value(folder: Path) -> str:
-    """Return the canonical version value for ``folder`` if annotated."""
-
-    marker = folder / ".dc43_version"
-    if marker.exists():
-        try:
-            text = marker.read_text().strip()
-        except OSError:
-            text = ""
-        if text:
-            return text
-    return folder.name
-
-
-def _candidate_version_paths(dataset_dir: Path, version: str) -> List[Path]:
-    """Return directories that may correspond to ``version``."""
-
-    candidates: List[Path] = []
-    direct = dataset_dir / version
-    candidates.append(direct)
-    safe = dataset_dir / _safe_fs_name(version)
-    if safe != direct:
-        candidates.append(safe)
-    try:
-        for entry in dataset_dir.iterdir():
-            if not entry.is_dir():
-                continue
-            if _version_marker_value(entry) == version and entry not in candidates:
-                candidates.append(entry)
-    except FileNotFoundError:
-        return []
-    return candidates
-
-
-def _has_version_materialisation(dataset_dir: Path, version: str) -> bool:
-    """Return ``True`` if ``dataset_dir`` contains files for ``version``."""
-
-    lowered = version.lower()
-    if lowered in {"latest", "current"} or lowered.startswith("latest__"):
-        return True
-    for candidate in _candidate_version_paths(dataset_dir, version):
-        if candidate.exists():
-            return True
-    return False
-
-
-def _existing_version_dir(dataset_dir: Path, version: str) -> Optional[Path]:
-    """Return an existing directory matching ``version`` if available."""
-
-    for candidate in _candidate_version_paths(dataset_dir, version):
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def _target_version_dir(dataset_dir: Path, version: str) -> Path:
-    """Return the directory path where ``version`` should be materialised."""
-
-    safe = _safe_fs_name(version)
-    if not safe:
-        safe = "version"
-    return dataset_dir / safe
-
-
-def _ensure_version_marker(path: Path, version: str) -> None:
-    """Record ``version`` inside ``path`` for lookup when sanitised."""
-
-    if not path.exists() or not path.is_dir():
-        return
-    marker = path / ".dc43_version"
-    try:
-        marker.write_text(version)
-    except OSError:
-        pass
-
-
-def _dq_status_entries(dataset_id: str) -> List[Tuple[str, str, Dict[str, Any]]]:
-    """Return (display_version, stored_version, payload) tuples."""
-
-    directory = _dq_status_dir_for(dataset_id)
-    entries: List[Tuple[str, str, Dict[str, Any]]] = []
-    if not directory.exists():
-        return entries
-    for path in directory.glob("*.json"):
-        payload = _read_json_file(path) or {}
-        display_version = str(payload.get("dataset_version") or path.stem)
-        entries.append((display_version, path.stem, payload))
-    entries.sort(key=lambda item: _version_sort_key(item[0]))
-    return entries
-
-
-def _dq_status_versions(dataset_id: str) -> List[str]:
-    """Return known dataset versions recorded by the governance stub."""
-
-    return [entry[0] for entry in _dq_status_entries(dataset_id)]
-
-
-def _link_path(target: Path, source: Path) -> None:
-    """Create a symlink (or copy fallback) from ``target`` to ``source``."""
-
-    if target.exists() or target.is_symlink():
-        try:
-            if target.is_symlink() and target.resolve() == source.resolve():
-                return
-        except OSError:
-            pass
-        if target.is_dir() and not target.is_symlink():
-            shutil.rmtree(target)
-        else:
-            target.unlink()
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        relative = os.path.relpath(source, target.parent)
-        target.symlink_to(relative, target_is_directory=source.is_dir())
-    except OSError:
-        if source.is_dir():
-            shutil.copytree(source, target, dirs_exist_ok=True)
-        else:
-            shutil.copy2(source, target)
-
-
-def _iter_versions(dataset_dir: Path) -> list[Path]:
-    """Return sorted dataset version directories ignoring alias folders."""
-
-    versions: list[Path] = []
-    for candidate in dataset_dir.iterdir():
-        if not candidate.is_dir():
-            continue
-        name = candidate.name
-        if name == "latest" or name.startswith("latest__"):
-            continue
-        versions.append(candidate)
-    return sorted(versions)
-
-
-def refresh_dataset_aliases(dataset: str | None = None) -> None:
-    """Populate ``latest``/derived aliases for the selected dataset(s)."""
-
-    roots: list[Path]
-    if dataset:
-        base = DATA_DIR / dataset
-        roots = [base] if base.exists() else []
-    else:
-        roots = [p for p in DATA_DIR.iterdir() if p.is_dir() and "__" not in p.name]
-
-    for dataset_dir in roots:
-        versions = _iter_versions(dataset_dir)
-        if not versions:
-            continue
-        latest = versions[-1]
-        _link_path(dataset_dir / "latest", latest)
-
-        derived_dirs = sorted(DATA_DIR.glob(f"{dataset_dir.name}__*"))
-        for derived_dir in derived_dirs:
-            if not derived_dir.is_dir():
-                continue
-            suffix = derived_dir.name.split("__", 1)[1]
-            derived_versions = _iter_versions(derived_dir)
-            for version_dir in derived_versions:
-                target = dataset_dir / version_dir.name / suffix
-                _link_path(target, version_dir)
-            if derived_versions:
-                _link_path(dataset_dir / f"latest__{suffix}", derived_versions[-1])
-
-
-def set_active_version(dataset: str, version: str) -> None:
-    """Point the ``latest`` alias of ``dataset`` (and derivatives) to ``version``."""
-
-    dataset_dir = DATA_DIR / dataset
-    target = _existing_version_dir(dataset_dir, version)
-    if target is None:
-        target = _target_version_dir(dataset_dir, version)
-    if not target.exists():
-        raise FileNotFoundError(f"Unknown dataset version: {dataset} {version}")
-
-    _link_path(dataset_dir / "latest", target)
-
-    if "__" not in dataset:
-        for derived_dir in DATA_DIR.glob(f"{dataset}__*"):
-            suffix = derived_dir.name.split("__", 1)[1]
-            derived_target = _existing_version_dir(derived_dir, version)
-            if derived_target is None:
-                continue
-            _link_path(target / suffix, derived_target)
-            _link_path(dataset_dir / f"latest__{suffix}", derived_target)
-    else:
-        base, suffix = dataset.split("__", 1)
-        base_dir = DATA_DIR / base
-        version_dir = _existing_version_dir(base_dir, version)
-        if version_dir is not None and version_dir.exists():
-            _link_path(version_dir / suffix, target)
-            _link_path(base_dir / f"latest__{suffix}", target)
-
-
-def register_dataset_version(dataset: str, version: str, source: Path) -> None:
-    """Expose ``source`` under ``data/<dataset>/<version>`` via symlink."""
-
-    dataset_dir = DATA_DIR / dataset
-    dataset_dir.mkdir(parents=True, exist_ok=True)
-    target = _target_version_dir(dataset_dir, version)
-    _link_path(target, source)
-    _ensure_version_marker(target, version)
 
 
 _STATUS_OPTIONS: List[Tuple[str, str]] = [
@@ -5679,89 +5408,47 @@ def _dq_version_records(
     dataset_path: Optional[str] = None,
     dataset_records: Optional[Iterable[DatasetRecord]] = None,
 ) -> List[Dict[str, Any]]:
-    """Return version → status entries for the supplied dataset id.
+    """Summarise validation verdicts for ``dataset_id`` without filesystem access."""
 
-    ``dataset_records`` can be provided to scope compatibility information to
-    runs that were produced for a specific contract version. This ensures, for
-    example, that the compatibility matrix rendered for ``orders`` version
-    ``1.0.0`` does not surface the validation outcome that belongs to the
-    ``1.1.0`` contract.
-    """
+    del dataset_path  # filesystem materialisations are demo-only
 
     records: List[Dict[str, Any]] = []
-    entries = _dq_status_entries(dataset_id)
+    if not dataset_records:
+        return records
 
-    scoped_versions: set[str] = set()
-    dataset_record_map: Dict[str, DatasetRecord] = {}
-    if dataset_records:
-        for record in dataset_records:
-            if not record.dataset_version:
-                continue
-            scoped_versions.add(record.dataset_version)
-            dataset_record_map[record.dataset_version] = record
-
-    dataset_dir = _dataset_root_for(dataset_id, dataset_path)
-    skip_fs_check = False
-    if contract and contract.servers:
-        server = contract.servers[0]
-        fmt = (getattr(server, "format", "") or "").lower()
-        if fmt == "delta":
-            skip_fs_check = True
-
-    seen_versions: set[str] = set()
-    for display_version, stored_version, payload in entries:
-        record = dataset_record_map.get(display_version)
-        payload_contract_id = str(payload.get("contract_id") or "")
-        payload_contract_version = str(payload.get("contract_version") or "")
-        if contract and (contract.id or contract.version):
-            contract_id_value = contract.id or ""
-            if payload_contract_id and payload_contract_version:
-                if (
-                    payload_contract_id != contract_id_value
-                    or payload_contract_version != contract.version
-                ):
-                    continue
-            elif scoped_versions and display_version not in scoped_versions:
-                continue
-        elif scoped_versions and display_version not in scoped_versions:
+    scoped_versions: Dict[str, DatasetRecord] = {}
+    for record in dataset_records:
+        if record.dataset_name != dataset_id:
             continue
-        if not skip_fs_check and dataset_dir is not None:
-            if not _has_version_materialisation(dataset_dir, display_version):
+        if not record.dataset_version:
+            continue
+        scoped_versions[record.dataset_version] = record
+
+    for version, record in scoped_versions.items():
+        if contract and (contract.id or contract.version):
+            if record.contract_id and contract.id and record.contract_id != contract.id:
                 continue
-        status_value = str(payload.get("status", "unknown") or "unknown")
+            if (
+                record.contract_version
+                and contract.version
+                and record.contract_version != contract.version
+            ):
+                continue
+        status_value = record.status or "unknown"
         records.append(
             {
-                "version": display_version,
-                "stored_version": stored_version,
+                "version": version,
+                "stored_version": version,
                 "status": status_value,
                 "status_label": status_value.replace("_", " ").title(),
                 "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
-                "contract_id": payload_contract_id or (record.contract_id if record else ""),
-                "contract_version": payload_contract_version
-                or (record.contract_version if record else ""),
-                "recorded_at": payload.get("recorded_at"),
+                "contract_id": record.contract_id,
+                "contract_version": record.contract_version,
+                "recorded_at": record.dq_details.get("recorded_at")
+                if isinstance(record.dq_details, Mapping)
+                else None,
             }
         )
-        seen_versions.add(display_version)
-
-    # If we scoped by contract runs, surface any versions without a stored DQ
-    # payload using the dataset records so the UI can still display a verdict.
-    if scoped_versions:
-        for missing_version in scoped_versions - seen_versions:
-            record = dataset_record_map.get(missing_version)
-            status_value = str(record.status or "unknown") if record else "unknown"
-            records.append(
-                {
-                    "version": missing_version,
-                    "stored_version": _safe_fs_name(missing_version),
-                    "status": status_value,
-                    "status_label": status_value.replace("_", " ").title(),
-                    "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
-                    "contract_id": record.contract_id if record else "",
-                    "contract_version": record.contract_version if record else "",
-                    "recorded_at": None,
-                }
-            )
 
     records.sort(key=lambda item: _version_sort_key(item["version"]))
     return records
@@ -5982,20 +5669,24 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
 
 
 def load_records() -> List[DatasetRecord]:
-    if not DATASETS_FILE.exists():
-        return []
-    try:
-        raw = json.loads(DATASETS_FILE.read_text())
-    except (OSError, json.JSONDecodeError):
-        return []
-    return [DatasetRecord(**r) for r in raw]
+    """Return recorded dataset runs.
+
+    The standalone contracts app delegates dataset capture to external
+    pipelines, so no local history is available. The demo package provides a
+    filesystem-backed implementation for interactive tutorials.
+    """
+
+    return []
 
 
 def save_records(records: List[DatasetRecord]) -> None:
-    DATASETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DATASETS_FILE.write_text(
-        json.dumps([r.__dict__ for r in records], indent=2), encoding="utf-8"
-    )
+    """Persist dataset run metadata.
+
+    No-op for the standalone app; pipelines interacting with the governance
+    APIs are expected to manage their own history.
+    """
+
+    del records
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
@@ -6839,8 +6530,9 @@ async def api_contract_preview(
         )
         raise HTTPException(status_code=500, detail=f"Failed to load preview: {exc}")
 
-    status_payload = _dq_status_payload(effective_dataset_id, selected_version)
-    status_value = str(status_payload.get("status", "unknown")) if status_payload else "unknown"
+    status_lookup = {entry["version"]: entry for entry in version_records}
+    status_entry = status_lookup.get(selected_version)
+    status_value = str(status_entry.get("status", "unknown")) if status_entry else "unknown"
     response = {
         "dataset_id": effective_dataset_id,
         "dataset_version": selected_version,
@@ -6852,7 +6544,7 @@ async def api_contract_preview(
             "status": status_value,
             "status_label": status_value.replace("_", " ").title(),
             "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
-            "details": status_payload.get("details") if status_payload else None,
+            "details": None,
         },
     }
     return response
@@ -8221,51 +7913,25 @@ async def data_product_detail_view(request: Request, product_id: str) -> HTMLRes
     return templates.TemplateResponse("data_product_detail.html", context)
 
 
-def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
-    server = (contract.servers or [None])[0] if contract else None
-    data_root = Path(DATA_DIR).parent
-    base = Path(getattr(server, "path", "")) if server else data_root
-    if base.suffix:
-        base = base.parent
-    if not base.is_absolute():
-        base = data_root / base
-    if base.name == dataset_name:
-        return base / dataset_version
-    return base / dataset_name / dataset_version
+def _dataset_preview(
+    contract: OpenDataContractStandard | None,
+    dataset_name: str,
+    dataset_version: str,
+) -> str:
+    """Return a placeholder preview.
 
+    Materialised datasets are managed by external pipelines. The demo package
+    overrides this helper with a filesystem-backed implementation that exposes
+    sample data.
+    """
 
-def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> str:
-    ds_path = _dataset_path(contract, dataset_name, dataset_version)
-    server = (contract.servers or [None])[0] if contract else None
-    fmt = getattr(server, "format", None)
-    try:
-        if fmt == "parquet":
-            from pyspark.sql import SparkSession  # type: ignore
-            spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
-            df = spark.read.parquet(str(ds_path))
-            return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
-        if fmt == "json":
-            target = ds_path if ds_path.is_file() else next(ds_path.glob("*.json"), None)
-            if target:
-                return target.read_text()[:1000]
-        if ds_path.is_file():
-            return ds_path.read_text()[:1000]
-        if ds_path.is_dir():
-            target = next((p for p in ds_path.iterdir() if p.is_file()), None)
-            if target:
-                return target.read_text()[:1000]
-    except Exception:
-        return ""
+    del contract, dataset_name, dataset_version
     return ""
 
 
 def _data_products_payload_file() -> List[Mapping[str, Any]]:
-    try:
-        raw = json.loads(DATA_PRODUCTS_FILE.read_text())
-    except (OSError, json.JSONDecodeError):
-        return []
-    if isinstance(raw, list):
-        return [item for item in raw if isinstance(item, Mapping)]
+    """Legacy fallback retained for the demo package."""
+
     return []
 
 
@@ -8283,11 +7949,6 @@ def load_data_products() -> List[OpenDataProductStandard]:
         return documents
 
     fallback: List[OpenDataProductStandard] = []
-    for payload in _data_products_payload_file():
-        try:
-            fallback.append(OpenDataProductStandard.from_dict(payload))
-        except Exception:  # pragma: no cover - defensive
-            continue
     return fallback
 
 

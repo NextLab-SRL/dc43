@@ -325,6 +325,11 @@ at a `.env` file with `dc43-demo --env-file`, or using `direnv`). Prefer keeping
 credentials outside source control? populate `docs_chat.api_key` in a private
 TOML file and launch the demo with `dc43-demo --config /path/to/contracts-app.toml`.
 
+> ℹ️ Dataset previews and run history in the contracts UI are populated by the
+> Spark demo pipelines. Remote deployments still surface contract and data
+> product metadata through the configured services but do not read or persist
+> dataset files locally.
+
 When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
 `/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install
 the `docs-chat` optional dependency (`pip install --no-cache-dir -e ".[demo]"`

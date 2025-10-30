@@ -12,6 +12,10 @@
   `read_with_governance`/`write_with_governance`, emitting governance request
   payloads in generated snippets and surfacing deprecation messaging for the
   legacy contract-based helpers.
+- Removed direct filesystem access from the contracts UI; dataset previews and
+  history now surface only when the demo pipelines populate them, while remote
+  deployments continue to focus on contract and data product metadata served by
+  the configured backends.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

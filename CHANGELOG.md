@@ -31,6 +31,10 @@
   building read/write requests from scenario context so presenters initialise
   only the governance client while still recording contract metadata, dataset
   versions, and status payloads in the workspace registry.
+- The contracts app no longer reads datasets or data product snapshots from the
+  local workspace; dataset history and previews are provided by the demo-only
+  pipelines while remote deployments focus on contract and data product
+  metadata surfaced by the service backends.
 - Delta Live Tables helpers now resolve contracts and expectation plans through
   the governance client, so notebooks bind contracts using the same
   governance-first contexts as the Spark IO wrappers.
