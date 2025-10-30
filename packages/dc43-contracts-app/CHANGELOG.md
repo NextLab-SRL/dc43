@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Dataset history and data product catalog pages once again load demo registry
+  files from the configured workspace when available, keeping the walkthrough
+  content in sync with the embedded pipelines.
 - Dataset and contract pages now surface governance metrics, highlighting the
   latest snapshot and recent history so stewards can audit observations without
   leaving the UI.

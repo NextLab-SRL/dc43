@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Demo workspace preparation now records the path under
+  `DC43_CONTRACTS_APP_WORK_DIR` so the contracts UI consumes the registry via
+  the standard configuration hooks.
 - Pipeline and streaming demo scenarios now call the governance read/write
   helpers with `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest`
   payloads so presenters only need the governance client to resolve contracts,

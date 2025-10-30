@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- Restored the contracts app dataset views to read registry snapshots from the
+  configured workspace so demo walkthroughs once again surface sample history.
 - Surfaced governance metrics in the contracts app dataset and contract views
   so operators can inspect recorded observations directly in the UI.
 - Added interactive metric trend charts to those pages so numeric observations
