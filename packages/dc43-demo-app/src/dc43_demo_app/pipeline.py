@@ -7,6 +7,9 @@ validation, perform transformations (omitted) and write the result while
 recording the dataset version in the demo app's registry.
 """
 
+import json
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Sequence
@@ -106,6 +109,172 @@ def _resolve_output_path(
 
 
 StrategySpec = WriteViolationStrategy | str | Mapping[str, Any] | None
+
+
+@dataclass
+class _PipelineRunState:
+    dataset_name_hint: str | None
+    contract_id: str | None
+    contract_version: str | None
+    run_type: str
+    scenario_key: str | None
+    dataset_name: str | None = None
+    dataset_version: str | None = None
+    orders_status: ValidationResult | None = None
+    customers_status: ValidationResult | None = None
+    output_status: ValidationResult | None = None
+    output_details: dict[str, Any] = field(default_factory=dict)
+    combined_details: dict[str, Any] = field(default_factory=dict)
+    schema_errors: list[str] = field(default_factory=list)
+    total_violations: int = 0
+    draft_version: str | None = None
+    status_value: str = ""
+    error: Exception | None = None
+
+
+def _append_dataset_record(
+    *,
+    dataset_name: str | None,
+    dataset_version: str | None,
+    contract_id: str | None,
+    contract_version: str | None,
+    run_type: str,
+    scenario_key: str | None,
+    status: str,
+    reason: str,
+    violations: int,
+    dq_details: Mapping[str, Any],
+    draft_version: str | None,
+) -> None:
+    if not dataset_name:
+        return
+
+    record = DatasetRecord(
+        contract_id=contract_id or dataset_name,
+        contract_version=contract_version or "",
+        dataset_name=dataset_name,
+        dataset_version=dataset_version or "",
+        status=status,
+        dq_details=dict(dq_details or {}),
+        run_type=run_type,
+        violations=max(0, int(violations)),
+        scenario_key=scenario_key,
+    )
+    if reason:
+        record.reason = reason
+    if draft_version:
+        record.draft_contract_version = draft_version
+
+    try:
+        records: list[DatasetRecord] = load_records()
+    except Exception:
+        records = []
+    records.append(record)
+
+    save = getattr(contracts_server, "save_records", None)
+    if callable(save):
+        save(records)
+        return
+
+    path = Path(contracts_server.DATASETS_FILE)
+    payload: list[dict[str, Any]] = []
+    for entry in records:
+        if is_dataclass(entry):
+            payload.append(asdict(entry))
+        elif hasattr(entry, "__dict__"):
+            payload.append(dict(entry.__dict__))
+        elif isinstance(entry, Mapping):
+            payload.append(dict(entry))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def load_records() -> list[DatasetRecord]:
+    """Return dataset records persisted in the demo workspace."""
+
+    try:
+        workspace = contracts_server.current_workspace()
+    except Exception:  # pragma: no cover - fallback when workspace missing
+        workspace = None
+
+    if workspace is not None:
+        try:
+            contracts_server.configure_workspace(workspace)
+        except Exception:  # pragma: no cover - defensive guardrail
+            pass
+
+    path = Path(getattr(contracts_server, "DATASETS_FILE", ""))
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    records: list[DatasetRecord] = []
+    for entry in raw:
+        if isinstance(entry, Mapping):
+            try:
+                records.append(DatasetRecord(**entry))
+            except TypeError:
+                continue
+    return records
+
+
+@contextmanager
+def _pipeline_recording(
+    state: _PipelineRunState,
+    *,
+    spark: SparkSession,
+    existing_session: SparkSession | None,
+):
+    try:
+        yield state
+    except Exception as exc:
+        state.error = exc
+        state.status_value = state.status_value or "error"
+        if not state.output_details:
+            state.output_details = {
+                "dq_status": {"status": "error", "reason": str(exc)}
+            }
+        if not state.combined_details:
+            state.combined_details = {
+                "orders": getattr(state.orders_status, "details", None),
+                "customers": getattr(state.customers_status, "details", None),
+                "output": state.output_details,
+            }
+        raise
+    finally:
+        final_name = (
+            state.dataset_name
+            or state.dataset_name_hint
+            or state.contract_id
+            or "result"
+        )
+        final_version = state.dataset_version or ""
+        if not state.combined_details:
+            state.combined_details = {
+                "orders": getattr(state.orders_status, "details", None),
+                "customers": getattr(state.customers_status, "details", None),
+                "output": state.output_details,
+            }
+        reason = str(state.error) if state.error else ""
+        status = state.status_value or ("error" if state.error else "ok")
+        _append_dataset_record(
+            dataset_name=final_name,
+            dataset_version=final_version,
+            contract_id=state.contract_id,
+            contract_version=state.contract_version,
+            run_type=state.run_type,
+            scenario_key=state.scenario_key,
+            status=status,
+            reason=reason,
+            violations=state.total_violations,
+            dq_details=state.combined_details,
+            draft_version=state.draft_version,
+        )
+        if not existing_session:
+            spark.stop()
 
 
 class _DowngradeBlockingReadStrategy:
@@ -1376,22 +1545,6 @@ def run_pipeline(
     if dataset_name:
         base_pipeline_context["output_dataset_hint"] = dataset_name
 
-    if data_product_flow:
-        result_dataset, result_version = _run_data_product_flow(
-            spark=spark,
-            base_context=base_pipeline_context,
-            run_timestamp=run_timestamp,
-            run_type=run_type,
-            data_product_flow=data_product_flow,
-            collect_examples=collect_examples,
-            examples_limit=examples_limit,
-            scenario_key=scenario_key,
-        )
-        contracts_server.refresh_dataset_aliases()
-        if not existing_session:
-            spark.stop()
-        return result_dataset, result_version
-
     def _context_for(step: str, extra: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         payload = dict(base_pipeline_context)
         payload["step"] = step
@@ -1405,675 +1558,713 @@ def run_pipeline(
         contract_version,
         dataset_name,
     )
+    state = _PipelineRunState(
+        dataset_name_hint=dataset_name_hint,
+        contract_id=contract_id,
+        contract_version=contract_version,
+        run_type=run_type,
+        scenario_key=scenario_key,
+    )
+    if data_product_flow:
+        with _pipeline_recording(state, spark=spark, existing_session=existing_session):
+            result_dataset, result_version = _run_data_product_flow(
+                spark=spark,
+                base_context=base_pipeline_context,
+                run_timestamp=run_timestamp,
+                run_type=run_type,
+                data_product_flow=data_product_flow,
+                collect_examples=collect_examples,
+                examples_limit=examples_limit,
+                scenario_key=scenario_key,
+            )
+            contracts_server.refresh_dataset_aliases()
+            state.dataset_name = result_dataset
+            state.dataset_version = result_version
+            state.status_value = "ok"
+            state.output_details = {}
+            state.total_violations = 0
+            return result_dataset, result_version
 
-    orders_overrides = input_overrides.get("orders")
-    orders_locator = _apply_locator_overrides(
-        ContractVersionLocator(
-            dataset_version="latest",
-            base=ContractFirstDatasetLocator(),
-        ),
-        orders_overrides,
-    )
-    orders_strategy = _resolve_read_status_strategy(
-        orders_overrides.get("status_strategy") if isinstance(orders_overrides, Mapping) else None,
-        contract_status=
-        orders_overrides.get("contract_status") if isinstance(orders_overrides, Mapping) else None,
-    )
-    orders_default_enforce = False
-    treat_orders_blocking = False
-    if orders_overrides and orders_overrides.get("dataset_version") == "latest":
-        if run_type == "enforce":
-            treat_orders_blocking = True
-    orders_enforce = bool(
-        orders_overrides.get("enforce", orders_default_enforce)
-        if orders_overrides
-        else orders_default_enforce
-    )
-    if orders_strategy is None and not orders_enforce and not treat_orders_blocking:
-        orders_strategy = _DowngradeBlockingReadStrategy(
-            note="Blocked dataset accepted for downstream processing",
-            target_status="warn",
+    with _pipeline_recording(state, spark=spark, existing_session=existing_session):
+        orders_overrides = input_overrides.get("orders")
+        orders_locator = _apply_locator_overrides(
+            ContractVersionLocator(
+                dataset_version="latest",
+                base=ContractFirstDatasetLocator(),
+            ),
+            orders_overrides,
         )
-
-    orders_policy = _describe_contract_status_policy(
-        orders_strategy or DefaultReadStatusStrategy()
-    )
-
-    # Read primary orders dataset with its contract
-    orders_read_request = GovernanceSparkReadRequest(
-        context=GovernanceReadContext(
-            contract={
-                "contract_id": "orders",
-                "version_selector": "==1.1.0",
-            }
-        ),
-        dataset_locator=orders_locator,
-        status_strategy=orders_strategy,
-        pipeline_context=_context_for(
-            "orders-read",
-            {
-                "dataset_role": "orders",
-                "contract_status_enforced": bool(orders_enforce),
-                **(
-                    {"contract_status_policy": orders_policy}
-                    if orders_policy
-                    else {}
-                ),
-            },
-        ),
-    )
-    orders_df, orders_status = read_with_governance(
-        spark,
-        orders_read_request,
-        governance_service=governance,
-        enforce=orders_enforce,
-        return_status=True,
-    )
-    if treat_orders_blocking and orders_status and orders_status.status == "block":
-        details = orders_status.reason or orders_status.details
-        message = f"DQ status is blocking: {details}"
-        raise ValueError(message)
-
-    customers_overrides = input_overrides.get("customers")
-    customers_locator = _apply_locator_overrides(
-        ContractVersionLocator(
-            dataset_version="latest",
-            base=ContractFirstDatasetLocator(),
-        ),
-        customers_overrides,
-    )
-    customers_strategy = _resolve_read_status_strategy(
-        customers_overrides.get("status_strategy") if isinstance(customers_overrides, Mapping) else None,
-        contract_status=
-        customers_overrides.get("contract_status") if isinstance(customers_overrides, Mapping) else None,
-    )
-    customers_default_enforce = False
-    treat_customers_blocking = False
-    if customers_overrides and customers_overrides.get("dataset_version") == "latest":
-        if run_type == "enforce":
-            treat_customers_blocking = True
-    customers_enforce = bool(
-        customers_overrides.get("enforce", customers_default_enforce)
-        if customers_overrides
-        else customers_default_enforce
-    )
-    if (
-        customers_strategy is None
-        and not customers_enforce
-        and not treat_customers_blocking
-    ):
-        customers_strategy = _DowngradeBlockingReadStrategy(
-            note="Blocked dataset accepted for downstream processing",
-            target_status="warn",
+        orders_strategy = _resolve_read_status_strategy(
+            orders_overrides.get("status_strategy") if isinstance(orders_overrides, Mapping) else None,
+            contract_status=
+            orders_overrides.get("contract_status") if isinstance(orders_overrides, Mapping) else None,
         )
-
-    customers_policy = _describe_contract_status_policy(
-        customers_strategy or DefaultReadStatusStrategy()
-    )
-
-    # Join with customers lookup dataset
-    customers_read_request = GovernanceSparkReadRequest(
-        context=GovernanceReadContext(
-            contract={
-                "contract_id": "customers",
-                "version_selector": "==1.0.0",
-            }
-        ),
-        dataset_locator=customers_locator,
-        status_strategy=customers_strategy,
-        pipeline_context=_context_for(
-            "customers-read",
-            {
-                "dataset_role": "customers",
-                "contract_status_enforced": bool(customers_enforce),
-                **(
-                    {"contract_status_policy": customers_policy}
-                    if customers_policy
-                    else {}
-                ),
-            },
-        ),
-    )
-    customers_df, customers_status = read_with_governance(
-        spark,
-        customers_read_request,
-        governance_service=governance,
-        enforce=customers_enforce,
-        return_status=True,
-    )
-    if treat_customers_blocking and customers_status and customers_status.status == "block":
-        details = customers_status.reason or customers_status.details
-        message = f"DQ status is blocking: {details}"
-        raise ValueError(message)
-
-    df = orders_df.join(customers_df, "customer_id")
-    # Promote one of the rows above the quality threshold so split strategies
-    # demonstrate both valid and reject outputs in the demo.
-    df = df.withColumn(
-        "amount",
-        when(col("order_id") == 1, col("amount") * 20).otherwise(col("amount")),
-    )
-
-    df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
-
-    records = contracts_server.load_records()
-    output_contract = (
-        contracts_server.contract_service.get(contract_id, contract_version)
-        if contract_id and contract_version
-        else None
-    )
-    if output_contract and getattr(output_contract, "id", None):
-        # Align dataset naming with the contract so recorded versions and paths
-        # remain consistent with the declared server definition.
-        dataset_name = output_contract.id
-    elif not dataset_name:
-        dataset_name = contract_id or "result"
-    if not dataset_version:
-        existing = [r.dataset_version for r in records if r.dataset_name == dataset_name]
-        dataset_version = _next_version(existing)
-
-    assert dataset_name
-    assert dataset_version
-    output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
-    server = (output_contract.servers or [None])[0] if output_contract else None
-
-    base_pipeline_context["output_dataset"] = dataset_name
-    base_pipeline_context["output_dataset_version"] = dataset_version
-
-    strategy = _resolve_violation_strategy(violation_strategy)
-    status_handler = strategy or NoOpWriteViolationStrategy()
-    strategy_policy = _describe_contract_status_policy(status_handler)
-
-    if output_contract:
-        locator = ContractVersionLocator(
-            dataset_version=dataset_version,
-            base=ContractFirstDatasetLocator(),
+        orders_default_enforce = False
+        treat_orders_blocking = False
+        if orders_overrides and orders_overrides.get("dataset_version") == "latest":
+            if run_type == "enforce":
+                treat_orders_blocking = True
+        orders_enforce = bool(
+            orders_overrides.get("enforce", orders_default_enforce)
+            if orders_overrides
+            else orders_default_enforce
         )
-    else:
-        locator = StaticDatasetLocator(
-            dataset_id=dataset_name,
-            dataset_version=dataset_version,
-            path=str(output_path),
+        if orders_strategy is None and not orders_enforce and not treat_orders_blocking:
+            orders_strategy = _DowngradeBlockingReadStrategy(
+                note="Blocked dataset accepted for downstream processing",
+                target_status="warn",
+            )
+    
+        orders_policy = _describe_contract_status_policy(
+            orders_strategy or DefaultReadStatusStrategy()
         )
-    contract_id_ref = getattr(output_contract, "id", None)
-    expected_version = f"=={output_contract.version}" if output_contract else None
-    write_context_extra: dict[str, Any] = {
-        "dataset": dataset_name,
-        "dataset_version": dataset_version,
-        "storage_path": str(output_path),
-        "contract_status_enforced": bool(contract_status_enforce),
-    }
-    if strategy_policy:
-        write_context_extra["contract_status_policy"] = strategy_policy
-
-    transform_context: MutableMapping[str, Any] = {}
-    if output_transform:
-        transform_context = {
-            "spark": spark,
-            "contract_id": contract_id_ref,
-            "expected_contract_version": expected_version,
-            "dataset_name": dataset_name,
-            "dataset_version": dataset_version,
-            "governance_service": contracts_server.governance_service,
-            "run_type": run_type,
-        }
-        df = output_transform(df, transform_context)
-        engine_label = transform_context.get("pipeline_engine")
-        if engine_label:
-            base_pipeline_context["engine"] = engine_label
-            write_context_extra.setdefault("engine", engine_label)
-        asset_name = transform_context.get("dlt_asset_name")
-        if asset_name:
-            write_context_extra.setdefault("dlt_asset", asset_name)
-
-    output_pipeline_context = _context_for("output-write", write_context_extra)
-    governance_write_request: GovernanceSparkWriteRequest | None = None
-    if contract_id_ref:
-        contract_spec: dict[str, Any] = {"contract_id": contract_id_ref}
-        resolved_version = (
-            getattr(output_contract, "version", None)
-            or contract_version
+    
+        # Read primary orders dataset with its contract
+        orders_read_request = GovernanceSparkReadRequest(
+            context=GovernanceReadContext(
+                contract={
+                    "contract_id": "orders",
+                    "version_selector": "==1.1.0",
+                }
+            ),
+            dataset_locator=orders_locator,
+            status_strategy=orders_strategy,
+            pipeline_context=_context_for(
+                "orders-read",
+                {
+                    "dataset_role": "orders",
+                    "contract_status_enforced": bool(orders_enforce),
+                    **(
+                        {"contract_status_policy": orders_policy}
+                        if orders_policy
+                        else {}
+                    ),
+                },
+            ),
         )
-        if resolved_version:
-            contract_spec["contract_version"] = resolved_version
-        if expected_version:
-            contract_spec.setdefault("version_selector", expected_version)
-        governance_write_request = GovernanceSparkWriteRequest(
-            context=GovernanceWriteContext(
-                contract=contract_spec,
+        orders_df, orders_status = read_with_governance(
+            spark,
+            orders_read_request,
+            governance_service=governance,
+            enforce=orders_enforce,
+            return_status=True,
+        )
+        state.orders_status = orders_status
+        if treat_orders_blocking and orders_status and orders_status.status == "block":
+            details = orders_status.reason or orders_status.details
+            message = f"DQ status is blocking: {details}"
+            raise ValueError(message)
+    
+        customers_overrides = input_overrides.get("customers")
+        customers_locator = _apply_locator_overrides(
+            ContractVersionLocator(
+                dataset_version="latest",
+                base=ContractFirstDatasetLocator(),
+            ),
+            customers_overrides,
+        )
+        customers_strategy = _resolve_read_status_strategy(
+            customers_overrides.get("status_strategy") if isinstance(customers_overrides, Mapping) else None,
+            contract_status=
+            customers_overrides.get("contract_status") if isinstance(customers_overrides, Mapping) else None,
+        )
+        customers_default_enforce = False
+        treat_customers_blocking = False
+        if customers_overrides and customers_overrides.get("dataset_version") == "latest":
+            if run_type == "enforce":
+                treat_customers_blocking = True
+        customers_enforce = bool(
+            customers_overrides.get("enforce", customers_default_enforce)
+            if customers_overrides
+            else customers_default_enforce
+        )
+        if (
+            customers_strategy is None
+            and not customers_enforce
+            and not treat_customers_blocking
+        ):
+            customers_strategy = _DowngradeBlockingReadStrategy(
+                note="Blocked dataset accepted for downstream processing",
+                target_status="warn",
+            )
+    
+        customers_policy = _describe_contract_status_policy(
+            customers_strategy or DefaultReadStatusStrategy()
+        )
+    
+        # Join with customers lookup dataset
+        customers_read_request = GovernanceSparkReadRequest(
+            context=GovernanceReadContext(
+                contract={
+                    "contract_id": "customers",
+                    "version_selector": "==1.0.0",
+                }
+            ),
+            dataset_locator=customers_locator,
+            status_strategy=customers_strategy,
+            pipeline_context=_context_for(
+                "customers-read",
+                {
+                    "dataset_role": "customers",
+                    "contract_status_enforced": bool(customers_enforce),
+                    **(
+                        {"contract_status_policy": customers_policy}
+                        if customers_policy
+                        else {}
+                    ),
+                },
+            ),
+        )
+        customers_df, customers_status = read_with_governance(
+            spark,
+            customers_read_request,
+            governance_service=governance,
+            enforce=customers_enforce,
+            return_status=True,
+        )
+        state.customers_status = customers_status
+        if treat_customers_blocking and customers_status and customers_status.status == "block":
+            details = customers_status.reason or customers_status.details
+            message = f"DQ status is blocking: {details}"
+            raise ValueError(message)
+    
+        df = orders_df.join(customers_df, "customer_id")
+        # Promote one of the rows above the quality threshold so split strategies
+        # demonstrate both valid and reject outputs in the demo.
+        df = df.withColumn(
+            "amount",
+            when(col("order_id") == 1, col("amount") * 20).otherwise(col("amount")),
+        )
+    
+        df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
+    
+        records = contracts_server.load_records()
+        output_contract = (
+            contracts_server.contract_service.get(contract_id, contract_version)
+            if contract_id and contract_version
+            else None
+        )
+        if output_contract and getattr(output_contract, "id", None):
+            # Align dataset naming with the contract so recorded versions and paths
+            # remain consistent with the declared server definition.
+            dataset_name = output_contract.id
+        elif not dataset_name:
+            dataset_name = contract_id or "result"
+        if not dataset_version:
+            existing = [r.dataset_version for r in records if r.dataset_name == dataset_name]
+            dataset_version = _next_version(existing)
+
+        assert dataset_name
+        assert dataset_version
+        state.dataset_name = dataset_name
+        state.dataset_version = dataset_version
+        output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
+        server = (output_contract.servers or [None])[0] if output_contract else None
+    
+        base_pipeline_context["output_dataset"] = dataset_name
+        base_pipeline_context["output_dataset_version"] = dataset_version
+    
+        strategy = _resolve_violation_strategy(violation_strategy)
+        status_handler = strategy or NoOpWriteViolationStrategy()
+        strategy_policy = _describe_contract_status_policy(status_handler)
+    
+        if output_contract:
+            locator = ContractVersionLocator(
+                dataset_version=dataset_version,
+                base=ContractFirstDatasetLocator(),
+            )
+        else:
+            locator = StaticDatasetLocator(
                 dataset_id=dataset_name,
                 dataset_version=dataset_version,
-            ),
-            dataset_locator=locator,
-            mode="overwrite",
-            pipeline_context=output_pipeline_context,
-        )
-
-    write_error: ValueError | None = None
-    if output_contract and contract_status_enforce:
-        try:
-            status_handler.validate_contract_status(
-                contract=output_contract,
-                enforce=True,
-                operation="write",
+                path=str(output_path),
             )
-        except ValueError as exc:
-            write_error = exc
-            error_message = str(exc)
-            failure_details: dict[str, Any] = {
-                "errors": [error_message],
-                "contract_status_error": error_message,
+        contract_id_ref = getattr(output_contract, "id", None)
+        expected_version = f"=={output_contract.version}" if output_contract else None
+        write_context_extra: dict[str, Any] = {
+            "dataset": dataset_name,
+            "dataset_version": dataset_version,
+            "storage_path": str(output_path),
+            "contract_status_enforced": bool(contract_status_enforce),
+        }
+        if strategy_policy:
+            write_context_extra["contract_status_policy"] = strategy_policy
+    
+        transform_context: MutableMapping[str, Any] = {}
+        if output_transform:
+            transform_context = {
+                "spark": spark,
+                "contract_id": contract_id_ref,
+                "expected_contract_version": expected_version,
+                "dataset_name": dataset_name,
+                "dataset_version": dataset_version,
+                "governance_service": contracts_server.governance_service,
+                "run_type": run_type,
             }
-            if strategy_policy:
-                failure_details.setdefault(
-                    "contract_status_policy",
-                    strategy_policy,
+            df = output_transform(df, transform_context)
+            engine_label = transform_context.get("pipeline_engine")
+            if engine_label:
+                base_pipeline_context["engine"] = engine_label
+                write_context_extra.setdefault("engine", engine_label)
+            asset_name = transform_context.get("dlt_asset_name")
+            if asset_name:
+                write_context_extra.setdefault("dlt_asset", asset_name)
+    
+        output_pipeline_context = _context_for("output-write", write_context_extra)
+        governance_write_request: GovernanceSparkWriteRequest | None = None
+        if contract_id_ref:
+            contract_spec: dict[str, Any] = {"contract_id": contract_id_ref}
+            resolved_version = (
+                getattr(output_contract, "version", None)
+                or contract_version
+            )
+            if resolved_version:
+                contract_spec["contract_version"] = resolved_version
+            if expected_version:
+                contract_spec.setdefault("version_selector", expected_version)
+            governance_write_request = GovernanceSparkWriteRequest(
+                context=GovernanceWriteContext(
+                    contract=contract_spec,
+                    dataset_id=dataset_name,
+                    dataset_version=dataset_version,
+                ),
+                dataset_locator=locator,
+                mode="overwrite",
+                pipeline_context=output_pipeline_context,
+            )
+    
+        write_error: ValueError | None = None
+        result: ValidationResult
+        output_status: ValidationResult | None = None
+        if output_contract and contract_status_enforce:
+            try:
+                status_handler.validate_contract_status(
+                    contract=output_contract,
+                    enforce=True,
+                    operation="write",
                 )
-            result = ValidationResult(
-                ok=False,
-                errors=[error_message],
-                warnings=[],
-                metrics={},
-                status="error",
-                reason=error_message,
-                details=failure_details,
-            )
-            output_status = None
-        else:
-            if not governance_write_request:
-                raise ValueError("Output contract must be configured before publishing data.")
-            result, output_status = write_with_governance(
-                df=df,
-                request=governance_write_request,
-                governance_service=governance,
-                enforce=False,
-                return_status=True,
-                violation_strategy=strategy,
-            )
-    else:
-        if governance_write_request is None:
-            message = "Output contract must be configured before publishing data."
-            result = ValidationResult(
-                ok=False,
-                errors=[message],
-                warnings=[],
-                metrics={},
-                status="error",
-                reason=message,
-                details={"errors": [message]},
-            )
-            output_status = None
-            write_error = ValueError(message)
-        else:
-            result, output_status = write_with_governance(
-                df=df,
-                request=governance_write_request,
-                governance_service=governance,
-                enforce=False,
-                return_status=True,
-                violation_strategy=strategy,
-            )
-
-    if output_status and output_contract:
-        output_status = attach_failed_expectations(
-            output_contract,
-            output_status,
-            metrics=result.metrics,
-        )
-
-    expectation_messages: set[str] = set()
-    if output_contract:
-        expectation_messages = _expectation_error_messages(
-            output_contract,
-            result.metrics,
-        )
-
-    schema_errors: list[str] = []
-    seen_schema_errors: set[str] = set()
-    original_errors = list(result.errors)
-    if result.errors:
-        filtered_errors: list[str] = []
-        for message in result.errors:
-            if message in expectation_messages:
-                continue
-            if message in seen_schema_errors:
-                continue
-            seen_schema_errors.add(message)
-            filtered_errors.append(message)
-        if filtered_errors != result.errors:
-            result.errors[:] = filtered_errors
-        schema_errors.extend(filtered_errors)
-    if not schema_errors:
-        residual = [msg for msg in original_errors if msg not in expectation_messages]
-        schema_errors.extend(residual)
-    if output_contract:
-        expected_columns = {
-            prop.name
-            for obj in output_contract.schema_ or []
-            for prop in obj.properties or []
-            if prop.name
-        }
-        missing = sorted(name for name in expected_columns if name not in set(df.columns))
-        for name in missing:
-            message = f"missing required column: {name}"
-            if message not in schema_errors:
-                schema_errors.append(message)
-
-    handled_split_override = False
-    if isinstance(strategy, SplitWriteViolationStrategy) and output_status:
-        details = output_status.details or {}
-        if isinstance(details, Mapping) and details.get("status_before_override"):
-            handled_split_override = True
-
-    if handled_split_override and result.errors:
-        migrated = list(result.errors)
-        result.errors.clear()
-        for message in migrated:
-            if message not in result.warnings:
-                result.warnings.append(message)
-        if not result.errors:
-            result.ok = True
-
-    error: ValueError | None = write_error
-    if run_type == "enforce":
-        if not output_contract:
-            error = ValueError("Contract required for existing mode")
-        else:
-            issues: list[str] = []
-            if output_status and output_status.status != "ok":
-                detail_msg: dict[str, Any] = dict(output_status.details or {})
-                if output_status.reason:
-                    detail_msg["reason"] = output_status.reason
-                issues.append(
-                    f"DQ violation: {detail_msg or output_status.status}"
-                )
-            if schema_errors:
-                issues.append(
-                    f"Schema validation failed: {schema_errors}"
-                )
-            if issues:
-                error = ValueError("; ".join(issues))
-
-    draft_version: str | None = None
-    output_details = result.details.copy()
-    if result.warnings:
-        warning_list = list(output_details.get("warnings", []) or [])
-        for message in result.warnings:
-            if message not in warning_list:
-                warning_list.append(message)
-        if warning_list:
-            output_details["warnings"] = warning_list
-    if schema_errors:
-        output_details["errors"] = schema_errors
-    else:
-        output_details.pop("errors", None)
-    if adjustment_notes:
-        extra = output_details.setdefault("transformations", [])
-        if isinstance(extra, list):
-            extra.extend(adjustment_notes)
-        else:
-            output_details["transformations"] = adjustment_notes
-    if strategy_policy and "contract_status_policy" not in output_details:
-        output_details["contract_status_policy"] = strategy_policy
-    output_details.setdefault(
-        "contract_status_enforced",
-        bool(contract_status_enforce),
-    )
-    if strategy is not None:
-        output_details.setdefault("violation_strategy", type(strategy).__name__)
-        if isinstance(strategy, SplitWriteViolationStrategy):
-            output_details.setdefault(
-                "violation_strategy_options",
-                {
-                    "valid_suffix": strategy.valid_suffix,
-                    "reject_suffix": strategy.reject_suffix,
-                    "include_valid": strategy.include_valid,
-                    "include_reject": strategy.include_reject,
-                    "write_primary_on_violation": strategy.write_primary_on_violation,
-                    "dataset_suffix_separator": strategy.dataset_suffix_separator,
-                },
-            )
-            aux: list[dict[str, str]] = []
-            if dataset_name:
-                base_id = dataset_name
-                base_path = Path(str(output_path))
-                server_path_hint = Path(getattr(server, "path", "")) if server else None
-                server_filename = (
-                    server_path_hint.name
-                    if server_path_hint and server_path_hint.suffix
-                    else None
-                )
-                if strategy.include_valid:
-                    valid_dir = base_path / strategy.valid_suffix
-                    if server_filename:
-                        valid_dir = base_path / server_filename / strategy.valid_suffix
-                    aux.append(
-                        {
-                            "kind": "valid",
-                            "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.valid_suffix}",
-                            "path": str(valid_dir),
-                        }
+            except ValueError as exc:
+                write_error = exc
+                error_message = str(exc)
+                failure_details: dict[str, Any] = {
+                    "errors": [error_message],
+                    "contract_status_error": error_message,
+                }
+                if strategy_policy:
+                    failure_details.setdefault(
+                        "contract_status_policy",
+                        strategy_policy,
                     )
-                if strategy.include_reject:
-                    reject_dir = base_path / strategy.reject_suffix
-                    if server_filename:
-                        reject_dir = base_path / server_filename / strategy.reject_suffix
-                    aux.append(
-                        {
-                            "kind": "reject",
-                            "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.reject_suffix}",
-                            "path": str(reject_dir),
-                        }
+                result = ValidationResult(
+                    ok=False,
+                    errors=[error_message],
+                    warnings=[],
+                    metrics={},
+                    status="error",
+                    reason=error_message,
+                    details=failure_details,
+                )
+            else:
+                if not governance_write_request:
+                    raise ValueError("Output contract must be configured before publishing data.")
+                result, output_status = write_with_governance(
+                    df=df,
+                    request=governance_write_request,
+                    governance_service=governance,
+                    enforce=False,
+                    return_status=True,
+                    violation_strategy=strategy,
+                )
+        else:
+            if governance_write_request is None:
+                message = "Output contract must be configured before publishing data."
+                result = ValidationResult(
+                    ok=False,
+                    errors=[message],
+                    warnings=[],
+                    metrics={},
+                    status="error",
+                    reason=message,
+                    details={"errors": [message]},
+                )
+                write_error = ValueError(message)
+            else:
+                result, output_status = write_with_governance(
+                    df=df,
+                    request=governance_write_request,
+                    governance_service=governance,
+                    enforce=False,
+                    return_status=True,
+                    violation_strategy=strategy,
+                )
+        if output_status is not None:
+            state.output_status = output_status
+    
+        if output_status and output_contract:
+            output_status = attach_failed_expectations(
+                output_contract,
+                output_status,
+                metrics=result.metrics,
+            )
+    
+        expectation_messages: set[str] = set()
+        if output_contract:
+            expectation_messages = _expectation_error_messages(
+                output_contract,
+                result.metrics,
+            )
+    
+        schema_errors: list[str] = []
+        seen_schema_errors: set[str] = set()
+        original_errors = list(result.errors)
+        if result.errors:
+            filtered_errors: list[str] = []
+            for message in result.errors:
+                if message in expectation_messages:
+                    continue
+                if message in seen_schema_errors:
+                    continue
+                seen_schema_errors.add(message)
+                filtered_errors.append(message)
+            if filtered_errors != result.errors:
+                result.errors[:] = filtered_errors
+            schema_errors.extend(filtered_errors)
+        if not schema_errors:
+            residual = [msg for msg in original_errors if msg not in expectation_messages]
+            schema_errors.extend(residual)
+        if output_contract:
+            expected_columns = {
+                prop.name
+                for obj in output_contract.schema_ or []
+                for prop in obj.properties or []
+                if prop.name
+            }
+            missing = sorted(name for name in expected_columns if name not in set(df.columns))
+            for name in missing:
+                message = f"missing required column: {name}"
+                if message not in schema_errors:
+                    schema_errors.append(message)
+    
+        handled_split_override = False
+        if isinstance(strategy, SplitWriteViolationStrategy) and output_status:
+            details = output_status.details or {}
+            if isinstance(details, Mapping) and details.get("status_before_override"):
+                handled_split_override = True
+    
+        if handled_split_override and result.errors:
+            migrated = list(result.errors)
+            result.errors.clear()
+            for message in migrated:
+                if message not in result.warnings:
+                    result.warnings.append(message)
+            if not result.errors:
+                result.ok = True
+    
+        error: ValueError | None = write_error
+        if run_type == "enforce":
+            if not output_contract:
+                error = ValueError("Contract required for existing mode")
+            else:
+                issues: list[str] = []
+                if output_status and output_status.status != "ok":
+                    detail_msg: dict[str, Any] = dict(output_status.details or {})
+                    if output_status.reason:
+                        detail_msg["reason"] = output_status.reason
+                    issues.append(
+                        f"DQ violation: {detail_msg or output_status.status}"
                     )
-            if aux:
-                output_details.setdefault("auxiliary_datasets", aux)
-                warning_messages = list(output_details.get("warnings", []) or [])
-                for entry in aux:
-                    if not isinstance(entry, Mapping):
-                        continue
-                    kind = entry.get("kind")
-                    if kind == "valid":
-                        message = (
-                            f"Valid subset written to dataset suffix '{strategy.valid_suffix}'"
-                        )
-                    elif kind == "reject":
-                        message = (
-                            f"Rejected subset written to dataset suffix '{strategy.reject_suffix}'"
-                        )
-                    else:
-                        continue
-                    if message not in warning_messages:
-                        warning_messages.append(message)
-            if warning_messages:
-                output_details["warnings"] = warning_messages
-
-    if transform_context:
-        engine_label = transform_context.get("pipeline_engine")
-        if engine_label and "pipeline_engine" not in output_details:
-            output_details["pipeline_engine"] = engine_label
-        module_name = transform_context.get("dlt_module_name")
-        if module_name and "dlt_module_name" not in output_details:
-            output_details["dlt_module_name"] = module_name
-        if "dlt_module_stub" not in output_details and "dlt_module_stub" in transform_context:
-            output_details["dlt_module_stub"] = bool(transform_context["dlt_module_stub"])
-        asset_name = transform_context.get("dlt_asset_name")
-        if asset_name and "dlt_asset" not in output_details:
-            output_details["dlt_asset"] = asset_name
-        reports = transform_context.get("dlt_expectation_reports")
-        if reports and "dlt_expectations" not in output_details:
-            output_details["dlt_expectations"] = reports
-        table_options = transform_context.get("dlt_table_options")
-        if table_options and "dlt_table_options" not in output_details:
-            output_details["dlt_table_options"] = table_options
-
-    if dataset_name and dataset_version:
-        try:
-            contracts_server.set_active_version(dataset_name, dataset_version)
-        except FileNotFoundError:
-            pass
+                if schema_errors:
+                    issues.append(
+                        f"Schema validation failed: {schema_errors}"
+                    )
+                if issues:
+                    error = ValueError("; ".join(issues))
+    
+        draft_version: str | None = None
+        output_details = result.details.copy()
+        if result.warnings:
+            warning_list = list(output_details.get("warnings", []) or [])
+            for message in result.warnings:
+                if message not in warning_list:
+                    warning_list.append(message)
+            if warning_list:
+                output_details["warnings"] = warning_list
+        if schema_errors:
+            output_details["errors"] = schema_errors
         else:
-            for aux in output_details.get("auxiliary_datasets", []):
-                dataset_ref = aux.get("dataset") if isinstance(aux, Mapping) else None
-                path_ref = aux.get("path") if isinstance(aux, Mapping) else None
-                if not dataset_ref or not path_ref:
-                    continue
-                alias = dataset_ref.replace("::", "__")
-                try:
-                    contracts_server.register_dataset_version(alias, dataset_version, Path(path_ref))
-                    contracts_server.set_active_version(alias, dataset_version)
-                except FileNotFoundError:
-                    continue
-
-    dq_payload: dict[str, Any] = {}
-    if output_status:
-        dq_payload = dict(output_status.details or {})
-        dq_payload.setdefault("status", output_status.status)
-        if output_status.reason:
-            dq_payload.setdefault("reason", output_status.reason)
-
-        dq_metrics = dq_payload.get("metrics", {})
-        if dq_metrics:
-            merged_metrics = {**dq_metrics, **output_details.get("metrics", {})}
-            output_details["metrics"] = merged_metrics
-        if "violations" in dq_payload:
-            output_details["violations"] = dq_payload["violations"]
-        if "failed_expectations" in dq_payload:
-            output_details["failed_expectations"] = dq_payload["failed_expectations"]
-        aux_statuses = dq_payload.get("auxiliary_statuses", [])
-        if aux_statuses:
-            output_details.setdefault("dq_auxiliary_statuses", aux_statuses)
-
-        summary = dict(output_details.get("dq_status", {}))
-        summary.setdefault("status", dq_payload.get("status", output_status.status))
-        if dq_payload.get("reason"):
-            summary.setdefault("reason", dq_payload["reason"])
-        extras = {
-            k: v
-            for k, v in dq_payload.items()
-            if k
-            not in ("metrics", "violations", "failed_expectations", "status", "reason")
+            output_details.pop("errors", None)
+        if adjustment_notes:
+            extra = output_details.setdefault("transformations", [])
+            if isinstance(extra, list):
+                extra.extend(adjustment_notes)
+            else:
+                output_details["transformations"] = adjustment_notes
+        if strategy_policy and "contract_status_policy" not in output_details:
+            output_details["contract_status_policy"] = strategy_policy
+        output_details.setdefault(
+            "contract_status_enforced",
+            bool(contract_status_enforce),
+        )
+        if strategy is not None:
+            output_details.setdefault("violation_strategy", type(strategy).__name__)
+            if isinstance(strategy, SplitWriteViolationStrategy):
+                output_details.setdefault(
+                    "violation_strategy_options",
+                    {
+                        "valid_suffix": strategy.valid_suffix,
+                        "reject_suffix": strategy.reject_suffix,
+                        "include_valid": strategy.include_valid,
+                        "include_reject": strategy.include_reject,
+                        "write_primary_on_violation": strategy.write_primary_on_violation,
+                        "dataset_suffix_separator": strategy.dataset_suffix_separator,
+                    },
+                )
+                aux: list[dict[str, str]] = []
+                if dataset_name:
+                    base_id = dataset_name
+                    base_path = Path(str(output_path))
+                    server_path_hint = Path(getattr(server, "path", "")) if server else None
+                    server_filename = (
+                        server_path_hint.name
+                        if server_path_hint and server_path_hint.suffix
+                        else None
+                    )
+                    if strategy.include_valid:
+                        valid_dir = base_path / strategy.valid_suffix
+                        if server_filename:
+                            valid_dir = base_path / server_filename / strategy.valid_suffix
+                        aux.append(
+                            {
+                                "kind": "valid",
+                                "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.valid_suffix}",
+                                "path": str(valid_dir),
+                            }
+                        )
+                    if strategy.include_reject:
+                        reject_dir = base_path / strategy.reject_suffix
+                        if server_filename:
+                            reject_dir = base_path / server_filename / strategy.reject_suffix
+                        aux.append(
+                            {
+                                "kind": "reject",
+                                "dataset": f"{base_id}{strategy.dataset_suffix_separator}{strategy.reject_suffix}",
+                                "path": str(reject_dir),
+                            }
+                        )
+                if aux:
+                    output_details.setdefault("auxiliary_datasets", aux)
+                    warning_messages = list(output_details.get("warnings", []) or [])
+                    for entry in aux:
+                        if not isinstance(entry, Mapping):
+                            continue
+                        kind = entry.get("kind")
+                        if kind == "valid":
+                            message = (
+                                f"Valid subset written to dataset suffix '{strategy.valid_suffix}'"
+                            )
+                        elif kind == "reject":
+                            message = (
+                                f"Rejected subset written to dataset suffix '{strategy.reject_suffix}'"
+                            )
+                        else:
+                            continue
+                        if message not in warning_messages:
+                            warning_messages.append(message)
+                if warning_messages:
+                    output_details["warnings"] = warning_messages
+    
+        if transform_context:
+            engine_label = transform_context.get("pipeline_engine")
+            if engine_label and "pipeline_engine" not in output_details:
+                output_details["pipeline_engine"] = engine_label
+            module_name = transform_context.get("dlt_module_name")
+            if module_name and "dlt_module_name" not in output_details:
+                output_details["dlt_module_name"] = module_name
+            if "dlt_module_stub" not in output_details and "dlt_module_stub" in transform_context:
+                output_details["dlt_module_stub"] = bool(transform_context["dlt_module_stub"])
+            asset_name = transform_context.get("dlt_asset_name")
+            if asset_name and "dlt_asset" not in output_details:
+                output_details["dlt_asset"] = asset_name
+            reports = transform_context.get("dlt_expectation_reports")
+            if reports and "dlt_expectations" not in output_details:
+                output_details["dlt_expectations"] = reports
+            table_options = transform_context.get("dlt_table_options")
+            if table_options and "dlt_table_options" not in output_details:
+                output_details["dlt_table_options"] = table_options
+    
+        if dataset_name and dataset_version:
+            try:
+                contracts_server.set_active_version(dataset_name, dataset_version)
+            except FileNotFoundError:
+                pass
+            else:
+                for aux in output_details.get("auxiliary_datasets", []):
+                    dataset_ref = aux.get("dataset") if isinstance(aux, Mapping) else None
+                    path_ref = aux.get("path") if isinstance(aux, Mapping) else None
+                    if not dataset_ref or not path_ref:
+                        continue
+                    alias = dataset_ref.replace("::", "__")
+                    try:
+                        contracts_server.register_dataset_version(alias, dataset_version, Path(path_ref))
+                        contracts_server.set_active_version(alias, dataset_version)
+                    except FileNotFoundError:
+                        continue
+    
+        dq_payload: dict[str, Any] = {}
+        if output_status:
+            dq_payload = dict(output_status.details or {})
+            dq_payload.setdefault("status", output_status.status)
+            if output_status.reason:
+                dq_payload.setdefault("reason", output_status.reason)
+    
+            dq_metrics = dq_payload.get("metrics", {})
+            if dq_metrics:
+                merged_metrics = {**dq_metrics, **output_details.get("metrics", {})}
+                output_details["metrics"] = merged_metrics
+            if "violations" in dq_payload:
+                output_details["violations"] = dq_payload["violations"]
+            if "failed_expectations" in dq_payload:
+                output_details["failed_expectations"] = dq_payload["failed_expectations"]
+            aux_statuses = dq_payload.get("auxiliary_statuses", [])
+            if aux_statuses:
+                output_details.setdefault("dq_auxiliary_statuses", aux_statuses)
+    
+            summary = dict(output_details.get("dq_status", {}))
+            summary.setdefault("status", dq_payload.get("status", output_status.status))
+            if dq_payload.get("reason"):
+                summary.setdefault("reason", dq_payload["reason"])
+            extras = {
+                k: v
+                for k, v in dq_payload.items()
+                if k
+                not in ("metrics", "violations", "failed_expectations", "status", "reason")
+            }
+            if extras:
+                summary.update(extras)
+            if summary:
+                output_details["dq_status"] = summary
+    
+        draft_version = output_details.get("draft_contract_version")
+        if not draft_version and dq_payload:
+            draft_version = dq_payload.get("draft_contract_version")
+        if not draft_version:
+            for aux_status in output_details.get("dq_auxiliary_statuses", []) or []:
+                details = aux_status.get("details") if isinstance(aux_status, dict) else None
+                if isinstance(details, dict):
+                    candidate = details.get("draft_contract_version")
+                    if candidate:
+                        draft_version = candidate
+                        break
+        if draft_version:
+            output_details.setdefault("draft_contract_version", draft_version)
+        state.draft_version = draft_version
+    
+        output_activity = governance.get_pipeline_activity(
+            dataset_id=dataset_name,
+            dataset_version=dataset_version,
+        )
+        if output_activity:
+            output_details.setdefault("pipeline_activity", output_activity)
+    
+        state.output_details = dict(output_details)
+        combined_details = {
+            "orders": orders_status.details if orders_status else None,
+            "customers": customers_status.details if customers_status else None,
+            "output": output_details,
         }
-        if extras:
-            summary.update(extras)
-        if summary:
-            output_details["dq_status"] = summary
-
-    draft_version = output_details.get("draft_contract_version")
-    if not draft_version and dq_payload:
-        draft_version = dq_payload.get("draft_contract_version")
-    if not draft_version:
-        for aux_status in output_details.get("dq_auxiliary_statuses", []) or []:
-            details = aux_status.get("details") if isinstance(aux_status, dict) else None
-            if isinstance(details, dict):
-                candidate = details.get("draft_contract_version")
-                if candidate:
-                    draft_version = candidate
-                    break
-    if draft_version:
-        output_details.setdefault("draft_contract_version", draft_version)
-
-    output_activity = governance.get_pipeline_activity(
-        dataset_id=dataset_name,
-        dataset_version=dataset_version,
-    )
-    if output_activity:
-        output_details.setdefault("pipeline_activity", output_activity)
-
-    combined_details = {
-        "orders": orders_status.details if orders_status else None,
-        "customers": customers_status.details if customers_status else None,
-        "output": output_details,
-    }
-    total_violations = 0
-    warnings_present = False
-    for det in combined_details.values():
-        if not det or not isinstance(det, dict):
-            continue
-        violations_value = det.get("violations")
-        if isinstance(violations_value, (int, float)):
-            total_violations += int(violations_value)
-            if violations_value:
+        total_violations = 0
+        warnings_present = False
+        for det in combined_details.values():
+            if not det or not isinstance(det, dict):
+                continue
+            violations_value = det.get("violations")
+            if isinstance(violations_value, (int, float)):
+                total_violations += int(violations_value)
+                if violations_value:
+                    warnings_present = True
+            else:
+                metrics_map = det.get("metrics", {})
+                if isinstance(metrics_map, Mapping):
+                    for key, value in metrics_map.items():
+                        if key.startswith("violations.") and isinstance(value, (int, float)):
+                            total_violations += int(value)
+                            if value:
+                                warnings_present = True
+            errs = det.get("errors")
+            if isinstance(errs, list):
+                total_violations += len(errs)
+                if errs:
+                    warnings_present = True
+            fails = det.get("failed_expectations")
+            if isinstance(fails, dict):
+                total_violations += sum(int(info.get("count", 0) or 0) for info in fails.values())
+                if any((info.get("count") or 0) for info in fails.values()):
+                    warnings_present = True
+            if det.get("warnings"):
                 warnings_present = True
-        else:
-            metrics_map = det.get("metrics", {})
-            if isinstance(metrics_map, Mapping):
-                for key, value in metrics_map.items():
-                    if key.startswith("violations.") and isinstance(value, (int, float)):
-                        total_violations += int(value)
-                        if value:
-                            warnings_present = True
-        errs = det.get("errors")
-        if isinstance(errs, list):
-            total_violations += len(errs)
-            if errs:
-                warnings_present = True
-        fails = det.get("failed_expectations")
-        if isinstance(fails, dict):
-            total_violations += sum(int(info.get("count", 0) or 0) for info in fails.values())
-            if any((info.get("count") or 0) for info in fails.values()):
-                warnings_present = True
-        if det.get("warnings"):
-            warnings_present = True
-
-    def _status_level(value: str | None, *, treat_block_as_warning: bool = False) -> int:
-        if not value:
+    
+        def _status_level(value: str | None, *, treat_block_as_warning: bool = False) -> int:
+            if not value:
+                return 0
+            normalised = value.lower()
+            if normalised in {"warn", "warning"}:
+                return 1
+            if normalised in {"block", "error", "fail", "invalid"}:
+                return 1 if treat_block_as_warning else 2
             return 0
-        normalised = value.lower()
-        if normalised in {"warn", "warning"}:
-            return 1
-        if normalised in {"block", "error", "fail", "invalid"}:
-            return 1 if treat_block_as_warning else 2
-        return 0
-
-    severity = 0
-    severity = max(severity, _status_level(getattr(orders_status, "status", None)))
-    severity = max(severity, _status_level(getattr(customers_status, "status", None)))
-    severity = max(severity, _status_level(getattr(output_status, "status", None)))
-
-    dq_status_summary = output_details.get("dq_status")
-    if isinstance(dq_status_summary, Mapping):
-        severity = max(severity, _status_level(dq_status_summary.get("status")))
-        if dq_status_summary.get("errors"):
-            warnings_present = True
-
-    for aux_entry in output_details.get("dq_auxiliary_statuses", []) or []:
-        if isinstance(aux_entry, Mapping):
-            severity = max(
-                severity,
-                _status_level(aux_entry.get("status"), treat_block_as_warning=True),
-            )
-            details = aux_entry.get("details")
-            if isinstance(details, Mapping):
-                if details.get("warnings") or details.get("errors"):
-                    warnings_present = True
-                violations = details.get("violations")
-                if isinstance(violations, (int, float)) and violations:
-                    warnings_present = True
-
-    if schema_errors or result.errors or error is not None:
-        severity = 2
-    elif warnings_present:
-        severity = max(severity, 1)
-
-    if (
-        handled_split_override
-        and severity > 1
-        and not schema_errors
-        and not result.errors
-        and error is None
-    ):
-        severity = 1
-
-    status_value = "ok"
-    if severity == 1:
-        status_value = "warning"
-    elif severity >= 2:
-        status_value = "error"
-    if not existing_session:
-        spark.stop()
-    if error:
-        raise error
-    return dataset_name, dataset_version
+    
+        severity = 0
+        severity = max(severity, _status_level(getattr(orders_status, "status", None)))
+        severity = max(severity, _status_level(getattr(customers_status, "status", None)))
+        severity = max(severity, _status_level(getattr(output_status, "status", None)))
+    
+        dq_status_summary = output_details.get("dq_status")
+        if isinstance(dq_status_summary, Mapping):
+            severity = max(severity, _status_level(dq_status_summary.get("status")))
+            if dq_status_summary.get("errors"):
+                warnings_present = True
+    
+        for aux_entry in output_details.get("dq_auxiliary_statuses", []) or []:
+            if isinstance(aux_entry, Mapping):
+                severity = max(
+                    severity,
+                    _status_level(aux_entry.get("status"), treat_block_as_warning=True),
+                )
+                details = aux_entry.get("details")
+                if isinstance(details, Mapping):
+                    if details.get("warnings") or details.get("errors"):
+                        warnings_present = True
+                    violations = details.get("violations")
+                    if isinstance(violations, (int, float)) and violations:
+                        warnings_present = True
+    
+        if schema_errors or result.errors or error is not None:
+            severity = 2
+        elif warnings_present:
+            severity = max(severity, 1)
+    
+        if (
+            handled_split_override
+            and severity > 1
+            and not schema_errors
+            and not result.errors
+            and error is None
+        ):
+            severity = 1
+    
+        status_value = "ok"
+        if severity == 1:
+            status_value = "warning"
+        elif severity >= 2:
+            status_value = "error"
+        state.schema_errors = list(schema_errors)
+        state.total_violations = total_violations
+        state.combined_details = combined_details
+        state.status_value = status_value
+        if error:
+            state.error = error
+            raise error
+        return dataset_name, dataset_version
 
 
 def __getattr__(name: str) -> Any:
@@ -2081,7 +2272,7 @@ def __getattr__(name: str) -> Any:
         "DATASETS_FILE",
         "DATA_DIR",
         "DatasetRecord",
-        "load_records",
+        "save_records",
         "register_dataset_version",
         "set_active_version",
         "store",

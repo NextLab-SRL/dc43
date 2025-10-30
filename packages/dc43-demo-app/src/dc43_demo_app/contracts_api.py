@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Iterable, Mapping
 
 from dc43_service_clients.contracts.client.local import LocalContractServiceClient
 from dc43_service_clients.data_products.client.local import (
@@ -63,6 +63,10 @@ governance_service: LocalGovernanceServiceClient = build_local_governance_servic
 data_product_service = LocalDataProductServiceClient(backend=_DATA_PRODUCT_BACKEND)
 
 if contracts_server is not None:
+    try:
+        contracts_server.configure_workspace(_WORKSPACE)
+    except Exception:  # pragma: no cover - defensive guardrail for optional UI package
+        pass
 
     def _safe_fs_name(name: str) -> str:
         return "".join(
@@ -123,6 +127,44 @@ def reset_governance_state() -> None:
     )
 
 
+def save_records(records: Iterable[DatasetRecord]) -> None:
+    """Persist ``records`` to the shared dataset registry."""
+
+    workspace = current_workspace()
+    try:
+        global DATA_DIR, DATASETS_FILE
+        DATA_DIR = workspace.data_dir
+        DATASETS_FILE = workspace.datasets_file
+    except NameError:
+        pass
+
+    if contracts_server is not None:
+        try:
+            contracts_server.configure_workspace(workspace)
+        except Exception:  # pragma: no cover - optional UI package guards
+            pass
+
+    items: list[dict[str, Any]] = []
+    for record in records:
+        payload: dict[str, Any]
+        if isinstance(record, DatasetRecord):
+            payload = record.__dict__.copy()
+        elif isinstance(record, Mapping):
+            payload = dict(record)
+        else:
+            payload = dict(getattr(record, "__dict__", {}))
+        items.append(payload)
+
+    DATASETS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    DATASETS_FILE.write_text(json.dumps(items, indent=2), encoding="utf-8")
+
+    if contracts_server is not None and hasattr(contracts_server, "save_records"):
+        try:
+            contracts_server.save_records(list(records))  # type: ignore[arg-type]
+        except Exception:  # pragma: no cover - optional UI compatibility
+            pass
+
+
 __all__ = [
     "DATA_DIR",
     "DATASETS_FILE",
@@ -134,6 +176,7 @@ __all__ = [
     "load_data_product_documents",
     "load_data_product_payloads",
     "load_records",
+    "save_records",
     "queue_flash",
     "pop_flash",
     "scenario_run_rows",

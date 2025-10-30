@@ -97,6 +97,11 @@ def _tag_latest_record_as_dlt(
                 if enriched:
                     output["dlt_expectations"] = enriched
 
+    try:
+        pipeline.save_records(records)
+    except Exception:  # pragma: no cover - best effort persistence
+        pass
+
 
 
 def _dlt_output_transform(
