@@ -1,8 +1,9 @@
 import pytest
 
-from dc43_demo_app.contracts_records import load_records, save_records
 from pathlib import Path
 
+from dc43_demo_app.contracts_api import reset_governance_state
+from dc43_demo_app.contracts_records import load_records
 from dc43_demo_app.contracts_workspace import prepare_demo_workspace
 from dc43_demo_app.streaming import run_streaming_scenario
 
@@ -18,6 +19,13 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when pyspark missing
 pytestmark = pytest.mark.skipif(not _PYSPARK_AVAILABLE, reason="pyspark required")
 
 
+@pytest.fixture(autouse=True)
+def _reset_streaming_governance():
+    reset_governance_state()
+    yield
+    reset_governance_state()
+
+
 def _version_dir(workspace, dataset: str, version: str):
     root = workspace.data_dir / dataset
     candidate = root / version
@@ -31,7 +39,6 @@ def _version_dir(workspace, dataset: str, version: str):
 
 def test_streaming_scenarios_record_dataset_runs():
     workspace, _ = prepare_demo_workspace()
-    original = load_records()
     try:
         dataset, version = run_streaming_scenario("streaming-valid", seconds=0, run_type="observe")
         assert dataset == "demo.streaming.events_processed"
@@ -135,4 +142,4 @@ def test_streaming_scenarios_record_dataset_runs():
         assert error_records[-1].dataset_version == ""
         assert error_version == ""
     finally:
-        save_records(original)
+        reset_governance_state()

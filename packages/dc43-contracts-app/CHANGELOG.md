@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the dataset record loader/saver configuration hooks so `load_records`
+  now derives history exclusively from governance APIs, exposing pipeline
+  activity and validation status without expecting manual persistence helpers.
 - Simplified dataset history wiring so the UI consumes loader/saver hooks from
   the active services instead of instantiating its own record store; demo runs
   continue to register their filesystem-backed providers via the service

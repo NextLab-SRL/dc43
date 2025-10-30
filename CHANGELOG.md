@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the demo/contract helpers that manually persisted dataset records so
+  the UI and pipelines rely solely on governance service APIs for run history,
+  adding fixtures and helpers to tests to generate sample data on demand.
 - Removed the contracts app dataset record store wiring so the UI simply uses
   service-provided loaders, keeping history ownership with whichever runtime
   configures the service clients (the demo still registers its filesystem

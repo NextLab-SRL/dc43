@@ -52,22 +52,15 @@ def _data_products_file(workspace: ContractsAppWorkspace | None = None) -> Path:
 
 
 def load_records(workspace: ContractsAppWorkspace | None = None) -> List[DatasetRecord]:
-    datasets_path = _datasets_file(workspace)
-    if not Path(datasets_path).exists():
-        return []
+    """Proxy to the contracts application dataset records."""
+
+    del workspace  # records are now fetched from the governance services
     try:
-        raw = json.loads(Path(datasets_path).read_text())
-    except (OSError, json.JSONDecodeError):
+        from dc43_contracts_app import server as contracts_server  # noqa: WPS433
+    except ImportError:  # pragma: no cover - fallback when UI package missing
         return []
-    return [DatasetRecord(**r) for r in raw]
 
-
-def save_records(records: List[DatasetRecord], workspace: ContractsAppWorkspace | None = None) -> None:
-    datasets_path = Path(_datasets_file(workspace))
-    datasets_path.parent.mkdir(parents=True, exist_ok=True)
-    datasets_path.write_text(
-        json.dumps([r.__dict__ for r in records], indent=2), encoding="utf-8"
-    )
+    return list(contracts_server.load_records())
 
 
 def load_data_product_payloads(
@@ -482,7 +475,6 @@ __all__ = [
     "load_records",
     "pop_flash",
     "queue_flash",
-    "save_records",
     "scenario_history",
     "scenario_run_rows",
 ]

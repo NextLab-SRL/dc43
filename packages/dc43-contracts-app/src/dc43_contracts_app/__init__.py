@@ -35,7 +35,6 @@ _SERVER_EXPORTS = {
     "create_app",
     "load_records",
     "queue_flash",
-    "save_records",
     "scenario_run_rows",
 }
 

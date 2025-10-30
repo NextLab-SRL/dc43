@@ -85,15 +85,16 @@ from .services import (
     contract_versions,
     data_product_service_client,
     data_quality_service_client,
+    dataset_pipeline_activity,
+    dataset_validation_status,
     get_contract,
     governance_service_client,
     latest_contract,
     latest_data_product,
     list_contract_ids,
     list_data_product_ids,
-    load_dataset_records,
+    list_dataset_ids,
     put_contract,
-    save_dataset_records,
     service_backends_config,
     thread_service_clients,
 )
@@ -5672,34 +5673,112 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
     return entries
 
 
+def _latest_event(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+    events = entry.get("events")
+    if isinstance(events, list):
+        for event in reversed(events):
+            if isinstance(event, Mapping):
+                return dict(event)
+    return {}
+
+
 def load_records() -> List[DatasetRecord]:
-    """Return recorded dataset runs provided by the configured services."""
+    """Return recorded dataset runs provided by the governance services."""
 
-    raw_records = load_dataset_records()
     records: List[DatasetRecord] = []
-    for entry in raw_records:
-        if isinstance(entry, DatasetRecord):
-            records.append(entry)
-            continue
-        if isinstance(entry, Mapping):
-            payload = dict(entry)
-        elif hasattr(entry, "__dict__") and not isinstance(entry, Mapping):
-            payload = dict(vars(entry))
-        else:
-            logger.debug("Discarding unsupported dataset record %r", entry)
-            continue
-        try:
-            records.append(DatasetRecord(**payload))
-        except TypeError:
-            logger.debug("Failed to coerce dataset record payload: %r", payload)
-            continue
+    for dataset_id in list_dataset_ids():
+        activity = dataset_pipeline_activity(dataset_id)
+        for entry in activity:
+            dataset_version = str(entry.get("dataset_version") or "")
+            contract_id = str(entry.get("contract_id") or "")
+            contract_version = str(entry.get("contract_version") or "")
+
+            latest_event = _latest_event(entry)
+            status_payload = None
+            if contract_id and contract_version:
+                status_payload = dataset_validation_status(
+                    contract_id=contract_id,
+                    contract_version=contract_version,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                )
+
+            details: Dict[str, Any] = {}
+            reason = ""
+            status_value = "unknown"
+            if status_payload is not None:
+                try:
+                    status_value = _normalise_record_status(status_payload.status)
+                    details = dict(getattr(status_payload, "details", {}) or {})
+                    reason = getattr(status_payload, "reason", "") or ""
+                except Exception:  # pragma: no cover - defensive guard
+                    logger.exception(
+                        "Failed to interpret validation status for %s@%s",
+                        dataset_id,
+                        dataset_version,
+                    )
+                    details = {}
+            else:
+                raw_status = str(latest_event.get("dq_status", "unknown"))
+                status_value = _normalise_record_status(raw_status)
+                details = dict(latest_event.get("dq_details") or {})
+                reason = str(latest_event.get("dq_reason") or "")
+
+            pipeline_context = latest_event.get("pipeline_context")
+            run_type = "infer"
+            scenario_key = None
+            if isinstance(pipeline_context, Mapping):
+                run_type = str(pipeline_context.get("run_type", run_type))
+                scenario_key_value = pipeline_context.get("scenario_key")
+                if isinstance(scenario_key_value, str) and scenario_key_value:
+                    scenario_key = scenario_key_value
+
+            if latest_event.get("scenario_key") and not scenario_key:
+                scenario_key = str(latest_event.get("scenario_key"))
+
+            draft_version = details.get("draft_contract_version")
+            if not isinstance(draft_version, str):
+                draft_version = latest_event.get("draft_contract_version")
+                if not isinstance(draft_version, str):
+                    draft_version = None
+
+            data_product_id = ""
+            data_product_port = ""
+            data_product_role = ""
+            data_product_info = latest_event.get("data_product")
+            if isinstance(data_product_info, Mapping):
+                data_product_id = str(data_product_info.get("id") or "")
+                data_product_port = str(data_product_info.get("port") or "")
+                data_product_role = str(data_product_info.get("role") or "")
+            else:
+                if latest_event.get("data_product_id"):
+                    data_product_id = str(latest_event.get("data_product_id"))
+                if latest_event.get("data_product_port"):
+                    data_product_port = str(latest_event.get("data_product_port"))
+                if latest_event.get("data_product_role"):
+                    data_product_role = str(latest_event.get("data_product_role"))
+
+            violations = _extract_violation_count(details)
+
+            record = DatasetRecord(
+                contract_id,
+                contract_version,
+                dataset_id,
+                dataset_version,
+                status_value,
+                details,
+                run_type,
+                violations,
+                draft_contract_version=draft_version,
+                scenario_key=scenario_key,
+                data_product_id=data_product_id,
+                data_product_port=data_product_port,
+                data_product_role=data_product_role,
+            )
+            record.reason = reason
+            records.append(record)
+
     return records
-
-
-def save_records(records: List[DatasetRecord]) -> None:
-    """Persist dataset run metadata using the configured services."""
-
-    save_dataset_records(records)
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:

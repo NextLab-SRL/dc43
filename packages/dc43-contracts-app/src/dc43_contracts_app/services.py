@@ -71,10 +71,6 @@ _BACKEND_MODE: str = "embedded"
 _BACKEND_BASE_URL: str = "http://dc43-services"
 _BACKEND_TOKEN: str = ""
 _THREAD_CLIENTS = local()
-_DATASET_RECORDS_LOADER_SENTINEL = object()
-_DATASET_RECORDS_SAVER_SENTINEL = object()
-_DATASET_RECORDS_LOADER: Callable[[], Iterable["DatasetRecord"]] | None = None
-_DATASET_RECORDS_SAVER: Callable[[Iterable["DatasetRecord"]], None] | None = None
 def _service_backends_config() -> ServiceBackendsConfig:
     global _SERVICE_BACKENDS_CONFIG
     if _SERVICE_BACKENDS_CONFIG is None:
@@ -86,47 +82,6 @@ def service_backends_config() -> ServiceBackendsConfig:
     """Return the cached :class:`ServiceBackendsConfig` instance."""
 
     return _service_backends_config()
-
-
-def configure_dataset_records(
-    *,
-    loader: Callable[[], Iterable["DatasetRecord"]] | object = _DATASET_RECORDS_LOADER_SENTINEL,
-    saver: Callable[[Iterable["DatasetRecord"]], None] | object = _DATASET_RECORDS_SAVER_SENTINEL,
-) -> None:
-    """Register dataset record accessors for the UI."""
-
-    global _DATASET_RECORDS_LOADER, _DATASET_RECORDS_SAVER
-
-    if loader is not _DATASET_RECORDS_LOADER_SENTINEL:
-        _DATASET_RECORDS_LOADER = None if loader is None else loader
-
-    if saver is not _DATASET_RECORDS_SAVER_SENTINEL:
-        _DATASET_RECORDS_SAVER = None if saver is None else saver
-
-
-def load_dataset_records() -> List["DatasetRecord"]:
-    """Return dataset records supplied by the configured backend."""
-
-    loader = _DATASET_RECORDS_LOADER
-    if loader is None:
-        return []
-
-    try:
-        records = list(loader())
-    except Exception:  # pragma: no cover - defensive guard around providers
-        logger.exception("Failed to load dataset records from provider")
-        return []
-    return records
-
-
-def save_dataset_records(records: Iterable["DatasetRecord"]) -> None:
-    """Persist dataset records using the configured backend."""
-
-    saver = _DATASET_RECORDS_SAVER
-    if saver is None:
-        raise RuntimeError("Dataset record saver is not configured")
-
-    saver(list(records))
 
 
 def _assign_service_clients(bundle: ServiceBundle) -> None:
@@ -190,10 +145,6 @@ def _initialise_backend(*, base_url: str | None = None, suite: BackendSuite | No
 
     _close_backend_client()
     _clear_thread_clients()
-
-    # Reset dataset record hooks; demo integrations will register their providers
-    # once the backend configuration completes.
-    configure_dataset_records(loader=None, saver=None)
 
     client_base_url = base_url.rstrip("/") if base_url else "http://dc43-services"
     if base_url:
@@ -272,6 +223,80 @@ def data_quality_service_client() -> Optional[DataQualityServiceClient]:
 def governance_service_client() -> Optional[GovernanceServiceClient]:
     bundle = _SERVICE_BUNDLE
     return None if bundle is None else bundle.governance
+
+
+def list_dataset_ids() -> List[str]:
+    service = governance_service_client()
+    if service is None:
+        return []
+    method = getattr(service, "list_datasets", None)
+    if not callable(method):
+        return []
+    try:
+        dataset_ids = [str(item) for item in method()]
+    except Exception:  # pragma: no cover - defensive guard when provider fails
+        logger.exception("Failed to list datasets from governance service")
+        return []
+    # Remove duplicates while preserving ordering from provider.
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for dataset_id in dataset_ids:
+        if dataset_id not in seen:
+            seen.add(dataset_id)
+            ordered.append(dataset_id)
+    return ordered
+
+
+def dataset_pipeline_activity(
+    dataset_id: str,
+    dataset_version: str | None = None,
+) -> List[Mapping[str, object]]:
+    service = governance_service_client()
+    if service is None:
+        return []
+    try:
+        records = service.get_pipeline_activity(
+            dataset_id=dataset_id, dataset_version=dataset_version
+        )
+    except Exception:  # pragma: no cover - defensive guard when backend fails
+        logger.exception(
+            "Failed to load pipeline activity for %s@%s",
+            dataset_id,
+            dataset_version,
+        )
+        return []
+    return [dict(record) for record in records if isinstance(record, Mapping)]
+
+
+def dataset_validation_status(
+    *,
+    contract_id: str,
+    contract_version: str,
+    dataset_id: str,
+    dataset_version: str,
+):
+    service = governance_service_client()
+    if service is None:
+        return None
+    method = getattr(service, "get_status", None)
+    if not callable(method):
+        return None
+    try:
+        return method(
+            contract_id=contract_id,
+            contract_version=contract_version,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
+    except Exception:  # pragma: no cover - defensive guard when backend fails
+        logger.exception(
+            "Failed to load validation status for %s@%s using %s:%s",
+            dataset_id,
+            dataset_version,
+            contract_id,
+            contract_version,
+        )
+        return None
 
 
 def thread_service_clients() -> Tuple[

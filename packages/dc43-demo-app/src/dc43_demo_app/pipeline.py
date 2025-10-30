@@ -818,55 +818,6 @@ def _resolve_dataset_name_hint(
     return dataset_name or contract_id or "result"
 
 
-def _record_blocked_read_failure(
-    *,
-    error_message: str,
-    contract_id: str | None,
-    contract_version: str | None,
-    dataset_name_hint: str,
-    run_type: str,
-    scenario_key: str | None,
-    orders_status: ValidationResult | None,
-    customers_status: ValidationResult | None,
-) -> None:
-    """Persist a dataset record describing a blocked input read."""
-
-    dq_details: dict[str, Any] = {}
-    orders_payload = _status_payload(orders_status)
-    customers_payload = _status_payload(customers_status)
-    if orders_payload:
-        dq_details["orders"] = orders_payload
-    if customers_payload:
-        dq_details["customers"] = customers_payload
-    dq_details["output"] = {
-        "errors": [error_message],
-        "dq_status": {"status": "error", "reason": error_message},
-    }
-
-    violations_total = 0
-    for payload in (orders_payload, customers_payload):
-        if isinstance(payload, Mapping):
-            violations_value = payload.get("violations")
-            if isinstance(violations_value, (int, float)):
-                violations_total += int(violations_value)
-
-    records = contracts_server.load_records()
-    record = contracts_server.DatasetRecord(
-        contract_id or "",
-        contract_version or "",
-        dataset_name_hint,
-        "",
-        "error",
-        dq_details,
-        run_type,
-        violations_total,
-        scenario_key=scenario_key,
-    )
-    record.reason = error_message
-    records.append(record)
-    contracts_server.save_records(records)
-
-
 def _normalise_record_status(value: str | None) -> str:
     """Map validation status strings onto registry-friendly labels."""
 
@@ -1240,40 +1191,6 @@ def _run_data_product_flow(
     )
     stage_output_details.setdefault("storage_path", str(stage_output_path))
 
-    stage_combined_details: Dict[str, Any] = {
-        "orders": orders_payload,
-        "customers": _status_payload(customers_status),
-        "output": stage_output_details,
-    }
-    stage_violations = _aggregate_violation_counts(*stage_combined_details.values())
-    stage_status_value = _normalise_record_status(getattr(stage_status, "status", None))
-    if not stage_result.ok:
-        stage_status_value = "error"
-    if stage_status_value == "ok" and stage_output_details.get("warnings"):
-        stage_status_value = "warning"
-
-    stage_draft_version = stage_output_details.get("draft_contract_version")
-    if not stage_draft_version and stage_payload and isinstance(stage_payload, Mapping):
-        stage_draft_version = stage_payload.get("draft_contract_version")
-
-    stage_record = contracts_server.DatasetRecord(
-        stage_contract_id or "",
-        stage_contract_version or "",
-        stage_dataset_name,
-        stage_dataset_version,
-        stage_status_value,
-        stage_combined_details,
-        run_type,
-        stage_violations,
-        draft_contract_version=stage_draft_version if isinstance(stage_draft_version, str) else None,
-        scenario_key=scenario_key,
-    )
-    stage_record.reason = getattr(stage_status, "reason", "") or ""
-    stage_record.data_product_id = data_product_flow.get("output", {}).get("data_product", "")
-    stage_record.data_product_port = stage_cfg.get("contract_id", "")
-    stage_record.data_product_role = "intermediate"
-    records.append(stage_record)
-
     stage_read_contract = {"contract_id": stage_contract_id}
     if stage_contract_version:
         stage_read_contract["contract_version"] = stage_contract_version
@@ -1392,43 +1309,6 @@ def _run_data_product_flow(
         },
     )
     final_output_details.setdefault("storage_path", str(output_path))
-
-    final_combined_details: Dict[str, Any] = {
-        "orders": orders_payload,
-        "customers": _status_payload(customers_status),
-        "stage": _status_payload(stage_read_status),
-        "output": final_output_details,
-    }
-    final_violations = _aggregate_violation_counts(*final_combined_details.values())
-    final_status_value = _normalise_record_status(getattr(final_status, "status", None))
-    if not final_result.ok:
-        final_status_value = "error"
-    if final_status_value == "ok" and final_output_details.get("warnings"):
-        final_status_value = "warning"
-
-    final_draft_version = final_output_details.get("draft_contract_version")
-    if not final_draft_version and final_payload and isinstance(final_payload, Mapping):
-        final_draft_version = final_payload.get("draft_contract_version")
-
-    final_record = contracts_server.DatasetRecord(
-        output_contract_id or "",
-        output_contract_version or "",
-        output_dataset_name,
-        output_dataset_version,
-        final_status_value,
-        final_combined_details,
-        run_type,
-        final_violations,
-        draft_contract_version=final_draft_version if isinstance(final_draft_version, str) else None,
-        scenario_key=scenario_key,
-    )
-    final_record.reason = getattr(final_status, "reason", "") or ""
-    final_record.data_product_id = output_cfg.get("data_product", "")
-    final_record.data_product_port = output_cfg.get("port_name", "")
-    final_record.data_product_role = "output"
-    records.append(final_record)
-
-    contracts_server.save_records(records)
 
     return output_dataset_name or stage_dataset_name, output_dataset_version
 
@@ -1592,16 +1472,6 @@ def run_pipeline(
     if treat_orders_blocking and orders_status and orders_status.status == "block":
         details = orders_status.reason or orders_status.details
         message = f"DQ status is blocking: {details}"
-        _record_blocked_read_failure(
-            error_message=message,
-            contract_id=contract_id,
-            contract_version=contract_version,
-            dataset_name_hint=dataset_name_hint,
-            run_type=run_type,
-            scenario_key=scenario_key,
-            orders_status=orders_status,
-            customers_status=None,
-        )
         raise ValueError(message)
 
     customers_overrides = input_overrides.get("customers")
@@ -1674,16 +1544,6 @@ def run_pipeline(
     if treat_customers_blocking and customers_status and customers_status.status == "block":
         details = customers_status.reason or customers_status.details
         message = f"DQ status is blocking: {details}"
-        _record_blocked_read_failure(
-            error_message=message,
-            contract_id=contract_id,
-            contract_version=contract_version,
-            dataset_name_hint=dataset_name_hint,
-            run_type=run_type,
-            scenario_key=scenario_key,
-            orders_status=orders_status,
-            customers_status=customers_status,
-        )
         raise ValueError(message)
 
     df = orders_df.join(customers_df, "customer_id")
@@ -2209,21 +2069,6 @@ def run_pipeline(
         status_value = "warning"
     elif severity >= 2:
         status_value = "error"
-    records.append(
-        contracts_server.DatasetRecord(
-            contract_id or "",
-            contract_version or "",
-            dataset_name,
-            dataset_version,
-            status_value,
-            combined_details,
-            run_type,
-            total_violations,
-            draft_contract_version=draft_version,
-            scenario_key=scenario_key,
-        )
-    )
-    contracts_server.save_records(records)
     if not existing_session:
         spark.stop()
     if error:
@@ -2237,7 +2082,6 @@ def __getattr__(name: str) -> Any:
         "DATA_DIR",
         "DatasetRecord",
         "load_records",
-        "save_records",
         "register_dataset_version",
         "set_active_version",
         "store",

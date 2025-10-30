@@ -9,6 +9,7 @@ import pytest
 from pyspark.sql import SparkSession
 
 from dc43_demo_app import dlt_pipeline, pipeline
+from dc43_demo_app.contracts_api import reset_governance_state
 from dc43_demo_app.contracts_records import DatasetRecord
 from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
@@ -19,6 +20,13 @@ from dc43_demo_app.contracts_workspace import current_workspace, prepare_demo_wo
 from dc43_demo_app.scenarios import SCENARIOS
 
 prepare_demo_workspace()
+
+
+@pytest.fixture(autouse=True)
+def _reset_governance_state_fixture():
+    reset_governance_state()
+    yield
+    reset_governance_state()
 
 
 def _activate_scenario_versions(scenario_key: str) -> None:
@@ -133,7 +141,6 @@ def test_demo_pipeline_records_dq_failure(tmp_path: Path) -> None:
             assert ctx.get("run_type") == "enforce"
             assert ctx.get("dataset_version") == last.dataset_version
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -214,7 +221,6 @@ def test_demo_pipeline_existing_contract_ok(tmp_path: Path) -> None:
         assert orders_metrics.get("row_count") == 3
         assert orders_metrics.get("violations.gt_amount", 0) == 0
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -545,7 +551,6 @@ def test_demo_pipeline_surfaces_schema_and_dq_failure(tmp_path: Path) -> None:
         )
         assert draft_path.exists()
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -646,7 +651,6 @@ def test_demo_pipeline_split_strategy_records_auxiliary_datasets(tmp_path: Path)
         assert last.draft_contract_version
         assert last.draft_contract_version.startswith("1.2.0-draft-")
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -711,7 +715,6 @@ def test_demo_pipeline_strict_split_marks_error(tmp_path: Path) -> None:
         assert last.draft_contract_version
         assert last.draft_contract_version.startswith("1.2.0-draft-")
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -760,7 +763,6 @@ def test_demo_pipeline_blocks_draft_contract(tmp_path: Path) -> None:
         policy = output.get("contract_status_policy", {})
         assert policy.get("allowed") == ["active"]
     finally:
-        pipeline.save_records(original_records)
 
 
 def test_demo_pipeline_allows_draft_contract_with_override(tmp_path: Path) -> None:
@@ -808,7 +810,6 @@ def test_demo_pipeline_allows_draft_contract_with_override(tmp_path: Path) -> No
         transformations = output.get("transformations", [])
         assert any("raised low order amounts" in note for note in transformations)
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -865,7 +866,6 @@ def test_demo_pipeline_invalid_read_block(tmp_path: Path) -> None:
             "DQ status is blocking"
         )
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -920,7 +920,6 @@ def test_demo_pipeline_valid_subset_read(tmp_path: Path) -> None:
         metrics = orders_details.get("metrics", {})
         assert metrics.get("row_count", 0) >= 1
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -992,7 +991,6 @@ def test_demo_pipeline_valid_subset_invalid_output(tmp_path: Path) -> None:
         transformations = output_details.get("transformations", [])
         assert any("downgraded" in str(note) for note in transformations)
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():
@@ -1073,7 +1071,6 @@ def test_demo_pipeline_full_override_read(tmp_path: Path) -> None:
         transformations = output_details.get("transformations", [])
         assert any("preserved negative input" in str(note) for note in transformations)
     finally:
-        pipeline.save_records(original_records)
         if dq_dir.exists():
             shutil.rmtree(dq_dir)
         if backup.exists():

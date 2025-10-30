@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the `register_dataset_records` helper and manual history seeding;
+  demo pipelines, streaming scenarios, and tests now rely on governance service
+  calls to produce dataset history, with fixtures resetting state between runs.
 - Register the demo dataset record loader/saver through the contracts service
   hooks so the UI continues to surface run history without relying on the
   contracts package to provision its own record store.

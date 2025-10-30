@@ -551,6 +551,10 @@ def build_app(
         )
         return list(jsonable_encoder(records))
 
+    @router.get("/governance/datasets")
+    def dataset_ids() -> list[str]:
+        return list(governance_backend.list_datasets())
+
     @router.get("/governance/activity")
     def pipeline_activity(dataset_id: str, dataset_version: str | None = None) -> list[Mapping[str, Any]]:
         records = governance_backend.get_pipeline_activity(

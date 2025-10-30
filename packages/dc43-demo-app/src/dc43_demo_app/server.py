@@ -25,7 +25,6 @@ from .contracts_records import (
     load_records,
     pop_flash,
     queue_flash,
-    save_records,
     scenario_history,
     scenario_run_rows,
 )
