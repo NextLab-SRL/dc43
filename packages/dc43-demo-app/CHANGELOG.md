@@ -3,9 +3,9 @@
 ## [Unreleased]
 
 ### Changed
-- Demo contracts helpers now register the dataset registry provider exposed by
-  the contracts app so demo records and saves flow through the new interface
-  without relying on demo-specific environment variables.
+- Demo contracts helpers now monkeypatch the contracts UI dataset readers so
+  filesystem-backed history stays a demo-only concern without relying on a
+  registry hook inside the contracts package.
 - Pipeline and streaming demo scenarios now call the governance read/write
   helpers with `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest`
   payloads so presenters only need the governance client to resolve contracts,

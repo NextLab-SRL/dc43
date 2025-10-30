@@ -33,10 +33,9 @@
   building read/write requests from scenario context so presenters initialise
   only the governance client while still recording contract metadata, dataset
   versions, and status payloads in the workspace registry.
-- Introduced dataset registry hooks so the contracts app defers history and
-  preview data to whichever integration registers a provider. The demo app now
-  supplies its filesystem-backed records through that interface while
-  standalone deployments continue to focus on service-backed metadata.
+- Moved dataset history plumbing back into the demo app so the contracts UI
+  remains focused on service-backed metadata while demos continue to provide
+  filesystem-backed previews and run history.
 - Delta Live Tables helpers now resolve contracts and expectation plans through
   the governance client, so notebooks bind contracts using the same
   governance-first contexts as the Spark IO wrappers.

@@ -473,12 +473,13 @@ def dq_version_records(
 
 
 try:  # pragma: no cover - optional dependency when contracts app unavailable
+    import dc43_contracts_app as contracts_app
     from dc43_contracts_app import (
         DatasetRecord as ContractsDatasetRecord,
-        configure_dataset_registry as _configure_dataset_registry,
+        server as contracts_server,
     )
 except ImportError:  # pragma: no cover - demo functions still usable stand-alone
-    _configure_dataset_registry = None
+    contracts_server = None
 else:
     def _contracts_app_records_loader() -> List[ContractsDatasetRecord]:
         demo_records = load_records()
@@ -518,10 +519,10 @@ else:
                 continue
         save_records(serialised)
 
-    _configure_dataset_registry(
-        loader=_contracts_app_records_loader,
-        saver=_contracts_app_records_saver,
-    )
+    contracts_server.load_records = _contracts_app_records_loader  # type: ignore[assignment]
+    contracts_server.save_records = _contracts_app_records_saver  # type: ignore[assignment]
+    setattr(contracts_app, "load_records", _contracts_app_records_loader)
+    setattr(contracts_app, "save_records", _contracts_app_records_saver)
 
 
 __all__ = [

@@ -152,8 +152,6 @@ TERRAFORM_TEMPLATE_ROOT = REPO_ROOT / "deploy" / "terraform"
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ContractsAppConfig | None = None
-_DATASET_RECORD_LOADER: Callable[[], Iterable[object]] | None = None
-_DATASET_RECORD_SAVER: Callable[[Iterable[object]], None] | None = None
 
 
 class _ServiceFacade:
@@ -250,18 +248,6 @@ def _state_root(config: ContractsAppConfig | None = None) -> Path:
     if root:
         return Path(root).expanduser()
     return Path.home() / ".dc43-contracts-app"
-
-
-def configure_dataset_registry(
-    *,
-    loader: Callable[[], Iterable[object]] | None,
-    saver: Callable[[Iterable[object]], None] | None = None,
-) -> None:
-    """Register callables that expose dataset history to the UI."""
-
-    global _DATASET_RECORD_LOADER, _DATASET_RECORD_SAVER
-    _DATASET_RECORD_LOADER = loader
-    _DATASET_RECORD_SAVER = saver
 
 
 def _set_active_config(config: ContractsAppConfig) -> ContractsAppConfig:
@@ -5682,85 +5668,25 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
     return entries
 
 
-def _coerce_dataset_record(entry: object) -> DatasetRecord | None:
-    """Normalise ``entry`` into a :class:`DatasetRecord` when possible."""
-
-    if isinstance(entry, DatasetRecord):
-        return entry
-
-    if hasattr(entry, "__dict__") and not isinstance(entry, Mapping):
-        return _coerce_dataset_record(vars(entry))
-
-    if not isinstance(entry, Mapping):
-        return None
-
-    dq_details = entry.get("dq_details")
-    if not isinstance(dq_details, Mapping):
-        dq_details = {}
-
-    try:
-        violations_value = int(entry.get("violations", 0))
-    except (TypeError, ValueError):
-        violations_value = 0
-
-    record = DatasetRecord(
-        str(entry.get("contract_id") or ""),
-        str(entry.get("contract_version") or ""),
-        str(entry.get("dataset_name") or ""),
-        str(entry.get("dataset_version") or ""),
-        str(entry.get("status") or "unknown"),
-        dict(dq_details),
-        str(entry.get("run_type") or "infer"),
-        violations_value,
-    )
-    reason = entry.get("reason")
-    record.reason = str(reason) if reason else ""
-    draft_version = entry.get("draft_contract_version")
-    record.draft_contract_version = str(draft_version) if draft_version else None
-    scenario_key = entry.get("scenario_key")
-    record.scenario_key = str(scenario_key) if scenario_key else None
-    record.data_product_id = str(entry.get("data_product_id") or "")
-    record.data_product_port = str(entry.get("data_product_port") or "")
-    record.data_product_role = str(entry.get("data_product_role") or "")
-    return record
-
-
 def load_records() -> List[DatasetRecord]:
-    """Return dataset runs exposed by the configured registry provider."""
+    """Return recorded dataset runs.
 
-    loader = _DATASET_RECORD_LOADER
-    if loader is None:
-        return []
+    The standalone contracts app delegates dataset capture to external
+    pipelines, so no local history is available. The demo package provides a
+    filesystem-backed implementation for interactive tutorials.
+    """
 
-    try:
-        raw_records = loader()
-    except Exception:  # pragma: no cover - defensive guard around integrations
-        logger.exception("Failed to load dataset records")
-        return []
-
-    records: List[DatasetRecord] = []
-    if raw_records is None:
-        return records
-
-    for entry in raw_records:
-        normalised = _coerce_dataset_record(entry)
-        if normalised is not None:
-            records.append(normalised)
-
-    return records
+    return []
 
 
 def save_records(records: List[DatasetRecord]) -> None:
-    """Persist dataset run metadata through the registered provider."""
+    """Persist dataset run metadata.
 
-    saver = _DATASET_RECORD_SAVER
-    if saver is None:
-        return
+    No-op for the standalone app; pipelines interacting with the governance
+    APIs are expected to manage their own history.
+    """
 
-    try:
-        saver(records)
-    except Exception:  # pragma: no cover - defensive guard around integrations
-        logger.exception("Failed to persist dataset records")
+    del records
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
