@@ -742,6 +742,14 @@ def test_demo_pipeline_strict_split_marks_error(tmp_path: Path) -> None:
 def test_demo_pipeline_blocks_draft_contract(tmp_path: Path) -> None:
     original_records = pipeline.load_records()
 
+    datasets_file = Path(pipeline.DATASETS_FILE)
+    original_payload: str | None = None
+    if datasets_file.exists():
+        try:
+            original_payload = datasets_file.read_text(encoding="utf-8")
+        except OSError:
+            original_payload = None
+
     try:
         with pytest.raises(ValueError) as excinfo:
             pipeline.run_pipeline(
@@ -763,10 +771,14 @@ def test_demo_pipeline_blocks_draft_contract(tmp_path: Path) -> None:
         policy = output.get("contract_status_policy", {})
         assert policy.get("allowed") == ["active"]
     finally:
-        restored_payload = [dict(record.__dict__) for record in original_records]
-        datasets_file = Path(pipeline.DATASETS_FILE)
-        datasets_file.parent.mkdir(parents=True, exist_ok=True)
-        datasets_file.write_text(json.dumps(restored_payload, indent=2), encoding="utf-8")
+        try:
+            datasets_file.parent.mkdir(parents=True, exist_ok=True)
+            if original_payload is not None:
+                datasets_file.write_text(original_payload, encoding="utf-8")
+            elif datasets_file.exists():
+                datasets_file.unlink()
+        except OSError:
+            pass
         SparkSession.builder.master("local[2]") \
             .appName("dc43-tests") \
             .config("spark.ui.enabled", "false") \
