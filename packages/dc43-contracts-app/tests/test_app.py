@@ -12,6 +12,7 @@ from open_data_contract_standard.model import (
 )
 
 from dc43_contracts_app import server
+from dc43_contracts_app.services import store as contract_store
 
 
 @pytest.fixture()
@@ -106,7 +107,7 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
     contract_file = contract_dir / contract_id / f"{contract_version}.json"
     contract_file.parent.mkdir(parents=True, exist_ok=True)
     original_contract = contract_file.read_text(encoding="utf-8") if contract_file.exists() else None
-    server.store.put(contract_model)
+    contract_store.put(contract_model)
 
     sample_metrics = [
         {

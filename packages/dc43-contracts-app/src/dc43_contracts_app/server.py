@@ -93,7 +93,6 @@ from .services import (
     list_data_product_ids,
     put_contract,
     service_backends_config,
-    store as _contract_store_adapter,
     thread_service_clients,
 )
 from . import docs_chat
@@ -156,8 +155,6 @@ _ACTIVE_CONFIG: ContractsAppConfig | None = None
 _WORKSPACE_LOCK = Lock()
 _WORKSPACE: ContractsAppWorkspace | None = None
 WORK_DIR: Path
-
-store = _contract_store_adapter
 
 
 class _ServiceFacade:

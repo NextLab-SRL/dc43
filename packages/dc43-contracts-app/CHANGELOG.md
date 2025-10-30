@@ -16,6 +16,9 @@
   history now surface only when the demo pipelines populate them, while remote
   deployments continue to focus on contract and data product metadata served by
   the configured backends.
+- Dropped the ``server.store`` export from the contracts app; downstream demos
+  should import the shared ``dc43_contracts_app.services.store`` adapter or call
+  ``contract_service`` directly.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

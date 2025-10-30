@@ -1698,7 +1698,9 @@ def run_pipeline(
 
     records = contracts_server.load_records()
     output_contract = (
-        contracts_server.store.get(contract_id, contract_version) if contract_id and contract_version else None
+        contracts_server.contract_service.get(contract_id, contract_version)
+        if contract_id and contract_version
+        else None
     )
     if output_contract and getattr(output_contract, "id", None):
         # Align dataset naming with the contract so recorded versions and paths

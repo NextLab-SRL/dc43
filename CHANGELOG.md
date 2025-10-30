@@ -48,6 +48,9 @@
   governance-only read/write snippets and refreshed the getting-started guides
   (local, remote, Databricks, contracts app) to showcase
   `read_with_governance`/`write_with_governance` plus the new request objects.
+- Retired the ``server.store`` alias from the contracts app; import
+  ``dc43_contracts_app.services.store`` or use ``contract_service`` when the
+  demo pipelines need direct store access.
 - Guarded the service-clients bootstrap tests with `pytest.importorskip` so the
   package test suite skips gracefully when optional backend dependencies are not
   installed.
