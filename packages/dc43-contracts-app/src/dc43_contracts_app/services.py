@@ -14,15 +14,20 @@ services are running in-process or behind HTTP.
 import os
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 from threading import local
-from typing import List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
 from uuid import uuid4
 
 import httpx
 from httpx import HTTPStatusError
 
 from dc43_service_backends.bootstrap import BackendSuite, build_backends
-from dc43_service_backends.config import ServiceBackendsConfig, load_config as load_service_backends_config
+from dc43_service_backends.config import (
+    DataProductStoreConfig,
+    ServiceBackendsConfig,
+    load_config as load_service_backends_config,
+)
 from dc43_service_clients._http_sync import close_client
 from dc43_service_clients.contracts import (
     ContractServiceClient,
@@ -48,6 +53,8 @@ from open_data_contract_standard.model import OpenDataContractStandard
 
 from dc43_service_clients.odps import OpenDataProductStandard
 
+from dc43_contracts_app.hints import get_workspace_hints
+
 if TYPE_CHECKING:  # pragma: no cover - import side-effect guard
     from dc43_contracts_app.config import BackendConfig
 
@@ -71,10 +78,105 @@ _BACKEND_MODE: str = "embedded"
 _BACKEND_BASE_URL: str = "http://dc43-services"
 _BACKEND_TOKEN: str = ""
 _THREAD_CLIENTS = local()
+_SERVICE_BACKENDS_SIGNATURE: Tuple[str | None, str | None, str | None] | None = None
+
+
+def _coerce_path(value: object) -> Path | None:
+    if isinstance(value, Path):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return Path(text).expanduser()
+    except (TypeError, ValueError):  # pragma: no cover - defensive guard
+        return None
+
+
+def _workspace_hints() -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    try:
+        hints = get_workspace_hints()
+    except Exception:  # pragma: no cover - defensive import guard
+        hints = None
+    if hints:
+        mapping.update({str(key): str(value) for key, value in hints.items() if value})
+
+    env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv("DC43_DEMO_WORK_DIR")
+    if env_root and "root" not in mapping:
+        mapping["root"] = env_root
+
+    if "root" not in mapping:
+        try:
+            from dc43_contracts_app.config import load_config  # local import to avoid cycle
+
+            config = load_config()
+        except Exception:  # pragma: no cover - configuration fallback
+            config = None
+        if config is not None:
+            root_path = getattr(config.workspace, "root", None)
+            if root_path:
+                mapping["root"] = str(root_path)
+
+    return mapping
+
+
+def _apply_workspace_overrides(config: ServiceBackendsConfig, hints: Mapping[str, str]) -> None:
+    root = _coerce_path(hints.get("root"))
+    contract_root = _coerce_path(hints.get("contracts_dir")) or (
+        root.joinpath("contracts") if root is not None else None
+    )
+    products_root = _coerce_path(hints.get("products_dir")) or (
+        root.joinpath("products") if root is not None else None
+    )
+
+    if (
+        config.contract_store.type == "filesystem"
+        and _coerce_path(config.contract_store.root) is None
+        and contract_root is not None
+    ):
+        config.contract_store.root = contract_root
+
+    data_product_store: DataProductStoreConfig = config.data_product_store
+    if (
+        data_product_store.type == "filesystem"
+        and _coerce_path(data_product_store.root) is None
+        and products_root is not None
+    ):
+        data_product_store.root = products_root
+
+
+def _workspace_signature(hints: Mapping[str, str]) -> Tuple[str | None, str | None, str | None]:
+    def _norm(value: object) -> str | None:
+        path = _coerce_path(value)
+        return str(path) if path is not None else None
+
+    root = hints.get("root")
+    contracts = hints.get("contracts_dir")
+    products = hints.get("products_dir")
+
+    if root and not contracts:
+        contracts = str(Path(root).expanduser() / "contracts")
+    if root and not products:
+        products = str(Path(root).expanduser() / "products")
+
+    return _norm(root), _norm(contracts), _norm(products)
 def _service_backends_config() -> ServiceBackendsConfig:
-    global _SERVICE_BACKENDS_CONFIG
-    if _SERVICE_BACKENDS_CONFIG is None:
-        _SERVICE_BACKENDS_CONFIG = load_service_backends_config()
+    global _SERVICE_BACKENDS_CONFIG, _SERVICE_BACKENDS_SIGNATURE
+
+    hints = _workspace_hints()
+    signature = _workspace_signature(hints)
+
+    if _SERVICE_BACKENDS_CONFIG is None or _SERVICE_BACKENDS_SIGNATURE != signature:
+        config = load_service_backends_config()
+        _apply_workspace_overrides(config, hints)
+        _SERVICE_BACKENDS_CONFIG = config
+        _SERVICE_BACKENDS_SIGNATURE = signature
+    else:
+        _apply_workspace_overrides(_SERVICE_BACKENDS_CONFIG, hints)
+
     return _SERVICE_BACKENDS_CONFIG
 
 
