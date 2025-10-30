@@ -30,8 +30,13 @@ from uuid import uuid4
 import httpx
 from httpx import HTTPStatusError
 
-from dc43_service_backends.bootstrap import BackendSuite, build_backends
+from dc43_service_backends.bootstrap import (
+    BackendSuite,
+    build_backends,
+    build_dataset_record_store,
+)
 from dc43_service_backends.config import ServiceBackendsConfig, load_config as load_service_backends_config
+from dc43_service_backends.contracts.backend.dataset_records import DatasetRecordStore
 from dc43_service_clients._http_sync import close_client
 from dc43_service_clients.contracts import (
     ContractServiceClient,
@@ -87,6 +92,8 @@ _DATASET_RECORDS_LOADER: Callable[[], Iterable["DatasetRecord"]] | None = None
 _DATASET_RECORDS_SAVER: (
     Callable[[Iterable["DatasetRecord"]], None] | None
 ) = None
+_DATASET_RECORDS_STORE: DatasetRecordStore | None = None
+_DATASET_RECORDS_STORE: DatasetRecordStore | None = None
 def _service_backends_config() -> ServiceBackendsConfig:
     global _SERVICE_BACKENDS_CONFIG
     if _SERVICE_BACKENDS_CONFIG is None:
@@ -120,6 +127,62 @@ def configure_dataset_records(
             _DATASET_RECORDS_SAVER = None
         else:
             _DATASET_RECORDS_SAVER = saver
+
+
+def _coerce_dataset_record(payload: Mapping[str, object] | None) -> "DatasetRecord" | None:
+    if not payload:
+        return None
+    try:
+        return DatasetRecord(**payload)
+    except TypeError:
+        logger.debug("Failed to coerce dataset record payload: %r", payload)
+        return None
+
+
+def _serialise_dataset_record(entry: "DatasetRecord" | Mapping[str, object]) -> Mapping[str, object] | None:
+    if isinstance(entry, Mapping):
+        return dict(entry)
+    if hasattr(entry, "__dict__") and not isinstance(entry, Mapping):
+        return dict(vars(entry))
+    return None
+
+
+def _configure_dataset_record_store(store: DatasetRecordStore | None) -> None:
+    global _DATASET_RECORDS_STORE
+
+    _DATASET_RECORDS_STORE = store
+
+    if store is None:
+        configure_dataset_records(loader=None, saver=None)
+        return
+
+    def _loader() -> List["DatasetRecord"]:
+        try:
+            raw_records = store.load_records()
+        except Exception:  # pragma: no cover - provider failure
+            logger.exception("Failed to load dataset records from store")
+            return []
+
+        records: List["DatasetRecord"] = []
+        for entry in raw_records:
+            record = _coerce_dataset_record(entry if isinstance(entry, Mapping) else None)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def _saver(records: Iterable["DatasetRecord"]) -> None:
+        serialised: List[Mapping[str, object]] = []
+        for entry in records:
+            payload = _serialise_dataset_record(entry)
+            if payload is not None:
+                serialised.append(payload)
+        try:
+            store.save_records(serialised)
+        except Exception:  # pragma: no cover - provider failure
+            logger.exception("Failed to persist dataset records")
+            raise
+
+    configure_dataset_records(loader=_loader, saver=_saver)
 
 
 def load_dataset_records() -> List["DatasetRecord"]:
@@ -207,17 +270,30 @@ def _initialise_backend(*, base_url: str | None = None, suite: BackendSuite | No
     _close_backend_client()
     _clear_thread_clients()
 
+    store: DatasetRecordStore | None = None
+    if base_url:
+        try:
+            store = build_dataset_record_store(
+                _service_backends_config().dataset_records_store
+            )
+        except Exception:  # pragma: no cover - defensive guard around providers
+            logger.exception("Failed to initialise dataset record store from configuration")
+            store = None
+
     client_base_url = base_url.rstrip("/") if base_url else "http://dc43-services"
     if base_url:
         bundle = _initialise_remote_bundle(client_base_url)
+        records_store = store
         _BACKEND_MODE = "remote"
     else:
         bundle = _initialise_embedded_bundle(suite)
+        records_store = suite.dataset_records_store if suite else store
         _BACKEND_MODE = "embedded"
 
     _BACKEND_BASE_URL = client_base_url
     _BACKEND_TOKEN = uuid4().hex
     _assign_service_clients(bundle)
+    _configure_dataset_record_store(records_store)
 
 
 def configure_backend(

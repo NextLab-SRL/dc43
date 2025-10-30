@@ -470,6 +470,15 @@ Environment overrides:
 - `DC43_DATA_PRODUCT_STORE` – Filesystem root.
 - `DC43_DATA_PRODUCT_TABLE` – Delta/SQL table name.
 
+### `[dataset_records]`
+- `type` – Dataset record store type (`memory`, `filesystem`). Override with `DC43_DATASET_RECORDS_STORE_TYPE`.
+- `path` – Optional JSON file path backing the filesystem store. Override with `DC43_DATASET_RECORDS_PATH`.
+- `root` / `base_path` – Directory roots used when `path` is omitted. Override with `DC43_DATASET_RECORDS_STORE` / `DC43_DATASET_RECORDS_BASE_PATH`.
+- `dsn` / `schema` / `base_url` / `token` / `token_header` / `token_scheme` / `timeout` – Reserved for future providers. Values are parsed and surfaced by the loader so automation can pass them through even before additional backends ship.
+- The contracts app consumes `ServiceBackendsConfig.dataset_records_store` to
+  build dataset record loaders and savers, so supplying filesystem settings here
+  automatically wires the UI to the shared history store.
+
 ### `[data_quality]`
 - `type` – Backend type (`local`, `http`, etc.). Override with `DC43_DATA_QUALITY_BACKEND_TYPE`.
 - `base_url` – Remote data-quality API endpoint. Override with `DC43_DATA_QUALITY_BACKEND_URL`.

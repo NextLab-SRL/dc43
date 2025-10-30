@@ -472,56 +472,6 @@ def dq_version_records(
     return records
 
 
-try:  # pragma: no cover - optional dependency when contracts app unavailable
-    from dc43_contracts_app import DatasetRecord as ContractsDatasetRecord
-    from dc43_contracts_app.services import configure_dataset_records
-except ImportError:  # pragma: no cover - demo functions still usable stand-alone
-    configure_dataset_records = None  # type: ignore[assignment]
-else:
-    def _contracts_app_records_loader() -> List[ContractsDatasetRecord]:
-        demo_records = load_records()
-        converted: List[ContractsDatasetRecord] = []
-        for record in demo_records:
-            if isinstance(record, DatasetRecord):
-                payload = dict(record.__dict__)
-            elif hasattr(record, "__dict__") and not isinstance(record, Mapping):
-                payload = dict(vars(record))
-            elif isinstance(record, Mapping):
-                payload = dict(record)
-            else:
-                continue
-            try:
-                converted.append(ContractsDatasetRecord(**payload))
-            except TypeError:
-                continue
-        return converted
-
-    def _contracts_app_records_saver(records: Iterable[ContractsDatasetRecord]) -> None:
-        serialised: List[DatasetRecord] = []
-        for entry in records:
-            if isinstance(entry, DatasetRecord):
-                serialised.append(entry)
-                continue
-            if isinstance(entry, ContractsDatasetRecord):
-                payload = dict(vars(entry))
-            elif hasattr(entry, "__dict__") and not isinstance(entry, Mapping):
-                payload = dict(vars(entry))
-            elif isinstance(entry, Mapping):
-                payload = dict(entry)
-            else:
-                continue
-            try:
-                serialised.append(DatasetRecord(**payload))
-            except TypeError:
-                continue
-        save_records(serialised)
-
-    configure_dataset_records(
-        loader=_contracts_app_records_loader,
-        saver=_contracts_app_records_saver,
-    )
-
-
 __all__ = [
     "DatasetRecord",
     "load_data_product_documents",

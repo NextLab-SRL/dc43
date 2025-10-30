@@ -3,9 +3,10 @@
 ## [Unreleased]
 
 ### Changed
-- Added dataset record provider hooks to the service bootstrap so the contracts
-  UI pulls history from configured services while the demo registers its
-  filesystem loader/saver without monkeypatching core modules.
+- The service bootstrap now builds dataset record loaders/savers from the
+  backend configuration so history persists via the configured store instead of
+  in-memory monkeypatches. Demo integrations continue to populate the
+  filesystem-backed store via configuration overrides.
 - Dataset and contract pages now surface governance metrics, highlighting the
   latest snapshot and recent history so stewards can audit observations without
   leaving the UI.

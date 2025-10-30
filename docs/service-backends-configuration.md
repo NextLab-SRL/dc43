@@ -49,8 +49,8 @@ single field without editing the TOML file:
 
 ## Service backend configuration schema
 
-The service backend configuration supports five core tables:
-`contract_store`, `data_product`, `data_quality`, `governance_store`, and `auth`.
+The service backend configuration supports six core tables:
+`contract_store`, `data_product`, `dataset_records`, `data_quality`, `governance_store`, and `auth`.
 
 ```toml
 [contract_store]
@@ -58,6 +58,9 @@ type = "filesystem"
 root = "./contracts"
 
 [data_product]
+type = "memory"
+
+[dataset_records]
 type = "memory"
 
 [data_quality]
@@ -84,6 +87,37 @@ expose. Supported values are:
 | `collibra_http` | Connects to a real Collibra Data Products deployment through `HttpCollibraContractAdapter`. |
 
 The remaining keys under `contract_store` configure the selected backend.
+
+### Configuring dataset record storage
+
+The `ServiceBackendsConfig.dataset_records_store` field controls how dataset run
+metadata is persisted through the `[dataset_records]` table. Supported values
+for `dataset_records.type` are:
+
+| Type | Description |
+| ---- | ----------- |
+| `memory` | Keeps dataset history in process memory. This matches the historical behaviour prior to vNEXT and is useful for stateless demos. |
+| `filesystem` | Persists dataset records as JSON on disk so the contracts UI and demo pipelines share history across restarts. |
+
+When using the filesystem store the service persists records to the path
+configured via `dataset_records.path`. If the value is omitted the service will
+fall back to `dataset_records.root`/`dataset_records.base_path` and write a
+`datasets.json` file under that directory. The demo application sets these
+fields automatically so the FastAPI UI reads the same run history recorded by
+the pipeline helpers.
+
+Environment overrides include:
+
+| Variable | Description |
+| -------- | ----------- |
+| `DC43_DATASET_RECORDS_STORE_TYPE` | Overrides the active dataset record store implementation. |
+| `DC43_DATASET_RECORDS_STORE` | Directory used when persisting records to the filesystem. |
+| `DC43_DATASET_RECORDS_PATH` | Explicit path to the JSON file backing the filesystem store. |
+
+Additional fields mirror the other store configurations. `DC43_DATASET_RECORDS_DSN`
+and `DC43_DATASET_RECORDS_SCHEMA`, for example, are reserved for future SQL
+providers and are parsed into the configuration structure even though no SQL
+implementation ships yet.
 
 #### Filesystem contract store
 

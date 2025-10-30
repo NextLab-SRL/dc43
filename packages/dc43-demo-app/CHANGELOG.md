@@ -3,9 +3,9 @@
 ## [Unreleased]
 
 ### Changed
-- Demo contracts helpers now register filesystem-backed dataset loaders and
-  savers with the contracts app services so history stays demo-only without
-  rewriting the UI module at import time.
+- Demo startup now writes dataset record store configuration alongside the
+  backend TOML so the contracts app reads and persists run history through the
+  shared filesystem store without monkeypatching the UI module.
 - Pipeline and streaming demo scenarios now call the governance read/write
   helpers with `GovernanceSparkReadRequest`/`GovernanceSparkWriteRequest`
   payloads so presenters only need the governance client to resolve contracts,

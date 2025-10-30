@@ -19,6 +19,12 @@ type = "memory"
 root = ""
 table = ""
 
+[dataset_records]
+# Dataset history is volatile by default. Point ``path`` at a JSON file or set
+# ``type = "filesystem"`` alongside ``root`` to persist records on disk.
+type = "memory"
+path = ""
+
 [data_quality]
 # Embedded engine remains the default for backwards compatibility. Switch to
 # ``http`` when delegating to an external data observability platform.

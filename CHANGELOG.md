@@ -33,9 +33,10 @@
   building read/write requests from scenario context so presenters initialise
   only the governance client while still recording contract metadata, dataset
   versions, and status payloads in the workspace registry.
-- Added dataset record provider hooks to the contracts app services and taught
-  the demo app to register its filesystem-backed loader/saver, keeping
-  filesystem history demo-only without monkeypatching the UI module.
+- Added dataset record store configuration to the service backends and taught
+  the contracts app to build loaders/savers from that configuration so dataset
+  history can persist across restarts without UI monkeypatching. The demo app
+  now exports its workspace paths through the same hooks.
 - Delta Live Tables helpers now resolve contracts and expectation plans through
   the governance client, so notebooks bind contracts using the same
   governance-first contexts as the Spark IO wrappers.

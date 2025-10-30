@@ -259,6 +259,9 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
             continue
 
     os.environ.setdefault("DC43_CONTRACT_STORE", str(workspace.contracts_dir))
+    os.environ.setdefault("DC43_DATASET_RECORDS_STORE_TYPE", "filesystem")
+    os.environ.setdefault("DC43_DATASET_RECORDS_STORE", str(workspace.records_dir))
+    os.environ.setdefault("DC43_DATASET_RECORDS_PATH", str(workspace.datasets_file))
 
     global _CURRENT_WORKSPACE
     _CURRENT_WORKSPACE = workspace

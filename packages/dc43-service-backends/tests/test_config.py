@@ -10,6 +10,7 @@ from dc43_service_backends.config import (
     ContractStoreConfig,
     DataProductStoreConfig,
     DataQualityBackendConfig,
+    DatasetRecordStoreConfig,
     GovernanceConfig,
     GovernanceStoreConfig,
     ServiceBackendsConfig,
@@ -27,9 +28,13 @@ def test_load_config_from_file(tmp_path: Path) -> None:
             [
                 "[contract_store]",
                 f"root = '{tmp_path / 'contracts'}'",
-                "", 
+                "",
                 "[data_product]",
                 f"root = '{tmp_path / 'products'}'",
+                "",
+                "[dataset_records]",
+                "type = 'filesystem'",
+                f"path = '{tmp_path / 'records.json'}'",
                 "",
                 "[data_quality]",
                 "type = 'local'",
@@ -53,6 +58,8 @@ def test_load_config_from_file(tmp_path: Path) -> None:
     assert config.auth.token == "secret"
     assert config.governance.dataset_contract_link_builders == ()
     assert config.governance_store.type == "memory"
+    assert config.dataset_records_store.type == "filesystem"
+    assert config.dataset_records_store.path == (tmp_path / "records.json")
 
 
 def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -71,6 +78,8 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("DC43_GOVERNANCE_STORE_TYPE", "filesystem")
     monkeypatch.setenv("DC43_GOVERNANCE_STORE", str(tmp_path / "gov"))
     monkeypatch.setenv("DC43_DATA_QUALITY_DEFAULT_ENGINE", "soda")
+    monkeypatch.setenv("DC43_DATASET_RECORDS_STORE_TYPE", "filesystem")
+    monkeypatch.setenv("DC43_DATASET_RECORDS_PATH", str(tmp_path / "datasets.json"))
 
     config = load_config()
     assert config.contract_store.type == "filesystem"
@@ -87,6 +96,8 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config.governance.dataset_contract_link_builders == ()
     assert config.governance_store.type == "filesystem"
     assert config.governance_store.root == tmp_path / "gov"
+    assert config.dataset_records_store.type == "filesystem"
+    assert config.dataset_records_store.path == tmp_path / "datasets.json"
 
 
 def test_env_overrides_contract_store_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -415,6 +426,19 @@ def test_config_to_mapping_covers_all_sections() -> None:
             timeout=45.5,
             headers={"X-Env": "prod"},
         ),
+        dataset_records_store=DatasetRecordStoreConfig(
+            type="filesystem",
+            path=Path("/var/records/datasets.json"),
+            root=Path("/var/records"),
+            base_path=Path("/delta/records"),
+            dsn="sqlite:///records.db",
+            schema="analytics",
+            base_url="https://records.example.com",
+            token="records-token",
+            token_header="X-Records",
+            token_scheme="Token",
+            timeout=12.5,
+        ),
     )
 
     mapping = config_to_mapping(config)
@@ -490,4 +514,17 @@ def test_config_to_mapping_covers_all_sections() -> None:
         "token_scheme": "Token",
         "timeout": 45.5,
         "headers": {"X-Env": "prod"},
+    }
+    assert mapping["dataset_records"] == {
+        "type": "filesystem",
+        "path": str(Path("/var/records/datasets.json")),
+        "root": str(Path("/var/records")),
+        "base_path": str(Path("/delta/records")),
+        "dsn": "sqlite:///records.db",
+        "schema": "analytics",
+        "base_url": "https://records.example.com",
+        "token": "records-token",
+        "token_header": "X-Records",
+        "token_scheme": "Token",
+        "timeout": 12.5,
     }
