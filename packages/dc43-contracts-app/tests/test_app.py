@@ -1,4 +1,3 @@
-import contextlib
 from pathlib import Path
 
 import pytest
@@ -103,10 +102,6 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
             )
         ],
     )
-    contract_dir = server.current_workspace().contracts_dir
-    contract_file = contract_dir / contract_id / f"{contract_version}.json"
-    contract_file.parent.mkdir(parents=True, exist_ok=True)
-    original_contract = contract_file.read_text(encoding="utf-8") if contract_file.exists() else None
     contract_store.put(contract_model)
 
     sample_metrics = [
@@ -144,15 +139,7 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
 
     monkeypatch.setattr(server, "_thread_service_clients", fake_thread_clients)
 
-    try:
-        resp = client.get(f"/contracts/{contract_id}/{contract_version}")
-    finally:
-        if original_contract is None:
-            contract_file.unlink(missing_ok=True)
-            with contextlib.suppress(OSError):
-                contract_file.parent.rmdir()
-        else:
-            contract_file.write_text(original_contract, encoding="utf-8")
+    resp = client.get(f"/contracts/{contract_id}/{contract_version}")
 
     assert resp.status_code == 200
     body = resp.text

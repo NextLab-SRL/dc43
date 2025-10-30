@@ -65,6 +65,10 @@
   added comprehensive governance-first parity tests for data product bindings,
   DQ blocks, and format warnings, and taught the governance backend to surface
   review-required registrations instead of silently continuing.
+- The contracts app no longer initialises or writes to filesystem workspaces;
+  docs chat caches now default to `~/.dc43/docs_chat/index` and operators can
+  relocate setup wizard persistence via `DC43_CONTRACTS_APP_STATE_DIR` while
+  the demo application retains the filesystem helpers for tutorials.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

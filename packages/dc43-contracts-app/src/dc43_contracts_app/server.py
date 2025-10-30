@@ -97,7 +97,6 @@ from .services import (
 )
 from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
-from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
     CustomProperty,
     DataQuality,
@@ -152,9 +151,6 @@ TERRAFORM_TEMPLATE_ROOT = REPO_ROOT / "deploy" / "terraform"
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ContractsAppConfig | None = None
-_WORKSPACE_LOCK = Lock()
-_WORKSPACE: ContractsAppWorkspace | None = None
-WORK_DIR: Path
 
 
 class _ServiceFacade:
@@ -207,36 +203,54 @@ def _thread_service_clients() -> tuple[Any, Any, Any]:
     return thread_service_clients()
 
 
-def configure_workspace(workspace: ContractsAppWorkspace) -> None:
-    """Set the active filesystem layout for the application."""
+@dataclass(frozen=True)
+class _WorkspaceHints:
+    """Lightweight projection of the legacy workspace layout for UI hints."""
 
-    global _WORKSPACE, WORK_DIR
+    root: Path
+    contracts_dir: Path
+    data_dir: Path
+    records_dir: Path
+    datasets_file: Path
+    dq_status_dir: Path
+    data_products_file: Path
+    products_dir: Path
 
-    workspace.ensure()
-    WORK_DIR = workspace.root
-    _WORKSPACE = workspace
-    try:
-        os.environ.setdefault("DC43_CONTRACTS_APP_WORK_DIR", str(WORK_DIR))
-    except Exception:  # pragma: no cover - defensive
-        pass
+
+def _workspace_hints(config: ContractsAppConfig | None = None) -> _WorkspaceHints:
+    active = config or _current_config()
+    root = active.workspace.root
+    if root:
+        root_path = Path(root).expanduser()
+    else:
+        override = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv(
+            "DC43_DEMO_WORK_DIR"
+        )
+        if override:
+            root_path = Path(override).expanduser()
+        else:
+            root_path = Path.home() / ".dc43" / "workspace"
+    return _WorkspaceHints(
+        root=root_path,
+        contracts_dir=root_path / "contracts",
+        data_dir=root_path / "data",
+        records_dir=root_path / "records",
+        datasets_file=root_path / "records" / "datasets.json",
+        dq_status_dir=root_path / "records" / "dq_state" / "status",
+        data_products_file=root_path / "records" / "data_products.json",
+        products_dir=root_path / "products",
+    )
 
 
-def current_workspace() -> ContractsAppWorkspace:
-    """Return the configured workspace initialising defaults when needed."""
-
-    _current_config()
-    global _WORKSPACE
-    if _WORKSPACE is None:
-        with _WORKSPACE_LOCK:
-            if _WORKSPACE is None:
-                active = _current_config()
-                default_root = (
-                    str(active.workspace.root) if active.workspace.root else None
-                )
-                workspace, _ = workspace_from_env(default_root=default_root)
-                configure_workspace(workspace)
-    assert _WORKSPACE is not None
-    return _WORKSPACE
+def _state_root(config: ContractsAppConfig | None = None) -> Path:
+    active = config or _current_config()
+    override = os.getenv("DC43_CONTRACTS_APP_STATE_DIR")
+    if override:
+        return Path(override).expanduser()
+    root = active.workspace.root
+    if root:
+        return Path(root).expanduser()
+    return Path.home() / ".dc43-contracts-app"
 
 
 def _set_active_config(config: ContractsAppConfig) -> ContractsAppConfig:
@@ -446,8 +460,7 @@ _VERSIONING_MODES: List[Tuple[str, str]] = [
 def _setup_state_path() -> Path:
     """Return the path that stores onboarding progress information."""
 
-    workspace = current_workspace()
-    return workspace.root / "setup_state.json"
+    return _state_root() / "setup_state.json"
 
 
 def _default_setup_state() -> Dict[str, Any]:
@@ -529,12 +542,9 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
     """Apply ``config`` to initialise workspace and backend defaults."""
 
     config = config or load_config()
-    workspace_root = config.workspace.root
-    default_root = str(workspace_root) if workspace_root else None
-    workspace, _ = workspace_from_env(default_root=default_root)
-    configure_workspace(workspace)
     configure_backend(config=config.backend)
-    docs_chat.configure(config.docs_chat, workspace)
+    base_dir = config.workspace.root
+    docs_chat.configure(config.docs_chat, base_dir=base_dir)
 
     def _log_warmup(detail: str) -> None:
         logger.info("Docs chat warm-up: %s", detail)
@@ -4962,7 +4972,7 @@ def _build_setup_context(
     if state.get("completed") and step is None:
         requested_step = _SETUP_TOTAL_STEPS
 
-    workspace = current_workspace()
+    workspace = _workspace_hints()
 
     module_to_group: Dict[str, str] = {}
     for group_meta in SETUP_MODULE_GROUPS:

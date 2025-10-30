@@ -399,7 +399,14 @@ an explicit path is provided the loader skips most environment overrides so
 TOML files remain authoritative.
 
 ### `[workspace]`
-- `root` (`Path | None`) – Workspace root directory. Override with `DC43_CONTRACTS_APP_WORK_DIR` (or `DC43_DEMO_WORK_DIR`).
+- `root` (`Path | None`) – Optional base directory used for filesystem hints
+  and backwards-compatible demos. The contracts UI no longer creates or
+  manages this path automatically. Override with `DC43_CONTRACTS_APP_WORK_DIR`
+  (or `DC43_DEMO_WORK_DIR`).
+
+> **Note:** Use `DC43_CONTRACTS_APP_STATE_DIR` to relocate the setup wizard
+> persistence and docs-chat cache directories when running the standalone UI.
+> When unset the app writes to `~/.dc43-contracts-app`.
 
 ### `[backend]`
 - `mode` (`embedded` | `remote`) – Determines whether the UI starts the backend in-process. Override with `DC43_CONTRACTS_APP_BACKEND_MODE`.
@@ -419,7 +426,9 @@ TOML files remain authoritative.
 - `api_key_env` – Environment variable that supplies the API key. Override with `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV`.
 - `api_key` – Inline secret used instead of an environment variable. Override with `DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY`.
 - `docs_path` – Optional documentation directory override. Override with `DC43_CONTRACTS_APP_DOCS_CHAT_PATH`.
-- `index_path` – Optional index directory override. Override with `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX`.
+- `index_path` – Optional index directory override. When omitted the UI stores
+  cached FAISS files under `~/.dc43/docs_chat/index`. Override with
+  `DC43_CONTRACTS_APP_DOCS_CHAT_INDEX`.
 - `code_paths` – Tuple of extra directories to index. Override with `DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS` (comma/semicolon/`os.pathsep` separated).
 - `reasoning_effort` – Optional reasoning depth hint for OpenAI reasoning models. Override with `DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT`.
 

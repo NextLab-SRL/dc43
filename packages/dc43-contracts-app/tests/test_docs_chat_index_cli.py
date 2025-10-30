@@ -27,8 +27,8 @@ embedding_provider = "huggingface"
 
     calls: dict[str, object] = {}
 
-    def _fake_configure(config, workspace):  # type: ignore[unused-argument]
-        calls["configure"] = (config, workspace)
+    def _fake_configure(config, *, base_dir=None):  # type: ignore[unused-argument]
+        calls["configure"] = (config, base_dir)
 
     def _fake_status_ready():
         return DummyStatus(ready=True)
@@ -37,7 +37,6 @@ embedding_provider = "huggingface"
         index_dir = workspace_root / "docs_chat" / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
         return SimpleNamespace(
-            workspace_root=workspace_root,
             docs_root=config_path.parent,
             code_paths=(),
             index_dir=index_dir,
@@ -69,9 +68,8 @@ embedding_provider = "huggingface"
     assert exit_code == 0
     assert "configure" in calls
     assert "warm_up" in calls
-    _, workspace_obj = calls["configure"]
-    assert isinstance(workspace_obj.root, Path)
-    assert workspace_obj.root == workspace_root
+    _, configured_base_dir = calls["configure"]
+    assert configured_base_dir == workspace_root
 
     captured = capsys.readouterr()
     assert "Resolved docs chat configuration:" in captured.out
@@ -83,7 +81,7 @@ def test_docs_chat_index_cli_fails_when_not_ready(monkeypatch, tmp_path, capsys)
     config_path = tmp_path / "contracts-app.toml"
     config_path.write_text("[docs_chat]\nenabled = true\n")
 
-    def _fake_configure(config, workspace):  # type: ignore[unused-argument]
+    def _fake_configure(config, *, base_dir=None):  # type: ignore[unused-argument]
         pass
 
     def _fake_status_not_ready():
@@ -95,7 +93,6 @@ def test_docs_chat_index_cli_fails_when_not_ready(monkeypatch, tmp_path, capsys)
         docs_chat_index,
         "describe_configuration",
         lambda: SimpleNamespace(
-            workspace_root=tmp_path,
             docs_root=tmp_path,
             code_paths=(),
             index_dir=tmp_path / "index",

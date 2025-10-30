@@ -19,6 +19,13 @@
 - Dropped the ``server.store`` export from the contracts app; downstream demos
   should import the shared ``dc43_contracts_app.services.store`` adapter or call
   ``contract_service`` directly.
+- Removed the legacy `workspace` module from the contracts UI; filesystem
+  helpers now live exclusively in the demo app while the standalone UI derives
+  optional path hints from configuration and persists setup state under
+  `~/.dc43-contracts-app` (overridable via `DC43_CONTRACTS_APP_STATE_DIR`).
+- Updated docs chat configuration and the `dc43-docs-chat-index` CLI to accept
+  an optional base directory, defaulting cached embeddings to
+  `~/.dc43/docs_chat/index` when no explicit `index_path` is supplied.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

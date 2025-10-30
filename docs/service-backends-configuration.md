@@ -39,8 +39,11 @@ single field without editing the TOML file:
     table or schema used by SQL and Delta stores.
   * `DC43_BACKEND_TOKEN` – overrides the bearer token required by the HTTP API.
 * Contracts app:
-  * `DC43_CONTRACTS_APP_WORK_DIR` / `DC43_DEMO_WORK_DIR` – overrides the
-    workspace directory.
+  * `DC43_CONTRACTS_APP_STATE_DIR` – overrides the directory used for setup
+    wizard persistence and docs-chat caches.
+  * `DC43_CONTRACTS_APP_WORK_DIR` / `DC43_DEMO_WORK_DIR` – legacy workspace
+    hints maintained for the demo app and backwards compatibility. The
+    standalone UI no longer creates or manages filesystem workspaces.
 * Additional backend specific overrides exist for the contracts UI (see
   [Contracts app configuration](#contracts-app-configuration)).
 
