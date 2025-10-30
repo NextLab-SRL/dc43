@@ -18,7 +18,7 @@ import logging
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import (
@@ -152,6 +152,8 @@ TERRAFORM_TEMPLATE_ROOT = REPO_ROOT / "deploy" / "terraform"
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ContractsAppConfig | None = None
+_DATASET_RECORD_LOADER: Callable[[], Iterable[object]] | None = None
+_DATASET_RECORD_SAVER: Callable[[Iterable[object]], None] | None = None
 
 
 class _ServiceFacade:
@@ -250,42 +252,16 @@ def _state_root(config: ContractsAppConfig | None = None) -> Path:
     return Path.home() / ".dc43-contracts-app"
 
 
-def _workspace_root_for_records() -> Path | None:
-    """Return the workspace root that should host dataset registry files."""
+def configure_dataset_registry(
+    *,
+    loader: Callable[[], Iterable[object]] | None,
+    saver: Callable[[Iterable[object]], None] | None = None,
+) -> None:
+    """Register callables that expose dataset history to the UI."""
 
-    env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR")
-    if env_root:
-        try:
-            return Path(env_root).expanduser()
-        except OSError:
-            return Path(env_root)
-
-    hints = get_workspace_hints()
-    if hints:
-        root_hint = hints.get("root")
-        if root_hint:
-            try:
-                return Path(root_hint).expanduser()
-            except OSError:
-                return Path(root_hint)
-
-    config_root = _current_config().workspace.root
-    if config_root:
-        try:
-            return Path(config_root).expanduser()
-        except OSError:
-            return Path(config_root)
-
-    return None
-
-
-def _datasets_file_path() -> Path | None:
-    """Return the expected datasets registry path if a workspace is configured."""
-
-    workspace_root = _workspace_root_for_records()
-    if workspace_root is None:
-        return None
-    return workspace_root / "records" / "datasets.json"
+    global _DATASET_RECORD_LOADER, _DATASET_RECORD_SAVER
+    _DATASET_RECORD_LOADER = loader
+    _DATASET_RECORD_SAVER = saver
 
 
 def _set_active_config(config: ContractsAppConfig) -> ContractsAppConfig:
@@ -5706,75 +5682,85 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
     return entries
 
 
-def load_records() -> List[DatasetRecord]:
-    """Return recorded dataset runs when a workspace registry is available."""
+def _coerce_dataset_record(entry: object) -> DatasetRecord | None:
+    """Normalise ``entry`` into a :class:`DatasetRecord` when possible."""
 
-    path = _datasets_file_path()
-    if path is None:
+    if isinstance(entry, DatasetRecord):
+        return entry
+
+    if hasattr(entry, "__dict__") and not isinstance(entry, Mapping):
+        return _coerce_dataset_record(vars(entry))
+
+    if not isinstance(entry, Mapping):
+        return None
+
+    dq_details = entry.get("dq_details")
+    if not isinstance(dq_details, Mapping):
+        dq_details = {}
+
+    try:
+        violations_value = int(entry.get("violations", 0))
+    except (TypeError, ValueError):
+        violations_value = 0
+
+    record = DatasetRecord(
+        str(entry.get("contract_id") or ""),
+        str(entry.get("contract_version") or ""),
+        str(entry.get("dataset_name") or ""),
+        str(entry.get("dataset_version") or ""),
+        str(entry.get("status") or "unknown"),
+        dict(dq_details),
+        str(entry.get("run_type") or "infer"),
+        violations_value,
+    )
+    reason = entry.get("reason")
+    record.reason = str(reason) if reason else ""
+    draft_version = entry.get("draft_contract_version")
+    record.draft_contract_version = str(draft_version) if draft_version else None
+    scenario_key = entry.get("scenario_key")
+    record.scenario_key = str(scenario_key) if scenario_key else None
+    record.data_product_id = str(entry.get("data_product_id") or "")
+    record.data_product_port = str(entry.get("data_product_port") or "")
+    record.data_product_role = str(entry.get("data_product_role") or "")
+    return record
+
+
+def load_records() -> List[DatasetRecord]:
+    """Return dataset runs exposed by the configured registry provider."""
+
+    loader = _DATASET_RECORD_LOADER
+    if loader is None:
         return []
 
     try:
-        payload = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return []
-
-    if not isinstance(payload, list):
+        raw_records = loader()
+    except Exception:  # pragma: no cover - defensive guard around integrations
+        logger.exception("Failed to load dataset records")
         return []
 
     records: List[DatasetRecord] = []
-    for item in payload:
-        if not isinstance(item, Mapping):
-            continue
-        dq_details = item.get("dq_details")
-        if not isinstance(dq_details, Mapping):
-            dq_details = {}
-        try:
-            violations_raw = item.get("violations", 0)
-            violations_value = int(violations_raw)
-        except (TypeError, ValueError):
-            violations_value = 0
-        record = DatasetRecord(
-            str(item.get("contract_id") or ""),
-            str(item.get("contract_version") or ""),
-            str(item.get("dataset_name") or ""),
-            str(item.get("dataset_version") or ""),
-            str(item.get("status") or "unknown"),
-            dict(dq_details),
-            str(item.get("run_type") or "infer"),
-            violations_value,
-        )
-        record.reason = str(item.get("reason") or "")
-        draft_version = item.get("draft_contract_version")
-        record.draft_contract_version = str(draft_version) if draft_version else None
-        scenario_key = item.get("scenario_key")
-        record.scenario_key = str(scenario_key) if scenario_key else None
-        record.data_product_id = str(item.get("data_product_id") or "")
-        record.data_product_port = str(item.get("data_product_port") or "")
-        record.data_product_role = str(item.get("data_product_role") or "")
-        records.append(record)
+    if raw_records is None:
+        return records
+
+    for entry in raw_records:
+        normalised = _coerce_dataset_record(entry)
+        if normalised is not None:
+            records.append(normalised)
 
     return records
 
 
 def save_records(records: List[DatasetRecord]) -> None:
-    """Persist dataset run metadata alongside the configured workspace."""
+    """Persist dataset run metadata through the registered provider."""
 
-    path = _datasets_file_path()
-    if path is None:
+    saver = _DATASET_RECORD_SAVER
+    if saver is None:
         return
 
-    serialised: List[Dict[str, Any]] = []
-    for record in records:
-        if isinstance(record, DatasetRecord):
-            payload = asdict(record)
-        elif isinstance(record, Mapping):
-            payload = dict(record)
-        else:
-            continue
-        serialised.append(payload)
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(serialised, indent=2), encoding="utf-8")
+    try:
+        saver(records)
+    except Exception:  # pragma: no cover - defensive guard around integrations
+        logger.exception("Failed to persist dataset records")
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:

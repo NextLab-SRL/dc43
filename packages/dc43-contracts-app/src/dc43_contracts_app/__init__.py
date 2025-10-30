@@ -31,6 +31,7 @@ _SERVER_EXPORTS = {
     "DatasetRecord",
     "app",
     "configure_backend",
+    "configure_dataset_registry",
     "configure_from_config",
     "create_app",
     "load_records",
