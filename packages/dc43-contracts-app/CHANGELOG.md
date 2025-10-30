@@ -3,10 +3,9 @@
 ## [Unreleased]
 
 ### Changed
-- Reaffirmed that dataset history remains a demo concern by dropping the
-  registry hook from the contracts UI; standalone deployments continue to
-  expose only service-backed metadata while demos supply filesystem records on
-  their side.
+- Added dataset record provider hooks to the service bootstrap so the contracts
+  UI pulls history from configured services while the demo registers its
+  filesystem loader/saver without monkeypatching core modules.
 - Dataset and contract pages now surface governance metrics, highlighting the
   latest snapshot and recent history so stewards can audit observations without
   leaving the UI.

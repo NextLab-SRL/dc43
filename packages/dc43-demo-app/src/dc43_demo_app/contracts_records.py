@@ -473,13 +473,10 @@ def dq_version_records(
 
 
 try:  # pragma: no cover - optional dependency when contracts app unavailable
-    import dc43_contracts_app as contracts_app
-    from dc43_contracts_app import (
-        DatasetRecord as ContractsDatasetRecord,
-        server as contracts_server,
-    )
+    from dc43_contracts_app import DatasetRecord as ContractsDatasetRecord
+    from dc43_contracts_app.services import configure_dataset_records
 except ImportError:  # pragma: no cover - demo functions still usable stand-alone
-    contracts_server = None
+    configure_dataset_records = None  # type: ignore[assignment]
 else:
     def _contracts_app_records_loader() -> List[ContractsDatasetRecord]:
         demo_records = load_records()
@@ -499,7 +496,7 @@ else:
                 continue
         return converted
 
-    def _contracts_app_records_saver(records: Iterable[object]) -> None:
+    def _contracts_app_records_saver(records: Iterable[ContractsDatasetRecord]) -> None:
         serialised: List[DatasetRecord] = []
         for entry in records:
             if isinstance(entry, DatasetRecord):
@@ -519,10 +516,10 @@ else:
                 continue
         save_records(serialised)
 
-    contracts_server.load_records = _contracts_app_records_loader  # type: ignore[assignment]
-    contracts_server.save_records = _contracts_app_records_saver  # type: ignore[assignment]
-    setattr(contracts_app, "load_records", _contracts_app_records_loader)
-    setattr(contracts_app, "save_records", _contracts_app_records_saver)
+    configure_dataset_records(
+        loader=_contracts_app_records_loader,
+        saver=_contracts_app_records_saver,
+    )
 
 
 __all__ = [

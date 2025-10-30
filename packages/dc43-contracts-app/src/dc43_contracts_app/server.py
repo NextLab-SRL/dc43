@@ -87,11 +87,13 @@ from .services import (
     data_quality_service_client,
     get_contract,
     governance_service_client,
+    load_dataset_records,
     latest_contract,
     latest_data_product,
     list_contract_ids,
     list_data_product_ids,
     put_contract,
+    save_dataset_records,
     service_backends_config,
     thread_service_clients,
 )
@@ -5669,24 +5671,33 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
 
 
 def load_records() -> List[DatasetRecord]:
-    """Return recorded dataset runs.
+    """Return recorded dataset runs provided by the configured services."""
 
-    The standalone contracts app delegates dataset capture to external
-    pipelines, so no local history is available. The demo package provides a
-    filesystem-backed implementation for interactive tutorials.
-    """
-
-    return []
+    raw_records = load_dataset_records()
+    records: List[DatasetRecord] = []
+    for entry in raw_records:
+        if isinstance(entry, DatasetRecord):
+            records.append(entry)
+            continue
+        if isinstance(entry, Mapping):
+            payload = dict(entry)
+        elif hasattr(entry, "__dict__") and not isinstance(entry, Mapping):
+            payload = dict(vars(entry))
+        else:
+            logger.debug("Discarding unsupported dataset record %r", entry)
+            continue
+        try:
+            records.append(DatasetRecord(**payload))
+        except TypeError:
+            logger.debug("Failed to coerce dataset record payload: %r", payload)
+            continue
+    return records
 
 
 def save_records(records: List[DatasetRecord]) -> None:
-    """Persist dataset run metadata.
+    """Persist dataset run metadata using the configured services."""
 
-    No-op for the standalone app; pipelines interacting with the governance
-    APIs are expected to manage their own history.
-    """
-
-    del records
+    save_dataset_records(records)
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:

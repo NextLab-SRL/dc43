@@ -15,7 +15,16 @@ import os
 from dataclasses import dataclass
 import logging
 from threading import local
-from typing import List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import (
+    Callable,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    TYPE_CHECKING,
+)
 from uuid import uuid4
 
 import httpx
@@ -50,6 +59,7 @@ from dc43_service_clients.odps import OpenDataProductStandard
 
 if TYPE_CHECKING:  # pragma: no cover - import side-effect guard
     from dc43_contracts_app.config import BackendConfig
+    from dc43_contracts_app.server import DatasetRecord
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +81,12 @@ _BACKEND_MODE: str = "embedded"
 _BACKEND_BASE_URL: str = "http://dc43-services"
 _BACKEND_TOKEN: str = ""
 _THREAD_CLIENTS = local()
+_DATASET_RECORDS_LOADER_SENTINEL = object()
+_DATASET_RECORDS_SAVER_SENTINEL = object()
+_DATASET_RECORDS_LOADER: Callable[[], Iterable["DatasetRecord"]] | None = None
+_DATASET_RECORDS_SAVER: (
+    Callable[[Iterable["DatasetRecord"]], None] | None
+) = None
 def _service_backends_config() -> ServiceBackendsConfig:
     global _SERVICE_BACKENDS_CONFIG
     if _SERVICE_BACKENDS_CONFIG is None:
@@ -82,6 +98,51 @@ def service_backends_config() -> ServiceBackendsConfig:
     """Return the cached :class:`ServiceBackendsConfig` instance."""
 
     return _service_backends_config()
+
+
+def configure_dataset_records(
+    *,
+    loader: Callable[[], Iterable["DatasetRecord"]] | object = _DATASET_RECORDS_LOADER_SENTINEL,
+    saver: Callable[[Iterable["DatasetRecord"]], None] | object = _DATASET_RECORDS_SAVER_SENTINEL,
+) -> None:
+    """Configure dataset record loader and saver callables used by the UI."""
+
+    global _DATASET_RECORDS_LOADER, _DATASET_RECORDS_SAVER
+
+    if loader is not _DATASET_RECORDS_LOADER_SENTINEL:
+        if loader is None:
+            _DATASET_RECORDS_LOADER = None
+        else:
+            _DATASET_RECORDS_LOADER = loader
+
+    if saver is not _DATASET_RECORDS_SAVER_SENTINEL:
+        if saver is None:
+            _DATASET_RECORDS_SAVER = None
+        else:
+            _DATASET_RECORDS_SAVER = saver
+
+
+def load_dataset_records() -> List["DatasetRecord"]:
+    """Return dataset records provided by the configured backend."""
+
+    loader = _DATASET_RECORDS_LOADER
+    if loader is None:
+        return []
+    try:
+        records = list(loader())
+    except Exception:  # pragma: no cover - defensive guard around providers
+        logger.exception("Failed to load dataset records from provider")
+        return []
+    return records
+
+
+def save_dataset_records(records: Iterable["DatasetRecord"]) -> None:
+    """Persist dataset records using the configured backend."""
+
+    saver = _DATASET_RECORDS_SAVER
+    if saver is None:
+        raise RuntimeError("Dataset record saver is not configured")
+    saver(list(records))
 
 
 def _assign_service_clients(bundle: ServiceBundle) -> None:
@@ -416,14 +477,17 @@ __all__ = [
     "backend_mode",
     "backend_token",
     "configure_backend",
+    "configure_dataset_records",
     "contract_service_client",
     "contract_versions",
     "get_contract",
     "latest_contract",
     "latest_data_product",
+    "load_dataset_records",
     "list_contract_ids",
     "list_data_product_ids",
     "put_contract",
+    "save_dataset_records",
     "service_backends_config",
     "store",
     "thread_service_clients",
