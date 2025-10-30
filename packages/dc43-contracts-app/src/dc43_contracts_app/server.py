@@ -87,11 +87,11 @@ from .services import (
     data_quality_service_client,
     get_contract,
     governance_service_client,
-    load_dataset_records,
     latest_contract,
     latest_data_product,
     list_contract_ids,
     list_data_product_ids,
+    load_dataset_records,
     put_contract,
     save_dataset_records,
     service_backends_config,
@@ -216,7 +216,9 @@ def _workspace_hint(key: str, fallback: str = "") -> str:
             return str(value)
 
     if key == "root":
-        override = os.getenv("DC43_CONTRACTS_APP_WORK_DIR")
+        override = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv(
+            "DC43_DEMO_WORK_DIR"
+        )
         if override:
             return str(Path(override).expanduser())
 

@@ -14,9 +14,6 @@
   product input/output registrations create new drafts, matching the behaviour
   of the legacy Spark contract helpers so governance-first pipelines surface the
   same guardrails.
-- Added dataset record store configuration to the shared bootstrap so
-  deployments can persist run history via memory or filesystem stores while the
-  contracts UI consumes the same provider surface.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

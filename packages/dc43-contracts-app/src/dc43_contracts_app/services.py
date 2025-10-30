@@ -15,28 +15,14 @@ import os
 from dataclasses import dataclass
 import logging
 from threading import local
-from typing import (
-    Callable,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
-    TYPE_CHECKING,
-)
+from typing import Callable, Iterable, List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING
 from uuid import uuid4
 
 import httpx
 from httpx import HTTPStatusError
 
-from dc43_service_backends.bootstrap import (
-    BackendSuite,
-    build_backends,
-    build_dataset_record_store,
-)
+from dc43_service_backends.bootstrap import BackendSuite, build_backends
 from dc43_service_backends.config import ServiceBackendsConfig, load_config as load_service_backends_config
-from dc43_service_backends.contracts.backend.dataset_records import DatasetRecordStore
 from dc43_service_clients._http_sync import close_client
 from dc43_service_clients.contracts import (
     ContractServiceClient,
@@ -64,7 +50,6 @@ from dc43_service_clients.odps import OpenDataProductStandard
 
 if TYPE_CHECKING:  # pragma: no cover - import side-effect guard
     from dc43_contracts_app.config import BackendConfig
-    from dc43_contracts_app.server import DatasetRecord
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +74,7 @@ _THREAD_CLIENTS = local()
 _DATASET_RECORDS_LOADER_SENTINEL = object()
 _DATASET_RECORDS_SAVER_SENTINEL = object()
 _DATASET_RECORDS_LOADER: Callable[[], Iterable["DatasetRecord"]] | None = None
-_DATASET_RECORDS_SAVER: (
-    Callable[[Iterable["DatasetRecord"]], None] | None
-) = None
-_DATASET_RECORDS_STORE: DatasetRecordStore | None = None
-_DATASET_RECORDS_STORE: DatasetRecordStore | None = None
+_DATASET_RECORDS_SAVER: Callable[[Iterable["DatasetRecord"]], None] | None = None
 def _service_backends_config() -> ServiceBackendsConfig:
     global _SERVICE_BACKENDS_CONFIG
     if _SERVICE_BACKENDS_CONFIG is None:
@@ -112,85 +93,24 @@ def configure_dataset_records(
     loader: Callable[[], Iterable["DatasetRecord"]] | object = _DATASET_RECORDS_LOADER_SENTINEL,
     saver: Callable[[Iterable["DatasetRecord"]], None] | object = _DATASET_RECORDS_SAVER_SENTINEL,
 ) -> None:
-    """Configure dataset record loader and saver callables used by the UI."""
+    """Register dataset record accessors for the UI."""
 
     global _DATASET_RECORDS_LOADER, _DATASET_RECORDS_SAVER
 
     if loader is not _DATASET_RECORDS_LOADER_SENTINEL:
-        if loader is None:
-            _DATASET_RECORDS_LOADER = None
-        else:
-            _DATASET_RECORDS_LOADER = loader
+        _DATASET_RECORDS_LOADER = None if loader is None else loader
 
     if saver is not _DATASET_RECORDS_SAVER_SENTINEL:
-        if saver is None:
-            _DATASET_RECORDS_SAVER = None
-        else:
-            _DATASET_RECORDS_SAVER = saver
-
-
-def _coerce_dataset_record(payload: Mapping[str, object] | None) -> "DatasetRecord" | None:
-    if not payload:
-        return None
-    try:
-        return DatasetRecord(**payload)
-    except TypeError:
-        logger.debug("Failed to coerce dataset record payload: %r", payload)
-        return None
-
-
-def _serialise_dataset_record(entry: "DatasetRecord" | Mapping[str, object]) -> Mapping[str, object] | None:
-    if isinstance(entry, Mapping):
-        return dict(entry)
-    if hasattr(entry, "__dict__") and not isinstance(entry, Mapping):
-        return dict(vars(entry))
-    return None
-
-
-def _configure_dataset_record_store(store: DatasetRecordStore | None) -> None:
-    global _DATASET_RECORDS_STORE
-
-    _DATASET_RECORDS_STORE = store
-
-    if store is None:
-        configure_dataset_records(loader=None, saver=None)
-        return
-
-    def _loader() -> List["DatasetRecord"]:
-        try:
-            raw_records = store.load_records()
-        except Exception:  # pragma: no cover - provider failure
-            logger.exception("Failed to load dataset records from store")
-            return []
-
-        records: List["DatasetRecord"] = []
-        for entry in raw_records:
-            record = _coerce_dataset_record(entry if isinstance(entry, Mapping) else None)
-            if record is not None:
-                records.append(record)
-        return records
-
-    def _saver(records: Iterable["DatasetRecord"]) -> None:
-        serialised: List[Mapping[str, object]] = []
-        for entry in records:
-            payload = _serialise_dataset_record(entry)
-            if payload is not None:
-                serialised.append(payload)
-        try:
-            store.save_records(serialised)
-        except Exception:  # pragma: no cover - provider failure
-            logger.exception("Failed to persist dataset records")
-            raise
-
-    configure_dataset_records(loader=_loader, saver=_saver)
+        _DATASET_RECORDS_SAVER = None if saver is None else saver
 
 
 def load_dataset_records() -> List["DatasetRecord"]:
-    """Return dataset records provided by the configured backend."""
+    """Return dataset records supplied by the configured backend."""
 
     loader = _DATASET_RECORDS_LOADER
     if loader is None:
         return []
+
     try:
         records = list(loader())
     except Exception:  # pragma: no cover - defensive guard around providers
@@ -205,6 +125,7 @@ def save_dataset_records(records: Iterable["DatasetRecord"]) -> None:
     saver = _DATASET_RECORDS_SAVER
     if saver is None:
         raise RuntimeError("Dataset record saver is not configured")
+
     saver(list(records))
 
 
@@ -270,30 +191,21 @@ def _initialise_backend(*, base_url: str | None = None, suite: BackendSuite | No
     _close_backend_client()
     _clear_thread_clients()
 
-    store: DatasetRecordStore | None = None
-    if base_url:
-        try:
-            store = build_dataset_record_store(
-                _service_backends_config().dataset_records_store
-            )
-        except Exception:  # pragma: no cover - defensive guard around providers
-            logger.exception("Failed to initialise dataset record store from configuration")
-            store = None
+    # Reset dataset record hooks; demo integrations will register their providers
+    # once the backend configuration completes.
+    configure_dataset_records(loader=None, saver=None)
 
     client_base_url = base_url.rstrip("/") if base_url else "http://dc43-services"
     if base_url:
         bundle = _initialise_remote_bundle(client_base_url)
-        records_store = store
         _BACKEND_MODE = "remote"
     else:
         bundle = _initialise_embedded_bundle(suite)
-        records_store = suite.dataset_records_store if suite else store
         _BACKEND_MODE = "embedded"
 
     _BACKEND_BASE_URL = client_base_url
     _BACKEND_TOKEN = uuid4().hex
     _assign_service_clients(bundle)
-    _configure_dataset_record_store(records_store)
 
 
 def configure_backend(
@@ -553,17 +465,14 @@ __all__ = [
     "backend_mode",
     "backend_token",
     "configure_backend",
-    "configure_dataset_records",
     "contract_service_client",
     "contract_versions",
     "get_contract",
     "latest_contract",
     "latest_data_product",
-    "load_dataset_records",
     "list_contract_ids",
     "list_data_product_ids",
     "put_contract",
-    "save_dataset_records",
     "service_backends_config",
     "store",
     "thread_service_clients",

@@ -13,6 +13,12 @@ from dc43_service_clients.governance.client.local import (
     LocalGovernanceServiceClient,
     build_local_governance_service,
 )
+try:  # pragma: no cover - optional dependency when contracts app missing
+    from dc43_contracts_app import server as contracts_server
+    from dc43_contracts_app.services import configure_dataset_records
+except ImportError:  # pragma: no cover - demo can operate without the UI package
+    contracts_server = None  # type: ignore[assignment]
+    configure_dataset_records = None  # type: ignore[assignment]
 try:
     from dc43_service_backends.data_products import LocalDataProductServiceBackend
 except ModuleNotFoundError:  # pragma: no cover - fallback when backends missing
@@ -56,6 +62,51 @@ governance_service: LocalGovernanceServiceClient = build_local_governance_servic
     data_product_backend=_DATA_PRODUCT_BACKEND,
 )
 data_product_service = LocalDataProductServiceClient(backend=_DATA_PRODUCT_BACKEND)
+
+if configure_dataset_records is not None:
+    configure_dataset_records(
+        loader=load_records,
+        saver=lambda records: save_records(list(records)),
+    )
+
+    if contracts_server is not None:
+
+        def _safe_fs_name(name: str) -> str:
+            return "".join(
+                ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in name
+            ) or "version"
+
+        def _dataset_version_dir(dataset: str, version: str) -> Path | None:
+            base = current_workspace().data_dir / dataset
+            for candidate in (base / version, base / _safe_fs_name(version)):
+                if candidate.exists():
+                    return candidate
+            return None
+
+        def _preview_contents(dataset: str, version: str) -> str:
+            target = _dataset_version_dir(dataset, version)
+            if target is None:
+                return ""
+
+            lines: list[str] = []
+            for entry in sorted(target.iterdir()):
+                if entry.is_dir():
+                    continue
+                try:
+                    with entry.open("r", encoding="utf-8") as handle:
+                        for _, line in zip(range(20 - len(lines)), handle):
+                            lines.append(line.rstrip())
+                except OSError:
+                    continue
+                if len(lines) >= 20:
+                    break
+            return "\n".join(lines)
+
+        def _dataset_preview(contract, dataset_name: str, dataset_version: str) -> str:
+            del contract  # filesystem previews are demo-only
+            return _preview_contents(dataset_name, dataset_version)
+
+        contracts_server._dataset_preview = _dataset_preview  # type: ignore[attr-defined]
 
 
 def register_dataset_version(dataset: str, version: str, source: Path) -> None:

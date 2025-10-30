@@ -242,7 +242,6 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
 
     workspace, created = workspace_from_env()
     os.environ.setdefault("DC43_DEMO_WORK_DIR", str(workspace.root))
-    os.environ.setdefault("DC43_CONTRACTS_APP_WORK_DIR", str(workspace.root))
 
     data_src = SAMPLE_ROOT / "data"
     records_src = SAMPLE_ROOT / "records"
@@ -259,9 +258,6 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
             continue
 
     os.environ.setdefault("DC43_CONTRACT_STORE", str(workspace.contracts_dir))
-    os.environ.setdefault("DC43_DATASET_RECORDS_STORE_TYPE", "filesystem")
-    os.environ.setdefault("DC43_DATASET_RECORDS_STORE", str(workspace.records_dir))
-    os.environ.setdefault("DC43_DATASET_RECORDS_PATH", str(workspace.datasets_file))
 
     global _CURRENT_WORKSPACE
     _CURRENT_WORKSPACE = workspace

@@ -3,8 +3,10 @@
 ## [Unreleased]
 
 ### Changed
-- Restored the contracts app dataset views to read registry snapshots from the
-  configured workspace so demo walkthroughs once again surface sample history.
+- Removed the contracts app dataset record store wiring so the UI simply uses
+  service-provided loaders, keeping history ownership with whichever runtime
+  configures the service clients (the demo still registers its filesystem
+  helpers).
 - Surfaced governance metrics in the contracts app dataset and contract views
   so operators can inspect recorded observations directly in the UI.
 - Added interactive metric trend charts to those pages so numeric observations
@@ -33,10 +35,10 @@
   building read/write requests from scenario context so presenters initialise
   only the governance client while still recording contract metadata, dataset
   versions, and status payloads in the workspace registry.
-- Added dataset record store configuration to the service backends and taught
-  the contracts app to build loaders/savers from that configuration so dataset
-  history can persist across restarts without UI monkeypatching. The demo app
-  now exports its workspace paths through the same hooks.
+- The contracts app no longer reads datasets or data product snapshots from the
+  local workspace; dataset history and previews are provided by the demo-only
+  pipelines while remote deployments focus on contract and data product
+  metadata surfaced by the service backends.
 - Delta Live Tables helpers now resolve contracts and expectation plans through
   the governance client, so notebooks bind contracts using the same
   governance-first contexts as the Spark IO wrappers.

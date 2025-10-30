@@ -23,7 +23,6 @@ __all__ = [
     "AuthConfig",
     "GovernanceConfig",
     "GovernanceStoreConfig",
-    "DatasetRecordStoreConfig",
     "UnityCatalogConfig",
     "ServiceBackendsConfig",
     "load_config",
@@ -199,24 +198,6 @@ class GovernanceStoreConfig:
 
 
 @dataclass(slots=True)
-class DatasetRecordStoreConfig:
-    """Configuration for persisting dataset history records."""
-
-    type: str = "memory"
-    path: Path | None = None
-    root: Path | None = None
-    base_path: Path | None = None
-    table: str | None = None
-    dsn: str | None = None
-    schema: str | None = None
-    base_url: str | None = None
-    token: str | None = None
-    token_header: str | None = None
-    token_scheme: str | None = None
-    timeout: float = 10.0
-
-
-@dataclass(slots=True)
 class UnityCatalogConfig:
     """Optional Databricks Unity Catalog synchronisation settings."""
 
@@ -256,7 +237,6 @@ class ServiceBackendsConfig:
     unity_catalog: UnityCatalogConfig = field(default_factory=UnityCatalogConfig)
     governance: GovernanceConfig = field(default_factory=GovernanceConfig)
     governance_store: GovernanceStoreConfig = field(default_factory=GovernanceStoreConfig)
-    dataset_records_store: DatasetRecordStoreConfig = field(default_factory=DatasetRecordStoreConfig)
 
 
 def _first_existing_path(paths: list[str | os.PathLike[str] | None]) -> Path | None:
@@ -354,12 +334,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     )
     data_product_section = (
         payload.get("data_product")
-        if isinstance(payload, MutableMapping)
-        else {}
-    )
-
-    dataset_records_section = (
-        payload.get("dataset_records")
         if isinstance(payload, MutableMapping)
         else {}
     )
@@ -464,52 +438,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             dp_base_url_value = str(base_url_raw).strip() or None
         catalog_raw = data_product_section.get("catalog")
         if catalog_raw is not None:
-            dp_catalog_value = catalog_raw
-
-    dataset_store_type = "memory"
-    dataset_path_value = None
-    dataset_root_value = None
-    dataset_base_path_value = None
-    dataset_table_value = None
-    dataset_dsn_value = None
-    dataset_schema_value = None
-    dataset_base_url_value = None
-    dataset_token_value = None
-    dataset_token_header_value = None
-    dataset_token_scheme_value = None
-    dataset_timeout_value = 10.0
-    if isinstance(dataset_records_section, MutableMapping):
-        raw_type = dataset_records_section.get("type")
-        if isinstance(raw_type, str) and raw_type.strip():
-            dataset_store_type = raw_type.strip().lower()
-        dataset_path_value = _coerce_path(dataset_records_section.get("path"))
-        dataset_root_value = _coerce_path(dataset_records_section.get("root"))
-        dataset_base_path_value = _coerce_path(dataset_records_section.get("base_path"))
-        table_raw = dataset_records_section.get("table")
-        if isinstance(table_raw, str) and table_raw.strip():
-            dataset_table_value = table_raw.strip()
-        dsn_raw = dataset_records_section.get("dsn")
-        if dsn_raw is not None:
-            dataset_dsn_value = str(dsn_raw).strip() or None
-        schema_raw = dataset_records_section.get("schema")
-        if schema_raw is not None:
-            dataset_schema_value = str(schema_raw).strip() or None
-        base_url_raw = dataset_records_section.get("base_url")
-        if base_url_raw is not None:
-            dataset_base_url_value = str(base_url_raw).strip() or None
-        token_raw = dataset_records_section.get("token")
-        if token_raw is not None:
-            dataset_token_value = str(token_raw).strip() or None
-        token_header_raw = dataset_records_section.get("token_header")
-        if token_header_raw is not None:
-            dataset_token_header_value = str(token_header_raw).strip() or None
-        token_scheme_raw = dataset_records_section.get("token_scheme")
-        if token_scheme_raw is not None:
-            dataset_token_scheme_value = str(token_scheme_raw).strip() or None
-        dataset_timeout_value = _coerce_float(
-            dataset_records_section.get("timeout"),
-            dataset_timeout_value,
-        )
+            dp_catalog_value = str(catalog_raw).strip() or None
 
     dq_type = "local"
     dq_base_url_value = None
@@ -682,56 +611,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     env_dp_table = os.getenv("DC43_DATA_PRODUCT_TABLE")
     if env_dp_table:
         dp_table_value = env_dp_table.strip() or dp_table_value
-
-    env_dataset_type = os.getenv("DC43_DATASET_RECORDS_STORE_TYPE")
-    if env_dataset_type:
-        dataset_store_type = env_dataset_type.strip().lower() or dataset_store_type
-
-    env_dataset_root = os.getenv("DC43_DATASET_RECORDS_STORE")
-    if env_dataset_root:
-        dataset_root_value = _coerce_path(env_dataset_root)
-        if dataset_base_path_value is None:
-            dataset_base_path_value = dataset_root_value
-
-    env_dataset_path = os.getenv("DC43_DATASET_RECORDS_PATH")
-    if env_dataset_path:
-        dataset_path_value = _coerce_path(env_dataset_path)
-
-    env_dataset_base_path = os.getenv("DC43_DATASET_RECORDS_BASE_PATH")
-    if env_dataset_base_path:
-        dataset_base_path_value = _coerce_path(env_dataset_base_path)
-
-    env_dataset_table = os.getenv("DC43_DATASET_RECORDS_TABLE")
-    if env_dataset_table:
-        dataset_table_value = env_dataset_table.strip() or dataset_table_value
-
-    env_dataset_dsn = os.getenv("DC43_DATASET_RECORDS_DSN")
-    if env_dataset_dsn:
-        dataset_dsn_value = env_dataset_dsn.strip() or dataset_dsn_value
-
-    env_dataset_schema = os.getenv("DC43_DATASET_RECORDS_SCHEMA")
-    if env_dataset_schema:
-        dataset_schema_value = env_dataset_schema.strip() or dataset_schema_value
-
-    env_dataset_url = os.getenv("DC43_DATASET_RECORDS_URL")
-    if env_dataset_url:
-        dataset_base_url_value = env_dataset_url.strip() or dataset_base_url_value
-
-    env_dataset_token = os.getenv("DC43_DATASET_RECORDS_TOKEN")
-    if env_dataset_token:
-        dataset_token_value = env_dataset_token.strip() or dataset_token_value
-
-    env_dataset_token_header = os.getenv("DC43_DATASET_RECORDS_TOKEN_HEADER")
-    if env_dataset_token_header is not None:
-        dataset_token_header_value = env_dataset_token_header.strip()
-
-    env_dataset_token_scheme = os.getenv("DC43_DATASET_RECORDS_TOKEN_SCHEME")
-    if env_dataset_token_scheme is not None:
-        dataset_token_scheme_value = env_dataset_token_scheme.strip()
-
-    env_dataset_timeout = os.getenv("DC43_DATASET_RECORDS_TIMEOUT")
-    if env_dataset_timeout:
-        dataset_timeout_value = _coerce_float(env_dataset_timeout, dataset_timeout_value)
 
     env_token = os.getenv("DC43_BACKEND_TOKEN")
     if env_token:
@@ -922,20 +801,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             timeout=gov_timeout_value,
             headers=gov_headers_value,
         ),
-        dataset_records_store=DatasetRecordStoreConfig(
-            type=dataset_store_type,
-            path=dataset_path_value,
-            root=dataset_root_value,
-            base_path=dataset_base_path_value,
-            table=dataset_table_value,
-            dsn=dataset_dsn_value,
-            schema=dataset_schema_value,
-            base_url=dataset_base_url_value,
-            token=dataset_token_value,
-            token_header=dataset_token_header_value,
-            token_scheme=dataset_token_scheme_value,
-            timeout=dataset_timeout_value,
-        ),
     )
 
 
@@ -1096,35 +961,6 @@ def _governance_store_mapping(config: GovernanceStoreConfig) -> dict[str, Any]:
     return mapping
 
 
-def _dataset_records_store_mapping(config: DatasetRecordStoreConfig) -> dict[str, Any]:
-    mapping: dict[str, Any] = {}
-    if config.type:
-        mapping["type"] = config.type
-    if config.path:
-        mapping["path"] = _stringify_path(config.path)
-    if config.root:
-        mapping["root"] = _stringify_path(config.root)
-    if config.base_path:
-        mapping["base_path"] = _stringify_path(config.base_path)
-    if config.table:
-        mapping["table"] = config.table
-    if config.dsn:
-        mapping["dsn"] = config.dsn
-    if config.schema:
-        mapping["schema"] = config.schema
-    if config.base_url:
-        mapping["base_url"] = config.base_url
-    if config.token:
-        mapping["token"] = config.token
-    if config.token_header:
-        mapping["token_header"] = config.token_header
-    if config.token_scheme:
-        mapping["token_scheme"] = config.token_scheme
-    if config.timeout != 10.0:
-        mapping["timeout"] = config.timeout
-    return mapping
-
-
 def config_to_mapping(config: ServiceBackendsConfig) -> dict[str, Any]:
     """Return a serialisable mapping derived from ``config``."""
 
@@ -1157,12 +993,6 @@ def config_to_mapping(config: ServiceBackendsConfig) -> dict[str, Any]:
     governance_store_mapping = _governance_store_mapping(config.governance_store)
     if governance_store_mapping:
         payload["governance_store"] = governance_store_mapping
-
-    dataset_records_mapping = _dataset_records_store_mapping(
-        config.dataset_records_store
-    )
-    if dataset_records_mapping:
-        payload["dataset_records"] = dataset_records_mapping
 
     return payload
 

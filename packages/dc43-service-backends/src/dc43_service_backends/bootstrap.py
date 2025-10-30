@@ -10,16 +10,10 @@ from .config import (
     ContractStoreConfig,
     DataProductStoreConfig,
     DataQualityBackendConfig,
-    DatasetRecordStoreConfig,
     GovernanceStoreConfig,
     ServiceBackendsConfig,
 )
 from .contracts.backend import LocalContractServiceBackend
-from .contracts.backend.dataset_records import (
-    DatasetRecordStore,
-    FilesystemDatasetRecordStore,
-    InMemoryDatasetRecordStore,
-)
 from .contracts.backend.interface import ContractServiceBackend
 from .contracts.backend.stores import (
     CollibraContractStore,
@@ -90,7 +84,6 @@ __all__ = [
     "build_data_product_backend",
     "build_data_quality_backend",
     "build_governance_store",
-    "build_dataset_record_store",
     "build_backends",
 ]
 
@@ -106,7 +99,6 @@ class BackendSuite:
     governance_store: GovernanceStore
     contract_store: ContractStore | None = None
     link_hooks: tuple[DatasetContractLinkHook, ...] = ()
-    dataset_records_store: DatasetRecordStore | None = None
 
     def __iter__(self):
         yield self.contract
@@ -114,8 +106,6 @@ class BackendSuite:
         yield self.data_quality
         yield self.governance
         yield self.governance_store
-        if self.dataset_records_store is not None:
-            yield self.dataset_records_store
 
 
 def _resolve_collibra_store(config: ContractStoreConfig) -> ContractStore:
@@ -463,26 +453,6 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
     raise RuntimeError(f"Unsupported governance store type: {store_type}")
 
 
-def build_dataset_record_store(config: DatasetRecordStoreConfig) -> DatasetRecordStore:
-    """Instantiate a dataset record store matching ``config``."""
-
-    store_type = (config.type or "memory").lower()
-
-    if store_type in {"memory", "local"}:
-        return InMemoryDatasetRecordStore()
-
-    if store_type == "filesystem":
-        if config.path is not None:
-            path = Path(config.path).expanduser()
-        else:
-            base = config.root or config.base_path or Path.cwd() / "records"
-            directory = Path(base).expanduser()
-            path = directory / "datasets.json"
-        return FilesystemDatasetRecordStore(path)
-
-    raise RuntimeError(f"Unsupported dataset record store type: {store_type}")
-
-
 def build_backends(config: ServiceBackendsConfig) -> BackendSuite:
     """Construct service backends and governance hooks using ``config``."""
 
@@ -510,7 +480,4 @@ def build_backends(config: ServiceBackendsConfig) -> BackendSuite:
         governance_store=governance_store,
         contract_store=contract_store,
         link_hooks=link_hooks,
-        dataset_records_store=build_dataset_record_store(
-            config.dataset_records_store
-        ),
     )

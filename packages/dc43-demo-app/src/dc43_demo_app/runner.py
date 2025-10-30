@@ -29,11 +29,7 @@ from dc43_service_backends.config import (
     dump as dump_service_backends_config,
 )
 
-from .contracts_workspace import (
-    ContractsAppWorkspace,
-    current_workspace,
-    prepare_demo_workspace,
-)
+from .contracts_workspace import current_workspace, prepare_demo_workspace
 
 
 logger = logging.getLogger(__name__)
@@ -107,14 +103,9 @@ def _load_env_file(path: str) -> None:
         os.environ[key] = value
 
 
-def _write_backend_config(
-    path: Path, workspace: ContractsAppWorkspace, token: str | None
-) -> None:
+def _write_backend_config(path: Path, contracts_dir: Path, token: str | None) -> None:
     config = ServiceBackendsConfig()
-    config.contract_store.root = workspace.contracts_dir
-    config.dataset_records_store.type = "filesystem"
-    config.dataset_records_store.path = workspace.datasets_file
-    config.dataset_records_store.root = workspace.records_dir
+    config.contract_store.root = contracts_dir
     if token:
         config.auth = BackendAuthConfig(token=token)
     dump_service_backends_config(path, config)
@@ -226,7 +217,7 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - conve
 
     backend_token = os.getenv("DC43_BACKEND_TOKEN")
     backend_config_path = config_dir / "service_backends.toml"
-    _write_backend_config(backend_config_path, workspace, backend_token)
+    _write_backend_config(backend_config_path, workspace.contracts_dir, backend_token)
 
     previous_contracts_config = os.getenv("DC43_CONTRACTS_APP_CONFIG")
     override_contracts_config = args.contracts_config or previous_contracts_config

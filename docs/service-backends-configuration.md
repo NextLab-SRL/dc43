@@ -41,16 +41,16 @@ single field without editing the TOML file:
 * Contracts app:
   * `DC43_CONTRACTS_APP_STATE_DIR` – overrides the directory used for setup
     wizard persistence and docs-chat caches.
-  * `DC43_CONTRACTS_APP_WORK_DIR` – legacy workspace hint maintained for
-    backwards compatibility. The standalone UI no longer creates or manages
-    filesystem workspaces.
+  * `DC43_CONTRACTS_APP_WORK_DIR` / `DC43_DEMO_WORK_DIR` – legacy workspace
+    hints maintained for the demo app and backwards compatibility. The
+    standalone UI no longer creates or manages filesystem workspaces.
 * Additional backend specific overrides exist for the contracts UI (see
   [Contracts app configuration](#contracts-app-configuration)).
 
 ## Service backend configuration schema
 
-The service backend configuration supports six core tables:
-`contract_store`, `data_product`, `dataset_records`, `data_quality`, `governance_store`, and `auth`.
+The service backend configuration supports five core tables:
+`contract_store`, `data_product`, `data_quality`, `governance_store`, and `auth`.
 
 ```toml
 [contract_store]
@@ -58,9 +58,6 @@ type = "filesystem"
 root = "./contracts"
 
 [data_product]
-type = "memory"
-
-[dataset_records]
 type = "memory"
 
 [data_quality]
@@ -87,37 +84,6 @@ expose. Supported values are:
 | `collibra_http` | Connects to a real Collibra Data Products deployment through `HttpCollibraContractAdapter`. |
 
 The remaining keys under `contract_store` configure the selected backend.
-
-### Configuring dataset record storage
-
-The `ServiceBackendsConfig.dataset_records_store` field controls how dataset run
-metadata is persisted through the `[dataset_records]` table. Supported values
-for `dataset_records.type` are:
-
-| Type | Description |
-| ---- | ----------- |
-| `memory` | Keeps dataset history in process memory. This matches the historical behaviour prior to vNEXT and is useful for stateless demos. |
-| `filesystem` | Persists dataset records as JSON on disk so the contracts UI and demo pipelines share history across restarts. |
-
-When using the filesystem store the service persists records to the path
-configured via `dataset_records.path`. If the value is omitted the service will
-fall back to `dataset_records.root`/`dataset_records.base_path` and write a
-`datasets.json` file under that directory. The demo application sets these
-fields automatically so the FastAPI UI reads the same run history recorded by
-the pipeline helpers.
-
-Environment overrides include:
-
-| Variable | Description |
-| -------- | ----------- |
-| `DC43_DATASET_RECORDS_STORE_TYPE` | Overrides the active dataset record store implementation. |
-| `DC43_DATASET_RECORDS_STORE` | Directory used when persisting records to the filesystem. |
-| `DC43_DATASET_RECORDS_PATH` | Explicit path to the JSON file backing the filesystem store. |
-
-Additional fields mirror the other store configurations. `DC43_DATASET_RECORDS_DSN`
-and `DC43_DATASET_RECORDS_SCHEMA`, for example, are reserved for future SQL
-providers and are parsed into the configuration structure even though no SQL
-implementation ships yet.
 
 #### Filesystem contract store
 
@@ -362,11 +328,10 @@ at a `.env` file with `dc43-demo --env-file`, or using `direnv`). Prefer keeping
 credentials outside source control? populate `docs_chat.api_key` in a private
 TOML file and launch the demo with `dc43-demo --config /path/to/contracts-app.toml`.
 
-> ℹ️ Dataset previews and run history in the contracts UI come from whichever
-> provider registers with `dc43_contracts_app.services.configure_dataset_records`.
-> The demo pipelines install a filesystem-backed loader/saver through that
-> hook; standalone deployments continue to focus on service-backed metadata and
-> do not touch local dataset files unless a provider is configured.
+> ℹ️ Dataset previews and run history in the contracts UI are populated by the
+> Spark demo pipelines. Remote deployments still surface contract and data
+> product metadata through the configured services but do not read or persist
+> dataset files locally.
 
 When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
 `/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install

@@ -406,7 +406,8 @@ TOML files remain authoritative.
 ### `[workspace]`
 - `root` (`Path | None`) – Optional base directory used for filesystem hints
   and backwards-compatible demos. The contracts UI no longer creates or
-  manages this path automatically. Override with `DC43_CONTRACTS_APP_WORK_DIR`.
+  manages this path automatically. Override with `DC43_CONTRACTS_APP_WORK_DIR`
+  (or `DC43_DEMO_WORK_DIR`).
 
 > **Note:** Use `DC43_CONTRACTS_APP_STATE_DIR` to relocate the setup wizard
 > persistence and docs-chat cache directories when running the standalone UI.
@@ -469,15 +470,6 @@ for targeted keys.
 Environment overrides:
 - `DC43_DATA_PRODUCT_STORE` – Filesystem root.
 - `DC43_DATA_PRODUCT_TABLE` – Delta/SQL table name.
-
-### `[dataset_records]`
-- `type` – Dataset record store type (`memory`, `filesystem`). Override with `DC43_DATASET_RECORDS_STORE_TYPE`.
-- `path` – Optional JSON file path backing the filesystem store. Override with `DC43_DATASET_RECORDS_PATH`.
-- `root` / `base_path` – Directory roots used when `path` is omitted. Override with `DC43_DATASET_RECORDS_STORE` / `DC43_DATASET_RECORDS_BASE_PATH`.
-- `dsn` / `schema` / `base_url` / `token` / `token_header` / `token_scheme` / `timeout` – Reserved for future providers. Values are parsed and surfaced by the loader so automation can pass them through even before additional backends ship.
-- The contracts app consumes `ServiceBackendsConfig.dataset_records_store` to
-  build dataset record loaders and savers, so supplying filesystem settings here
-  automatically wires the UI to the shared history store.
 
 ### `[data_quality]`
 - `type` – Backend type (`local`, `http`, etc.). Override with `DC43_DATA_QUALITY_BACKEND_TYPE`.
