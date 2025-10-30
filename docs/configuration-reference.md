@@ -406,8 +406,7 @@ TOML files remain authoritative.
 ### `[workspace]`
 - `root` (`Path | None`) – Optional base directory used for filesystem hints
   and backwards-compatible demos. The contracts UI no longer creates or
-  manages this path automatically. Override with `DC43_CONTRACTS_APP_WORK_DIR`
-  (or `DC43_DEMO_WORK_DIR`).
+  manages this path automatically. Override with `DC43_CONTRACTS_APP_WORK_DIR`.
 
 > **Note:** Use `DC43_CONTRACTS_APP_STATE_DIR` to relocate the setup wizard
 > persistence and docs-chat cache directories when running the standalone UI.

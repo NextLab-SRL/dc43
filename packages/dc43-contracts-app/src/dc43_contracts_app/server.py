@@ -214,9 +214,7 @@ def _workspace_hint(key: str, fallback: str = "") -> str:
             return str(value)
 
     if key == "root":
-        override = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv(
-            "DC43_DEMO_WORK_DIR"
-        )
+        override = os.getenv("DC43_CONTRACTS_APP_WORK_DIR")
         if override:
             return str(Path(override).expanduser())
 

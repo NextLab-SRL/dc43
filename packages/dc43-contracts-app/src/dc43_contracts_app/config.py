@@ -372,7 +372,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
             docs_chat_reasoning_effort = value_text or None
 
     if allow_env_overrides:
-        env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv("DC43_DEMO_WORK_DIR")
+        env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR")
         if env_root:
             workspace_root = _coerce_path(env_root)
 
