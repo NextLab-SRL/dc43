@@ -800,6 +800,19 @@ def _status_payload(status: ValidationResult | None) -> dict[str, Any] | None:
     return payload
 
 
+def _status_level(value: str | None, *, treat_block_as_warning: bool = False) -> int:
+    """Map governance status text to a severity level."""
+
+    if not value:
+        return 0
+    normalised = value.lower()
+    if normalised in {"warn", "warning"}:
+        return 1
+    if normalised in {"block", "error", "fail", "invalid"}:
+        return 1 if treat_block_as_warning else 2
+    return 0
+
+
 def _resolve_dataset_name_hint(
     contract_id: str | None,
     contract_version: str | None,
@@ -976,10 +989,12 @@ def _run_data_product_flow(
     collect_examples: bool,
     examples_limit: int,
     scenario_key: str | None,
+    output_transform: Callable[[DataFrame, MutableMapping[str, Any]], DataFrame] | None,
 ) -> tuple[str, str]:
     """Execute the data-product centric pipeline scenario."""
 
     governance = contracts_server.governance_service
+    transform_context: MutableMapping[str, Any] = {}
 
     def _context(step: str, extra: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         payload = dict(base_context)
@@ -1251,6 +1266,21 @@ def _run_data_product_flow(
         if expected_output_version:
             write_contract_ref.setdefault("version_selector", expected_output_version)
 
+    if output_transform:
+        transform_context = {
+            "spark": spark,
+            "contract_id": output_contract_id or stage_contract_id,
+            "expected_contract_version": expected_output_version,
+            "dataset_name": output_dataset_name,
+            "dataset_version": output_dataset_version,
+            "governance_service": governance,
+            "run_type": run_type,
+        }
+        stage_read_df = output_transform(stage_read_df, transform_context)
+        engine_label = transform_context.get("pipeline_engine")
+        if engine_label and isinstance(base_context, MutableMapping):
+            base_context.setdefault("engine", engine_label)
+
     write_request = GovernanceSparkWriteRequest(
         context=GovernanceWriteContext(
             contract=write_contract_ref,
@@ -1312,6 +1342,132 @@ def _run_data_product_flow(
         },
     )
     final_output_details.setdefault("storage_path", str(output_path))
+
+    if transform_context:
+        engine_label = transform_context.get("pipeline_engine")
+        if engine_label and "pipeline_engine" not in final_output_details:
+            final_output_details["pipeline_engine"] = engine_label
+        module_name = transform_context.get("dlt_module_name")
+        if module_name and "dlt_module_name" not in final_output_details:
+            final_output_details["dlt_module_name"] = module_name
+        if "dlt_module_stub" not in final_output_details and "dlt_module_stub" in transform_context:
+            final_output_details["dlt_module_stub"] = bool(transform_context["dlt_module_stub"])
+        asset_name = transform_context.get("dlt_asset_name")
+        if asset_name and "dlt_asset" not in final_output_details:
+            final_output_details["dlt_asset"] = asset_name
+        reports = transform_context.get("dlt_expectation_reports")
+        if reports and "dlt_expectations" not in final_output_details:
+            final_output_details["dlt_expectations"] = reports
+        table_options = transform_context.get("dlt_table_options")
+        if table_options and "dlt_table_options" not in final_output_details:
+            final_output_details["dlt_table_options"] = table_options
+
+    combined_details: dict[str, Any] = {
+        "input": orders_payload,
+        "customers": customers_status.details if customers_status else None,
+        "stage": stage_output_details,
+        "output": final_output_details,
+    }
+
+    severity = 0
+    total_violations = 0
+    warnings_present = False
+    for details in combined_details.values():
+        if not isinstance(details, Mapping):
+            continue
+        violations_value = details.get("violations")
+        if isinstance(violations_value, (int, float)):
+            total_violations += int(violations_value)
+            if violations_value:
+                warnings_present = True
+        metrics_map = details.get("metrics")
+        if isinstance(metrics_map, Mapping):
+            for key, value in metrics_map.items():
+                if str(key).startswith("violations") and isinstance(value, (int, float)):
+                    total_violations += int(value)
+                    if value:
+                        warnings_present = True
+        errors = details.get("errors")
+        if isinstance(errors, list):
+            total_violations += len(errors)
+            if errors:
+                warnings_present = True
+        failed = details.get("failed_expectations")
+        if isinstance(failed, Mapping):
+            total_violations += sum(int(info.get("count", 0) or 0) for info in failed.values())
+            if any((info.get("count") or 0) for info in failed.values()):
+                warnings_present = True
+        if details.get("warnings"):
+            warnings_present = True
+
+    for aux_entry in final_output_details.get("dq_auxiliary_statuses", []) or []:
+        if isinstance(aux_entry, Mapping):
+            total_violations += int(aux_entry.get("violations", 0) or 0)
+            if aux_entry.get("warnings") or aux_entry.get("errors"):
+                warnings_present = True
+            combined_details.setdefault("auxiliary", []).append(aux_entry)
+            severity = max(
+                severity,
+                _status_level(aux_entry.get("status"), treat_block_as_warning=True),
+            )
+
+    for status in (orders_status, customers_status, stage_status, final_status):
+        severity = max(severity, _status_level(getattr(status, "status", None)))
+
+    dq_summary = final_output_details.get("dq_status")
+    if isinstance(dq_summary, Mapping):
+        severity = max(severity, _status_level(dq_summary.get("status")))
+        if dq_summary.get("errors"):
+            warnings_present = True
+
+    if final_result.errors:
+        severity = 2
+    elif warnings_present:
+        severity = max(severity, 1)
+
+    status_value = "ok"
+    if severity == 1:
+        status_value = "warning"
+    elif severity >= 2:
+        status_value = "error"
+
+    recorded_status = status_value
+    if final_result.status:
+        normalised_status = str(final_result.status).strip().lower()
+        if normalised_status in {"ok", "error"}:
+            recorded_status = normalised_status
+        elif normalised_status in {"warning", "warn"}:
+            recorded_status = "warning"
+        elif normalised_status == "block":
+            recorded_status = "error"
+        elif normalised_status not in {"unknown", ""}:
+            recorded_status = str(final_result.status)
+
+    record_entry: dict[str, Any] = {
+        "contract_id": output_contract_id or "",
+        "contract_version": output_contract_version or "",
+        "dataset_name": output_dataset_name,
+        "dataset_version": output_dataset_version,
+        "status": recorded_status,
+        "reason": final_result.reason or (final_status.reason if final_status else "") or "",
+        "dq_details": combined_details,
+        "run_type": run_type,
+        "violations": total_violations,
+    }
+
+    draft_version = final_output_details.get("draft_contract_version")
+    if draft_version:
+        record_entry["draft_contract_version"] = draft_version
+    if scenario_key:
+        record_entry["scenario_key"] = scenario_key
+
+    data_product_meta = final_output_details.get("data_product")
+    if isinstance(data_product_meta, Mapping):
+        record_entry["data_product_id"] = str(data_product_meta.get("id") or "")
+        record_entry["data_product_port"] = str(data_product_meta.get("port") or "")
+        record_entry["data_product_role"] = str(data_product_meta.get("role") or "")
+
+    record_dataset_run(record_entry)
 
     return output_dataset_name or stage_dataset_name, output_dataset_version
 
@@ -1389,6 +1545,7 @@ def run_pipeline(
             collect_examples=collect_examples,
             examples_limit=examples_limit,
             scenario_key=scenario_key,
+            output_transform=output_transform,
         )
         contracts_server.refresh_dataset_aliases()
         if not existing_session:
@@ -2118,16 +2275,6 @@ def run_pipeline(
                 warnings_present = True
         if det.get("warnings"):
             warnings_present = True
-
-    def _status_level(value: str | None, *, treat_block_as_warning: bool = False) -> int:
-        if not value:
-            return 0
-        normalised = value.lower()
-        if normalised in {"warn", "warning"}:
-            return 1
-        if normalised in {"block", "error", "fail", "invalid"}:
-            return 1 if treat_block_as_warning else 2
-        return 0
 
     severity = 0
     severity = max(severity, _status_level(getattr(orders_status, "status", None)))

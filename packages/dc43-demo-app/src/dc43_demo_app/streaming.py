@@ -7,7 +7,7 @@ import os
 import shutil
 import time
 from collections.abc import Iterable as IterableABC
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Protocol
@@ -34,6 +34,7 @@ from .contracts_api import (
     refresh_dataset_aliases,
     register_dataset_version,
 )
+from .contracts_records import record_dataset_run
 from .contracts_workspace import current_workspace
 
 
@@ -878,6 +879,8 @@ def _record_result(
         _ensure_streaming_version(side.dataset_name, side.dataset_version)
 
     records_to_register.append(record)
+    for entry in records_to_register:
+        record_dataset_run(asdict(entry))
     _ensure_streaming_version(dataset_name, result.dataset_version)
     return dataset_name, dataset_version
 
