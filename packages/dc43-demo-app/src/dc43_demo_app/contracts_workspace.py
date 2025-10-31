@@ -10,15 +10,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence, Tuple
 
+from dc43_contracts_app.config import (
+    BackendConfig,
+    BackendProcessConfig,
+    ContractsAppConfig,
+    WorkspaceConfig,
+    dump as dump_contracts_config,
+)
+from dc43_service_backends.config import (
+    ServiceBackendsConfig,
+    dump as dump_service_backends_config,
+)
+from dc43_service_backends.governance.storage.filesystem import FilesystemGovernanceStore
+from dc43_service_clients.data_quality import ValidationResult
 from open_data_contract_standard.model import OpenDataContractStandard
 
 try:  # pragma: no cover - demo works even if contracts app not installed
     from dc43_contracts_app.hints import register_workspace_hint_supplier
 except ImportError:  # pragma: no cover - optional dependency for demos
     register_workspace_hint_supplier = None  # type: ignore[assignment]
-
-from dc43_service_backends.governance.storage.filesystem import FilesystemGovernanceStore
-from dc43_service_clients.data_quality import ValidationResult
 
 from .scenarios import _DEFAULT_SLICE, _INVALID_SLICE
 
@@ -53,7 +63,7 @@ class ContractsAppWorkspace:
 
 
 class DemoGovernanceStore(FilesystemGovernanceStore):
-    """Filesystem governance store with helpers expected by the demo."""
+    """Filesystem governance store exposing helpers expected by the demo."""
 
     def _activity_dir(self) -> Path:
         path = self.base_path / "pipeline_activity"
@@ -173,7 +183,9 @@ def _normalise_metrics(payload: Mapping[str, object] | None) -> dict[str, object
     return {str(key): value for key, value in payload.items()}
 
 
-def _record_sample_governance(store: FilesystemGovernanceStore, entries: Sequence[Mapping[str, object]]) -> None:
+def _record_sample_governance(
+    store: DemoGovernanceStore, entries: Sequence[Mapping[str, object]]
+) -> None:
     for entry in entries:
         dataset_name = str(entry.get("dataset_name") or "").strip()
         dataset_version = str(entry.get("dataset_version") or "").strip()
@@ -186,7 +198,9 @@ def _record_sample_governance(store: FilesystemGovernanceStore, entries: Sequenc
         reason_value = str(entry.get("reason") or "").strip() or None
         details = _normalise_details(entry.get("dq_details"))
         metrics = _normalise_metrics(details.get("metrics"))
-        schema_payload = details.get("schema") if isinstance(details.get("schema"), Mapping) else None
+        schema_payload = (
+            details.get("schema") if isinstance(details.get("schema"), Mapping) else None
+        )
 
         validation = ValidationResult(
             status=status_value,
@@ -252,7 +266,9 @@ def _record_sample_governance(store: FilesystemGovernanceStore, entries: Sequenc
         )
 
 
-def _seed_governance_records(workspace: ContractsAppWorkspace) -> None:
+def seed_governance_records(workspace: ContractsAppWorkspace) -> None:
+    """Populate the governance store with the bundled sample history."""
+
     datasets_path = workspace.datasets_file
     try:
         payload = json.loads(datasets_path.read_text(encoding="utf-8"))
@@ -267,12 +283,38 @@ def _seed_governance_records(workspace: ContractsAppWorkspace) -> None:
 
     governance_root = workspace.records_dir / "governance"
     shutil.rmtree(governance_root, ignore_errors=True)
+    governance_root.mkdir(parents=True, exist_ok=True)
+
     if not entries:
-        governance_root.mkdir(parents=True, exist_ok=True)
         return
 
     store = DemoGovernanceStore(governance_root)
     _record_sample_governance(store, entries)
+
+
+def _write_service_backends_config(workspace: ContractsAppWorkspace) -> Path:
+    config = ServiceBackendsConfig()
+    config.contract_store.type = "filesystem"
+    config.contract_store.root = workspace.contracts_dir
+    config.governance_store.type = "filesystem"
+    config.governance_store.root = workspace.records_dir / "governance"
+    config.data_product_store.type = "memory"
+
+    path = workspace.root / "config" / "service_backends.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dump_service_backends_config(path, config)
+    return path
+
+
+def _write_contracts_app_config(workspace: ContractsAppWorkspace) -> Path:
+    config = ContractsAppConfig()
+    config.workspace = WorkspaceConfig(root=workspace.root)
+    config.backend = BackendConfig(mode="embedded")
+
+    path = workspace.root / "config" / "contracts_app.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dump_contracts_config(path, config)
+    return path
 
 
 _CURRENT_WORKSPACE: ContractsAppWorkspace | None = None
@@ -477,7 +519,7 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
     _copy_tree(records_src, workspace.records_dir)
     _prepare_contracts(workspace)
 
-    _seed_governance_records(workspace)
+    seed_governance_records(workspace)
 
     refresh_dataset_aliases(workspace)
     for dataset, version in {**_DEFAULT_SLICE, **_INVALID_SLICE}.items():
@@ -486,9 +528,14 @@ def prepare_demo_workspace() -> Tuple[ContractsAppWorkspace, bool]:
         except FileNotFoundError:
             continue
 
+    service_backends_config = _write_service_backends_config(workspace)
+    contracts_app_config = _write_contracts_app_config(workspace)
+
     os.environ.setdefault("DC43_CONTRACT_STORE", str(workspace.contracts_dir))
-    os.environ.setdefault("DC43_GOVERNANCE_STORE_TYPE", "filesystem")
     os.environ.setdefault("DC43_GOVERNANCE_STORE", str(workspace.records_dir / "governance"))
+    os.environ.setdefault("DC43_GOVERNANCE_STORE_TYPE", "filesystem")
+    os.environ.setdefault("DC43_SERVICE_BACKENDS_CONFIG", str(service_backends_config))
+    os.environ.setdefault("DC43_CONTRACTS_APP_CONFIG", str(contracts_app_config))
 
     global _CURRENT_WORKSPACE
     _CURRENT_WORKSPACE = workspace
@@ -518,12 +565,6 @@ def current_workspace() -> ContractsAppWorkspace:
     return _CURRENT_WORKSPACE
 
 
-def seed_governance_records() -> None:
-    """Repopulate governance history files from the bundled sample payload."""
-
-    _seed_governance_records(current_workspace())
-
-
 def _ensure_version_marker(target: Path, version: str) -> None:
     marker = target / ".dc43_version"
     if not marker.exists():
@@ -550,11 +591,12 @@ def register_dataset_version(
 
 __all__ = [
     "ContractsAppWorkspace",
+    "DemoGovernanceStore",
     "current_workspace",
     "prepare_demo_workspace",
     "refresh_dataset_aliases",
     "register_dataset_version",
-    "set_active_version",
     "seed_governance_records",
+    "set_active_version",
 ]
 

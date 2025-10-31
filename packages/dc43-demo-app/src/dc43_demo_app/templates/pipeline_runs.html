@@ -322,12 +322,13 @@
           {% set mode_options = scenario.mode_options if scenario.mode_options else [] %}
           {% if mode_options %}
           <div class="btn-group btn-group-sm" role="group" aria-label="Run modes">
+            <span class="visually-hidden">Run scenario</span>
             {% for option in mode_options %}
             <button class="btn btn-primary btn-sm" type="submit" name="mode" value="{{ option.mode }}" data-run-mode="{{ option.mode }}">{{ option.label }}</button>
             {% endfor %}
           </div>
           {% else %}
-          <button class="btn btn-primary btn-sm" type="submit" data-run-mode="pipeline">Run</button>
+          <button class="btn btn-primary btn-sm" type="submit" data-run-mode="pipeline">Run scenario</button>
           {% endif %}
         </form>
       </td>

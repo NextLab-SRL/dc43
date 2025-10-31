@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Sequence
 
 from . import contracts_api as contracts_server
-from .contracts_records import DatasetRecord, _version_sort_key
+from .contracts_records import DatasetRecord, _version_sort_key, record_dataset_run
 from .spark_compat import ensure_local_spark_builder
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
@@ -1681,29 +1681,40 @@ def run_pipeline(
             output_status = None
         else:
             if not governance_write_request:
-                raise ValueError("Output contract must be configured before publishing data.")
-            result, output_status = write_with_governance(
-                df=df,
-                request=governance_write_request,
-                governance_service=governance,
-                enforce=False,
-                return_status=True,
-                violation_strategy=strategy,
-            )
+                df.write.mode("overwrite").parquet(str(output_path))
+                result = ValidationResult(
+                    ok=True,
+                    errors=[],
+                    warnings=[],
+                    metrics={},
+                    status="ok",
+                    reason=None,
+                    details={},
+                )
+                output_status = None
+            else:
+                result, output_status = write_with_governance(
+                    df=df,
+                    request=governance_write_request,
+                    governance_service=governance,
+                    enforce=False,
+                    return_status=True,
+                    violation_strategy=strategy,
+                )
     else:
         if governance_write_request is None:
-            message = "Output contract must be configured before publishing data."
+            df.write.mode("overwrite").parquet(str(output_path))
             result = ValidationResult(
-                ok=False,
-                errors=[message],
+                ok=True,
+                errors=[],
                 warnings=[],
                 metrics={},
-                status="error",
-                reason=message,
-                details={"errors": [message]},
+                status="ok",
+                reason=None,
+                details={},
             )
             output_status = None
-            write_error = ValueError(message)
+            write_error = None
         else:
             result, output_status = write_with_governance(
                 df=df,
@@ -1775,24 +1786,21 @@ def run_pipeline(
             result.ok = True
 
     error: ValueError | None = write_error
-    if run_type == "enforce":
-        if not output_contract:
-            error = ValueError("Contract required for existing mode")
-        else:
-            issues: list[str] = []
-            if output_status and output_status.status != "ok":
-                detail_msg: dict[str, Any] = dict(output_status.details or {})
-                if output_status.reason:
-                    detail_msg["reason"] = output_status.reason
-                issues.append(
-                    f"DQ violation: {detail_msg or output_status.status}"
-                )
-            if schema_errors:
-                issues.append(
-                    f"Schema validation failed: {schema_errors}"
-                )
-            if issues:
-                error = ValueError("; ".join(issues))
+    if run_type == "enforce" and output_contract:
+        issues: list[str] = []
+        if output_status and output_status.status != "ok":
+            detail_msg: dict[str, Any] = dict(output_status.details or {})
+            if output_status.reason:
+                detail_msg["reason"] = output_status.reason
+            issues.append(
+                f"DQ violation: {detail_msg or output_status.status}"
+            )
+        if schema_errors:
+            issues.append(
+                f"Schema validation failed: {schema_errors}"
+            )
+        if issues:
+            error = ValueError("; ".join(issues))
 
     draft_version: str | None = None
     output_details = result.details.copy()
@@ -2069,10 +2077,37 @@ def run_pipeline(
         status_value = "warning"
     elif severity >= 2:
         status_value = "error"
+    if error:
+        if not existing_session:
+            spark.stop()
+        raise error
+
+    record_entry: dict[str, Any] = {
+        "contract_id": contract_id or "",
+        "contract_version": contract_version or "",
+        "dataset_name": dataset_name,
+        "dataset_version": dataset_version,
+        "status": result.status or status_value,
+        "reason": result.reason or (output_status.reason if output_status else None) or "",
+        "dq_details": combined_details,
+        "run_type": run_type,
+        "violations": total_violations,
+    }
+    if draft_version:
+        record_entry["draft_contract_version"] = draft_version
+    if scenario_key:
+        record_entry["scenario_key"] = scenario_key
+
+    data_product_meta = output_details.get("data_product")
+    if isinstance(data_product_meta, Mapping):
+        record_entry["data_product_id"] = str(data_product_meta.get("id") or "")
+        record_entry["data_product_port"] = str(data_product_meta.get("port") or "")
+        record_entry["data_product_role"] = str(data_product_meta.get("role") or "")
+
+    record_dataset_run(record_entry)
+
     if not existing_session:
         spark.stop()
-    if error:
-        raise error
     return dataset_name, dataset_version
 
 
