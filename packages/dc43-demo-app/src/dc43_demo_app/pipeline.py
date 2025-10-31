@@ -83,6 +83,8 @@ def _resolve_output_path(
     contract: OpenDataContractStandard | None,
     dataset_name: str,
     dataset_version: str,
+    *,
+    ensure_exists: bool = True,
 ) -> Path:
     """Return output path for dataset relative to contract servers."""
     server = (contract.servers or [None])[0] if contract else None
@@ -99,9 +101,10 @@ def _resolve_output_path(
         out = base_path / segment
     else:
         out = base_path / dataset_name / segment
-    out.mkdir(parents=True, exist_ok=True)
-    if dataset_version and not (out / ".dc43_version").exists():
-        _write_version_marker(out, dataset_version)
+    if ensure_exists:
+        out.mkdir(parents=True, exist_ok=True)
+        if dataset_version and not (out / ".dc43_version").exists():
+            _write_version_marker(out, dataset_version)
     return out
 
 
@@ -1406,6 +1409,9 @@ def run_pipeline(
         dataset_name,
     )
 
+    read_error: ValueError | None = None
+    read_error_details: dict[str, Any] | None = None
+
     orders_overrides = input_overrides.get("orders")
     orders_locator = _apply_locator_overrides(
         ContractVersionLocator(
@@ -1471,8 +1477,31 @@ def run_pipeline(
     )
     if treat_orders_blocking and orders_status and orders_status.status == "block":
         details = orders_status.reason or orders_status.details
-        message = f"DQ status is blocking: {details}"
-        raise ValueError(message)
+        detail_text = details if isinstance(details, str) else str(details)
+        message = f"DQ status is blocking: {detail_text}"
+        payload: dict[str, Any] = {
+            "dataset_role": "orders",
+            "status": getattr(orders_status, "status", "block"),
+            "reason": message,
+        }
+        status_details = (
+            dict(orders_status.details)
+            if isinstance(getattr(orders_status, "details", None), Mapping)
+            else None
+        )
+        if status_details:
+            payload["details"] = status_details
+        if read_error is None:
+            read_error = ValueError(message)
+            read_error_details = payload
+        else:
+            read_error = ValueError(f"{read_error}; {message}")
+            if read_error_details is None:
+                read_error_details = payload
+            else:
+                related = read_error_details.setdefault("related", [])
+                if isinstance(related, list):
+                    related.append(payload)
 
     customers_overrides = input_overrides.get("customers")
     customers_locator = _apply_locator_overrides(
@@ -1543,18 +1572,31 @@ def run_pipeline(
     )
     if treat_customers_blocking and customers_status and customers_status.status == "block":
         details = customers_status.reason or customers_status.details
-        message = f"DQ status is blocking: {details}"
-        raise ValueError(message)
-
-    df = orders_df.join(customers_df, "customer_id")
-    # Promote one of the rows above the quality threshold so split strategies
-    # demonstrate both valid and reject outputs in the demo.
-    df = df.withColumn(
-        "amount",
-        when(col("order_id") == 1, col("amount") * 20).otherwise(col("amount")),
-    )
-
-    df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
+        detail_text = details if isinstance(details, str) else str(details)
+        message = f"DQ status is blocking: {detail_text}"
+        payload = {
+            "dataset_role": "customers",
+            "status": getattr(customers_status, "status", "block"),
+            "reason": message,
+        }
+        status_details = (
+            dict(customers_status.details)
+            if isinstance(getattr(customers_status, "details", None), Mapping)
+            else None
+        )
+        if status_details:
+            payload["details"] = status_details
+        if read_error is None:
+            read_error = ValueError(message)
+            read_error_details = payload
+        else:
+            read_error = ValueError(f"{read_error}; {message}")
+            if read_error_details is None:
+                read_error_details = payload
+            else:
+                related = read_error_details.setdefault("related", [])
+                if isinstance(related, list):
+                    related.append(payload)
 
     records = contracts_server.load_records()
     output_contract = (
@@ -1563,19 +1605,39 @@ def run_pipeline(
         else None
     )
     if output_contract and getattr(output_contract, "id", None):
-        # Align dataset naming with the contract so recorded versions and paths
-        # remain consistent with the declared server definition.
+        # Align dataset naming with the contract so recorded runs and filesystem
+        # layout remain consistent with the declared server definition.
         dataset_name = output_contract.id
     elif not dataset_name:
-        dataset_name = contract_id or "result"
-    if not dataset_version:
-        existing = [r.dataset_version for r in records if r.dataset_name == dataset_name]
+        dataset_name = dataset_name_hint or contract_id or "result"
+    if not dataset_version and dataset_name:
+        existing = [
+            r.dataset_version
+            for r in records
+            if r.dataset_name == dataset_name
+        ]
         dataset_version = _next_version(existing)
 
     assert dataset_name
     assert dataset_version
-    output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
+
+    output_path = _resolve_output_path(
+        output_contract,
+        dataset_name,
+        dataset_version,
+        ensure_exists=read_error is None,
+    )
     server = (output_contract.servers or [None])[0] if output_contract else None
+
+    df = orders_df.join(customers_df, "customer_id")
+    # Promote one of the rows above the quality threshold so split
+    # strategies demonstrate both valid and reject outputs in the demo.
+    df = df.withColumn(
+        "amount",
+        when(col("order_id") == 1, col("amount") * 20).otherwise(col("amount")),
+    )
+
+    df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
 
     base_pipeline_context["output_dataset"] = dataset_name
     base_pipeline_context["output_dataset_version"] = dataset_version
@@ -1607,7 +1669,7 @@ def run_pipeline(
         write_context_extra["contract_status_policy"] = strategy_policy
 
     transform_context: MutableMapping[str, Any] = {}
-    if output_transform:
+    if output_transform and df is not None:
         transform_context = {
             "spark": spark,
             "contract_id": contract_id_ref,
@@ -1628,7 +1690,7 @@ def run_pipeline(
 
     output_pipeline_context = _context_for("output-write", write_context_extra)
     governance_write_request: GovernanceSparkWriteRequest | None = None
-    if contract_id_ref:
+    if read_error is None and contract_id_ref:
         contract_spec: dict[str, Any] = {"contract_id": contract_id_ref}
         resolved_version = (
             getattr(output_contract, "version", None)
@@ -1650,37 +1712,64 @@ def run_pipeline(
         )
 
     write_error: ValueError | None = None
-    if output_contract and contract_status_enforce:
-        try:
-            status_handler.validate_contract_status(
-                contract=output_contract,
-                enforce=True,
-                operation="write",
-            )
-        except ValueError as exc:
-            write_error = exc
-            error_message = str(exc)
-            failure_details: dict[str, Any] = {
-                "errors": [error_message],
-                "contract_status_error": error_message,
-            }
-            if strategy_policy:
-                failure_details.setdefault(
-                    "contract_status_policy",
-                    strategy_policy,
+    output_status: ValidationResult | None = None
+    result: ValidationResult
+    if read_error is None:
+        if output_contract and contract_status_enforce:
+            try:
+                status_handler.validate_contract_status(
+                    contract=output_contract,
+                    enforce=True,
+                    operation="write",
                 )
-            result = ValidationResult(
-                ok=False,
-                errors=[error_message],
-                warnings=[],
-                metrics={},
-                status="error",
-                reason=error_message,
-                details=failure_details,
-            )
-            output_status = None
+            except ValueError as exc:
+                write_error = exc
+                error_message = str(exc)
+                failure_details: dict[str, Any] = {
+                    "errors": [error_message],
+                    "contract_status_error": error_message,
+                }
+                if strategy_policy:
+                    failure_details.setdefault(
+                        "contract_status_policy",
+                        strategy_policy,
+                    )
+                result = ValidationResult(
+                    ok=False,
+                    errors=[error_message],
+                    warnings=[],
+                    metrics={},
+                    status="error",
+                    reason=error_message,
+                    details=failure_details,
+                )
+                output_status = None
+            else:
+                if not governance_write_request:
+                    assert df is not None
+                    df.write.mode("overwrite").parquet(str(output_path))
+                    result = ValidationResult(
+                        ok=True,
+                        errors=[],
+                        warnings=[],
+                        metrics={},
+                        status="ok",
+                        reason=None,
+                        details={},
+                    )
+                    output_status = None
+                else:
+                    result, output_status = write_with_governance(
+                        df=df,
+                        request=governance_write_request,
+                        governance_service=governance,
+                        enforce=False,
+                        return_status=True,
+                        violation_strategy=strategy,
+                    )
         else:
-            if not governance_write_request:
+            if governance_write_request is None:
+                assert df is not None
                 df.write.mode("overwrite").parquet(str(output_path))
                 result = ValidationResult(
                     ok=True,
@@ -1692,6 +1781,7 @@ def run_pipeline(
                     details={},
                 )
                 output_status = None
+                write_error = None
             else:
                 result, output_status = write_with_governance(
                     df=df,
@@ -1702,28 +1792,34 @@ def run_pipeline(
                     violation_strategy=strategy,
                 )
     else:
-        if governance_write_request is None:
-            df.write.mode("overwrite").parquet(str(output_path))
-            result = ValidationResult(
-                ok=True,
-                errors=[],
-                warnings=[],
-                metrics={},
-                status="ok",
-                reason=None,
-                details={},
-            )
-            output_status = None
-            write_error = None
+        error_message = str(read_error)
+        failure_details: dict[str, Any] = {
+            "errors": [error_message],
+            "reason": error_message,
+        }
+        if read_error_details:
+            failure_details["read_status"] = read_error_details
+            status_hint = str(read_error_details.get("status") or "")
         else:
-            result, output_status = write_with_governance(
-                df=df,
-                request=governance_write_request,
-                governance_service=governance,
-                enforce=False,
-                return_status=True,
-                violation_strategy=strategy,
-            )
+            status_hint = ""
+        status_label = status_hint or "error"
+        failure_details.setdefault(
+            "dq_status",
+            {
+                "status": status_label,
+                "reason": error_message,
+            },
+        )
+        result = ValidationResult(
+            ok=False,
+            errors=[error_message],
+            warnings=[],
+            metrics={},
+            status="error",
+            reason=error_message,
+            details=failure_details,
+        )
+        output_status = None
 
     if output_status and output_contract:
         output_status = attach_failed_expectations(
@@ -1757,7 +1853,7 @@ def run_pipeline(
     if not schema_errors:
         residual = [msg for msg in original_errors if msg not in expectation_messages]
         schema_errors.extend(residual)
-    if output_contract:
+    if output_contract and df is not None:
         expected_columns = {
             prop.name
             for obj in output_contract.schema_ or []
@@ -1785,8 +1881,8 @@ def run_pipeline(
         if not result.errors:
             result.ok = True
 
-    error: ValueError | None = write_error
-    if run_type == "enforce" and output_contract:
+    error: ValueError | None = read_error or write_error
+    if run_type == "enforce" and output_contract and read_error is None:
         issues: list[str] = []
         if output_status and output_status.status != "ok":
             detail_msg: dict[str, Any] = dict(output_status.details or {})
@@ -1914,7 +2010,7 @@ def run_pipeline(
         if table_options and "dlt_table_options" not in output_details:
             output_details["dlt_table_options"] = table_options
 
-    if dataset_name and dataset_version:
+    if read_error is None and dataset_name and dataset_version:
         try:
             contracts_server.set_active_version(dataset_name, dataset_version)
         except FileNotFoundError:
@@ -2077,17 +2173,25 @@ def run_pipeline(
         status_value = "warning"
     elif severity >= 2:
         status_value = "error"
-    if error:
-        if not existing_session:
-            spark.stop()
-        raise error
+
+    recorded_status = status_value
+    if result.status:
+        normalised_status = str(result.status).strip().lower()
+        if normalised_status in {"ok", "error"}:
+            recorded_status = normalised_status
+        elif normalised_status in {"warning", "warn"}:
+            recorded_status = "warning"
+        elif normalised_status == "block":
+            recorded_status = "error"
+        elif normalised_status not in {"unknown", ""}:
+            recorded_status = str(result.status)
 
     record_entry: dict[str, Any] = {
         "contract_id": contract_id or "",
         "contract_version": contract_version or "",
         "dataset_name": dataset_name,
         "dataset_version": dataset_version,
-        "status": result.status or status_value,
+        "status": recorded_status,
         "reason": result.reason or (output_status.reason if output_status else None) or "",
         "dq_details": combined_details,
         "run_type": run_type,
@@ -2108,6 +2212,8 @@ def run_pipeline(
 
     if not existing_session:
         spark.stop()
+    if error:
+        raise error
     return dataset_name, dataset_version
 
 
