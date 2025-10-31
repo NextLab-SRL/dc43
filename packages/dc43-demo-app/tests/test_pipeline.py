@@ -741,6 +741,11 @@ def test_demo_pipeline_strict_split_marks_error(tmp_path: Path) -> None:
 
 def test_demo_pipeline_blocks_draft_contract(tmp_path: Path) -> None:
     original_records = pipeline.load_records()
+    dq_dir = Path(pipeline.DATASETS_FILE).parent / "dq_state"
+    backup = tmp_path / "dq_state_backup_draft_block"
+    if dq_dir.exists():
+        shutil.copytree(dq_dir, backup)
+    existing_versions = set(pipeline.store.list_versions("orders_enriched"))
 
     try:
         with pytest.raises(ValueError) as excinfo:
@@ -763,6 +768,23 @@ def test_demo_pipeline_blocks_draft_contract(tmp_path: Path) -> None:
         policy = output.get("contract_status_policy", {})
         assert policy.get("allowed") == ["active"]
     finally:
+        if dq_dir.exists():
+            shutil.rmtree(dq_dir)
+        if backup.exists():
+            shutil.copytree(backup, dq_dir)
+        new_versions = set(pipeline.store.list_versions("orders_enriched")) - existing_versions
+        for ver in new_versions:
+            draft_path = Path(pipeline.store.base_path) / "orders_enriched" / f"{ver}.json"
+            if draft_path.exists():
+                draft_path.unlink()
+            out_dir = Path(pipeline.DATA_DIR) / "orders_enriched" / ver
+            if out_dir.exists():
+                shutil.rmtree(out_dir, ignore_errors=True)
+        SparkSession.builder.master("local[2]") \
+            .appName("dc43-tests") \
+            .config("spark.ui.enabled", "false") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .getOrCreate()
 
 
 def test_demo_pipeline_allows_draft_contract_with_override(tmp_path: Path) -> None:
