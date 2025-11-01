@@ -49,6 +49,7 @@ from .contracts_records import (
     pop_flash,
     queue_flash,
     scenario_run_rows,
+    _version_sort_key,
 )
 from .contracts_workspace import (
     current_workspace,
@@ -244,7 +245,7 @@ if contracts_server is not None:
         ]
         if dataset_version is not None:
             records = [rec for rec in records if rec.dataset_version == dataset_version]
-        records.sort(key=lambda rec: rec.dataset_version)
+        records.sort(key=lambda rec: _version_sort_key(rec.dataset_version))
         if not records:
             raise HTTPException(status_code=404, detail="Dataset not found")
         return records[-1]
