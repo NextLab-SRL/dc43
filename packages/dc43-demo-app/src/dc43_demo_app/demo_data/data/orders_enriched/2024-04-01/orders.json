@@ -1,0 +1,2 @@
+{"order_id": 1, "customer_id": 101, "order_ts": "2024-04-01T10:00:00Z", "amount": 12.5, "currency": "USD", "loyalty_segment": "gold"}
+{"order_id": 2, "customer_id": 103, "order_ts": "2024-04-01T11:30:00Z", "amount": 21.0, "currency": "EUR", "loyalty_segment": "silver"}

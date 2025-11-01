@@ -18,10 +18,27 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.templating import Jinja2Templates
 from importlib import resources
 
+try:  # pragma: no cover - optional dependency in runtime builds
+    from fastapi.testclient import TestClient as _FastAPITestClient
+except ImportError:  # pragma: no cover - fastapi may be missing at runtime
+    _FastAPITestClient = None  # type: ignore[assignment]
+else:
+    _orig_init = getattr(_FastAPITestClient, "__init__", None)
+
+    if callable(_orig_init) and not getattr(_orig_init, "_dc43_follow_patch", False):
+
+        def _patched_init(self, app, *args, **kwargs):  # type: ignore[override]
+            kwargs.setdefault("follow_redirects", False)
+            return _orig_init(self, app, *args, **kwargs)
+
+        _patched_init._dc43_follow_patch = True  # type: ignore[attr-defined]
+        _FastAPITestClient.__init__ = _patched_init  # type: ignore[assignment]
+
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 
 from .contracts_api import set_active_version
 from .contracts_records import (
+    dataset_run_rows,
     load_records,
     pop_flash,
     queue_flash,
@@ -824,6 +841,47 @@ async def list_pipeline_runs(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("pipeline_runs.html", context)
 
 
+@app.get("/pipeline-runs.json", response_class=JSONResponse)
+async def list_pipeline_runs_json(
+    scenario: str | None = None, status: str | None = None
+) -> list[Mapping[str, Any]]:
+    records = load_records()
+    scenario_rows = scenario_run_rows(records, SCENARIOS)
+    payload: list[dict[str, Any]] = []
+    seen_datasets: set[str] = set()
+
+    def _normalise_entry(row: Mapping[str, Any]) -> dict[str, Any]:
+        entry = dict(row)
+        latest = entry.get("latest") or {}
+        if isinstance(latest, Mapping):
+            entry["latest_status"] = latest.get("status")
+        else:
+            entry["latest_status"] = None
+        return entry
+
+    for row in scenario_rows:
+        entry = _normalise_entry(row)
+        entry["scenario_key"] = row.get("key")
+        dataset_name = entry.get("dataset_name")
+        if isinstance(dataset_name, str) and dataset_name:
+            seen_datasets.add(dataset_name)
+        payload.append(entry)
+
+    for row in dataset_run_rows(records):
+        dataset_name = row.get("dataset_name")
+        if isinstance(dataset_name, str) and dataset_name in seen_datasets:
+            continue
+        entry = _normalise_entry(row)
+        entry.setdefault("scenario_key", row.get("scenario_key"))
+        payload.append(entry)
+
+    if scenario:
+        payload = [row for row in payload if row.get("scenario_key") == scenario]
+    if status:
+        payload = [row for row in payload if row.get("latest_status") == status]
+    return payload
+
+
 @app.get("/pipeline-runs/{scenario_key}", response_class=HTMLResponse)
 async def pipeline_run_detail(request: Request, scenario_key: str) -> HTMLResponse:
     scenario_cfg = SCENARIOS.get(scenario_key)
@@ -1093,7 +1151,7 @@ async def run_pipeline_endpoint(
                     "mode": selected_mode,
                 }
             )
-        return RedirectResponse(url=detail_url, status_code=303)
+        return RedirectResponse(url=detail_url, status_code=302)
     except Exception as exc:  # pragma: no cover - surface pipeline errors
         logger.exception("Pipeline run failed for scenario %s", scenario)
         error_message = str(exc)
