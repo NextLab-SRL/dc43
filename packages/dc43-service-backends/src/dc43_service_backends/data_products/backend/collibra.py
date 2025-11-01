@@ -14,7 +14,11 @@ from dc43_service_clients.odps import (
     to_model,
 )
 
-from .interface import DataProductRegistrationResult, DataProductServiceBackend
+from .interface import (
+    DataProductListing,
+    DataProductRegistrationResult,
+    DataProductServiceBackend,
+)
 from .local import FilesystemDataProductServiceBackend
 
 
@@ -71,6 +75,11 @@ class CollibraDataProductServiceBackend(DataProductServiceBackend):
         if status:
             payload["status"] = status
         self._adapter.upsert_data_product(payload, status=status)
+
+    def list_data_products(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> DataProductListing:  # noqa: D401
+        raise NotImplementedError("Collibra adapter does not expose bulk listings")
 
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:  # noqa: D401
         payload = self._adapter.get_data_product(data_product_id, version)

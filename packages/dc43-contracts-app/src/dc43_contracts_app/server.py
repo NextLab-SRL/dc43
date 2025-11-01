@@ -1,23 +1,14 @@
 from __future__ import annotations
 
-"""FastAPI demo application for dc43.
+"""Contracts application built on FastAPI.
 
-This application provides a small Bootstrap-powered UI to manage data
-contracts and run an example Spark pipeline that records dataset versions
-with their validation status. Contracts are stored on the local
-filesystem using :class:`~dc43_service_backends.contracts.backend.stores.FSContractStore` and dataset
-metadata lives in a JSON file.
+This UI surfaces contract and data product metadata through the configured
+service backends. Run it locally with::
 
-Run the UI directly with::
+    uvicorn dc43_contracts_app.server:app --reload
 
-    uvicorn dc43_demo_app.server:app --reload
-
-or start the full demo (UI + HTTP backend) with::
-
-    dc43-demo
-
-Optional dependencies needed: ``fastapi``, ``uvicorn``, ``jinja2`` and
-``pyspark``.
+Optional dependencies needed: ``fastapi``, ``uvicorn`` and ``jinja2``. Data
+preview features additionally rely on ``pyspark``.
 """
 
 import asyncio
@@ -44,7 +35,6 @@ from typing import (
 )
 from uuid import uuid4
 from threading import Lock
-import threading
 import json
 import importlib.metadata as importlib_metadata
 import os
@@ -63,11 +53,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.encoders import jsonable_encoder
-from httpx import ASGITransport
 from fastapi.concurrency import run_in_threadpool
 
-from dc43_service_backends.contracts.backend.stores import FSContractStore
-from dc43_service_backends.web import build_local_app
 from dc43_service_backends.config import (
     AuthConfig as BackendAuthConfig,
     ContractStoreConfig as BackendContractStoreConfig,
@@ -79,10 +66,6 @@ from dc43_service_backends.config import (
     UnityCatalogConfig as BackendUnityCatalogConfig,
     dumps as dump_service_backends_config,
 )
-from dc43_service_clients._http_sync import close_client
-from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
-from dc43_service_clients.data_quality.client.remote import RemoteDataQualityServiceClient
-from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from dc43_service_clients.odps import OpenDataProductStandard
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
@@ -96,9 +79,28 @@ from .config import (
     load_config,
     mapping_to_toml,
 )
+from .services import (
+    configure_backend,
+    contract_service_client,
+    contract_versions,
+    data_product_service_client,
+    data_quality_service_client,
+    dataset_pipeline_activity,
+    dataset_validation_status,
+    get_contract,
+    governance_service_client,
+    latest_contract,
+    latest_data_product,
+    list_contract_ids,
+    list_data_product_ids,
+    list_dataset_ids,
+    put_contract,
+    service_backends_config,
+    thread_service_clients,
+)
+from .hints import get_workspace_hints
 from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
-from .workspace import ContractsAppWorkspace, workspace_from_env
 from open_data_contract_standard.model import (
     CustomProperty,
     DataQuality,
@@ -153,55 +155,104 @@ TERRAFORM_TEMPLATE_ROOT = REPO_ROOT / "deploy" / "terraform"
 
 _CONFIG_LOCK = Lock()
 _ACTIVE_CONFIG: ContractsAppConfig | None = None
-_WORKSPACE_LOCK = Lock()
-_WORKSPACE: ContractsAppWorkspace | None = None
-WORK_DIR: Path
-CONTRACT_DIR: Path
-DATA_DIR: Path
-RECORDS_DIR: Path
-DATASETS_FILE: Path
-DATA_PRODUCTS_FILE: Path
-DQ_STATUS_DIR: Path
-store: FSContractStore
 
 
-def configure_workspace(workspace: ContractsAppWorkspace) -> None:
-    """Set the active filesystem layout for the application."""
+class _ServiceFacade:
+    """Lazy wrapper exposing service client methods via attribute access."""
 
-    global _WORKSPACE, WORK_DIR, CONTRACT_DIR, DATA_DIR, RECORDS_DIR, DATASETS_FILE, DATA_PRODUCTS_FILE, DQ_STATUS_DIR, store
+    def __init__(self, supplier: Callable[[], object | None], *, name: str, optional: bool = False) -> None:
+        self._supplier = supplier
+        self._name = name
+        self._optional = optional
 
-    workspace.ensure()
-    WORK_DIR = workspace.root
-    CONTRACT_DIR = workspace.contracts_dir
-    DATA_DIR = workspace.data_dir
-    RECORDS_DIR = workspace.records_dir
-    DATASETS_FILE = workspace.datasets_file
-    DATA_PRODUCTS_FILE = workspace.data_products_file
-    DQ_STATUS_DIR = workspace.dq_status_dir
-    _WORKSPACE = workspace
-    store = FSContractStore(str(CONTRACT_DIR))
-    try:
-        os.environ.setdefault("DC43_CONTRACTS_APP_WORK_DIR", str(WORK_DIR))
-    except Exception:  # pragma: no cover - defensive
-        pass
+    def _client(self) -> object | None:
+        client = self._supplier()
+        if client is None and not self._optional:
+            raise RuntimeError(f"{self._name} client is not configured")
+        return client
+
+    def __getattr__(self, attribute: str) -> Any:  # pragma: no cover - thin proxy
+        client = self._client()
+        if client is None:
+            raise AttributeError(f"{self._name} client is not available")
+        return getattr(client, attribute)
+
+    def __bool__(self) -> bool:  # pragma: no cover - convenience for callers
+        if self._optional:
+            return self._supplier() is not None
+        return True
 
 
-def current_workspace() -> ContractsAppWorkspace:
-    """Return the configured workspace initialising defaults when needed."""
+contract_service = _ServiceFacade(contract_service_client, name="contract service")
+data_product_service = _ServiceFacade(
+    data_product_service_client,
+    name="data product service",
+    optional=True,
+)
+dq_service = _ServiceFacade(
+    data_quality_service_client,
+    name="data quality service",
+    optional=True,
+)
+governance_service = _ServiceFacade(
+    governance_service_client,
+    name="governance service",
+    optional=True,
+)
 
-    _current_config()
-    global _WORKSPACE
-    if _WORKSPACE is None:
-        with _WORKSPACE_LOCK:
-            if _WORKSPACE is None:
-                active = _current_config()
-                default_root = (
-                    str(active.workspace.root) if active.workspace.root else None
-                )
-                workspace, _ = workspace_from_env(default_root=default_root)
-                configure_workspace(workspace)
-    assert _WORKSPACE is not None
-    return _WORKSPACE
+
+def _thread_service_clients() -> tuple[Any, Any, Any]:
+    """Compatibility alias used by legacy tests and integrations."""
+
+    return thread_service_clients()
+
+
+def _workspace_hint(key: str, fallback: str = "") -> str:
+    """Return the configured workspace hint for ``key`` if available."""
+
+    hints = get_workspace_hints()
+    if hints:
+        value = hints.get(key)
+        if value:
+            return str(value)
+
+    if key == "root":
+        override = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv(
+            "DC43_DEMO_WORK_DIR"
+        )
+        if override:
+            return str(Path(override).expanduser())
+
+    return fallback
+
+
+def _workspace_hint_map() -> Mapping[str, str]:
+    """Return all registered workspace hints as a mapping."""
+
+    hints = get_workspace_hints()
+    if hints:
+        return dict(hints)
+    return {}
+
+
+def _workspace_default(key: str, fallback: str = "") -> Callable[[], str]:
+    """Return a ``default_factory`` that resolves ``key`` via workspace hints."""
+
+    def _factory() -> str:
+        return _workspace_hint(key, fallback)
+
+    return _factory
+
+
+def _state_root(config: ContractsAppConfig | None = None) -> Path:
+    active = config or _current_config()
+    override = os.getenv("DC43_CONTRACTS_APP_STATE_DIR")
+    if override:
+        return Path(override).expanduser()
+    root = active.workspace.root
+    if root:
+        return Path(root).expanduser()
+    return Path.home() / ".dc43-contracts-app"
 
 
 def _set_active_config(config: ContractsAppConfig) -> ContractsAppConfig:
@@ -217,25 +268,6 @@ def _current_config() -> ContractsAppConfig:
         if _ACTIVE_CONFIG is None:
             _ACTIVE_CONFIG = load_config()
         return _ACTIVE_CONFIG
-
-
-
-
-def _safe_fs_name(value: str) -> str:
-    """Return a filesystem-friendly representation for governance ids."""
-
-    return "".join(ch if ch.isalnum() or ch in ("_", "-", ".") else "_" for ch in value)
-
-
-def _read_json_file(path: Path) -> Optional[Dict[str, Any]]:
-    """Return decoded JSON for ``path`` or ``None`` on failure."""
-
-    try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
 def _version_sort_key(value: str) -> tuple[int, Tuple[int, int, int] | float | str, str]:
     """Sort versions treating ISO timestamps and SemVer intelligently."""
 
@@ -258,28 +290,6 @@ def _sort_versions(entries: Iterable[str]) -> List[str]:
     """Return ``entries`` sorted using :func:`_version_sort_key`."""
 
     return sorted(entries, key=_version_sort_key)
-
-
-def _dq_status_dir_for(dataset_id: str) -> Path:
-    """Return the directory that stores compatibility statuses for ``dataset_id``."""
-
-    return DQ_STATUS_DIR / _safe_fs_name(dataset_id)
-
-
-def _dq_status_path(dataset_id: str, dataset_version: str) -> Path:
-    """Return the JSON payload path for the supplied dataset/version pair."""
-
-    directory = _dq_status_dir_for(dataset_id)
-    return directory / f"{_safe_fs_name(dataset_version)}.json"
-
-
-def _dq_status_payload(dataset_id: str, dataset_version: str) -> Optional[Dict[str, Any]]:
-    """Load the compatibility payload if available."""
-
-    path = _dq_status_path(dataset_id, dataset_version)
-    if not path.exists():
-        return None
-    return _read_json_file(path)
 
 
 def _parse_iso_datetime(value: object) -> datetime | None:
@@ -433,231 +443,6 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
     }
 
 
-def _dataset_root_for(dataset_id: str, dataset_path: Optional[str] = None) -> Optional[Path]:
-    """Return the directory that should contain materialised versions."""
-
-    base: Optional[Path] = None
-    if dataset_path:
-        try:
-            path = Path(dataset_path)
-        except (TypeError, ValueError):
-            path = None
-        if path is not None:
-            if path.suffix:
-                path = path.parent / path.stem
-            if not path.is_absolute():
-                path = (Path(DATA_DIR).parent / path).resolve()
-            base = path
-    if base is None and dataset_id:
-        base = DATA_DIR / dataset_id.replace("::", "__")
-    return base
-
-
-def _version_marker_value(folder: Path) -> str:
-    """Return the canonical version value for ``folder`` if annotated."""
-
-    marker = folder / ".dc43_version"
-    if marker.exists():
-        try:
-            text = marker.read_text().strip()
-        except OSError:
-            text = ""
-        if text:
-            return text
-    return folder.name
-
-
-def _candidate_version_paths(dataset_dir: Path, version: str) -> List[Path]:
-    """Return directories that may correspond to ``version``."""
-
-    candidates: List[Path] = []
-    direct = dataset_dir / version
-    candidates.append(direct)
-    safe = dataset_dir / _safe_fs_name(version)
-    if safe != direct:
-        candidates.append(safe)
-    try:
-        for entry in dataset_dir.iterdir():
-            if not entry.is_dir():
-                continue
-            if _version_marker_value(entry) == version and entry not in candidates:
-                candidates.append(entry)
-    except FileNotFoundError:
-        return []
-    return candidates
-
-
-def _has_version_materialisation(dataset_dir: Path, version: str) -> bool:
-    """Return ``True`` if ``dataset_dir`` contains files for ``version``."""
-
-    lowered = version.lower()
-    if lowered in {"latest", "current"} or lowered.startswith("latest__"):
-        return True
-    for candidate in _candidate_version_paths(dataset_dir, version):
-        if candidate.exists():
-            return True
-    return False
-
-
-def _existing_version_dir(dataset_dir: Path, version: str) -> Optional[Path]:
-    """Return an existing directory matching ``version`` if available."""
-
-    for candidate in _candidate_version_paths(dataset_dir, version):
-        if candidate.exists():
-            return candidate
-    return None
-
-
-def _target_version_dir(dataset_dir: Path, version: str) -> Path:
-    """Return the directory path where ``version`` should be materialised."""
-
-    safe = _safe_fs_name(version)
-    if not safe:
-        safe = "version"
-    return dataset_dir / safe
-
-
-def _ensure_version_marker(path: Path, version: str) -> None:
-    """Record ``version`` inside ``path`` for lookup when sanitised."""
-
-    if not path.exists() or not path.is_dir():
-        return
-    marker = path / ".dc43_version"
-    try:
-        marker.write_text(version)
-    except OSError:
-        pass
-
-
-def _dq_status_entries(dataset_id: str) -> List[Tuple[str, str, Dict[str, Any]]]:
-    """Return (display_version, stored_version, payload) tuples."""
-
-    directory = _dq_status_dir_for(dataset_id)
-    entries: List[Tuple[str, str, Dict[str, Any]]] = []
-    if not directory.exists():
-        return entries
-    for path in directory.glob("*.json"):
-        payload = _read_json_file(path) or {}
-        display_version = str(payload.get("dataset_version") or path.stem)
-        entries.append((display_version, path.stem, payload))
-    entries.sort(key=lambda item: _version_sort_key(item[0]))
-    return entries
-
-
-def _dq_status_versions(dataset_id: str) -> List[str]:
-    """Return known dataset versions recorded by the governance stub."""
-
-    return [entry[0] for entry in _dq_status_entries(dataset_id)]
-
-
-def _link_path(target: Path, source: Path) -> None:
-    """Create a symlink (or copy fallback) from ``target`` to ``source``."""
-
-    if target.exists() or target.is_symlink():
-        try:
-            if target.is_symlink() and target.resolve() == source.resolve():
-                return
-        except OSError:
-            pass
-        if target.is_dir() and not target.is_symlink():
-            shutil.rmtree(target)
-        else:
-            target.unlink()
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        relative = os.path.relpath(source, target.parent)
-        target.symlink_to(relative, target_is_directory=source.is_dir())
-    except OSError:
-        if source.is_dir():
-            shutil.copytree(source, target, dirs_exist_ok=True)
-        else:
-            shutil.copy2(source, target)
-
-
-def _iter_versions(dataset_dir: Path) -> list[Path]:
-    """Return sorted dataset version directories ignoring alias folders."""
-
-    versions: list[Path] = []
-    for candidate in dataset_dir.iterdir():
-        if not candidate.is_dir():
-            continue
-        name = candidate.name
-        if name == "latest" or name.startswith("latest__"):
-            continue
-        versions.append(candidate)
-    return sorted(versions)
-
-
-def refresh_dataset_aliases(dataset: str | None = None) -> None:
-    """Populate ``latest``/derived aliases for the selected dataset(s)."""
-
-    roots: list[Path]
-    if dataset:
-        base = DATA_DIR / dataset
-        roots = [base] if base.exists() else []
-    else:
-        roots = [p for p in DATA_DIR.iterdir() if p.is_dir() and "__" not in p.name]
-
-    for dataset_dir in roots:
-        versions = _iter_versions(dataset_dir)
-        if not versions:
-            continue
-        latest = versions[-1]
-        _link_path(dataset_dir / "latest", latest)
-
-        derived_dirs = sorted(DATA_DIR.glob(f"{dataset_dir.name}__*"))
-        for derived_dir in derived_dirs:
-            if not derived_dir.is_dir():
-                continue
-            suffix = derived_dir.name.split("__", 1)[1]
-            derived_versions = _iter_versions(derived_dir)
-            for version_dir in derived_versions:
-                target = dataset_dir / version_dir.name / suffix
-                _link_path(target, version_dir)
-            if derived_versions:
-                _link_path(dataset_dir / f"latest__{suffix}", derived_versions[-1])
-
-
-def set_active_version(dataset: str, version: str) -> None:
-    """Point the ``latest`` alias of ``dataset`` (and derivatives) to ``version``."""
-
-    dataset_dir = DATA_DIR / dataset
-    target = _existing_version_dir(dataset_dir, version)
-    if target is None:
-        target = _target_version_dir(dataset_dir, version)
-    if not target.exists():
-        raise FileNotFoundError(f"Unknown dataset version: {dataset} {version}")
-
-    _link_path(dataset_dir / "latest", target)
-
-    if "__" not in dataset:
-        for derived_dir in DATA_DIR.glob(f"{dataset}__*"):
-            suffix = derived_dir.name.split("__", 1)[1]
-            derived_target = _existing_version_dir(derived_dir, version)
-            if derived_target is None:
-                continue
-            _link_path(target / suffix, derived_target)
-            _link_path(dataset_dir / f"latest__{suffix}", derived_target)
-    else:
-        base, suffix = dataset.split("__", 1)
-        base_dir = DATA_DIR / base
-        version_dir = _existing_version_dir(base_dir, version)
-        if version_dir is not None and version_dir.exists():
-            _link_path(version_dir / suffix, target)
-            _link_path(base_dir / f"latest__{suffix}", target)
-
-
-def register_dataset_version(dataset: str, version: str, source: Path) -> None:
-    """Expose ``source`` under ``data/<dataset>/<version>`` via symlink."""
-
-    dataset_dir = DATA_DIR / dataset
-    dataset_dir.mkdir(parents=True, exist_ok=True)
-    target = _target_version_dir(dataset_dir, version)
-    _link_path(target, source)
-    _ensure_version_marker(target, version)
-
-
 _STATUS_OPTIONS: List[Tuple[str, str]] = [
     ("", "Unspecified"),
     ("draft", "Draft"),
@@ -674,178 +459,10 @@ _VERSIONING_MODES: List[Tuple[str, str]] = [
     ("append", "Append-only log"),
 ]
 
-_backend_app: FastAPI | None = None
-_backend_transport: ASGITransport | None = None
-_backend_client: httpx.AsyncClient | None = None
-_backend_base_url: str = "http://dc43-services"
-_backend_mode: str = "embedded"
-_backend_token: str = ""
-_THREAD_CLIENTS = threading.local()
-contract_service: RemoteContractServiceClient
-dq_service: RemoteDataQualityServiceClient
-governance_service: RemoteGovernanceServiceClient
-
-
-def _close_backend_client() -> None:
-    """Best-effort close of the shared HTTP client."""
-
-    global _backend_client
-    client = _backend_client
-    if client is None:
-        return
-    try:
-        asyncio.run(client.aclose())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(client.aclose())
-        finally:
-            loop.close()
-    _backend_client = None
-
-
-def _clear_thread_clients() -> None:
-    """Dispose of thread-local HTTP clients for the current thread."""
-
-    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
-    if bundle is None:
-        return
-    try:
-        close_client(bundle["http_client"])
-    except Exception:  # pragma: no cover - defensive guard
-        logger.exception("Failed to close thread-local backend client")
-    finally:
-        _THREAD_CLIENTS.bundle = None
-
-
-def _thread_service_clients() -> tuple[
-    RemoteContractServiceClient,
-    RemoteDataQualityServiceClient,
-    RemoteGovernanceServiceClient,
-]:
-    """Return backend service clients scoped to the current thread."""
-
-    bundle = getattr(_THREAD_CLIENTS, "bundle", None)
-    if bundle is not None and bundle.get("token") == _backend_token:
-        return (
-            bundle["contract"],
-            bundle["dq"],
-            bundle["governance"],
-        )
-
-    if bundle is not None:
-        try:
-            close_client(bundle["http_client"])
-        except Exception:  # pragma: no cover - defensive guard
-            logger.exception("Failed to recycle thread-local backend client")
-
-    if _backend_mode == "remote":
-        http_client: httpx.Client | httpx.AsyncClient = httpx.Client(
-            base_url=_backend_base_url or None,
-        )
-    else:
-        assert _backend_app is not None
-        http_client = httpx.AsyncClient(
-            transport=ASGITransport(app=_backend_app),
-            base_url=_backend_base_url or None,
-        )
-
-    contract = RemoteContractServiceClient(
-        base_url=_backend_base_url,
-        client=http_client,
-    )
-    dq = RemoteDataQualityServiceClient(
-        base_url=_backend_base_url,
-        client=http_client,
-    )
-    governance = RemoteGovernanceServiceClient(
-        base_url=_backend_base_url,
-        client=http_client,
-    )
-
-    _THREAD_CLIENTS.bundle = {
-        "token": _backend_token,
-        "http_client": http_client,
-        "contract": contract,
-        "dq": dq,
-        "governance": governance,
-    }
-    return contract, dq, governance
-
-
-def _initialise_backend(*, base_url: str | None = None) -> None:
-    """Configure service clients against an in-process or remote backend."""
-
-    global _backend_app, _backend_transport, _backend_client
-    global contract_service, dq_service, governance_service
-    global _backend_base_url, _backend_mode, _backend_token
-
-    _close_backend_client()
-    _clear_thread_clients()
-
-    client_base_url = (base_url.rstrip("/") if base_url else "http://dc43-services")
-
-    if base_url:
-        _backend_app = None
-        _backend_transport = None
-        _backend_client = httpx.AsyncClient(base_url=client_base_url)
-        _backend_mode = "remote"
-    else:
-        _backend_app = build_local_app(store)
-        _backend_transport = ASGITransport(app=_backend_app)
-        _backend_client = httpx.AsyncClient(
-            transport=_backend_transport,
-            base_url=client_base_url,
-        )
-        _backend_mode = "embedded"
-
-    _backend_base_url = client_base_url
-    _backend_token = uuid4().hex
-
-    contract_service = RemoteContractServiceClient(
-        base_url=client_base_url,
-        client=_backend_client,
-    )
-    dq_service = RemoteDataQualityServiceClient(
-        base_url=client_base_url,
-        client=_backend_client,
-    )
-    governance_service = RemoteGovernanceServiceClient(
-        base_url=client_base_url,
-        client=_backend_client,
-    )
-
-
-def configure_backend(
-    base_url: str | None = None, *, config: BackendConfig | None = None
-) -> None:
-    """Initialise service clients against the configured backend."""
-
-    if base_url is not None:
-        _initialise_backend(base_url=base_url or None)
-        return
-
-    env_url = os.getenv("DC43_CONTRACTS_APP_BACKEND_URL") or os.getenv(
-        "DC43_DEMO_BACKEND_URL"
-    )
-    if env_url:
-        _initialise_backend(base_url=env_url)
-        return
-
-    config = config or _current_config().backend
-    mode = (config.mode or "embedded").lower()
-    if mode == "remote":
-        target_url = config.base_url or config.process.url()
-        _initialise_backend(base_url=target_url)
-    else:
-        _initialise_backend(base_url=None)
-
-
 def _setup_state_path() -> Path:
     """Return the path that stores onboarding progress information."""
 
-    workspace = current_workspace()
-    return workspace.root / "setup_state.json"
+    return _state_root() / "setup_state.json"
 
 
 def _default_setup_state() -> Dict[str, Any]:
@@ -927,12 +544,9 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
     """Apply ``config`` to initialise workspace and backend defaults."""
 
     config = config or load_config()
-    workspace_root = config.workspace.root
-    default_root = str(workspace_root) if workspace_root else None
-    workspace, _ = workspace_from_env(default_root=default_root)
-    configure_workspace(workspace)
     configure_backend(config=config.backend)
-    docs_chat.configure(config.docs_chat, workspace)
+    base_dir = config.workspace.root
+    docs_chat.configure(config.docs_chat, base_dir=base_dir)
 
     def _log_warmup(detail: str) -> None:
         logger.info("Docs chat warm-up: %s", detail)
@@ -964,7 +578,10 @@ def _wait_for_backend(base_url: str, timeout: float = 30.0) -> None:
 
 
 async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[str, str]:
-    plan = await asyncio.to_thread(dq_service.describe_expectations, contract=contract)
+    service = data_quality_service_client()
+    if service is None:
+        return {}
+    plan = await asyncio.to_thread(service.describe_expectations, contract=contract)
     mapping: Dict[str, str] = {}
     for item in plan:
         key = item.get("key") if isinstance(item, Mapping) else None
@@ -1039,14 +656,14 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Workspace root",
                         "placeholder": "/workspace",
                         "help": "Root directory that will be bound to `DC43_CONTRACTS_APP_WORK_DIR`.",
-                        "default_factory": lambda workspace: str(workspace.root),
+                        "default_factory": _workspace_default("root"),
                     },
                     {
                         "name": "contracts_dir",
                         "label": "Contracts directory",
                         "placeholder": "/workspace/contracts",
                         "help": "Path where contract files will be created (must be inside the workspace).",
-                        "default_factory": lambda workspace: str(workspace.contracts_dir),
+                        "default_factory": _workspace_default("contracts_dir"),
                     },
                 ],
                 "diagram": {
@@ -1271,7 +888,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Products directory",
                         "placeholder": "/workspace/products",
                         "help": "Folder that stores published product descriptors (JSON/YAML).",
-                        "default_factory": lambda workspace: str(workspace.root / "products"),
+                        "default_factory": _workspace_default("products_dir"),
                     },
                 ],
                 "diagram": {
@@ -1489,7 +1106,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Expectations directory",
                         "placeholder": "/workspace/expectations",
                         "help": "Where `.yml`/`.json` suites defining rules are stored.",
-                        "default_factory": lambda workspace: str(workspace.records_dir / "expectations"),
+                        "default_factory": _workspace_default("expectations_dir"),
                     },
                     {
                         "name": "results_path",
@@ -1592,7 +1209,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "label": "Governance storage directory",
                         "placeholder": "/workspace/governance",
                         "help": "Root folder that will contain status, link, and pipeline activity subdirectories.",
-                        "default_factory": lambda workspace: str(workspace.root / "governance"),
+                        "default_factory": _workspace_default("governance_dir"),
                     },
                 ],
                 "diagram": {
@@ -2055,7 +1672,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "placeholder": "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                         "help": "Command used by developers to start the governance service locally.",
                         "optional": True,
-                        "default_factory": lambda workspace: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                        "default_factory": lambda: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                     },
                 ],
             },
@@ -2719,7 +2336,7 @@ SETUP_MODULES: Dict[str, Dict[str, Any]] = {
                         "placeholder": "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                         "help": "Command your operators should run to bring up the UI locally.",
                         "optional": True,
-                        "default_factory": lambda workspace: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
+                        "default_factory": lambda: "uvicorn dc43_contracts_app.server:app --reload --port 8000",
                     },
                 ],
             },
@@ -3278,7 +2895,7 @@ def _serialise_field(
     field_meta: Mapping[str, Any],
     *,
     configuration: Mapping[str, Any],
-    workspace: ContractsAppWorkspace,
+    workspace: Mapping[str, str] | None,
 ) -> Dict[str, Any]:
     """Return template-friendly metadata for a setup field."""
 
@@ -3291,7 +2908,15 @@ def _serialise_field(
             default_factory = field_meta.get("default_factory")
             if callable(default_factory):
                 try:
-                    value = str(default_factory(workspace))
+                    value = str(default_factory())
+                except TypeError:
+                    if workspace is not None:
+                        try:
+                            value = str(default_factory(workspace))
+                        except Exception:  # pragma: no cover - defensive defaults
+                            value = ""
+                    else:
+                        value = ""
                 except Exception:  # pragma: no cover - defensive defaults
                     value = ""
     return {
@@ -5357,7 +4982,7 @@ def _build_setup_context(
     if state.get("completed") and step is None:
         requested_step = _SETUP_TOTAL_STEPS
 
-    workspace = current_workspace()
+    workspace = _workspace_hint_map()
 
     module_to_group: Dict[str, str] = {}
     for group_meta in SETUP_MODULE_GROUPS:
@@ -5788,89 +5413,47 @@ def _dq_version_records(
     dataset_path: Optional[str] = None,
     dataset_records: Optional[Iterable[DatasetRecord]] = None,
 ) -> List[Dict[str, Any]]:
-    """Return version → status entries for the supplied dataset id.
+    """Summarise validation verdicts for ``dataset_id`` without filesystem access."""
 
-    ``dataset_records`` can be provided to scope compatibility information to
-    runs that were produced for a specific contract version. This ensures, for
-    example, that the compatibility matrix rendered for ``orders`` version
-    ``1.0.0`` does not surface the validation outcome that belongs to the
-    ``1.1.0`` contract.
-    """
+    del dataset_path  # filesystem materialisations are demo-only
 
     records: List[Dict[str, Any]] = []
-    entries = _dq_status_entries(dataset_id)
+    if not dataset_records:
+        return records
 
-    scoped_versions: set[str] = set()
-    dataset_record_map: Dict[str, DatasetRecord] = {}
-    if dataset_records:
-        for record in dataset_records:
-            if not record.dataset_version:
-                continue
-            scoped_versions.add(record.dataset_version)
-            dataset_record_map[record.dataset_version] = record
-
-    dataset_dir = _dataset_root_for(dataset_id, dataset_path)
-    skip_fs_check = False
-    if contract and contract.servers:
-        server = contract.servers[0]
-        fmt = (getattr(server, "format", "") or "").lower()
-        if fmt == "delta":
-            skip_fs_check = True
-
-    seen_versions: set[str] = set()
-    for display_version, stored_version, payload in entries:
-        record = dataset_record_map.get(display_version)
-        payload_contract_id = str(payload.get("contract_id") or "")
-        payload_contract_version = str(payload.get("contract_version") or "")
-        if contract and (contract.id or contract.version):
-            contract_id_value = contract.id or ""
-            if payload_contract_id and payload_contract_version:
-                if (
-                    payload_contract_id != contract_id_value
-                    or payload_contract_version != contract.version
-                ):
-                    continue
-            elif scoped_versions and display_version not in scoped_versions:
-                continue
-        elif scoped_versions and display_version not in scoped_versions:
+    scoped_versions: Dict[str, DatasetRecord] = {}
+    for record in dataset_records:
+        if record.dataset_name != dataset_id:
             continue
-        if not skip_fs_check and dataset_dir is not None:
-            if not _has_version_materialisation(dataset_dir, display_version):
+        if not record.dataset_version:
+            continue
+        scoped_versions[record.dataset_version] = record
+
+    for version, record in scoped_versions.items():
+        if contract and (contract.id or contract.version):
+            if record.contract_id and contract.id and record.contract_id != contract.id:
                 continue
-        status_value = str(payload.get("status", "unknown") or "unknown")
+            if (
+                record.contract_version
+                and contract.version
+                and record.contract_version != contract.version
+            ):
+                continue
+        status_value = record.status or "unknown"
         records.append(
             {
-                "version": display_version,
-                "stored_version": stored_version,
+                "version": version,
+                "stored_version": version,
                 "status": status_value,
                 "status_label": status_value.replace("_", " ").title(),
                 "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
-                "contract_id": payload_contract_id or (record.contract_id if record else ""),
-                "contract_version": payload_contract_version
-                or (record.contract_version if record else ""),
-                "recorded_at": payload.get("recorded_at"),
+                "contract_id": record.contract_id,
+                "contract_version": record.contract_version,
+                "recorded_at": record.dq_details.get("recorded_at")
+                if isinstance(record.dq_details, Mapping)
+                else None,
             }
         )
-        seen_versions.add(display_version)
-
-    # If we scoped by contract runs, surface any versions without a stored DQ
-    # payload using the dataset records so the UI can still display a verdict.
-    if scoped_versions:
-        for missing_version in scoped_versions - seen_versions:
-            record = dataset_record_map.get(missing_version)
-            status_value = str(record.status or "unknown") if record else "unknown"
-            records.append(
-                {
-                    "version": missing_version,
-                    "stored_version": _safe_fs_name(missing_version),
-                    "status": status_value,
-                    "status_label": status_value.replace("_", " ").title(),
-                    "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
-                    "contract_id": record.contract_id if record else "",
-                    "contract_version": record.contract_version if record else "",
-                    "recorded_at": None,
-                }
-            )
 
     records.sort(key=lambda item: _version_sort_key(item["version"]))
     return records
@@ -6090,21 +5673,112 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
     return entries
 
 
+def _latest_event(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+    events = entry.get("events")
+    if isinstance(events, list):
+        for event in reversed(events):
+            if isinstance(event, Mapping):
+                return dict(event)
+    return {}
+
+
 def load_records() -> List[DatasetRecord]:
-    if not DATASETS_FILE.exists():
-        return []
-    try:
-        raw = json.loads(DATASETS_FILE.read_text())
-    except (OSError, json.JSONDecodeError):
-        return []
-    return [DatasetRecord(**r) for r in raw]
+    """Return recorded dataset runs provided by the governance services."""
 
+    records: List[DatasetRecord] = []
+    for dataset_id in list_dataset_ids():
+        activity = dataset_pipeline_activity(dataset_id)
+        for entry in activity:
+            dataset_version = str(entry.get("dataset_version") or "")
+            contract_id = str(entry.get("contract_id") or "")
+            contract_version = str(entry.get("contract_version") or "")
 
-def save_records(records: List[DatasetRecord]) -> None:
-    DATASETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DATASETS_FILE.write_text(
-        json.dumps([r.__dict__ for r in records], indent=2), encoding="utf-8"
-    )
+            latest_event = _latest_event(entry)
+            status_payload = None
+            if contract_id and contract_version:
+                status_payload = dataset_validation_status(
+                    contract_id=contract_id,
+                    contract_version=contract_version,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                )
+
+            details: Dict[str, Any] = {}
+            reason = ""
+            status_value = "unknown"
+            if status_payload is not None:
+                try:
+                    status_value = _normalise_record_status(status_payload.status)
+                    details = dict(getattr(status_payload, "details", {}) or {})
+                    reason = getattr(status_payload, "reason", "") or ""
+                except Exception:  # pragma: no cover - defensive guard
+                    logger.exception(
+                        "Failed to interpret validation status for %s@%s",
+                        dataset_id,
+                        dataset_version,
+                    )
+                    details = {}
+            else:
+                raw_status = str(latest_event.get("dq_status", "unknown"))
+                status_value = _normalise_record_status(raw_status)
+                details = dict(latest_event.get("dq_details") or {})
+                reason = str(latest_event.get("dq_reason") or "")
+
+            pipeline_context = latest_event.get("pipeline_context")
+            run_type = "infer"
+            scenario_key = None
+            if isinstance(pipeline_context, Mapping):
+                run_type = str(pipeline_context.get("run_type", run_type))
+                scenario_key_value = pipeline_context.get("scenario_key")
+                if isinstance(scenario_key_value, str) and scenario_key_value:
+                    scenario_key = scenario_key_value
+
+            if latest_event.get("scenario_key") and not scenario_key:
+                scenario_key = str(latest_event.get("scenario_key"))
+
+            draft_version = details.get("draft_contract_version")
+            if not isinstance(draft_version, str):
+                draft_version = latest_event.get("draft_contract_version")
+                if not isinstance(draft_version, str):
+                    draft_version = None
+
+            data_product_id = ""
+            data_product_port = ""
+            data_product_role = ""
+            data_product_info = latest_event.get("data_product")
+            if isinstance(data_product_info, Mapping):
+                data_product_id = str(data_product_info.get("id") or "")
+                data_product_port = str(data_product_info.get("port") or "")
+                data_product_role = str(data_product_info.get("role") or "")
+            else:
+                if latest_event.get("data_product_id"):
+                    data_product_id = str(latest_event.get("data_product_id"))
+                if latest_event.get("data_product_port"):
+                    data_product_port = str(latest_event.get("data_product_port"))
+                if latest_event.get("data_product_role"):
+                    data_product_role = str(latest_event.get("data_product_role"))
+
+            violations = _extract_violation_count(details)
+
+            record = DatasetRecord(
+                contract_id,
+                contract_version,
+                dataset_id,
+                dataset_version,
+                status_value,
+                details,
+                run_type,
+                violations,
+                draft_contract_version=draft_version,
+                scenario_key=scenario_key,
+                data_product_id=data_product_id,
+                data_product_port=data_product_port,
+                data_product_role=data_product_role,
+            )
+            record.reason = reason
+            records.append(record)
+
+    return records
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
@@ -6219,10 +5893,10 @@ def pop_flash(token: str) -> Tuple[str | None, str | None]:
 def load_contract_meta() -> List[Dict[str, Any]]:
     """Return contract info derived from the store without extra metadata."""
     meta: List[Dict[str, Any]] = []
-    for cid in store.list_contracts():
-        for ver in store.list_versions(cid):
+    for cid in list_contract_ids():
+        for ver in contract_versions(cid):
             try:
-                contract = store.get(cid, ver)
+                contract = get_contract(cid, ver)
             except FileNotFoundError:
                 continue
             server = (contract.servers or [None])[0]
@@ -6280,9 +5954,9 @@ def _integration_catalog() -> List[Dict[str, Any]]:
     """Return basic metadata for all stored contracts."""
 
     catalog: List[Dict[str, Any]] = []
-    for cid in sorted(store.list_contracts()):
+    for cid in sorted(list_contract_ids()):
         try:
-            versions = store.list_versions(cid)
+            versions = contract_versions(cid)
         except FileNotFoundError:
             continue
         sorted_versions = _sorted_versions(versions)
@@ -6291,7 +5965,7 @@ def _integration_catalog() -> List[Dict[str, Any]]:
         latest_contract: Optional[OpenDataContractStandard] = None
         for version in reversed(sorted_versions):
             try:
-                latest_contract = store.get(cid, version)
+                latest_contract = get_contract(cid, version)
                 break
             except FileNotFoundError:
                 continue
@@ -6328,7 +6002,7 @@ async def _load_integration_contract(cid: str, ver: str) -> IntegrationContractC
     """Return the contract and summary information for helper endpoints."""
 
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     expectations = await _expectation_predicates(contract)
@@ -6852,7 +6526,7 @@ async def api_contracts() -> List[Dict[str, Any]]:
 @router.get("/api/contracts/{cid}/{ver}")
 async def api_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     datasets = [r.__dict__ for r in load_records() if r.contract_id == cid and r.contract_version == ver]
@@ -6879,7 +6553,7 @@ async def api_contract_preview(
     ):
         raise HTTPException(status_code=503, detail="pyspark is required for data previews")
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -6948,8 +6622,9 @@ async def api_contract_preview(
         )
         raise HTTPException(status_code=500, detail=f"Failed to load preview: {exc}")
 
-    status_payload = _dq_status_payload(effective_dataset_id, selected_version)
-    status_value = str(status_payload.get("status", "unknown")) if status_payload else "unknown"
+    status_lookup = {entry["version"]: entry for entry in version_records}
+    status_entry = status_lookup.get(selected_version)
+    status_value = str(status_entry.get("status", "unknown")) if status_entry else "unknown"
     response = {
         "dataset_id": effective_dataset_id,
         "dataset_version": selected_version,
@@ -6961,7 +6636,7 @@ async def api_contract_preview(
             "status": status_value,
             "status_label": status_value.replace("_", " ").title(),
             "badge": _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
-            "details": status_payload.get("details") if status_payload else None,
+            "details": None,
         },
     }
     return response
@@ -6982,7 +6657,7 @@ async def api_datasets() -> List[Dict[str, Any]]:
 async def api_dataset_detail(dataset_version: str) -> Dict[str, Any]:
     for r in load_records():
         if r.dataset_version == dataset_version:
-            contract = store.get(r.contract_id, r.contract_version)
+            contract = get_contract(r.contract_id, r.contract_version)
             return {
                 "record": r.__dict__,
                 "contract": contract_to_dict(contract),
@@ -7263,7 +6938,7 @@ async def integration_helper(request: Request) -> HTMLResponse:
 
 @router.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
-    contract_ids = store.list_contracts()
+    contract_ids = list_contract_ids()
     return templates.TemplateResponse(
         "contracts.html", {"request": request, "contracts": contract_ids}
     )
@@ -7292,7 +6967,7 @@ async def create_contract(
         try:
             _validate_contract_payload(editor_state, editing=False)
             model = _build_contract_from_payload(editor_state)
-            store.put(model)
+            put_contract(model)
             return RedirectResponse(url="/contracts", status_code=303)
         except (ValidationError, ValueError) as exc:
             error = str(exc)
@@ -7310,7 +6985,7 @@ async def create_contract(
 
 @router.get("/contracts/{cid}", response_class=HTMLResponse)
 async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
-    versions = store.list_versions(cid)
+    versions = contract_versions(cid)
     if not versions:
         raise HTTPException(status_code=404, detail="Contract not found")
     records_by_version: Dict[str, List[DatasetRecord]] = {}
@@ -7322,7 +6997,7 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
     contracts = []
     for ver in versions:
         try:
-            contract = store.get(cid, ver)
+            contract = get_contract(cid, ver)
         except FileNotFoundError:
             continue
 
@@ -7363,7 +7038,7 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
 @router.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
 async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     records = load_records()
@@ -7772,11 +7447,11 @@ def _build_editor_meta(
     baseline_state: Optional[Mapping[str, Any]],
     baseline_contract: Optional[OpenDataContractStandard],
 ) -> Dict[str, Any]:
-    existing_contracts = sorted(store.list_contracts())
+    existing_contracts = sorted(list_contract_ids())
     version_map: Dict[str, List[str]] = {}
     for contract_id in existing_contracts:
         try:
-            versions = store.list_versions(contract_id)
+            versions = contract_versions(contract_id)
         except FileNotFoundError:
             versions = []
         version_map[contract_id] = _sorted_versions(versions)
@@ -7864,9 +7539,9 @@ def _validate_contract_payload(
         new_version = SemVer.parse(version)
     except ValueError as exc:
         raise ValueError(f"Invalid semantic version: {exc}") from exc
-    existing_contracts = set(store.list_contracts())
+    existing_contracts = set(list_contract_ids())
     existing_versions = (
-        set(store.list_versions(contract_id)) if contract_id in existing_contracts else set()
+        set(contract_versions(contract_id)) if contract_id in existing_contracts else set()
     )
     if editing:
         if base_contract_id and contract_id != base_contract_id:
@@ -8220,7 +7895,7 @@ def _build_contract_from_payload(payload: Mapping[str, Any]) -> OpenDataContract
 @router.get("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
 async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLResponse:
     try:
-        contract = store.get(cid, ver)
+        contract = get_contract(cid, ver)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     new_ver = _next_version(ver)
@@ -8251,7 +7926,7 @@ async def save_contract_edits(
     baseline_state: Optional[Dict[str, Any]] = None
     base_version = original_version or ver
     try:
-        baseline_contract = store.get(cid, base_version)
+        baseline_contract = get_contract(cid, base_version)
         baseline_state = json.loads(json.dumps(_contract_editor_state(baseline_contract)))
     except FileNotFoundError:
         baseline_contract = None
@@ -8272,7 +7947,7 @@ async def save_contract_edits(
                 base_version=base_version,
             )
             model = _build_contract_from_payload(editor_state)
-            store.put(model)
+            put_contract(model)
             return RedirectResponse(
                 url=f"/contracts/{model.id}/{model.version}", status_code=303
             )
@@ -8330,64 +8005,43 @@ async def data_product_detail_view(request: Request, product_id: str) -> HTMLRes
     return templates.TemplateResponse("data_product_detail.html", context)
 
 
-def _dataset_path(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> Path:
-    server = (contract.servers or [None])[0] if contract else None
-    data_root = Path(DATA_DIR).parent
-    base = Path(getattr(server, "path", "")) if server else data_root
-    if base.suffix:
-        base = base.parent
-    if not base.is_absolute():
-        base = data_root / base
-    if base.name == dataset_name:
-        return base / dataset_version
-    return base / dataset_name / dataset_version
+def _dataset_preview(
+    contract: OpenDataContractStandard | None,
+    dataset_name: str,
+    dataset_version: str,
+) -> str:
+    """Return a placeholder preview.
 
+    Materialised datasets are managed by external pipelines. The demo package
+    overrides this helper with a filesystem-backed implementation that exposes
+    sample data.
+    """
 
-def _dataset_preview(contract: OpenDataContractStandard | None, dataset_name: str, dataset_version: str) -> str:
-    ds_path = _dataset_path(contract, dataset_name, dataset_version)
-    server = (contract.servers or [None])[0] if contract else None
-    fmt = getattr(server, "format", None)
-    try:
-        if fmt == "parquet":
-            from pyspark.sql import SparkSession  # type: ignore
-            spark = SparkSession.builder.master("local[1]").appName("preview").getOrCreate()
-            df = spark.read.parquet(str(ds_path))
-            return "\n".join(str(r.asDict()) for r in df.limit(10).collect())[:1000]
-        if fmt == "json":
-            target = ds_path if ds_path.is_file() else next(ds_path.glob("*.json"), None)
-            if target:
-                return target.read_text()[:1000]
-        if ds_path.is_file():
-            return ds_path.read_text()[:1000]
-        if ds_path.is_dir():
-            target = next((p for p in ds_path.iterdir() if p.is_file()), None)
-            if target:
-                return target.read_text()[:1000]
-    except Exception:
-        return ""
+    del contract, dataset_name, dataset_version
     return ""
 
 
+def _data_products_payload_file() -> List[Mapping[str, Any]]:
+    """Legacy fallback retained for the demo package."""
 
-
-def _data_products_payload() -> List[Mapping[str, Any]]:
-    try:
-        raw = json.loads(DATA_PRODUCTS_FILE.read_text())
-    except (OSError, json.JSONDecodeError):
-        return []
-    if isinstance(raw, list):
-        return [item for item in raw if isinstance(item, Mapping)]
     return []
 
 
 def load_data_products() -> List[OpenDataProductStandard]:
     documents: List[OpenDataProductStandard] = []
-    for payload in _data_products_payload():
+    for product_id in list_data_product_ids():
         try:
-            documents.append(OpenDataProductStandard.from_dict(payload))
-        except Exception:  # pragma: no cover - defensive
+            product = latest_data_product(product_id)
+        except Exception:  # pragma: no cover - defensive guard when backend fails
+            logger.exception("Failed to load data product %s", product_id)
             continue
-    return documents
+        if product is not None:
+            documents.append(product)
+    if documents:
+        return documents
+
+    fallback: List[OpenDataProductStandard] = []
+    return fallback
 
 
 def _port_custom_map(port: Any) -> Dict[str, Any]:
@@ -8577,10 +8231,10 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
         )
         bucket["records"].append(record)
 
-    for contract_id in store.list_contracts():
-        for version in store.list_versions(contract_id):
+    for contract_id in list_contract_ids():
+        for version in contract_versions(contract_id):
             try:
-                contract = store.get(contract_id, version)
+                contract = get_contract(contract_id, version)
             except FileNotFoundError:
                 continue
             server_info = _server_details(contract) or {}
@@ -8706,7 +8360,7 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
             contract_obj: OpenDataContractStandard | None = None
             if r.contract_id and r.contract_version:
                 try:
-                    contract_obj = store.get(r.contract_id, r.contract_version)
+                    contract_obj = get_contract(r.contract_id, r.contract_version)
                 except FileNotFoundError:
                     contract_obj = None
             preview = _dataset_preview(contract_obj, dataset_name, dataset_version)
@@ -8804,7 +8458,6 @@ def run(config_path: str | os.PathLike[str] | None = None) -> None:  # pragma: n
     backend_url = backend_cfg.base_url or process_cfg.url()
 
     env = os.environ.copy()
-    env.setdefault("DC43_CONTRACT_STORE", str(CONTRACT_DIR))
     cmd = [
         sys.executable,
         "-m",

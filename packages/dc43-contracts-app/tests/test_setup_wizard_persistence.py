@@ -14,7 +14,6 @@ from starlette.testclient import TestClient
 
 from dc43_contracts_app import server
 from dc43_contracts_app.config import config_to_mapping as contracts_config_to_mapping
-from dc43_contracts_app.workspace import workspace_from_env
 from dc43_service_backends.config import (
     config_to_mapping as service_config_to_mapping,
 )
@@ -52,15 +51,12 @@ WIZARD_CASES = tuple(_wizard_cases())
 def setup_wizard_client(tmp_path, monkeypatch):
     """Return a TestClient backed by an isolated setup workspace."""
 
-    monkeypatch.setenv("DC43_CONTRACTS_APP_WORK_DIR", str(tmp_path))
-    server._WORKSPACE = None  # type: ignore[attr-defined]
+    monkeypatch.setenv("DC43_CONTRACTS_APP_STATE_DIR", str(tmp_path))
     server._ACTIVE_CONFIG = None  # type: ignore[attr-defined]
-    workspace, _ = workspace_from_env(default_root=str(tmp_path))
-    server.configure_workspace(workspace)
+    server.configure_from_config()
     server.reset_setup_state()
     with TestClient(server.app) as client:
         yield client
-    server._WORKSPACE = None  # type: ignore[attr-defined]
     server._ACTIVE_CONFIG = None  # type: ignore[attr-defined]
 
 

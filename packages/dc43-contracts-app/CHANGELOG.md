@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the dataset record loader/saver configuration hooks so `load_records`
+  now derives history exclusively from governance APIs, exposing pipeline
+  activity and validation status without expecting manual persistence helpers.
+- Simplified dataset history wiring so the UI consumes loader/saver hooks from
+  the active services instead of instantiating its own record store; demo runs
+  continue to register their filesystem-backed providers via the service
+  bootstrap.
 - Dataset and contract pages now surface governance metrics, highlighting the
   latest snapshot and recent history so stewards can audit observations without
   leaving the UI.
@@ -12,6 +19,23 @@
   `read_with_governance`/`write_with_governance`, emitting governance request
   payloads in generated snippets and surfacing deprecation messaging for the
   legacy contract-based helpers.
+- Removed direct filesystem access from the contracts UI; dataset previews and
+  history now surface only when the demo pipelines populate them, while remote
+  deployments continue to focus on contract and data product metadata served by
+  the configured backends.
+- Dropped the ``server.store`` export from the contracts app; downstream demos
+  should import the shared ``dc43_contracts_app.services.store`` adapter or call
+  ``contract_service`` directly.
+- Removed the legacy `workspace` module from the contracts UI; filesystem
+  helpers now live exclusively in the demo app while the standalone UI derives
+  optional path hints from configuration and persists setup state under
+  `~/.dc43-contracts-app` (overridable via `DC43_CONTRACTS_APP_STATE_DIR`).
+- Workspace directory hints are now supplied by demo integrations via the new
+  hint registration hook, so standalone deployments no longer synthesise
+  filesystem defaults for setup wizard modules.
+- Updated docs chat configuration and the `dc43-docs-chat-index` CLI to accept
+  an optional base directory, defaulting cached embeddings to
+  `~/.dc43/docs_chat/index` when no explicit `index_path` is supplied.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

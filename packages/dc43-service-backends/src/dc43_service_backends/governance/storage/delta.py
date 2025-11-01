@@ -424,6 +424,14 @@ class DeltaGovernanceStore(GovernanceStore):
         folder = self._table_path("activity") if self._base_path else None
         self._write(df, table=self._activity_table, folder=folder)
 
+    def list_datasets(self) -> Sequence[str]:
+        folder = self._table_path("activity") if self._base_path else None
+        df = self._read(table=self._activity_table, folder=folder)
+        if df is None:
+            return []
+        rows = df.select("dataset_id").distinct().orderBy(col("dataset_id")).collect()
+        return [row.dataset_id for row in rows if getattr(row, "dataset_id", None)]
+
     def load_pipeline_activity(
         self,
         *,

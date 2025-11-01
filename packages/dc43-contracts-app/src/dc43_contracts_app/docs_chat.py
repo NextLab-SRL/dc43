@@ -13,7 +13,6 @@ from queue import Empty, Queue
 import threading
 
 from .config import DocsChatConfig
-from .workspace import ContractsAppWorkspace
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,6 @@ class DocsChatError(RuntimeError):
 class DocsChatConfigurationSummary:
     """Normalised view of the configured documentation assistant."""
 
-    workspace_root: Path
     docs_root: Path
     code_paths: tuple[Path, ...]
     index_dir: Path
@@ -233,7 +231,7 @@ def _coerce_chat_history(history: Sequence[object]) -> list[tuple[str, str]]:
     return pairs
 
 _CONFIG: DocsChatConfig | None = None
-_WORKSPACE: ContractsAppWorkspace | None = None
+_BASE_DIR: Path | None = None
 _RUNTIME: _DocsChatRuntime | None = None
 _RUNTIME_LOCK = threading.Lock()
 _WARMUP_GUARD = threading.Lock()
@@ -478,13 +476,13 @@ def _resolve_content_sources(config: DocsChatConfig) -> list[_ContentSource]:
 ProgressCallback = Callable[[str], None]
 
 
-def configure(config: DocsChatConfig, workspace: ContractsAppWorkspace) -> None:
+def configure(config: DocsChatConfig, *, base_dir: Path | None = None) -> None:
     """Store the active configuration and reset cached state."""
 
-    global _CONFIG, _WORKSPACE, _RUNTIME, _WARMUP_THREAD, _WARMUP_MESSAGES, _WARMUP_COMPLETED
+    global _CONFIG, _BASE_DIR, _RUNTIME, _WARMUP_THREAD, _WARMUP_MESSAGES, _WARMUP_COMPLETED
     with _RUNTIME_LOCK:
         _CONFIG = config
-        _WORKSPACE = workspace
+        _BASE_DIR = base_dir
         _RUNTIME = None
     with _WARMUP_GUARD:
         _WARMUP_THREAD = None
@@ -630,7 +628,7 @@ def status() -> DocsChatStatus:
 def describe_configuration() -> DocsChatConfigurationSummary:
     """Return a summary of the configured documentation assistant."""
 
-    if not _CONFIG or not _WORKSPACE:
+    if not _CONFIG:
         raise DocsChatError(
             "Configure the documentation assistant before describing its settings."
         )
@@ -638,12 +636,11 @@ def describe_configuration() -> DocsChatConfigurationSummary:
     docs_root = _resolve_docs_root(_CONFIG)
     sources = _resolve_content_sources(_CONFIG)
     code_paths = tuple(source.root for source in sources if source.kind == "code")
-    index_dir = _resolve_index_dir(_CONFIG, _WORKSPACE)
+    index_dir = _resolve_index_dir(_CONFIG, _BASE_DIR)
     provider = _normalise_embedding_provider(_CONFIG)
     model = _resolve_embedding_model(_CONFIG)
 
     return DocsChatConfigurationSummary(
-        workspace_root=_WORKSPACE.root,
         docs_root=docs_root,
         code_paths=code_paths,
         index_dir=index_dir,
@@ -856,13 +853,12 @@ def _ensure_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntim
 
 def _build_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntime:
     config = _CONFIG
-    workspace = _WORKSPACE
-    if config is None or workspace is None:
-        raise DocsChatError("Docs chat has not been initialised with a workspace.")
+    if config is None:
+        raise DocsChatError("Docs chat has not been initialised.")
 
     content_sources = _resolve_content_sources(config)
     docs_root = content_sources[0].root
-    index_dir = _resolve_index_dir(config, workspace)
+    index_dir = _resolve_index_dir(config, _BASE_DIR)
     index_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = _current_manifest_payload(config, content_sources)
@@ -886,7 +882,7 @@ def _build_runtime(progress: ProgressCallback | None = None) -> _DocsChatRuntime
 
     _emit_progress(progress, "📚 Indexing dc43 documentation and source code…")
     documents = _load_documents(content_sources, progress=progress)
-    _emit_progress(progress, f"🧾 Loaded {len(documents)} documents from the workspace.")
+    _emit_progress(progress, f"🧾 Loaded {len(documents)} documents from the configured sources.")
     vectorstore = _build_vectorstore(config, documents, progress=progress)
     _emit_progress(progress, "🗂️ Persisting the refreshed documentation index…")
     _save_vectorstore(index_dir, vectorstore)
@@ -1153,10 +1149,13 @@ def _resolve_docs_root(config: DocsChatConfig) -> Path:
     return package_root / "docs"
 
 
-def _resolve_index_dir(config: DocsChatConfig, workspace: ContractsAppWorkspace) -> Path:
+def _resolve_index_dir(config: DocsChatConfig, base_dir: Path | None) -> Path:
     if config.index_path:
         return Path(config.index_path).expanduser()
-    return workspace.root / "docs_chat" / "index"
+    if base_dir is not None:
+        return base_dir / "docs_chat" / "index"
+    cache_root = Path.home() / ".dc43" / "docs_chat"
+    return cache_root / "index"
 
 
 def _missing_api_key_message(config: DocsChatConfig) -> str:

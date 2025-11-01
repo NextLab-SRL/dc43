@@ -52,6 +52,9 @@ class HttpGovernanceStore(GovernanceStore):
     def _metrics_url(self, dataset_id: str) -> str:
         return f"/datasets/{dataset_id}/metrics"
 
+    def _datasets_url(self) -> str:
+        return "/datasets"
+
     # ------------------------------------------------------------------
     # Status persistence
     # ------------------------------------------------------------------
@@ -171,6 +174,20 @@ class HttpGovernanceStore(GovernanceStore):
             return [dict(item) for item in data if isinstance(item, Mapping)]
         if isinstance(data, Mapping):
             return [dict(data)]
+        return []
+
+    def list_datasets(self) -> Sequence[str]:
+        response = self._client.get(self._datasets_url())
+        if response.status_code == 404:
+            return []
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [str(item) for item in payload]
+        if isinstance(payload, Mapping):
+            items = payload.get("datasets")
+            if isinstance(items, list):
+                return [str(item) for item in items]
         return []
 
     # ------------------------------------------------------------------

@@ -51,22 +51,100 @@ def _data_products_file(workspace: ContractsAppWorkspace | None = None) -> Path:
     return ws.data_products_file
 
 
-def load_records(workspace: ContractsAppWorkspace | None = None) -> List[DatasetRecord]:
-    datasets_path = _datasets_file(workspace)
-    if not Path(datasets_path).exists():
-        return []
+def _coerce_str(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _coerce_optional_str(value: Any) -> str | None:
+    text = _coerce_str(value)
+    return text or None
+
+
+def _coerce_int(value: Any) -> int:
     try:
-        raw = json.loads(Path(datasets_path).read_text())
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def load_records(workspace: ContractsAppWorkspace | None = None) -> List[DatasetRecord]:
+    """Load dataset history from the demo registry file."""
+
+    ws = workspace or current_workspace()
+    try:
+        payload = json.loads(ws.datasets_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
-    return [DatasetRecord(**r) for r in raw]
+
+    records: List[DatasetRecord] = []
+    if not isinstance(payload, list):
+        return records
+
+    for entry in payload:
+        if not isinstance(entry, Mapping):
+            continue
+        details = dict(entry.get("dq_details") or {})
+        record = DatasetRecord(
+            contract_id=_coerce_str(entry.get("contract_id")),
+            contract_version=_coerce_str(entry.get("contract_version")),
+            dataset_name=_coerce_str(entry.get("dataset_name")),
+            dataset_version=_coerce_str(entry.get("dataset_version")),
+            status=_coerce_str(entry.get("status") or details.get("status")),
+            dq_details=details,
+            run_type=_coerce_str(entry.get("run_type") or "infer"),
+            violations=_coerce_int(entry.get("violations") or details.get("violations")),
+            reason=_coerce_str(entry.get("reason")),
+            draft_contract_version=_coerce_optional_str(entry.get("draft_contract_version")),
+            scenario_key=_coerce_optional_str(entry.get("scenario_key")),
+            data_product_id=_coerce_str(entry.get("data_product_id")),
+            data_product_port=_coerce_str(entry.get("data_product_port")),
+            data_product_role=_coerce_str(entry.get("data_product_role")),
+        )
+        records.append(record)
+
+    return records
 
 
-def save_records(records: List[DatasetRecord], workspace: ContractsAppWorkspace | None = None) -> None:
-    datasets_path = Path(_datasets_file(workspace))
-    datasets_path.parent.mkdir(parents=True, exist_ok=True)
-    datasets_path.write_text(
-        json.dumps([r.__dict__ for r in records], indent=2), encoding="utf-8"
+def record_dataset_run(
+    entry: Mapping[str, Any],
+    workspace: ContractsAppWorkspace | None = None,
+) -> None:
+    """Persist ``entry`` into the datasets registry, replacing existing runs."""
+
+    ws = workspace or current_workspace()
+    path = ws.datasets_file
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = []
+
+    if not isinstance(payload, list):
+        payload = []
+
+    dataset_name = str(entry.get("dataset_name") or "")
+    dataset_version = str(entry.get("dataset_version") or "")
+    filtered: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, Mapping):
+            continue
+        if (
+            dataset_name
+            and dataset_version
+            and str(item.get("dataset_name") or "") == dataset_name
+            and str(item.get("dataset_version") or "") == dataset_version
+        ):
+            continue
+        filtered.append(dict(item))
+
+    # Ensure the payload is JSON serialisable without mutating the caller entry.
+    serialisable_entry = json.loads(json.dumps(entry, default=str))
+    filtered.append(serialisable_entry)
+
+    path.write_text(
+        json.dumps(filtered, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -109,10 +187,29 @@ def pop_flash(token: str) -> Tuple[str | None, str | None]:
 
 
 def _version_sort_key(value: str) -> tuple[int, str]:
-    cleaned = value or ""
-    if cleaned.endswith("Z"):
+    """Return a tuple that sorts known version shapes by recency."""
+
+    cleaned = (value or "").strip()
+    if cleaned.endswith("Z") and "T" in cleaned:
         cleaned = cleaned[:-1]
-    return (len(cleaned), cleaned)
+    lower = cleaned.lower()
+
+    if not cleaned or lower == "latest":
+        category = 0
+    elif "-" in cleaned and cleaned.replace("-", "").isdigit():
+        # Canonical calendar versions such as ``2024-04-01`` should sort last.
+        category = 4
+    elif "T" in cleaned and cleaned.replace("T", "").isdigit():
+        # Timestamped run identifiers (``20251101T051222``) come after labels.
+        category = 3
+    elif cleaned.replace(".", "").isdigit() and cleaned.count(".") >= 1:
+        # Semantic versions like ``1.2.3`` beat arbitrary labels.
+        category = 2
+    else:
+        # Scenario labels (``valid-ok``) and other strings stay at the bottom.
+        category = 1
+
+    return (category, cleaned)
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
@@ -210,6 +307,41 @@ def scenario_run_rows(
                 "default_mode": params.get("mode"),
                 "run_count": run_count,
                 "latest": latest_record.__dict__.copy() if latest_record else None,
+            }
+        )
+
+    return rows
+
+
+def dataset_run_rows(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
+    """Summarise recorded runs grouped by dataset name."""
+
+    grouped: Dict[str, List[DatasetRecord]] = {}
+    for record in records:
+        if not record.dataset_name:
+            continue
+        grouped.setdefault(record.dataset_name, []).append(record)
+
+    rows: List[Dict[str, Any]] = []
+    for dataset_name, entries in grouped.items():
+        entries = list(entries)
+        entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+        latest = entries[-1]
+        latest_payload = latest.__dict__.copy()
+        latest_payload["dq_details"] = latest.dq_details
+
+        rows.append(
+            {
+                "key": dataset_name,
+                "label": dataset_name.replace("_", " ").title(),
+                "category": "dataset",
+                "dataset_name": dataset_name,
+                "contract_id": latest.contract_id or None,
+                "contract_version": latest.contract_version or None,
+                "run_type": latest.run_type or "infer",
+                "scenario_key": latest.scenario_key or None,
+                "run_count": len(entries),
+                "latest": latest_payload,
             }
         )
 
@@ -474,6 +606,8 @@ def dq_version_records(
 
 __all__ = [
     "DatasetRecord",
+    "record_dataset_run",
+    "dataset_run_rows",
     "load_data_product_documents",
     "load_data_product_payloads",
     "dq_version_records",
@@ -482,7 +616,6 @@ __all__ = [
     "load_records",
     "pop_flash",
     "queue_flash",
-    "save_records",
     "scenario_history",
     "scenario_run_rows",
 ]

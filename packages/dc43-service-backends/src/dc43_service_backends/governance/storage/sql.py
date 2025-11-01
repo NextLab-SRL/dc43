@@ -360,6 +360,17 @@ class SQLGovernanceStore(GovernanceStore):
             extra={"updated_at": self._now()},
         )
 
+    def list_datasets(self) -> Sequence[str]:
+        stmt = select(self._activity.c.dataset_id).distinct().order_by(
+            self._activity.c.dataset_id
+        )
+        datasets: list[str] = []
+        with self._engine.begin() as conn:
+            for (dataset_id,) in conn.execute(stmt).all():
+                if isinstance(dataset_id, str):
+                    datasets.append(dataset_id)
+        return datasets
+
     def load_pipeline_activity(
         self,
         *,

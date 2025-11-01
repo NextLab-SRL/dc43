@@ -97,7 +97,6 @@ def _tag_latest_record_as_dlt(
                 if enriched:
                     output["dlt_expectations"] = enriched
 
-    pipeline.save_records(records)
 
 
 def _dlt_output_transform(

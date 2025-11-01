@@ -8,7 +8,7 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 
 from .stores.interface import ContractStore
 
-from .interface import ContractServiceBackend
+from .interface import ContractListing, ContractServiceBackend
 
 
 class LocalContractServiceBackend(ContractServiceBackend):
@@ -19,6 +19,23 @@ class LocalContractServiceBackend(ContractServiceBackend):
 
     def put(self, contract: OpenDataContractStandard) -> None:  # noqa: D401 - short docstring
         self._store.put(contract)
+
+    def list_contracts(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> ContractListing:  # noqa: D401
+        contract_ids = sorted(self._store.list_contracts())
+        total = len(contract_ids)
+        start = max(int(offset), 0)
+        end = total
+        if limit is not None:
+            span = max(int(limit), 0)
+            end = min(start + span, total)
+        return ContractListing(
+            items=contract_ids[start:end],
+            total=total,
+            limit=limit,
+            offset=start,
+        )
 
     def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
         return self._store.get(contract_id, contract_version)

@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Governance backends and stores now surface `list_datasets` and pipeline
+  activity/status lookups so UI clients can assemble dataset history directly
+  from the service without relying on demo-specific record stores.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so
   clients relying solely on the governance layer retain access to detailed data

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Sequence
 
 from . import contracts_api as contracts_server
-from .contracts_records import DatasetRecord, _version_sort_key
+from .contracts_records import DatasetRecord, _version_sort_key, record_dataset_run
 from .spark_compat import ensure_local_spark_builder
 from dc43_service_backends.data_quality.backend.engine import (
     ExpectationSpec,
@@ -83,6 +83,8 @@ def _resolve_output_path(
     contract: OpenDataContractStandard | None,
     dataset_name: str,
     dataset_version: str,
+    *,
+    ensure_exists: bool = True,
 ) -> Path:
     """Return output path for dataset relative to contract servers."""
     server = (contract.servers or [None])[0] if contract else None
@@ -99,9 +101,10 @@ def _resolve_output_path(
         out = base_path / segment
     else:
         out = base_path / dataset_name / segment
-    out.mkdir(parents=True, exist_ok=True)
-    if dataset_version and not (out / ".dc43_version").exists():
-        _write_version_marker(out, dataset_version)
+    if ensure_exists:
+        out.mkdir(parents=True, exist_ok=True)
+        if dataset_version and not (out / ".dc43_version").exists():
+            _write_version_marker(out, dataset_version)
     return out
 
 
@@ -797,6 +800,19 @@ def _status_payload(status: ValidationResult | None) -> dict[str, Any] | None:
     return payload
 
 
+def _status_level(value: str | None, *, treat_block_as_warning: bool = False) -> int:
+    """Map governance status text to a severity level."""
+
+    if not value:
+        return 0
+    normalised = value.lower()
+    if normalised in {"warn", "warning"}:
+        return 1
+    if normalised in {"block", "error", "fail", "invalid"}:
+        return 1 if treat_block_as_warning else 2
+    return 0
+
+
 def _resolve_dataset_name_hint(
     contract_id: str | None,
     contract_version: str | None,
@@ -816,55 +832,6 @@ def _resolve_dataset_name_hint(
             return dataset_id
         return contract_id
     return dataset_name or contract_id or "result"
-
-
-def _record_blocked_read_failure(
-    *,
-    error_message: str,
-    contract_id: str | None,
-    contract_version: str | None,
-    dataset_name_hint: str,
-    run_type: str,
-    scenario_key: str | None,
-    orders_status: ValidationResult | None,
-    customers_status: ValidationResult | None,
-) -> None:
-    """Persist a dataset record describing a blocked input read."""
-
-    dq_details: dict[str, Any] = {}
-    orders_payload = _status_payload(orders_status)
-    customers_payload = _status_payload(customers_status)
-    if orders_payload:
-        dq_details["orders"] = orders_payload
-    if customers_payload:
-        dq_details["customers"] = customers_payload
-    dq_details["output"] = {
-        "errors": [error_message],
-        "dq_status": {"status": "error", "reason": error_message},
-    }
-
-    violations_total = 0
-    for payload in (orders_payload, customers_payload):
-        if isinstance(payload, Mapping):
-            violations_value = payload.get("violations")
-            if isinstance(violations_value, (int, float)):
-                violations_total += int(violations_value)
-
-    records = contracts_server.load_records()
-    record = contracts_server.DatasetRecord(
-        contract_id or "",
-        contract_version or "",
-        dataset_name_hint,
-        "",
-        "error",
-        dq_details,
-        run_type,
-        violations_total,
-        scenario_key=scenario_key,
-    )
-    record.reason = error_message
-    records.append(record)
-    contracts_server.save_records(records)
 
 
 def _normalise_record_status(value: str | None) -> str:
@@ -1022,10 +989,12 @@ def _run_data_product_flow(
     collect_examples: bool,
     examples_limit: int,
     scenario_key: str | None,
+    output_transform: Callable[[DataFrame, MutableMapping[str, Any]], DataFrame] | None,
 ) -> tuple[str, str]:
     """Execute the data-product centric pipeline scenario."""
 
     governance = contracts_server.governance_service
+    transform_context: MutableMapping[str, Any] = {}
 
     def _context(step: str, extra: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         payload = dict(base_context)
@@ -1240,40 +1209,6 @@ def _run_data_product_flow(
     )
     stage_output_details.setdefault("storage_path", str(stage_output_path))
 
-    stage_combined_details: Dict[str, Any] = {
-        "orders": orders_payload,
-        "customers": _status_payload(customers_status),
-        "output": stage_output_details,
-    }
-    stage_violations = _aggregate_violation_counts(*stage_combined_details.values())
-    stage_status_value = _normalise_record_status(getattr(stage_status, "status", None))
-    if not stage_result.ok:
-        stage_status_value = "error"
-    if stage_status_value == "ok" and stage_output_details.get("warnings"):
-        stage_status_value = "warning"
-
-    stage_draft_version = stage_output_details.get("draft_contract_version")
-    if not stage_draft_version and stage_payload and isinstance(stage_payload, Mapping):
-        stage_draft_version = stage_payload.get("draft_contract_version")
-
-    stage_record = contracts_server.DatasetRecord(
-        stage_contract_id or "",
-        stage_contract_version or "",
-        stage_dataset_name,
-        stage_dataset_version,
-        stage_status_value,
-        stage_combined_details,
-        run_type,
-        stage_violations,
-        draft_contract_version=stage_draft_version if isinstance(stage_draft_version, str) else None,
-        scenario_key=scenario_key,
-    )
-    stage_record.reason = getattr(stage_status, "reason", "") or ""
-    stage_record.data_product_id = data_product_flow.get("output", {}).get("data_product", "")
-    stage_record.data_product_port = stage_cfg.get("contract_id", "")
-    stage_record.data_product_role = "intermediate"
-    records.append(stage_record)
-
     stage_read_contract = {"contract_id": stage_contract_id}
     if stage_contract_version:
         stage_read_contract["contract_version"] = stage_contract_version
@@ -1330,6 +1265,21 @@ def _run_data_product_flow(
             write_contract_ref["contract_version"] = output_contract_version
         if expected_output_version:
             write_contract_ref.setdefault("version_selector", expected_output_version)
+
+    if output_transform:
+        transform_context = {
+            "spark": spark,
+            "contract_id": output_contract_id or stage_contract_id,
+            "expected_contract_version": expected_output_version,
+            "dataset_name": output_dataset_name,
+            "dataset_version": output_dataset_version,
+            "governance_service": governance,
+            "run_type": run_type,
+        }
+        stage_read_df = output_transform(stage_read_df, transform_context)
+        engine_label = transform_context.get("pipeline_engine")
+        if engine_label and isinstance(base_context, MutableMapping):
+            base_context.setdefault("engine", engine_label)
 
     write_request = GovernanceSparkWriteRequest(
         context=GovernanceWriteContext(
@@ -1393,42 +1343,131 @@ def _run_data_product_flow(
     )
     final_output_details.setdefault("storage_path", str(output_path))
 
-    final_combined_details: Dict[str, Any] = {
-        "orders": orders_payload,
-        "customers": _status_payload(customers_status),
-        "stage": _status_payload(stage_read_status),
+    if transform_context:
+        engine_label = transform_context.get("pipeline_engine")
+        if engine_label and "pipeline_engine" not in final_output_details:
+            final_output_details["pipeline_engine"] = engine_label
+        module_name = transform_context.get("dlt_module_name")
+        if module_name and "dlt_module_name" not in final_output_details:
+            final_output_details["dlt_module_name"] = module_name
+        if "dlt_module_stub" not in final_output_details and "dlt_module_stub" in transform_context:
+            final_output_details["dlt_module_stub"] = bool(transform_context["dlt_module_stub"])
+        asset_name = transform_context.get("dlt_asset_name")
+        if asset_name and "dlt_asset" not in final_output_details:
+            final_output_details["dlt_asset"] = asset_name
+        reports = transform_context.get("dlt_expectation_reports")
+        if reports and "dlt_expectations" not in final_output_details:
+            final_output_details["dlt_expectations"] = reports
+        table_options = transform_context.get("dlt_table_options")
+        if table_options and "dlt_table_options" not in final_output_details:
+            final_output_details["dlt_table_options"] = table_options
+
+    combined_details: dict[str, Any] = {
+        "input": orders_payload,
+        "customers": customers_status.details if customers_status else None,
+        "stage": stage_output_details,
         "output": final_output_details,
     }
-    final_violations = _aggregate_violation_counts(*final_combined_details.values())
-    final_status_value = _normalise_record_status(getattr(final_status, "status", None))
-    if not final_result.ok:
-        final_status_value = "error"
-    if final_status_value == "ok" and final_output_details.get("warnings"):
-        final_status_value = "warning"
 
-    final_draft_version = final_output_details.get("draft_contract_version")
-    if not final_draft_version and final_payload and isinstance(final_payload, Mapping):
-        final_draft_version = final_payload.get("draft_contract_version")
+    severity = 0
+    total_violations = 0
+    warnings_present = False
+    for details in combined_details.values():
+        if not isinstance(details, Mapping):
+            continue
+        violations_value = details.get("violations")
+        if isinstance(violations_value, (int, float)):
+            total_violations += int(violations_value)
+            if violations_value:
+                warnings_present = True
+        metrics_map = details.get("metrics")
+        if isinstance(metrics_map, Mapping):
+            for key, value in metrics_map.items():
+                if str(key).startswith("violations") and isinstance(value, (int, float)):
+                    total_violations += int(value)
+                    if value:
+                        warnings_present = True
+        errors = details.get("errors")
+        if isinstance(errors, list):
+            total_violations += len(errors)
+            if errors:
+                warnings_present = True
+        failed = details.get("failed_expectations")
+        if isinstance(failed, Mapping):
+            total_violations += sum(int(info.get("count", 0) or 0) for info in failed.values())
+            if any((info.get("count") or 0) for info in failed.values()):
+                warnings_present = True
+        if details.get("warnings"):
+            warnings_present = True
 
-    final_record = contracts_server.DatasetRecord(
-        output_contract_id or "",
-        output_contract_version or "",
-        output_dataset_name,
-        output_dataset_version,
-        final_status_value,
-        final_combined_details,
-        run_type,
-        final_violations,
-        draft_contract_version=final_draft_version if isinstance(final_draft_version, str) else None,
-        scenario_key=scenario_key,
-    )
-    final_record.reason = getattr(final_status, "reason", "") or ""
-    final_record.data_product_id = output_cfg.get("data_product", "")
-    final_record.data_product_port = output_cfg.get("port_name", "")
-    final_record.data_product_role = "output"
-    records.append(final_record)
+    for aux_entry in final_output_details.get("dq_auxiliary_statuses", []) or []:
+        if isinstance(aux_entry, Mapping):
+            total_violations += int(aux_entry.get("violations", 0) or 0)
+            if aux_entry.get("warnings") or aux_entry.get("errors"):
+                warnings_present = True
+            combined_details.setdefault("auxiliary", []).append(aux_entry)
+            severity = max(
+                severity,
+                _status_level(aux_entry.get("status"), treat_block_as_warning=True),
+            )
 
-    contracts_server.save_records(records)
+    for status in (orders_status, customers_status, stage_status, final_status):
+        severity = max(severity, _status_level(getattr(status, "status", None)))
+
+    dq_summary = final_output_details.get("dq_status")
+    if isinstance(dq_summary, Mapping):
+        severity = max(severity, _status_level(dq_summary.get("status")))
+        if dq_summary.get("errors"):
+            warnings_present = True
+
+    if final_result.errors:
+        severity = 2
+    elif warnings_present:
+        severity = max(severity, 1)
+
+    status_value = "ok"
+    if severity == 1:
+        status_value = "warning"
+    elif severity >= 2:
+        status_value = "error"
+
+    recorded_status = status_value
+    if final_result.status:
+        normalised_status = str(final_result.status).strip().lower()
+        if normalised_status in {"ok", "error"}:
+            recorded_status = normalised_status
+        elif normalised_status in {"warning", "warn"}:
+            recorded_status = "warning"
+        elif normalised_status == "block":
+            recorded_status = "error"
+        elif normalised_status not in {"unknown", ""}:
+            recorded_status = str(final_result.status)
+
+    record_entry: dict[str, Any] = {
+        "contract_id": output_contract_id or "",
+        "contract_version": output_contract_version or "",
+        "dataset_name": output_dataset_name,
+        "dataset_version": output_dataset_version,
+        "status": recorded_status,
+        "reason": final_result.reason or (final_status.reason if final_status else "") or "",
+        "dq_details": combined_details,
+        "run_type": run_type,
+        "violations": total_violations,
+    }
+
+    draft_version = final_output_details.get("draft_contract_version")
+    if draft_version:
+        record_entry["draft_contract_version"] = draft_version
+    if scenario_key:
+        record_entry["scenario_key"] = scenario_key
+
+    data_product_meta = final_output_details.get("data_product")
+    if isinstance(data_product_meta, Mapping):
+        record_entry["data_product_id"] = str(data_product_meta.get("id") or "")
+        record_entry["data_product_port"] = str(data_product_meta.get("port") or "")
+        record_entry["data_product_role"] = str(data_product_meta.get("role") or "")
+
+    record_dataset_run(record_entry)
 
     return output_dataset_name or stage_dataset_name, output_dataset_version
 
@@ -1506,6 +1545,7 @@ def run_pipeline(
             collect_examples=collect_examples,
             examples_limit=examples_limit,
             scenario_key=scenario_key,
+            output_transform=output_transform,
         )
         contracts_server.refresh_dataset_aliases()
         if not existing_session:
@@ -1525,6 +1565,9 @@ def run_pipeline(
         contract_version,
         dataset_name,
     )
+
+    read_error: ValueError | None = None
+    read_error_details: dict[str, Any] | None = None
 
     orders_overrides = input_overrides.get("orders")
     orders_locator = _apply_locator_overrides(
@@ -1591,18 +1634,31 @@ def run_pipeline(
     )
     if treat_orders_blocking and orders_status and orders_status.status == "block":
         details = orders_status.reason or orders_status.details
-        message = f"DQ status is blocking: {details}"
-        _record_blocked_read_failure(
-            error_message=message,
-            contract_id=contract_id,
-            contract_version=contract_version,
-            dataset_name_hint=dataset_name_hint,
-            run_type=run_type,
-            scenario_key=scenario_key,
-            orders_status=orders_status,
-            customers_status=None,
+        detail_text = details if isinstance(details, str) else str(details)
+        message = f"DQ status is blocking: {detail_text}"
+        payload: dict[str, Any] = {
+            "dataset_role": "orders",
+            "status": getattr(orders_status, "status", "block"),
+            "reason": message,
+        }
+        status_details = (
+            dict(orders_status.details)
+            if isinstance(getattr(orders_status, "details", None), Mapping)
+            else None
         )
-        raise ValueError(message)
+        if status_details:
+            payload["details"] = status_details
+        if read_error is None:
+            read_error = ValueError(message)
+            read_error_details = payload
+        else:
+            read_error = ValueError(f"{read_error}; {message}")
+            if read_error_details is None:
+                read_error_details = payload
+            else:
+                related = read_error_details.setdefault("related", [])
+                if isinstance(related, list):
+                    related.append(payload)
 
     customers_overrides = input_overrides.get("customers")
     customers_locator = _apply_locator_overrides(
@@ -1673,47 +1729,72 @@ def run_pipeline(
     )
     if treat_customers_blocking and customers_status and customers_status.status == "block":
         details = customers_status.reason or customers_status.details
-        message = f"DQ status is blocking: {details}"
-        _record_blocked_read_failure(
-            error_message=message,
-            contract_id=contract_id,
-            contract_version=contract_version,
-            dataset_name_hint=dataset_name_hint,
-            run_type=run_type,
-            scenario_key=scenario_key,
-            orders_status=orders_status,
-            customers_status=customers_status,
+        detail_text = details if isinstance(details, str) else str(details)
+        message = f"DQ status is blocking: {detail_text}"
+        payload = {
+            "dataset_role": "customers",
+            "status": getattr(customers_status, "status", "block"),
+            "reason": message,
+        }
+        status_details = (
+            dict(customers_status.details)
+            if isinstance(getattr(customers_status, "details", None), Mapping)
+            else None
         )
-        raise ValueError(message)
+        if status_details:
+            payload["details"] = status_details
+        if read_error is None:
+            read_error = ValueError(message)
+            read_error_details = payload
+        else:
+            read_error = ValueError(f"{read_error}; {message}")
+            if read_error_details is None:
+                read_error_details = payload
+            else:
+                related = read_error_details.setdefault("related", [])
+                if isinstance(related, list):
+                    related.append(payload)
+
+    records = contracts_server.load_records()
+    output_contract = (
+        contracts_server.contract_service.get(contract_id, contract_version)
+        if contract_id and contract_version
+        else None
+    )
+    if output_contract and getattr(output_contract, "id", None):
+        # Align dataset naming with the contract so recorded runs and filesystem
+        # layout remain consistent with the declared server definition.
+        dataset_name = output_contract.id
+    elif not dataset_name:
+        dataset_name = dataset_name_hint or contract_id or "result"
+    if not dataset_version and dataset_name:
+        existing = [
+            r.dataset_version
+            for r in records
+            if r.dataset_name == dataset_name
+        ]
+        dataset_version = _next_version(existing)
+
+    assert dataset_name
+    assert dataset_version
+
+    output_path = _resolve_output_path(
+        output_contract,
+        dataset_name,
+        dataset_version,
+        ensure_exists=read_error is None,
+    )
+    server = (output_contract.servers or [None])[0] if output_contract else None
 
     df = orders_df.join(customers_df, "customer_id")
-    # Promote one of the rows above the quality threshold so split strategies
-    # demonstrate both valid and reject outputs in the demo.
+    # Promote one of the rows above the quality threshold so split
+    # strategies demonstrate both valid and reject outputs in the demo.
     df = df.withColumn(
         "amount",
         when(col("order_id") == 1, col("amount") * 20).otherwise(col("amount")),
     )
 
     df, adjustment_notes = _apply_output_adjustment(df, output_adjustment)
-
-    records = contracts_server.load_records()
-    output_contract = (
-        contracts_server.store.get(contract_id, contract_version) if contract_id and contract_version else None
-    )
-    if output_contract and getattr(output_contract, "id", None):
-        # Align dataset naming with the contract so recorded versions and paths
-        # remain consistent with the declared server definition.
-        dataset_name = output_contract.id
-    elif not dataset_name:
-        dataset_name = contract_id or "result"
-    if not dataset_version:
-        existing = [r.dataset_version for r in records if r.dataset_name == dataset_name]
-        dataset_version = _next_version(existing)
-
-    assert dataset_name
-    assert dataset_version
-    output_path = _resolve_output_path(output_contract, dataset_name, dataset_version)
-    server = (output_contract.servers or [None])[0] if output_contract else None
 
     base_pipeline_context["output_dataset"] = dataset_name
     base_pipeline_context["output_dataset_version"] = dataset_version
@@ -1745,7 +1826,7 @@ def run_pipeline(
         write_context_extra["contract_status_policy"] = strategy_policy
 
     transform_context: MutableMapping[str, Any] = {}
-    if output_transform:
+    if output_transform and df is not None:
         transform_context = {
             "spark": spark,
             "contract_id": contract_id_ref,
@@ -1766,7 +1847,7 @@ def run_pipeline(
 
     output_pipeline_context = _context_for("output-write", write_context_extra)
     governance_write_request: GovernanceSparkWriteRequest | None = None
-    if contract_id_ref:
+    if read_error is None and contract_id_ref:
         contract_spec: dict[str, Any] = {"contract_id": contract_id_ref}
         resolved_version = (
             getattr(output_contract, "version", None)
@@ -1788,69 +1869,114 @@ def run_pipeline(
         )
 
     write_error: ValueError | None = None
-    if output_contract and contract_status_enforce:
-        try:
-            status_handler.validate_contract_status(
-                contract=output_contract,
-                enforce=True,
-                operation="write",
-            )
-        except ValueError as exc:
-            write_error = exc
-            error_message = str(exc)
-            failure_details: dict[str, Any] = {
-                "errors": [error_message],
-                "contract_status_error": error_message,
-            }
-            if strategy_policy:
-                failure_details.setdefault(
-                    "contract_status_policy",
-                    strategy_policy,
+    output_status: ValidationResult | None = None
+    result: ValidationResult
+    if read_error is None:
+        if output_contract and contract_status_enforce:
+            try:
+                status_handler.validate_contract_status(
+                    contract=output_contract,
+                    enforce=True,
+                    operation="write",
                 )
-            result = ValidationResult(
-                ok=False,
-                errors=[error_message],
-                warnings=[],
-                metrics={},
-                status="error",
-                reason=error_message,
-                details=failure_details,
-            )
-            output_status = None
+            except ValueError as exc:
+                write_error = exc
+                error_message = str(exc)
+                failure_details: dict[str, Any] = {
+                    "errors": [error_message],
+                    "contract_status_error": error_message,
+                }
+                if strategy_policy:
+                    failure_details.setdefault(
+                        "contract_status_policy",
+                        strategy_policy,
+                    )
+                result = ValidationResult(
+                    ok=False,
+                    errors=[error_message],
+                    warnings=[],
+                    metrics={},
+                    status="error",
+                    reason=error_message,
+                    details=failure_details,
+                )
+                output_status = None
+            else:
+                if not governance_write_request:
+                    assert df is not None
+                    df.write.mode("overwrite").parquet(str(output_path))
+                    result = ValidationResult(
+                        ok=True,
+                        errors=[],
+                        warnings=[],
+                        metrics={},
+                        status="ok",
+                        reason=None,
+                        details={},
+                    )
+                    output_status = None
+                else:
+                    result, output_status = write_with_governance(
+                        df=df,
+                        request=governance_write_request,
+                        governance_service=governance,
+                        enforce=False,
+                        return_status=True,
+                        violation_strategy=strategy,
+                    )
         else:
-            if not governance_write_request:
-                raise ValueError("Output contract must be configured before publishing data.")
-            result, output_status = write_with_governance(
-                df=df,
-                request=governance_write_request,
-                governance_service=governance,
-                enforce=False,
-                return_status=True,
-                violation_strategy=strategy,
-            )
+            if governance_write_request is None:
+                assert df is not None
+                df.write.mode("overwrite").parquet(str(output_path))
+                result = ValidationResult(
+                    ok=True,
+                    errors=[],
+                    warnings=[],
+                    metrics={},
+                    status="ok",
+                    reason=None,
+                    details={},
+                )
+                output_status = None
+                write_error = None
+            else:
+                result, output_status = write_with_governance(
+                    df=df,
+                    request=governance_write_request,
+                    governance_service=governance,
+                    enforce=False,
+                    return_status=True,
+                    violation_strategy=strategy,
+                )
     else:
-        if governance_write_request is None:
-            message = "Output contract must be configured before publishing data."
-            result = ValidationResult(
-                ok=False,
-                errors=[message],
-                warnings=[],
-                metrics={},
-                status="error",
-                reason=message,
-                details={"errors": [message]},
-            )
-            output_status = None
-            write_error = ValueError(message)
+        error_message = str(read_error)
+        failure_details: dict[str, Any] = {
+            "errors": [error_message],
+            "reason": error_message,
+        }
+        if read_error_details:
+            failure_details["read_status"] = read_error_details
+            status_hint = str(read_error_details.get("status") or "")
         else:
-            result, output_status = write_with_governance(
-                df=df,
-                request=governance_write_request,
-                governance_service=governance,
-                enforce=False,
-                return_status=True,
-                violation_strategy=strategy,
-            )
+            status_hint = ""
+        status_label = status_hint or "error"
+        failure_details.setdefault(
+            "dq_status",
+            {
+                "status": status_label,
+                "reason": error_message,
+            },
+        )
+        result = ValidationResult(
+            ok=False,
+            errors=[error_message],
+            warnings=[],
+            metrics={},
+            status="error",
+            reason=error_message,
+            details=failure_details,
+        )
+        output_status = None
 
     if output_status and output_contract:
         output_status = attach_failed_expectations(
@@ -1884,7 +2010,7 @@ def run_pipeline(
     if not schema_errors:
         residual = [msg for msg in original_errors if msg not in expectation_messages]
         schema_errors.extend(residual)
-    if output_contract:
+    if output_contract and df is not None:
         expected_columns = {
             prop.name
             for obj in output_contract.schema_ or []
@@ -1912,25 +2038,22 @@ def run_pipeline(
         if not result.errors:
             result.ok = True
 
-    error: ValueError | None = write_error
-    if run_type == "enforce":
-        if not output_contract:
-            error = ValueError("Contract required for existing mode")
-        else:
-            issues: list[str] = []
-            if output_status and output_status.status != "ok":
-                detail_msg: dict[str, Any] = dict(output_status.details or {})
-                if output_status.reason:
-                    detail_msg["reason"] = output_status.reason
-                issues.append(
-                    f"DQ violation: {detail_msg or output_status.status}"
-                )
-            if schema_errors:
-                issues.append(
-                    f"Schema validation failed: {schema_errors}"
-                )
-            if issues:
-                error = ValueError("; ".join(issues))
+    error: ValueError | None = read_error or write_error
+    if run_type == "enforce" and output_contract and read_error is None:
+        issues: list[str] = []
+        if output_status and output_status.status != "ok":
+            detail_msg: dict[str, Any] = dict(output_status.details or {})
+            if output_status.reason:
+                detail_msg["reason"] = output_status.reason
+            issues.append(
+                f"DQ violation: {detail_msg or output_status.status}"
+            )
+        if schema_errors:
+            issues.append(
+                f"Schema validation failed: {schema_errors}"
+            )
+        if issues:
+            error = ValueError("; ".join(issues))
 
     draft_version: str | None = None
     output_details = result.details.copy()
@@ -2044,7 +2167,7 @@ def run_pipeline(
         if table_options and "dlt_table_options" not in output_details:
             output_details["dlt_table_options"] = table_options
 
-    if dataset_name and dataset_version:
+    if read_error is None and dataset_name and dataset_version:
         try:
             contracts_server.set_active_version(dataset_name, dataset_version)
         except FileNotFoundError:
@@ -2153,16 +2276,6 @@ def run_pipeline(
         if det.get("warnings"):
             warnings_present = True
 
-    def _status_level(value: str | None, *, treat_block_as_warning: bool = False) -> int:
-        if not value:
-            return 0
-        normalised = value.lower()
-        if normalised in {"warn", "warning"}:
-            return 1
-        if normalised in {"block", "error", "fail", "invalid"}:
-            return 1 if treat_block_as_warning else 2
-        return 0
-
     severity = 0
     severity = max(severity, _status_level(getattr(orders_status, "status", None)))
     severity = max(severity, _status_level(getattr(customers_status, "status", None)))
@@ -2207,21 +2320,43 @@ def run_pipeline(
         status_value = "warning"
     elif severity >= 2:
         status_value = "error"
-    records.append(
-        contracts_server.DatasetRecord(
-            contract_id or "",
-            contract_version or "",
-            dataset_name,
-            dataset_version,
-            status_value,
-            combined_details,
-            run_type,
-            total_violations,
-            draft_contract_version=draft_version,
-            scenario_key=scenario_key,
-        )
-    )
-    contracts_server.save_records(records)
+
+    recorded_status = status_value
+    if result.status:
+        normalised_status = str(result.status).strip().lower()
+        if normalised_status in {"ok", "error"}:
+            recorded_status = normalised_status
+        elif normalised_status in {"warning", "warn"}:
+            recorded_status = "warning"
+        elif normalised_status == "block":
+            recorded_status = "error"
+        elif normalised_status not in {"unknown", ""}:
+            recorded_status = str(result.status)
+
+    record_entry: dict[str, Any] = {
+        "contract_id": contract_id or "",
+        "contract_version": contract_version or "",
+        "dataset_name": dataset_name,
+        "dataset_version": dataset_version,
+        "status": recorded_status,
+        "reason": result.reason or (output_status.reason if output_status else None) or "",
+        "dq_details": combined_details,
+        "run_type": run_type,
+        "violations": total_violations,
+    }
+    if draft_version:
+        record_entry["draft_contract_version"] = draft_version
+    if scenario_key:
+        record_entry["scenario_key"] = scenario_key
+
+    data_product_meta = output_details.get("data_product")
+    if isinstance(data_product_meta, Mapping):
+        record_entry["data_product_id"] = str(data_product_meta.get("id") or "")
+        record_entry["data_product_port"] = str(data_product_meta.get("port") or "")
+        record_entry["data_product_role"] = str(data_product_meta.get("role") or "")
+
+    record_dataset_run(record_entry)
+
     if not existing_session:
         spark.stop()
     if error:
@@ -2235,7 +2370,6 @@ def __getattr__(name: str) -> Any:
         "DATA_DIR",
         "DatasetRecord",
         "load_records",
-        "save_records",
         "register_dataset_version",
         "set_active_version",
         "store",

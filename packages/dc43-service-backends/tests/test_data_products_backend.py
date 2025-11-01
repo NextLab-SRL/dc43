@@ -45,6 +45,18 @@ def test_local_backend_accepts_pydantic_like_payload() -> None:
     assert callable(getattr(stored, "clone"))
 
 
+def test_local_backend_lists_products() -> None:
+    backend = LocalDataProductServiceBackend()
+    backend.register_output_port(
+        data_product_id="dp.analytics",
+        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+    )
+
+    listing = backend.list_data_products()
+    assert list(listing.items) == ["dp.analytics"]
+    assert listing.total == 1
+
+
 def test_register_input_port_creates_draft_version() -> None:
     backend = LocalDataProductServiceBackend()
 

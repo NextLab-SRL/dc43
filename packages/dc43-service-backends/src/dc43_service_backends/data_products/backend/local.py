@@ -17,7 +17,11 @@ from dc43_service_clients.odps import (
     to_model,
 )
 
-from .interface import DataProductRegistrationResult, DataProductServiceBackend
+from .interface import (
+    DataProductListing,
+    DataProductRegistrationResult,
+    DataProductServiceBackend,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -90,6 +94,23 @@ class LocalDataProductServiceBackend(DataProductServiceBackend):
         store = self._products.setdefault(product.id, {})
         store[product.version] = self._clone_product(product)
         self._latest[product.id] = product.version
+
+    def list_data_products(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> DataProductListing:  # noqa: D401
+        product_ids = sorted(self._products.keys())
+        total = len(product_ids)
+        start = max(int(offset), 0)
+        end = total
+        if limit is not None:
+            span = max(int(limit), 0)
+            end = min(start + span, total)
+        return DataProductListing(
+            items=product_ids[start:end],
+            total=total,
+            limit=limit,
+            offset=start,
+        )
 
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:  # noqa: D401
         versions = self._products.get(data_product_id)

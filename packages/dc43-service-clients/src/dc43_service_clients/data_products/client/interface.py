@@ -24,6 +24,11 @@ class DataProductServiceClient(Protocol):
     def list_versions(self, data_product_id: str) -> list[str]:
         ...
 
+    def list_data_products(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> Mapping[str, object]:
+        ...
+
     def register_input_port(
         self,
         *,

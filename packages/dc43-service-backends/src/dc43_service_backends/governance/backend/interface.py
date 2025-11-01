@@ -138,6 +138,9 @@ class GovernanceServiceBackend(Protocol):
     ) -> Sequence[Mapping[str, object]]:
         ...
 
+    def list_datasets(self) -> Sequence[str]:
+        ...
+
     def get_pipeline_activity(
         self,
         *,

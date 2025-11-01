@@ -391,6 +391,20 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
             return [dict(payload)]
         return []
 
+    def list_datasets(self) -> Sequence[str]:
+        response = ensure_response(
+            self._client.get(self._request_path("/governance/datasets"))
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [str(item) for item in payload]
+        if isinstance(payload, Mapping):
+            items = payload.get("datasets")
+            if isinstance(items, list):
+                return [str(item) for item in items]
+        return []
+
     def get_pipeline_activity(
         self,
         *,

@@ -42,6 +42,9 @@ def test_local_backend_delegates_to_store():
     contract = make_contract("orders", "1.0.0")
     backend.put(contract)
 
+    listing = backend.list_contracts()
+    assert list(listing.items) == ["orders"]
+    assert listing.total == 1
     assert backend.get("orders", "1.0.0") == contract
     assert backend.list_versions("orders") == ["1.0.0"]
     assert backend.latest("orders") == contract
