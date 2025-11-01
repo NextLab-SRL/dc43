@@ -187,10 +187,29 @@ def pop_flash(token: str) -> Tuple[str | None, str | None]:
 
 
 def _version_sort_key(value: str) -> tuple[int, str]:
-    cleaned = value or ""
-    if cleaned.endswith("Z"):
+    """Return a tuple that sorts known version shapes by recency."""
+
+    cleaned = (value or "").strip()
+    if cleaned.endswith("Z") and "T" in cleaned:
         cleaned = cleaned[:-1]
-    return (len(cleaned), cleaned)
+    lower = cleaned.lower()
+
+    if not cleaned or lower == "latest":
+        category = 0
+    elif "-" in cleaned and cleaned.replace("-", "").isdigit():
+        # Canonical calendar versions such as ``2024-04-01`` should sort last.
+        category = 4
+    elif "T" in cleaned and cleaned.replace("T", "").isdigit():
+        # Timestamped run identifiers (``20251101T051222``) come after labels.
+        category = 3
+    elif cleaned.replace(".", "").isdigit() and cleaned.count(".") >= 1:
+        # Semantic versions like ``1.2.3`` beat arbitrary labels.
+        category = 2
+    else:
+        # Scenario labels (``valid-ok``) and other strings stay at the bottom.
+        category = 1
+
+    return (category, cleaned)
 
 
 def _scenario_dataset_name(params: Mapping[str, Any]) -> str:
