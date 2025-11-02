@@ -22,6 +22,9 @@
 - SQL governance activity lookups now include the dataset identifier and version
   from the table columns when payloads omit those fields, ensuring clients can
   enumerate available dataset versions even for legacy records.
+- SQL governance status lookups now tolerate duplicate historical rows by
+  selecting the most recent payload, preventing `MultipleResultsFound` errors
+  when legacy tables contain redundant entries.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed
