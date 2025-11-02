@@ -5682,6 +5682,66 @@ def _latest_event(entry: Mapping[str, Any]) -> Mapping[str, Any]:
     return {}
 
 
+def _normalise_record_status(value: str | None) -> str:
+    """Map backend validation status strings onto UI-friendly labels."""
+
+    if not value:
+        return "unknown"
+    text = str(value).strip().lower()
+    if not text:
+        return "unknown"
+    if text in {"ok", "pass", "passed", "success", "succeeded", "valid"}:
+        return "ok"
+    if text in {"warn", "warning", "caution"}:
+        return "warn"
+    if text in {"block", "blocked", "error", "fail", "failed", "invalid", "ko"}:
+        return "block"
+    if text in {"stale", "outdated", "expired"}:
+        return "stale"
+    return "unknown"
+
+
+def _extract_violation_count(section: Mapping[str, Any] | None) -> int:
+    """Return the maximum violation count found within ``section``."""
+
+    if not isinstance(section, Mapping):
+        return 0
+
+    total = 0
+    candidate = section.get("violations")
+    if isinstance(candidate, (int, float)):
+        total = max(total, int(candidate))
+
+    metrics = section.get("metrics")
+    if isinstance(metrics, Mapping):
+        for key, value in metrics.items():
+            if str(key).startswith("violations") and isinstance(value, (int, float)):
+                total = max(total, int(value))
+
+    failed = section.get("failed_expectations")
+    if isinstance(failed, Mapping):
+        for info in failed.values():
+            if not isinstance(info, Mapping):
+                continue
+            count = info.get("count")
+            if isinstance(count, (int, float)):
+                total = max(total, int(count))
+
+    errors = section.get("errors")
+    if isinstance(errors, list):
+        total = max(total, len(errors))
+
+    details = section.get("details")
+    if isinstance(details, Mapping):
+        total = max(total, _extract_violation_count(details))
+
+    dq_status = section.get("dq_status")
+    if isinstance(dq_status, Mapping):
+        total = max(total, _extract_violation_count(dq_status))
+
+    return total
+
+
 def load_records() -> List[DatasetRecord]:
     """Return recorded dataset runs provided by the governance services."""
 
