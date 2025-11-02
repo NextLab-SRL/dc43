@@ -137,15 +137,27 @@ jobs:
 
           plan = json.loads(Path("plan.json").read_text(encoding="utf-8"))
           packages: list[str] = []
-          rows = ["| Package | Needs release |", "| --- | --- |"]
+          rows = [
+              "| Package | Needs release | Has changes | Included |",
+              "| --- | --- | --- | --- |",
+          ]
 
           for entry in plan.get("packages", []):
               name = entry.get("package")
               if name not in allowed:
                   continue
               needs_release = bool(entry.get("needs_release"))
-              rows.append(f"| {name} | {'yes' if needs_release else 'no'} |")
-              if needs_release:
+              has_changes = bool(entry.get("changed_files"))
+              include = needs_release or has_changes
+              rows.append(
+                  "| {name} | {release} | {changes} | {included} |".format(
+                      name=name,
+                      release="yes" if needs_release else "no",
+                      changes="yes" if has_changes else "no",
+                      included="yes" if include else "no",
+                  )
+              )
+              if include:
                   packages.append(name)
 
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
