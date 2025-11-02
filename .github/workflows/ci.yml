@@ -4,7 +4,6 @@ on:
   pull_request:
   push:
     branches:
-      - main
       - dev
   workflow_dispatch:
     inputs:
@@ -82,6 +81,130 @@ jobs:
 
       - name: Run tests
         run: ${{ matrix.test_command }}
+
+  publish-test-pypi:
+    name: Publish packages to Test PyPI
+    needs: tests
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'publish-test-pypi') &&
+      secrets.TEST_PYPI_TOKEN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          tags: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install packaging build twine
+
+      - name: Compute release plan
+        id: plan
+        run: |
+          set -euo pipefail
+          python scripts/release.py \
+            --commit "$GITHUB_SHA" \
+            --json-output plan.json \
+            --allow-missing-release-marker
+
+      - name: Determine packages to publish
+        id: packages
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          allowed = {
+              "dc43",
+              "dc43-service-clients",
+              "dc43-service-backends",
+              "dc43-integrations",
+              "dc43-contracts-app",
+          }
+
+          plan = json.loads(Path("plan.json").read_text(encoding="utf-8"))
+          packages: list[str] = []
+          rows = ["| Package | Needs release |", "| --- | --- |"]
+
+          for entry in plan.get("packages", []):
+              name = entry.get("package")
+              if name not in allowed:
+                  continue
+              needs_release = bool(entry.get("needs_release"))
+              rows.append(f"| {name} | {'yes' if needs_release else 'no'} |")
+              if needs_release:
+                  packages.append(name)
+
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary.write_text("\n".join(["### Test PyPI publish plan", *rows]) + "\n", encoding="utf-8")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"packages={' '.join(packages)}\n")
+
+          Path("packages-to-release.txt").write_text("\n".join(packages), encoding="utf-8")
+          PY
+
+      - name: Bail out when nothing to publish
+        if: steps.packages.outputs.packages == ''
+        run: echo "No packages require publishing to Test PyPI." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build packages
+        if: steps.packages.outputs.packages != ''
+        env:
+          PACKAGES: ${{ steps.packages.outputs.packages }}
+        run: |
+          set -euo pipefail
+          rm -rf release-artifacts
+          mkdir -p release-artifacts
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          packages = os.environ["PACKAGES"].split()
+
+          script_dir = Path("scripts").resolve()
+          if str(script_dir) not in sys.path:
+              sys.path.insert(0, str(script_dir))
+
+          from _packages import PACKAGES as PACKAGE_META, ROOT
+
+          for name in packages:
+              meta = PACKAGE_META[name]
+              outdir = Path("release-artifacts") / name
+              outdir.mkdir(parents=True, exist_ok=True)
+              package_dir = ROOT / meta["package_dir"]
+              subprocess.run(
+                  [sys.executable, "-m", "build", "--outdir", str(outdir.resolve())],
+                  cwd=package_dir,
+                  check=True,
+              )
+          PY
+
+      - name: Publish packages to Test PyPI
+        if: steps.packages.outputs.packages != ''
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: |
+          set -euo pipefail
+          for package in ${{ steps.packages.outputs.packages }}; do
+            python -m twine upload --repository-url https://test.pypi.org/legacy/ release-artifacts/$package/*
+          done
 
   docker-ecr-smoke:
     name: Docker image smoke publish

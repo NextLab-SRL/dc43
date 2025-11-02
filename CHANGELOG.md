@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- Added a `publish-test-pypi` pull request label that triggers CI to build
+  release artifacts and upload them to Test PyPI for pre-release validation.
 - Removed the demo/contract helpers that manually persisted dataset records so
   the UI and pipelines rely solely on governance service APIs for run history,
   adding fixtures and helpers to tests to generate sample data on demand.
