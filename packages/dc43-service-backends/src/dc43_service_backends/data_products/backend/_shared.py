@@ -12,6 +12,7 @@ from dc43_service_clients.odps import (
 )
 
 from .interface import DataProductRegistrationResult
+from dc43_service_backends.core.versioning import version_key
 
 
 def _as_custom_properties(data: Optional[Mapping[str, object]]) -> list[dict[str, object]]:
@@ -36,12 +37,8 @@ def _merge_custom_properties(
     port.custom_properties = existing  # type: ignore[attr-defined]
 
 
-def _version_key(version: str) -> tuple[int, int, int]:
-    parts = version.split(".")
-    padded = [int(part) if part.isdigit() else 0 for part in parts]
-    while len(padded) < 3:
-        padded.append(0)
-    return tuple(padded[:3])
+def _version_key(version: str) -> tuple[int, int, int, int, int, int]:
+    return version_key(version)
 
 
 class MutableDataProductBackendMixin:

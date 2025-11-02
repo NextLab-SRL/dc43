@@ -30,4 +30,7 @@
 - ODPS serialisation raises a descriptive error when non data-product objects
   (for example, Open Data Contracts) are passed to the helper, steering callers
   towards the correct client API instead of surfacing an attribute error.
+- Delta-backed contract and data product stores now compare version strings with
+  suffix-aware keys so rc/dev builds sort correctly without triggering Spark
+  cast errors when resolving the latest entries.
 

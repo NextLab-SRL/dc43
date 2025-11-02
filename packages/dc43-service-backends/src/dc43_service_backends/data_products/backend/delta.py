@@ -128,19 +128,12 @@ class DeltaDataProductServiceBackend(MutableDataProductBackendMixin, DataProduct
     def latest(self, data_product_id: str) -> Optional[OpenDataProductStandard]:  # noqa: D401
         ref = self._table_ref()
         rows = self._spark.sql(
-            f"""
-            SELECT json FROM {ref}
-            WHERE data_product_id = '{data_product_id}'
-            ORDER BY
-              CAST(split(version, '\\.')[0] AS INT),
-              CAST(split(version, '\\.')[1] AS INT),
-              CAST(split(version, '\\.')[2] AS INT)
-            DESC LIMIT 1
-            """
-        ).head(1)
+            f"SELECT version, json FROM {ref} WHERE data_product_id = '{data_product_id}'"
+        ).collect()
         if not rows:
             return None
-        return to_model(self._safe_json(rows[0][0]))
+        latest_row = max(rows, key=lambda row: _version_key(row[0]))
+        return to_model(self._safe_json(latest_row[1]))
 
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:  # noqa: D401
         ref = self._table_ref()

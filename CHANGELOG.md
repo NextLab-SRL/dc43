@@ -38,6 +38,11 @@
   governance-first wrappers. Compatibility calls now emit
   ``DeprecationWarning`` messages to steer pipelines towards
   `read_with_governance`/`write_with_governance`.
+
+### Fixed
+- Updated the Delta-backed governance stores to compare version strings using
+  suffix-aware keys so rc/dev builds resolve without Spark casting errors when
+  fetching the latest contract or data product entries.
 - Introduced governance-first Spark IO wrappers and updated documentation/tests
   so pipelines can rely on a single governance client instead of wiring
   contract/data-quality services manually.

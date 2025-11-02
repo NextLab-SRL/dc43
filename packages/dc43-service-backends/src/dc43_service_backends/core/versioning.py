@@ -3,7 +3,7 @@ from __future__ import annotations
 """Simple Semantic Version helper for contract version comparisons."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 import re
 
 
@@ -46,4 +46,49 @@ class SemVer:
             return SemVer(self.major, self.minor, self.patch + 1)
         raise ValueError("level must be one of: major, minor, patch")
 
-__all__ = ["SemVer"]
+_VERSION_KEY_PATTERN = re.compile(
+    r"^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(.*)\s*$"
+)
+_VERSION_KEY_STAGE = re.compile(
+    r"^(?P<label>dev|a|alpha|b|beta|rc|post)(?P<number>\d*)",
+    re.IGNORECASE,
+)
+_VERSION_KEY_ORDER = {
+    "dev": 0,
+    "a": 1,
+    "alpha": 1,
+    "b": 2,
+    "beta": 2,
+    "rc": 3,
+    "": 4,
+    "post": 5,
+}
+
+
+def version_key(version: str) -> Tuple[int, int, int, int, int, int]:
+    """Return a sortable key for dotted versions with optional suffixes."""
+
+    match = _VERSION_KEY_PATTERN.match(version or "")
+    if not match:
+        return (0, 0, 0, 0, -1, 0)
+
+    major, minor, patch, build, suffix = match.groups()
+    digits = [major, minor, patch, build]
+    components = [int(part) if part and part.isdigit() else 0 for part in digits]
+
+    suffix = (suffix or "").lstrip(".-_").lower()
+    label = ""
+    number = 0
+    if suffix:
+        stage = _VERSION_KEY_STAGE.match(suffix)
+        if stage:
+            label = stage.group("label").lower()
+            number_str = stage.group("number") or "0"
+            number = int(number_str) if number_str.isdigit() else 0
+        else:
+            label = suffix
+    rank = _VERSION_KEY_ORDER.get(label, -1)
+    return (*components, rank, number)
+
+
+__all__ = ["SemVer", "version_key"]
