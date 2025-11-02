@@ -103,6 +103,9 @@
   Delta deployments spell out how to capture hosts, tokens, and CLI profiles in TOML.
 
 ### Fixed
+- Added a concurrency guard to the CI workflow so only the latest pull request
+  run continues, preventing duplicate Test PyPI rc publishes when multiple
+  events fire in quick succession.
 - Updated the `dc43-demo` launcher to merge any exported `DC43_CONTRACTS_APP_CONFIG`
   file into the generated workspace configuration so docs-chat overrides stay
   active instead of being reset to the default template.
