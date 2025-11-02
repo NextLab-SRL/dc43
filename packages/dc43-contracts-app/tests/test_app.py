@@ -1,4 +1,4 @@
-from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -149,3 +149,124 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
     assert first["contract_id"] == contract_id
     assert first["contract_version"] == contract_version
     assert first["dataset_id"] == contract_id
+
+
+def test_load_records_normalises_backend_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    details = {
+        "metrics": {"violations.total": 5},
+        "failed_expectations": {"schema": {"count": 3}},
+        "errors": ["schema-mismatch", "extra-column"],
+        "dq_status": {"violations": 6},
+    }
+
+    monkeypatch.setattr(server, "list_dataset_ids", lambda: ["sales.orders"])
+
+    def fake_activity(dataset_id: str) -> list[dict[str, object]]:
+        assert dataset_id == "sales.orders"
+        return [
+            {
+                "dataset_version": "2024-05-02",
+                "contract_id": "sales.contract",
+                "contract_version": "1.2.3",
+                "events": [
+                    {"dq_status": "warn"},
+                    {
+                        "dq_status": "ok",
+                        "pipeline_context": {
+                            "run_type": "scheduled",
+                            "scenario_key": "scenario-123",
+                        },
+                        "data_product": {
+                            "id": "product-x",
+                            "port": "output",
+                            "role": "publisher",
+                        },
+                    },
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(server, "dataset_pipeline_activity", fake_activity)
+
+    calls: list[dict[str, object]] = []
+
+    def fake_validation_status(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(status="VALID", details=details, reason="All good")
+
+    monkeypatch.setattr(server, "dataset_validation_status", fake_validation_status)
+
+    records = server.load_records()
+
+    assert len(records) == 1
+    record = records[0]
+
+    assert record.status == "ok"
+    assert record.violations == 6
+    assert record.dq_details == details
+    assert record.run_type == "scheduled"
+    assert record.scenario_key == "scenario-123"
+    assert record.data_product_id == "product-x"
+    assert record.data_product_port == "output"
+    assert record.data_product_role == "publisher"
+    assert record.reason == "All good"
+
+    assert calls
+    first_call = calls[0]
+    assert first_call["contract_id"] == "sales.contract"
+    assert first_call["contract_version"] == "1.2.3"
+    assert first_call["dataset_id"] == "sales.orders"
+    assert first_call["dataset_version"] == "2024-05-02"
+
+
+def test_load_records_uses_event_status_when_backend_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "list_dataset_ids", lambda: ["inventory.stock"])
+
+    def fake_activity(_: str) -> list[dict[str, object]]:
+        return [
+            {
+                "dataset_version": "2024-05-03",
+                "contract_id": "inventory.contract",
+                "contract_version": "2.0.0",
+                "events": [
+                    {
+                        "dq_status": "ko",
+                        "dq_details": {"errors": ["missing primary key", "null value"]},
+                        "dq_reason": "Schema mismatch",
+                        "pipeline_context": {"run_type": "adhoc"},
+                        "scenario_key": "manual-run",
+                    }
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(server, "dataset_pipeline_activity", fake_activity)
+
+    calls: list[dict[str, object]] = []
+
+    def fake_validation_status(**kwargs):
+        calls.append(kwargs)
+        return None
+
+    monkeypatch.setattr(server, "dataset_validation_status", fake_validation_status)
+
+    records = server.load_records()
+
+    assert len(records) == 1
+    record = records[0]
+
+    assert record.status == "block"
+    assert record.violations == 2
+    assert record.dq_details == {"errors": ["missing primary key", "null value"]}
+    assert record.run_type == "adhoc"
+    assert record.scenario_key == "manual-run"
+    assert record.reason == "Schema mismatch"
+
+    assert calls
+    call = calls[0]
+    assert call["contract_id"] == "inventory.contract"
+    assert call["contract_version"] == "2.0.0"
+    assert call["dataset_id"] == "inventory.stock"
+    assert call["dataset_version"] == "2024-05-03"
