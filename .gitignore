@@ -15,5 +15,5 @@ release-artifacts/
 .DS_Store
 .github/.tmp/
 .ignored
-contracts/
+/contracts/
 dc43_docs_chat/
