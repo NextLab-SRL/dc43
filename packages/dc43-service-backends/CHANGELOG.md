@@ -25,6 +25,9 @@
 - SQL governance status lookups now tolerate duplicate historical rows by
   selecting the most recent payload, preventing `MultipleResultsFound` errors
   when legacy tables contain redundant entries.
+- ODPS serialisation raises a descriptive error when non data-product objects
+  (for example, Open Data Contracts) are passed to the helper, steering callers
+  towards the correct client API instead of surfacing an attribute error.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

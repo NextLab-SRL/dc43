@@ -1,7 +1,17 @@
+import pytest
+
+from open_data_contract_standard.model import (
+    Description,
+    OpenDataContractStandard as ODCSModel,
+    SchemaObject,
+    SchemaProperty,
+)
+
 from dc43_service_backends.core.odps import (
     DataProductInputPort,
     DataProductOutputPort,
     OpenDataProductStandard,
+    as_odps_dict,
     evolve_to_draft,
     next_draft_version,
 )
@@ -47,3 +57,25 @@ def test_ensure_output_port_idempotent() -> None:
     second = product.ensure_output_port(port)
     assert first is True
     assert second is False
+
+
+def test_as_odps_dict_rejects_contract() -> None:
+    contract = ODCSModel(
+        version="1.0.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="test.orders",
+        name="Orders",
+        description=Description(usage="Orders facts"),
+        schema=[
+            SchemaObject(
+                name="orders",
+                properties=[
+                    SchemaProperty(name="order_id", physicalType="bigint", required=True)
+                ],
+            )
+        ],
+    )
+
+    with pytest.raises(TypeError, match="OpenDataContractStandard"):
+        as_odps_dict(contract)
