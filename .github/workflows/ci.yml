@@ -98,32 +98,36 @@ jobs:
     env:
       TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
     steps:
-      - name: Abort when Test PyPI token is unavailable
-        if: env.TEST_PYPI_TOKEN == ''
+      - name: Detect Test PyPI token
+        id: token
         run: |
-          echo "Test PyPI token not configured; skipping publish job." >> "$GITHUB_STEP_SUMMARY"
-          exit 0
+          if [ -z "${TEST_PYPI_TOKEN:-}" ]; then
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "Test PyPI token not configured; skipping publish job." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           tags: true
-        if: env.TEST_PYPI_TOKEN != ''
+        if: ${{ steps.token.outputs.has_token == 'true' }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-        if: env.TEST_PYPI_TOKEN != ''
+        if: ${{ steps.token.outputs.has_token == 'true' }}
 
       - name: Prepare build tooling
-        if: env.TEST_PYPI_TOKEN != ''
+        if: ${{ steps.token.outputs.has_token == 'true' }}
         run: |
           python -m pip install --upgrade pip
           pip install packaging build twine
 
       - name: Compute release plan
         id: plan
-        if: env.TEST_PYPI_TOKEN != ''
+        if: ${{ steps.token.outputs.has_token == 'true' }}
         run: |
           set -euo pipefail
           python scripts/release.py \
@@ -133,7 +137,7 @@ jobs:
 
       - name: Determine packages to publish
         id: packages
-        if: env.TEST_PYPI_TOKEN != ''
+        if: ${{ steps.token.outputs.has_token == 'true' }}
         run: |
           python - <<'PY'
           import json
@@ -183,11 +187,11 @@ jobs:
           PY
 
       - name: Bail out when nothing to publish
-        if: env.TEST_PYPI_TOKEN != '' && steps.packages.outputs.packages == ''
+        if: ${{ steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages == '' }}
         run: echo "No packages require publishing to Test PyPI." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build packages
-        if: env.TEST_PYPI_TOKEN != '' && steps.packages.outputs.packages != ''
+        if: ${{ steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages != '' }}
         env:
           PACKAGES: ${{ steps.packages.outputs.packages }}
         run: |
@@ -221,7 +225,7 @@ jobs:
           PY
 
       - name: Publish packages to Test PyPI
-        if: env.TEST_PYPI_TOKEN != '' && steps.packages.outputs.packages != ''
+        if: ${{ steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages != '' }}
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
