@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Iterable, Optional
 
 try:  # pragma: no cover - optional dependency
@@ -9,11 +10,19 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - Spark is optional for most deployments
     SparkSession = object  # type: ignore
 
-from .local import LocalDataProductServiceBackend
-from dc43_service_clients.odps import OpenDataProductStandard, to_model, as_odps_dict
+from .interface import DataProductListing, DataProductServiceBackend
+from ._shared import MutableDataProductBackendMixin, _version_key
+from dc43_service_clients.odps import (
+    OpenDataProductStandard,
+    as_odps_dict,
+    to_model,
+)
 
 
-class DeltaDataProductServiceBackend(LocalDataProductServiceBackend):
+logger = logging.getLogger(__name__)
+
+
+class DeltaDataProductServiceBackend(MutableDataProductBackendMixin, DataProductServiceBackend):
     """Persist ODPS documents in a Delta table or Unity Catalog object."""
 
     def __init__(
@@ -29,8 +38,6 @@ class DeltaDataProductServiceBackend(LocalDataProductServiceBackend):
         self._table = table
         self._path = path
         self._ensure_table()
-        super().__init__()
-        self._load_existing()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -70,13 +77,6 @@ class DeltaDataProductServiceBackend(LocalDataProductServiceBackend):
                 """
             )
 
-    def _load_existing(self) -> None:
-        ref = self._table_ref()
-        rows = self._spark.sql(f"SELECT data_product_id, version, json FROM {ref}").collect()
-        for row in rows:
-            payload = to_model(self._safe_json(row[2]))
-            LocalDataProductServiceBackend.put(self, payload)
-
     # ------------------------------------------------------------------
     # Persistence helpers
     # ------------------------------------------------------------------
@@ -114,13 +114,11 @@ class DeltaDataProductServiceBackend(LocalDataProductServiceBackend):
     # Overrides
     # ------------------------------------------------------------------
     def put(self, product: OpenDataProductStandard) -> None:  # noqa: D401
-        super().put(product)
         if not product.version:
-            return
+            raise ValueError("Data product version is required")
         self._merge_row(product)
 
     def _existing_versions(self, data_product_id: str) -> Iterable[str]:
-        # Re-read from Delta so concurrent writers stay consistent.
         ref = self._table_ref()
         rows = self._spark.sql(
             f"SELECT version FROM {ref} WHERE data_product_id = '{data_product_id}'"
@@ -153,5 +151,43 @@ class DeltaDataProductServiceBackend(LocalDataProductServiceBackend):
             raise FileNotFoundError(f"data product {data_product_id}:{version} not found")
         return to_model(self._safe_json(rows[0][0]))
 
+    def list_data_products(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> DataProductListing:  # noqa: D401
+        ref = self._table_ref()
+        rows = self._spark.sql(
+            f"SELECT data_product_id, version, json FROM {ref}"
+        ).collect()
+        product_ids: set[str] = set()
+        for data_product_id, version, raw_json in rows:
+            try:
+                to_model(self._safe_json(raw_json))
+            except Exception:  # pragma: no cover - defensive, relies on Delta contents
+                logger.warning(
+                    "Skipping invalid data product row for %s:%s", data_product_id, version,
+                    exc_info=True,
+                )
+                continue
+            product_ids.add(data_product_id)
+        sorted_ids = sorted(product_ids)
+        total = len(sorted_ids)
+        start = max(int(offset), 0)
+        end = total
+        if limit is not None:
+            span = max(int(limit), 0)
+            end = min(start + span, total)
+        return DataProductListing(
+            items=sorted_ids[start:end],
+            total=total,
+            limit=limit,
+            offset=start,
+        )
+
+    def list_versions(self, data_product_id: str) -> list[str]:  # noqa: D401
+        versions = sorted(
+            self._existing_versions(data_product_id),
+            key=_version_key,
+        )
+        return versions
 
 __all__ = ["DeltaDataProductServiceBackend"]

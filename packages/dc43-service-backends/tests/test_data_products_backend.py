@@ -1,4 +1,7 @@
+import json
 from pathlib import Path
+
+import pytest
 
 from dc43_service_backends.data_products import (
     CollibraDataProductServiceBackend,
@@ -43,6 +46,30 @@ def test_local_backend_accepts_pydantic_like_payload() -> None:
     assert stored.name == "Sales"
     assert stored.output_ports[0].contract_id == "contracts.orders"
     assert callable(getattr(stored, "clone"))
+
+
+def test_local_backend_rejects_invalid_payload() -> None:
+    backend = LocalDataProductServiceBackend()
+
+    class _ForeignPayload:
+        def __init__(self) -> None:
+            self.id = "dp.sales.orders"
+            self.status = "active"
+            self.version = "1.0.0"
+
+        def clone(self) -> "_ForeignPayload":
+            return self
+
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "apiVersion": "3.0.2",
+                "kind": "DataProduct",
+                "id": self.id,
+                "status": self.status,
+            }
+
+    with pytest.raises(ValueError):
+        backend.put(_ForeignPayload())
 
 
 def test_local_backend_lists_products() -> None:
@@ -138,9 +165,26 @@ def test_filesystem_backend_persists_products(tmp_path: Path) -> None:
     assert product.output_ports[0].contract_id == "snapshot"
 
 
+def test_filesystem_backend_does_not_cache_state(tmp_path: Path) -> None:
+    backend = FilesystemDataProductServiceBackend(tmp_path)
+
+    assert not hasattr(backend, "_products")
+
+    backend.register_output_port(
+        data_product_id="dp.analytics",
+        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+    )
+
+    latest = backend.latest("dp.analytics")
+    assert latest is not None
+    assert latest.output_ports[0].contract_id == "snapshot"
+
+
 def test_collibra_backend_uses_stub_adapter(tmp_path: Path) -> None:
     adapter = StubCollibraDataProductAdapter(str(tmp_path))
     backend = CollibraDataProductServiceBackend(adapter)
+
+    assert not hasattr(backend, "_products")
 
     registration = backend.register_output_port(
         data_product_id="dp.analytics",
@@ -241,6 +285,8 @@ def test_delta_backend_uses_spark_sql(tmp_path: Path) -> None:
     spark = _FakeSpark()
     backend = DeltaDataProductServiceBackend(spark, path=str(tmp_path / "dp"))
 
+    assert not hasattr(backend, "_products")
+
     backend.register_output_port(
         data_product_id="dp.analytics",
         port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
@@ -253,3 +299,23 @@ def test_delta_backend_uses_spark_sql(tmp_path: Path) -> None:
     fetched = backend.get("dp.analytics", latest.version)
     assert fetched is not None
     assert fetched.output_ports[0].contract_id == "snapshot"
+
+
+def test_delta_backend_skips_invalid_rows(tmp_path: Path) -> None:
+    spark = _FakeSpark()
+    spark.storage[("dp.sales", "1.0.0")] = {
+        "status": "active",
+        "json": json.dumps(
+            {
+                "apiVersion": "3.0.2",
+                "kind": "DataProduct",
+                "id": "dp.sales",
+                "status": "active",
+            }
+        ),
+    }
+
+    backend = DeltaDataProductServiceBackend(spark, path=str(tmp_path / "dp"))
+
+    listing = backend.list_data_products()
+    assert list(listing.items) == []
