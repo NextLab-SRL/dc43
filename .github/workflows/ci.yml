@@ -15,6 +15,9 @@ on:
         description: "Tag to apply when pushing Docker images (defaults to commit SHA)"
         required: false
 
+env:
+  TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+
 jobs:
   tests:
     name: ${{ matrix.display }}
@@ -89,7 +92,7 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(github.event.pull_request.labels.*.name, 'publish-test-pypi') &&
-      secrets.TEST_PYPI_TOKEN != ''
+      env.TEST_PYPI_TOKEN != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
