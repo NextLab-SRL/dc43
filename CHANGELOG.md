@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Changed
+- Added a `publish-test-pypi` pull request label that triggers CI to build
+  release artifacts and upload them to Test PyPI for pre-release validation,
+  mirroring the release workflow when any package code changes even if the
+  version has not been bumped yet.
+- Fixed the Test PyPI publish workflow so labeled pull requests query the
+  current labels before deciding whether to run, ensuring tagged branches
+  actually build and upload packages for validation.
 - Removed the demo/contract helpers that manually persisted dataset records so
   the UI and pipelines rely solely on governance service APIs for run history,
   adding fixtures and helpers to tests to generate sample data on demand.
