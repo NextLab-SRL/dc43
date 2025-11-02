@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Apply deterministic pre-release suffixes to package versions for Test PyPI."""
+"""Apply deterministic pre-release suffixes to package versions for Test PyPI.
+
+The helper deliberately relies on :mod:`packaging.version` to emit identifiers
+that follow the `PEP 440 <https://peps.python.org/pep-0440/>`_ ordering rules
+understood by ``pip`` and the Python Package Index. This ensures that pre-release
+artifacts remain sortable against their canonical release versions and that the
+latest suffix (``rc`` or ``dev``) is always preferred by installers during
+continuous-integration validation runs.
+"""
 
 from __future__ import annotations
 

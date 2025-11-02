@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "test_pypi_versions.py"
 spec = importlib.util.spec_from_file_location("test_pypi_versions", MODULE_PATH)
@@ -96,6 +97,17 @@ def test_format_summary_rows(tmp_path, monkeypatch):
         "| --- | --- | --- |",
         "| pkg | 0.1.0 | 0.1.0rc10 |",
     ]
+
+
+def test_rc_versions_sort_before_release():
+    rc_version = module.build_test_version("0.28.0.0", stage="rc", identifier="1")
+    assert Version(rc_version) < Version("0.28.0.0")
+
+
+def test_dev_versions_sort_before_rc_and_release():
+    dev_version = module.build_test_version("0.28.0.0", stage="dev", identifier="2")
+    rc_version = module.build_test_version("0.28.0.0", stage="rc", identifier="1")
+    assert Version(dev_version) < Version(rc_version) < Version("0.28.0.0")
 
 
 if __name__ == "__main__":  # pragma: no cover

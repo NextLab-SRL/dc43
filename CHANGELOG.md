@@ -10,6 +10,9 @@
 - Test PyPI publishes now append an `rc` suffix based on the GitHub run number
   so repeat validation uploads do not require manual version bumps or
   requirement updates.
+- Documented the Test PyPI helper's reliance on PEP 440 ordering and added
+  coverage that proves generated `dev`/`rc` artefacts remain sortable by
+  `pip`.
 - Fixed the Test PyPI publish workflow so labeled pull requests query the
   current labels before deciding whether to run, ensuring tagged branches
   actually build and upload packages for validation.
