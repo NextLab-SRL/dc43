@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
+  continue after the ``0.26.0.0`` build was removed upstream.
 - Removed the dataset record loader/saver configuration hooks so `load_records`
   now derives history exclusively from governance APIs, exposing pipeline
   activity and validation status without expecting manual persistence helpers.

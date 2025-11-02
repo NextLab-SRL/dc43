@@ -8,6 +8,8 @@
   configuration, providing a single entry point for application bootstrap.
 
 ### Changed
+- Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
+  continue after the ``0.26.0.0`` build was removed upstream.
 - Governance clients now expose dataset listing, pipeline activity, and
   validation status helpers so UI consumers can gather run history entirely via
   service APIs.

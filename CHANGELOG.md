@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
+  continue after the ``0.26.0.0`` build was removed upstream.
 - Added a `publish-test-pypi` pull request label that triggers CI to build
   release artifacts and upload them to Test PyPI for pre-release validation,
   mirroring the release workflow when any package code changes even if the

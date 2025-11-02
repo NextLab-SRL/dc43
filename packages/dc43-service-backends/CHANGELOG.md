@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
+  continue after the ``0.26.0.0`` build was removed upstream.
 - Governance backends and stores now surface `list_datasets` and pipeline
   activity/status lookups so UI clients can assemble dataset history directly
   from the service without relying on demo-specific record stores.

@@ -11,6 +11,8 @@
   quality services directly, simplifying integration overrides.
 
 ### Changed
+- Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
+  continue after the ``0.26.0.0`` build was removed upstream.
 - Deprecated contract- and data-product-centric helpers (`read_with_contract`,
   `write_with_contract`, their streaming counterparts, and related aliases).
   They continue to forward into the governance flow but now emit
