@@ -12,6 +12,9 @@
 - Test PyPI publishes now append an `rc` suffix based on the GitHub run number
   so repeat validation uploads do not require manual version bumps or
   requirement updates.
+- The Test PyPI helper now rewrites internal dependency floors to accept the
+  active pre-release stage so rc builds install cleanly without waiting for the
+  final release tags.
 - Documented the Test PyPI helper's reliance on PEP 440 ordering and added
   coverage that proves generated `dev`/`rc` artefacts remain sortable by
   `pip`.

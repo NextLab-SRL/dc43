@@ -14,9 +14,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Iterable, List, Sequence
 
 from packaging.version import InvalidVersion, Version
@@ -29,6 +30,15 @@ from _packages import PACKAGES  # type: ignore
 
 
 @dataclass
+class DependencyRewrite:
+    """Record describing a dependency constraint rewritten for Test PyPI."""
+
+    path: Path
+    before: str
+    after: str
+
+
+@dataclass
 class TestVersion:
     """Container describing a rewritten package version."""
 
@@ -36,6 +46,7 @@ class TestVersion:
     version_file: Path
     base_version: str
     test_version: str
+    dependency_rewrites: List[DependencyRewrite] = field(default_factory=list)
 
 
 VALID_STAGES = {"dev", "rc"}
@@ -98,6 +109,53 @@ def update_version_file(version_file: Path, new_version: str) -> None:
     version_file.write_text(f"{new_version}\n", encoding="utf-8")
 
 
+def _dependency_stage_floor(base_version: str, stage: str) -> str:
+    """Return the lowest allowed version for internal dependencies during a stage."""
+
+    parsed = Version(base_version)
+    release = parsed.base_version
+    if stage == "dev":
+        return f"{release}.dev0"
+    return f"{release}{stage}0"
+
+
+_DEPENDENCY_PATTERN = "([\"']dc43[^\"']*>=){}"
+
+
+def _rewrite_internal_dependencies(
+    *, package: str, meta: dict, base_version: str, stage: str
+) -> List[DependencyRewrite]:
+    """Relax internal dependency floors to include the current pre-release stage."""
+
+    if stage not in VALID_STAGES:
+        return []
+
+    pyproject: Path | None = meta.get("pyproject")
+    if not pyproject:
+        return []
+
+    if not pyproject.exists():  # pragma: no cover - defensive guard
+        raise FileNotFoundError(f"pyproject for package '{package}' not found at {pyproject}")
+
+    release = Version(base_version).base_version
+    dependency_floor = _dependency_stage_floor(base_version, stage)
+    pattern = re.compile(_DEPENDENCY_PATTERN.format(re.escape(release)))
+    content = pyproject.read_text(encoding="utf-8")
+    matches = list(pattern.finditer(content))
+    if not matches:
+        return []
+
+    updated = pattern.sub(lambda match: f"{match.group(1)}{dependency_floor}", content)
+    pyproject.write_text(updated, encoding="utf-8")
+
+    rewrites: List[DependencyRewrite] = []
+    for match in matches:
+        before = match.group(0)
+        after = f"{match.group(1)}{dependency_floor}"
+        rewrites.append(DependencyRewrite(path=pyproject, before=before, after=after))
+    return rewrites
+
+
 def apply_test_version(package: str, *, stage: str, identifier: str) -> TestVersion:
     """Rewrite ``package``'s version file with a Test PyPI pre-release suffix."""
 
@@ -110,11 +168,15 @@ def apply_test_version(package: str, *, stage: str, identifier: str) -> TestVers
     base_version = version_file.read_text(encoding="utf-8").strip()
     test_version = build_test_version(base_version, stage=stage, identifier=identifier)
     update_version_file(version_file, test_version)
+    dependency_rewrites = _rewrite_internal_dependencies(
+        package=package, meta=meta, base_version=base_version, stage=stage
+    )
     return TestVersion(
         package=package,
         version_file=version_file,
         base_version=base_version,
         test_version=test_version,
+        dependency_rewrites=dependency_rewrites,
     )
 
 
@@ -172,6 +234,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "version_file": str(row.version_file),
                 "base_version": row.base_version,
                 "test_version": row.test_version,
+                "dependency_rewrites": [
+                    {
+                        "path": str(rewrite.path),
+                        "before": rewrite.before,
+                        "after": rewrite.after,
+                    }
+                    for rewrite in row.dependency_rewrites
+                ],
             }
             for row in results
         ]

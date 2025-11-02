@@ -56,6 +56,7 @@ def test_apply_test_version_rewrites_version_file(tmp_path, monkeypatch):
     assert info.base_version == "0.1.0"
     assert info.test_version == "0.1.0rc9"
     assert version_file.read_text(encoding="utf-8") == "0.1.0rc9\n"
+    assert info.dependency_rewrites == []
 
 
 def test_apply_for_packages_returns_summary(tmp_path, monkeypatch):
@@ -80,6 +81,42 @@ def test_apply_for_packages_returns_summary(tmp_path, monkeypatch):
     assert [result.package for result in results] == ["pkg-one", "pkg-two"]
     assert version_one.read_text(encoding="utf-8") == "0.1.0rc5\n"
     assert version_two.read_text(encoding="utf-8") == "1.0.0rc5\n"
+
+
+def test_apply_test_version_rewrites_internal_dependencies(tmp_path, monkeypatch):
+    version_file = tmp_path / "VERSION"
+    version_file.write_text("0.27.0.0\n", encoding="utf-8")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        """
+[project]
+dependencies = [
+  "dc43-service-backends>=0.27.0.0",
+  "something-else>=1.0",
+]
+
+[project.optional-dependencies]
+spark = [
+  "dc43-service-backends[spark]>=0.27.0.0",
+]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with monkeypatch.context() as ctx:
+        ctx.setitem(
+            module.PACKAGES,
+            "example",
+            {"version_file": version_file, "pyproject": pyproject},
+        )
+        info = module.apply_test_version("example", stage="rc", identifier="5")
+
+    content = pyproject.read_text(encoding="utf-8")
+    assert "dc43-service-backends>=0.27.0.0rc0" in content
+    assert "dc43-service-backends[spark]>=0.27.0.0rc0" in content
+    assert len(info.dependency_rewrites) == 2
+    assert all(rewrite.path == pyproject for rewrite in info.dependency_rewrites)
 
 
 def test_format_summary_rows(tmp_path, monkeypatch):
