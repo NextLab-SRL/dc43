@@ -7,6 +7,9 @@
   release artifacts and upload them to Test PyPI for pre-release validation,
   mirroring the release workflow when any package code changes even if the
   version has not been bumped yet.
+- Test PyPI publishes now append an `rc` suffix based on the GitHub run number
+  so repeat validation uploads do not require manual version bumps or
+  requirement updates.
 - Fixed the Test PyPI publish workflow so labeled pull requests query the
   current labels before deciding whether to run, ensuring tagged branches
   actually build and upload packages for validation.
