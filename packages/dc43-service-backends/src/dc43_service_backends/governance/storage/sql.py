@@ -384,20 +384,27 @@ class SQLGovernanceStore(GovernanceStore):
                 dataset_version=dataset_version,
             )
             if record:
+                record.setdefault("dataset_id", dataset_id)
+                record.setdefault("dataset_version", dataset_version)
                 return [record]
             return []
 
-        stmt = select(self._activity.c.payload).where(
+        stmt = select(self._activity.c.dataset_version, self._activity.c.payload).where(
             self._activity.c.dataset_id == dataset_id
         )
         entries: list[Mapping[str, object]] = []
         with self._engine.begin() as conn:
-            for (payload,) in conn.execute(stmt).all():
+            for row in conn.execute(stmt).all():
+                payload = row.payload
                 try:
                     record = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
                 if isinstance(record, dict):
+                    record.setdefault("dataset_id", dataset_id)
+                    version = getattr(row, "dataset_version", None)
+                    if isinstance(version, str) and version:
+                        record.setdefault("dataset_version", version)
                     entries.append(record)
         entries.sort(
             key=lambda item: str(

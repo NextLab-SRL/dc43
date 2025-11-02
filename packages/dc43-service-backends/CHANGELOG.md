@@ -18,6 +18,11 @@
   of the legacy Spark contract helpers so governance-first pipelines surface the
   same guardrails.
 
+### Fixed
+- SQL governance activity lookups now include the dataset identifier and version
+  from the table columns when payloads omit those fields, ensuring clients can
+  enumerate available dataset versions even for legacy records.
+
 ## [0.22.0.0] - 2025-10-25
 ### Changed
 - No behavioural updates. Bumped version markers for the 0.22.0.0 release.
