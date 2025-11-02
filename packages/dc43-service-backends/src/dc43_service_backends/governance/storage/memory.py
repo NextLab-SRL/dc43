@@ -201,6 +201,11 @@ class InMemoryGovernanceStore(GovernanceStore):
         entry["dataset_version"] = dataset_version
         self._activity_log[dataset_id][dataset_version] = entry
 
+    def list_datasets(self) -> Sequence[str]:
+        dataset_ids = [dataset_id for dataset_id in self._activity_log.keys()]
+        dataset_ids.sort()
+        return dataset_ids
+
     def load_pipeline_activity(
         self,
         *,

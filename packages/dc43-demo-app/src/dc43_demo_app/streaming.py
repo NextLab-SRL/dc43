@@ -7,7 +7,7 @@ import os
 import shutil
 import time
 from collections.abc import Iterable as IterableABC
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Protocol
@@ -31,11 +31,10 @@ from .contracts_api import (
     contract_service,
     dq_service,
     governance_service,
-    load_records,
     refresh_dataset_aliases,
     register_dataset_version,
-    save_records,
 )
+from .contracts_records import record_dataset_run
 from .contracts_workspace import current_workspace
 
 
@@ -796,7 +795,6 @@ def _record_result(
     dataset_version = result.dataset_version or ""
     validation = result.validation
     status_value = _normalise_status(validation)
-    records = load_records()
     dq_details = dict(result.dq_details)
     if result.timeline:
         dq_details["timeline"] = list(result.timeline)
@@ -812,6 +810,7 @@ def _record_result(
 
     seen_versions = {dataset_version} if dataset_version else set()
     extra_records: List[DatasetRecord] = []
+    records_to_register: List[DatasetRecord] = []
     for index, batch in enumerate(streaming_batches):
         row_count = int(batch.get("row_count", 0) or 0)
         errors = batch.get("errors")
@@ -859,7 +858,7 @@ def _record_result(
     if result.status_reason:
         record.reason = result.status_reason
 
-    records.extend(extra_records)
+    records_to_register.extend(extra_records)
 
     for side in result.related or []:
         side_version = side.dataset_version or ""
@@ -876,11 +875,12 @@ def _record_result(
         )
         if side.reason:
             side_record.reason = side.reason
-        records.append(side_record)
+        records_to_register.append(side_record)
         _ensure_streaming_version(side.dataset_name, side.dataset_version)
 
-    records.append(record)
-    save_records(records)
+    records_to_register.append(record)
+    for entry in records_to_register:
+        record_dataset_run(asdict(entry))
     _ensure_streaming_version(dataset_name, result.dataset_version)
     return dataset_name, dataset_version
 

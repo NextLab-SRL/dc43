@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Protocol, Sequence
+from typing import Mapping, Optional, Protocol, Sequence
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -20,6 +20,11 @@ class ContractServiceClient(Protocol):
         ...
 
     def list_versions(self, contract_id: str) -> Sequence[str]:
+        ...
+
+    def list_contracts(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> Mapping[str, object]:
         ...
 
     def link_dataset_contract(

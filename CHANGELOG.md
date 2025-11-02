@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the demo/contract helpers that manually persisted dataset records so
+  the UI and pipelines rely solely on governance service APIs for run history,
+  adding fixtures and helpers to tests to generate sample data on demand.
+- Removed the contracts app dataset record store wiring so the UI simply uses
+  service-provided loaders, keeping history ownership with whichever runtime
+  configures the service clients (the demo still registers its filesystem
+  helpers).
 - Surfaced governance metrics in the contracts app dataset and contract views
   so operators can inspect recorded observations directly in the UI.
 - Added interactive metric trend charts to those pages so numeric observations
@@ -31,6 +38,10 @@
   building read/write requests from scenario context so presenters initialise
   only the governance client while still recording contract metadata, dataset
   versions, and status payloads in the workspace registry.
+- The contracts app no longer reads datasets or data product snapshots from the
+  local workspace; dataset history and previews are provided by the demo-only
+  pipelines while remote deployments focus on contract and data product
+  metadata surfaced by the service backends.
 - Delta Live Tables helpers now resolve contracts and expectation plans through
   the governance client, so notebooks bind contracts using the same
   governance-first contexts as the Spark IO wrappers.
@@ -44,6 +55,9 @@
   governance-only read/write snippets and refreshed the getting-started guides
   (local, remote, Databricks, contracts app) to showcase
   `read_with_governance`/`write_with_governance` plus the new request objects.
+- Retired the ``server.store`` alias from the contracts app; import
+  ``dc43_contracts_app.services.store`` or use ``contract_service`` when the
+  demo pipelines need direct store access.
 - Guarded the service-clients bootstrap tests with `pytest.importorskip` so the
   package test suite skips gracefully when optional backend dependencies are not
   installed.
@@ -58,6 +72,13 @@
   added comprehensive governance-first parity tests for data product bindings,
   DQ blocks, and format warnings, and taught the governance backend to surface
   review-required registrations instead of silently continuing.
+- The contracts app no longer initialises or writes to filesystem workspaces;
+  docs chat caches now default to `~/.dc43/docs_chat/index` and operators can
+  relocate setup wizard persistence via `DC43_CONTRACTS_APP_STATE_DIR` while
+  the demo application retains the filesystem helpers for tutorials.
+- Removed workspace directory hints from the contracts app; demo integrations
+  now register optional filesystem paths when running the bundled scenarios,
+  keeping the standalone UI focused on service-backed metadata.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

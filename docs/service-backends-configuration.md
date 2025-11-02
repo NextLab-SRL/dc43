@@ -39,8 +39,11 @@ single field without editing the TOML file:
     table or schema used by SQL and Delta stores.
   * `DC43_BACKEND_TOKEN` – overrides the bearer token required by the HTTP API.
 * Contracts app:
-  * `DC43_CONTRACTS_APP_WORK_DIR` / `DC43_DEMO_WORK_DIR` – overrides the
-    workspace directory.
+  * `DC43_CONTRACTS_APP_STATE_DIR` – overrides the directory used for setup
+    wizard persistence and docs-chat caches.
+  * `DC43_CONTRACTS_APP_WORK_DIR` / `DC43_DEMO_WORK_DIR` – legacy workspace
+    hints maintained for the demo app and backwards compatibility. The
+    standalone UI no longer creates or manages filesystem workspaces.
 * Additional backend specific overrides exist for the contracts UI (see
   [Contracts app configuration](#contracts-app-configuration)).
 
@@ -259,7 +262,8 @@ pipeline activity are persisted. Supported types are:
 | `http` | Delegates persistence to an external HTTP service implementing the governance store API. |
 
 Common keys include `root`/`base_path` (filesystem and Delta), `dsn` and
-`schema` (SQL), `status_table`/`activity_table`/`link_table` (SQL and Delta),
+`schema` (SQL), `status_table`/`activity_table`/`link_table`/`metrics_table`
+(SQL and Delta),
 and `base_url`/`token`/`headers` (HTTP). Environment overrides follow the
 pattern `DC43_GOVERNANCE_STORE_*`, for example
 `DC43_GOVERNANCE_STORE_TYPE`, `DC43_GOVERNANCE_STORE`,
@@ -323,6 +327,11 @@ the key separately (for example by exporting `OPENAI_API_KEY`, pointing the demo
 at a `.env` file with `dc43-demo --env-file`, or using `direnv`). Prefer keeping
 credentials outside source control? populate `docs_chat.api_key` in a private
 TOML file and launch the demo with `dc43-demo --config /path/to/contracts-app.toml`.
+
+> ℹ️ Dataset previews and run history in the contracts UI are populated by the
+> Spark demo pipelines. Remote deployments still surface contract and data
+> product metadata through the configured services but do not read or persist
+> dataset files locally.
 
 When `docs_chat.enabled` is `true` the UI mounts a Gradio-powered assistant at
 `/docs-chat/assistant` and exposes an HTML entry point under `/docs-chat`. Install

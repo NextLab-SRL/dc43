@@ -227,13 +227,9 @@ negatives = enriched.filter("total < 0").count()</code></pre>
 
     <section>
       <h2>6. Track Dataset Versions</h2>
-      <pre><code class="language-python">records.append(DatasetRecord(
-    name="orders_enriched",
-    version=1,
-    status=status.status,
-    metrics=result.metrics
-))
-save_records(records)</code></pre>
+      <pre><code class="language-python">records = load_records()
+latest = records[-1]
+print(latest.dataset_name, latest.dataset_version, latest.status)</code></pre>
     </section>
 
     <section>

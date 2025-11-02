@@ -15,25 +15,9 @@ from .docs_chat import (
     status,
     warm_up,
 )
-from .workspace import ContractsAppWorkspace
-
-
-def _workspace_from_root(root: Path) -> ContractsAppWorkspace:
-    root.mkdir(parents=True, exist_ok=True)
-    workspace = ContractsAppWorkspace(
-        root=root,
-        contracts_dir=root / "contracts",
-        data_dir=root / "data",
-        records_dir=root / "records",
-        datasets_file=root / "records" / "datasets.json",
-        dq_status_dir=root / "records" / "dq_state" / "status",
-        data_products_file=root / "records" / "data_products.json",
-    )
-    workspace.ensure()
-    return workspace
-
-
-def _apply_overrides(config: ContractsAppConfig, args: argparse.Namespace) -> DocsChatConfig:
+def _apply_overrides(
+    config: ContractsAppConfig, args: argparse.Namespace
+) -> tuple[DocsChatConfig, Path | None]:
     docs_chat = config.docs_chat
     docs_chat.enabled = True
 
@@ -48,10 +32,13 @@ def _apply_overrides(config: ContractsAppConfig, args: argparse.Namespace) -> Do
     if args.embedding_model:
         docs_chat.embedding_model = args.embedding_model
 
+    base_dir: Path | None = None
     if args.workspace_root:
-        config.workspace.root = Path(args.workspace_root).expanduser()
+        base_dir = Path(args.workspace_root).expanduser()
+        if not docs_chat.index_path:
+            docs_chat.index_path = base_dir / "docs_chat" / "index"
 
-    return docs_chat
+    return docs_chat, base_dir
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--workspace-root",
-        help="Directory where the workspace and docs-chat index will be stored",
+        help="Base directory used to derive the docs-chat index when index_path is not provided",
     )
     parser.add_argument(
         "--docs-path",
@@ -101,19 +88,18 @@ def main(argv: Iterable[str] | None = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     config = load_config(args.config_path)
-    docs_chat_config = _apply_overrides(config, args)
+    docs_chat_config, base_dir = _apply_overrides(config, args)
 
-    workspace_root = config.workspace.root or Path.cwd() / "dc43_docs_chat"
-    workspace = _workspace_from_root(workspace_root)
+    if base_dir is not None:
+        base_dir.mkdir(parents=True, exist_ok=True)
 
-    configure(docs_chat_config, workspace)
+    configure(docs_chat_config, base_dir=base_dir)
     summary = describe_configuration()
 
     def _emit(detail: str) -> None:
         print(detail, file=sys.stdout, flush=True)
 
     _emit("Resolved docs chat configuration:")
-    _emit(f"- Workspace: {summary.workspace_root}")
     _emit(f"- Documentation source: {summary.docs_root}")
     if summary.code_paths:
         _emit(f"- Code sources ({len(summary.code_paths)}):")

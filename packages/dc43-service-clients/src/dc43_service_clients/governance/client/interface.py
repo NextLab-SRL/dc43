@@ -94,6 +94,9 @@ class GovernanceServiceClient(Protocol):
     ) -> Sequence[Mapping[str, object]]:
         ...
 
+    def list_datasets(self) -> Sequence[str]:
+        ...
+
     def resolve_read_context(
         self,
         *,

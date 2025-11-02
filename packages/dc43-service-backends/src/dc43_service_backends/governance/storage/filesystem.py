@@ -237,6 +237,23 @@ class FilesystemGovernanceStore(GovernanceStore):
         payload["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._write_json(path, payload)
 
+    def list_datasets(self) -> Sequence[str]:
+        datasets: list[str] = []
+        activity_dir = self._activity_dir()
+        if not activity_dir.exists():
+            return datasets
+        for entry in activity_dir.iterdir():
+            if not entry.is_file() or entry.suffix != ".json":
+                continue
+            payload = self._read_json(entry)
+            if not isinstance(payload, Mapping):
+                continue
+            dataset_id = payload.get("dataset_id")
+            if isinstance(dataset_id, str) and dataset_id:
+                datasets.append(dataset_id)
+        datasets.sort()
+        return datasets
+
     def load_pipeline_activity(
         self,
         *,

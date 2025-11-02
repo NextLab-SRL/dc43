@@ -17,8 +17,8 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-service-clients>=0.23.0.0",
-  "dc43-service-backends>=0.23.0.0",
+  "dc43-service-clients>=0.24.0.0",
+  "dc43-service-backends>=0.24.0.0",
   "fastapi>=0.118.0",
   "jinja2>=3.1.0",
   "python-multipart>=0.0.5",
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-spark = ["dc43-integrations[spark]>=0.23.0.0"]
+spark = ["dc43-integrations[spark]>=0.24.0.0"]
 test = []
 docs-chat = [
   "gradio>=4.33.0",

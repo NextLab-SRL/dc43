@@ -11,11 +11,13 @@ from .backend import (
     LocalDataProductServiceBackend,
     StubCollibraDataProductAdapter,
 )
+from .backend.interface import DataProductListing
 
 __all__ = [
     "CollibraDataProductAdapter",
     "CollibraDataProductServiceBackend",
     "DataProductRegistrationResult",
+    "DataProductListing",
     "DataProductServiceBackend",
     "DeltaDataProductServiceBackend",
     "FilesystemDataProductServiceBackend",

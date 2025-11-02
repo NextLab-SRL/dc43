@@ -1,6 +1,4 @@
-import contextlib
-import json
-from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +11,7 @@ from open_data_contract_standard.model import (
 )
 
 from dc43_contracts_app import server
+from dc43_contracts_app.services import store as contract_store
 
 
 @pytest.fixture()
@@ -79,72 +78,9 @@ def test_summarise_metrics_groups_snapshots() -> None:
     assert summary["previous"]
 
 
-def test_dataset_detail_includes_metrics(monkeypatch, client: TestClient) -> None:
-    dataset_path = server.DATASETS_FILE
-    dataset_path.parent.mkdir(parents=True, exist_ok=True)
-    original = dataset_path.read_text() if dataset_path.exists() else None
-
-    record = {
-        "contract_id": "demo_contract",
-        "contract_version": "1.0.0",
-        "dataset_name": "demo_dataset",
-        "dataset_version": "2024-01-01",
-        "status": "ok",
-        "dq_details": {"output": {}},
-        "run_type": "batch",
-    }
-    dataset_path.write_text(json.dumps([record]), encoding="utf-8")
-
-    sample_metrics = [
-        {
-            "dataset_id": "demo_dataset",
-            "dataset_version": "2024-01-01",
-            "contract_id": "demo_contract",
-            "contract_version": "1.0.0",
-            "status_recorded_at": "2024-05-01T12:00:00Z",
-            "metric_key": "row_count",
-            "metric_value": 12,
-            "metric_numeric_value": 12.0,
-        },
-        {
-            "dataset_id": "demo_dataset",
-            "dataset_version": "2024-01-01",
-            "contract_id": "demo_contract",
-            "contract_version": "1.0.0",
-            "status_recorded_at": "2024-04-30T12:00:00Z",
-            "metric_key": "violations.total",
-            "metric_value": 1,
-            "metric_numeric_value": 1.0,
-        },
-    ]
-    calls: list[dict[str, object]] = []
-
-    class DummyGovernanceClient:
-        def get_metrics(self, **kwargs):
-            calls.append(kwargs)
-            return sample_metrics
-
-    def fake_thread_clients():
-        return (object(), object(), DummyGovernanceClient())
-
-    monkeypatch.setattr(server, "_thread_service_clients", fake_thread_clients)
-
-    try:
-        resp = client.get("/datasets/demo_dataset/2024-01-01")
-    finally:
-        if original is None:
-            dataset_path.unlink(missing_ok=True)
-        else:
-            dataset_path.write_text(original, encoding="utf-8")
-
-    assert resp.status_code == 200
-    body = resp.text
-    assert "<code>row_count</code>" in body
-    assert "Earlier metric snapshots" in body
-    assert 'id="dataset-metric-trends"' in body
-    assert calls
-    assert calls[0]["dataset_id"] == "demo_dataset"
-    assert calls[0]["dataset_version"] == "2024-01-01"
+def test_dataset_detail_returns_not_found(client: TestClient) -> None:
+    resp = client.get("/datasets/demo_dataset/2024-01-01")
+    assert resp.status_code == 404
 
 
 def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) -> None:
@@ -166,11 +102,7 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
             )
         ],
     )
-    contract_dir = Path(server.CONTRACT_DIR)
-    contract_file = contract_dir / contract_id / f"{contract_version}.json"
-    contract_file.parent.mkdir(parents=True, exist_ok=True)
-    original_contract = contract_file.read_text(encoding="utf-8") if contract_file.exists() else None
-    server.store.put(contract_model)
+    contract_store.put(contract_model)
 
     sample_metrics = [
         {
@@ -207,15 +139,7 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
 
     monkeypatch.setattr(server, "_thread_service_clients", fake_thread_clients)
 
-    try:
-        resp = client.get(f"/contracts/{contract_id}/{contract_version}")
-    finally:
-        if original_contract is None:
-            contract_file.unlink(missing_ok=True)
-            with contextlib.suppress(OSError):
-                contract_file.parent.rmdir()
-        else:
-            contract_file.write_text(original_contract, encoding="utf-8")
+    resp = client.get(f"/contracts/{contract_id}/{contract_version}")
 
     assert resp.status_code == 200
     body = resp.text
@@ -225,3 +149,124 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
     assert first["contract_id"] == contract_id
     assert first["contract_version"] == contract_version
     assert first["dataset_id"] == contract_id
+
+
+def test_load_records_normalises_backend_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    details = {
+        "metrics": {"violations.total": 5},
+        "failed_expectations": {"schema": {"count": 3}},
+        "errors": ["schema-mismatch", "extra-column"],
+        "dq_status": {"violations": 6},
+    }
+
+    monkeypatch.setattr(server, "list_dataset_ids", lambda: ["sales.orders"])
+
+    def fake_activity(dataset_id: str) -> list[dict[str, object]]:
+        assert dataset_id == "sales.orders"
+        return [
+            {
+                "dataset_version": "2024-05-02",
+                "contract_id": "sales.contract",
+                "contract_version": "1.2.3",
+                "events": [
+                    {"dq_status": "warn"},
+                    {
+                        "dq_status": "ok",
+                        "pipeline_context": {
+                            "run_type": "scheduled",
+                            "scenario_key": "scenario-123",
+                        },
+                        "data_product": {
+                            "id": "product-x",
+                            "port": "output",
+                            "role": "publisher",
+                        },
+                    },
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(server, "dataset_pipeline_activity", fake_activity)
+
+    calls: list[dict[str, object]] = []
+
+    def fake_validation_status(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(status="VALID", details=details, reason="All good")
+
+    monkeypatch.setattr(server, "dataset_validation_status", fake_validation_status)
+
+    records = server.load_records()
+
+    assert len(records) == 1
+    record = records[0]
+
+    assert record.status == "ok"
+    assert record.violations == 6
+    assert record.dq_details == details
+    assert record.run_type == "scheduled"
+    assert record.scenario_key == "scenario-123"
+    assert record.data_product_id == "product-x"
+    assert record.data_product_port == "output"
+    assert record.data_product_role == "publisher"
+    assert record.reason == "All good"
+
+    assert calls
+    first_call = calls[0]
+    assert first_call["contract_id"] == "sales.contract"
+    assert first_call["contract_version"] == "1.2.3"
+    assert first_call["dataset_id"] == "sales.orders"
+    assert first_call["dataset_version"] == "2024-05-02"
+
+
+def test_load_records_uses_event_status_when_backend_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "list_dataset_ids", lambda: ["inventory.stock"])
+
+    def fake_activity(_: str) -> list[dict[str, object]]:
+        return [
+            {
+                "dataset_version": "2024-05-03",
+                "contract_id": "inventory.contract",
+                "contract_version": "2.0.0",
+                "events": [
+                    {
+                        "dq_status": "ko",
+                        "dq_details": {"errors": ["missing primary key", "null value"]},
+                        "dq_reason": "Schema mismatch",
+                        "pipeline_context": {"run_type": "adhoc"},
+                        "scenario_key": "manual-run",
+                    }
+                ],
+            }
+        ]
+
+    monkeypatch.setattr(server, "dataset_pipeline_activity", fake_activity)
+
+    calls: list[dict[str, object]] = []
+
+    def fake_validation_status(**kwargs):
+        calls.append(kwargs)
+        return None
+
+    monkeypatch.setattr(server, "dataset_validation_status", fake_validation_status)
+
+    records = server.load_records()
+
+    assert len(records) == 1
+    record = records[0]
+
+    assert record.status == "block"
+    assert record.violations == 2
+    assert record.dq_details == {"errors": ["missing primary key", "null value"]}
+    assert record.run_type == "adhoc"
+    assert record.scenario_key == "manual-run"
+    assert record.reason == "Schema mismatch"
+
+    assert calls
+    call = calls[0]
+    assert call["contract_id"] == "inventory.contract"
+    assert call["contract_version"] == "2.0.0"
+    assert call["dataset_id"] == "inventory.stock"
+    assert call["dataset_version"] == "2024-05-03"

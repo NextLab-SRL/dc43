@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Governance backends and stores now surface `list_datasets` and pipeline
+  activity/status lookups so UI clients can assemble dataset history directly
+  from the service without relying on demo-specific record stores.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so
   clients relying solely on the governance layer retain access to detailed data
@@ -14,6 +17,14 @@
   product input/output registrations create new drafts, matching the behaviour
   of the legacy Spark contract helpers so governance-first pipelines surface the
   same guardrails.
+
+### Fixed
+- SQL governance activity lookups now include the dataset identifier and version
+  from the table columns when payloads omit those fields, ensuring clients can
+  enumerate available dataset versions even for legacy records.
+- SQL governance status lookups now tolerate duplicate historical rows by
+  selecting the most recent payload, preventing `MultipleResultsFound` errors
+  when legacy tables contain redundant entries.
 
 ## [0.22.0.0] - 2025-10-25
 ### Changed

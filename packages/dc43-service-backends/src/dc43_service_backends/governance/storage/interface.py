@@ -42,6 +42,9 @@ class GovernanceStore(Protocol):
     ) -> None:
         """Append ``event`` metadata to the pipeline activity log."""
 
+    def list_datasets(self) -> Sequence[str]:
+        """Return dataset identifiers recorded by the governance store."""
+
     def load_pipeline_activity(
         self,
         *,

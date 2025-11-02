@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, TYPE_CHECKING
+from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -51,6 +51,17 @@ class LocalContractServiceClient(ContractServiceClient):
 
     def list_versions(self, contract_id: str) -> Sequence[str]:
         return self._backend.list_versions(contract_id)
+
+    def list_contracts(
+        self, *, limit: int | None = None, offset: int = 0
+    ) -> Mapping[str, object]:
+        listing = self._backend.list_contracts(limit=limit, offset=offset)
+        return {
+            "items": [str(item) for item in listing.items],
+            "total": int(listing.total),
+            "limit": listing.limit,
+            "offset": listing.offset,
+        }
 
     def link_dataset_contract(
         self,

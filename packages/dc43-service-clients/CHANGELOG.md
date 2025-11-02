@@ -8,6 +8,9 @@
   configuration, providing a single entry point for application bootstrap.
 
 ### Changed
+- Governance clients now expose dataset listing, pipeline activity, and
+  validation status helpers so UI consumers can gather run history entirely via
+  service APIs.
 - Governance clients now expose contract discovery helpers (`get_contract`,
   `latest_contract`, `list_contract_versions`, and
   `describe_expectations`) and include validation payloads in

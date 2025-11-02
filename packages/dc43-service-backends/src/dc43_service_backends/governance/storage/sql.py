@@ -77,14 +77,24 @@ class SQLGovernanceStore(GovernanceStore):
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    def _load_payload(self, table: Table, *, dataset_id: str, dataset_version: str) -> dict[str, object] | None:
+    def _load_payload(
+        self,
+        table: Table,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        sort_column: Column | None = None,
+    ) -> dict[str, object] | None:
         stmt = (
             select(table.c.payload)
             .where(table.c.dataset_id == dataset_id)
             .where(table.c.dataset_version == dataset_version)
         )
+        if sort_column is not None:
+            stmt = stmt.order_by(sort_column.desc())
+        stmt = stmt.limit(1)
         with self._engine.begin() as conn:
-            result = conn.execute(stmt).scalar_one_or_none()
+            result = conn.execute(stmt).scalars().first()
         if not result:
             return None
         try:
@@ -204,7 +214,10 @@ class SQLGovernanceStore(GovernanceStore):
         dataset_version: str,
     ) -> ValidationResult | None:
         payload = self._load_payload(
-            self._status, dataset_id=dataset_id, dataset_version=dataset_version
+            self._status,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            sort_column=self._status.c.recorded_at,
         )
         if not payload:
             return None
@@ -262,6 +275,7 @@ class SQLGovernanceStore(GovernanceStore):
                 self._links,
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
+                sort_column=self._links.c.linked_at,
             )
             if payload:
                 cid = payload.get("contract_id")
@@ -337,7 +351,10 @@ class SQLGovernanceStore(GovernanceStore):
         event: Mapping[str, object],
     ) -> None:
         record = self._load_payload(
-            self._activity, dataset_id=dataset_id, dataset_version=dataset_version
+            self._activity,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            sort_column=self._activity.c.updated_at,
         )
         if not isinstance(record, dict):
             record = {
@@ -360,6 +377,17 @@ class SQLGovernanceStore(GovernanceStore):
             extra={"updated_at": self._now()},
         )
 
+    def list_datasets(self) -> Sequence[str]:
+        stmt = select(self._activity.c.dataset_id).distinct().order_by(
+            self._activity.c.dataset_id
+        )
+        datasets: list[str] = []
+        with self._engine.begin() as conn:
+            for (dataset_id,) in conn.execute(stmt).all():
+                if isinstance(dataset_id, str):
+                    datasets.append(dataset_id)
+        return datasets
+
     def load_pipeline_activity(
         self,
         *,
@@ -371,22 +399,30 @@ class SQLGovernanceStore(GovernanceStore):
                 self._activity,
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
+                sort_column=self._activity.c.updated_at,
             )
             if record:
+                record.setdefault("dataset_id", dataset_id)
+                record.setdefault("dataset_version", dataset_version)
                 return [record]
             return []
 
-        stmt = select(self._activity.c.payload).where(
+        stmt = select(self._activity.c.dataset_version, self._activity.c.payload).where(
             self._activity.c.dataset_id == dataset_id
         )
         entries: list[Mapping[str, object]] = []
         with self._engine.begin() as conn:
-            for (payload,) in conn.execute(stmt).all():
+            for row in conn.execute(stmt).all():
+                payload = row.payload
                 try:
                     record = json.loads(payload)
                 except json.JSONDecodeError:
                     continue
                 if isinstance(record, dict):
+                    record.setdefault("dataset_id", dataset_id)
+                    version = getattr(row, "dataset_version", None)
+                    if isinstance(version, str) and version:
+                        record.setdefault("dataset_version", version)
                     entries.append(record)
         entries.sort(
             key=lambda item: str(

@@ -32,28 +32,13 @@ _SERVER_EXPORTS = {
     "app",
     "configure_backend",
     "configure_from_config",
-    "configure_workspace",
     "create_app",
-    "current_workspace",
     "load_records",
     "queue_flash",
-    "save_records",
     "scenario_run_rows",
-    "store",
 }
 
-_WORKSPACE_EXPORTS = {
-    "ContractsAppWorkspace",
-    "workspace_from_env",
-}
-
-__all__ = sorted(
-    {
-        *_CONFIG_EXPORTS,
-        *_SERVER_EXPORTS,
-        *_WORKSPACE_EXPORTS,
-    }
-)
+__all__ = sorted({*_CONFIG_EXPORTS, *_SERVER_EXPORTS})
 
 
 def _load_from(module_name: str, names: Iterable[str]) -> Dict[str, Any]:
@@ -69,8 +54,6 @@ def __getattr__(name: str) -> Any:
         resolved = _load_from(".config", [name])
     elif name in _SERVER_EXPORTS:
         resolved = _load_from(".server", [name])
-    elif name in _WORKSPACE_EXPORTS:
-        resolved = _load_from(".workspace", [name])
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

@@ -1,5 +1,23 @@
 [
   {
+    "contract_id": "orders_enriched",
+    "contract_version": "1.1.0",
+    "dataset_name": "orders_enriched",
+    "dataset_version": "2024-04-01",
+    "status": "block",
+    "reason": "Schema validation failed: ['missing required column: loyalty_segment']",
+    "dq_details": {
+      "violations": 2,
+      "metrics": {
+        "row_count": 2,
+        "violations_missing_columns": 1,
+        "violations_expectation": 1
+      }
+    },
+    "run_type": "observe",
+    "scenario_key": "ok"
+  },
+  {
     "contract_id": "orders",
     "contract_version": "1.0.0",
     "dataset_name": "orders",

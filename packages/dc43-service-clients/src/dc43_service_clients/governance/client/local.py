@@ -210,6 +210,9 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
             contract_version=contract_version,
         )
 
+    def list_datasets(self) -> Sequence[str]:
+        return self._backend.list_datasets()
+
     def get_pipeline_activity(
         self,
         *,
