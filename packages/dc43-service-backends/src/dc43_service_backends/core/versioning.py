@@ -50,11 +50,16 @@ _VERSION_KEY_PATTERN = re.compile(
     r"^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?(.*)\s*$"
 )
 _VERSION_KEY_STAGE = re.compile(
-    r"^(?P<label>dev|a|alpha|b|beta|rc|post)(?P<number>\d*)",
+    r"^(?P<label>dev|draft|a|alpha|b|beta|rc|post)(?P<number>\d*)",
+    re.IGNORECASE,
+)
+_VERSION_KEY_SUFFIX = re.compile(
+    r"^(?P<label>[a-z]+)(?:[\W_]*(?P<number>\d+))?",
     re.IGNORECASE,
 )
 _VERSION_KEY_ORDER = {
     "dev": 0,
+    "draft": 0,
     "a": 1,
     "alpha": 1,
     "b": 2,
@@ -86,7 +91,14 @@ def version_key(version: str) -> Tuple[int, int, int, int, int, int]:
             number_str = stage.group("number") or "0"
             number = int(number_str) if number_str.isdigit() else 0
         else:
-            label = suffix
+            fallback = _VERSION_KEY_SUFFIX.match(suffix)
+            if fallback:
+                label = fallback.group("label").lower()
+                number_str = fallback.group("number")
+                if number_str and number_str.isdigit():
+                    number = int(number_str)
+            else:
+                label = suffix
     rank = _VERSION_KEY_ORDER.get(label, -1)
     return (*components, rank, number)
 

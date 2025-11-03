@@ -43,6 +43,9 @@
 - Updated the Delta-backed governance stores to compare version strings using
   suffix-aware keys so rc/dev builds resolve without Spark casting errors when
   fetching the latest contract or data product entries.
+- Hardened the Delta-backed stores to ignore empty version markers and treat
+  ``draft`` suffixes as ordered pre-releases so historical placeholder rows no
+  longer prevent ``latest`` resolution.
 - Introduced governance-first Spark IO wrappers and updated documentation/tests
   so pipelines can rely on a single governance client instead of wiring
   contract/data-quality services manually.

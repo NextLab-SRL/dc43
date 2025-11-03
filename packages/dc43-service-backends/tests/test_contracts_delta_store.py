@@ -95,3 +95,19 @@ def test_delta_contract_store_prefers_release_over_rc(tmp_path: Path) -> None:
 
     assert latest is not None
     assert latest.version == "0.27.0.0"
+
+
+def test_delta_contract_store_ignores_blank_versions(tmp_path: Path) -> None:
+    spark = _FakeSpark()
+    store = DeltaContractStore(spark, path=str(tmp_path / "contracts"))
+
+    blank = _contract("0.0.0")
+    final = _contract("1.0.0")
+
+    spark.storage[(blank.id, "")] = {"json": _encode(blank)}
+    spark.storage[(final.id, final.version)] = {"json": _encode(final)}
+
+    latest = store.latest("sales.orders")
+
+    assert latest is not None
+    assert latest.version == "1.0.0"

@@ -130,9 +130,17 @@ class DeltaDataProductServiceBackend(MutableDataProductBackendMixin, DataProduct
         rows = self._spark.sql(
             f"SELECT version, json FROM {ref} WHERE data_product_id = '{data_product_id}'"
         ).collect()
-        if not rows:
+        entries: list[tuple[str, object]] = []
+        for row in rows:
+            if not row:
+                continue
+            version = str(row[0]).strip()
+            if not version:
+                continue
+            entries.append((version, row[1]))
+        if not entries:
             return None
-        latest_row = max(rows, key=lambda row: _version_key(row[0]))
+        latest_row = max(entries, key=lambda row: _version_key(row[0]))
         return to_model(self._safe_json(latest_row[1]))
 
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:  # noqa: D401
@@ -181,6 +189,6 @@ class DeltaDataProductServiceBackend(MutableDataProductBackendMixin, DataProduct
             self._existing_versions(data_product_id),
             key=_version_key,
         )
-        return versions
+        return [version for version in versions if version]
 
 __all__ = ["DeltaDataProductServiceBackend"]

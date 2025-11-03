@@ -305,6 +305,8 @@ def test_version_key_orders_pre_releases() -> None:
     assert version_key("0.27.0.0dev1") < version_key("0.27.0.0rc1")
     assert version_key("0.27.0.0rc1") < version_key("0.27.0.0")
     assert version_key("0.27.0.0rc2") < version_key("0.27.0.0rc10")
+    assert version_key("0.27.0.0draft2") < version_key("0.27.0.0draft10")
+    assert version_key("0.27.0.0draft1") < version_key("0.27.0.0rc1")
 
 
 def test_delta_backend_uses_spark_sql(tmp_path: Path) -> None:
@@ -345,3 +347,37 @@ def test_delta_backend_skips_invalid_rows(tmp_path: Path) -> None:
 
     listing = backend.list_data_products()
     assert list(listing.items) == []
+
+
+def test_delta_backend_ignores_blank_versions(tmp_path: Path) -> None:
+    spark = _FakeSpark()
+    spark.storage[("dp.sales", "")] = {
+        "status": "draft",
+        "json": json.dumps(
+            {
+                "apiVersion": "3.0.2",
+                "kind": "DataProduct",
+                "id": "dp.sales",
+                "status": "draft",
+            }
+        ),
+    }
+    spark.storage[("dp.sales", "1.0.0")] = {
+        "status": "active",
+        "json": json.dumps(
+            {
+                "apiVersion": "3.0.2",
+                "kind": "DataProduct",
+                "id": "dp.sales",
+                "status": "active",
+                "version": "1.0.0",
+            }
+        ),
+    }
+
+    backend = DeltaDataProductServiceBackend(spark, path=str(tmp_path / "dp"))
+
+    latest = backend.latest("dp.sales")
+    assert latest is not None
+    assert latest.version == "1.0.0"
+    assert backend.list_versions("dp.sales") == ["1.0.0"]

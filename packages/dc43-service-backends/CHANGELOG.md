@@ -33,4 +33,7 @@
 - Delta-backed contract and data product stores now compare version strings with
   suffix-aware keys so rc/dev builds sort correctly without triggering Spark
   cast errors when resolving the latest entries.
+- Delta-backed stores now ignore empty version markers and rank ``draft``
+  suffixes as pre-releases, ensuring ``latest`` resolution succeeds even when
+  historical rows contain placeholder records.
 

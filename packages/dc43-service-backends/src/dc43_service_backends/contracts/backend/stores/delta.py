@@ -131,9 +131,17 @@ class DeltaContractStore(ContractStore):
         rows = self.spark.sql(
             f"SELECT version, json FROM {ref} WHERE contract_id = '{contract_id}'"
         ).collect()
-        if not rows:
+        entries: list[tuple[str, object]] = []
+        for row in rows:
+            if not row:
+                continue
+            version = str(row[0]).strip()
+            if not version:
+                continue
+            entries.append((version, row[1]))
+        if not entries:
             return None
-        latest = max(rows, key=lambda row: version_key(row[0]))
+        latest = max(entries, key=lambda row: version_key(row[0]))
         import json
 
         return to_model(json.loads(latest[1]))
