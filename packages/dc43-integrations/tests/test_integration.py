@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 import pytest
 
@@ -140,20 +140,48 @@ class StubDataProductService:
         contract_ref: tuple[str, str] | Mapping[str, tuple[str, str]] | None = None,
         *,
         registration_changed: bool = True,
+        products: Mapping[str, Sequence[DataProductDoc]] | None = None,
     ) -> None:
+        from dc43_service_backends.core.versioning import version_key
+
         self.contract_ref = contract_ref
         self.input_calls: list[dict[str, Any]] = []
         self.output_calls: list[dict[str, Any]] = []
         self.registration_changed = registration_changed
+        self._products: dict[str, dict[str, DataProductDoc]] = {}
+        self._version_key = version_key
+        if products:
+            for product_id, versions in products.items():
+                store = self._products.setdefault(product_id, {})
+                for doc in versions:
+                    version = doc.version or ""
+                    store[version] = doc.clone()
+
+    def _product_versions(self, data_product_id: str) -> dict[str, DataProductDoc]:
+        return self._products.setdefault(data_product_id, {})
+
+    def _store_product(self, product: DataProductDoc) -> None:
+        version = product.version or ""
+        if not version:
+            return
+        store = self._product_versions(product.id)
+        store[version] = product.clone()
 
     def get(self, data_product_id: str, version: str) -> DataProductDoc:
-        raise NotImplementedError
+        store = self._product_versions(data_product_id)
+        if version not in store:
+            raise FileNotFoundError(f"data product {data_product_id}:{version} not found")
+        return store[version].clone()
 
-    def latest(self, data_product_id: str) -> Optional[DataProductDoc]:  # pragma: no cover - not used
-        return None
+    def latest(self, data_product_id: str) -> Optional[DataProductDoc]:
+        store = self._product_versions(data_product_id)
+        if not store:
+            return None
+        version = max(store, key=self._version_key)
+        return store[version].clone()
 
-    def list_versions(self, data_product_id: str) -> list[str]:  # pragma: no cover - not used
-        return []
+    def list_versions(self, data_product_id: str) -> list[str]:
+        return sorted(self._product_versions(data_product_id), key=self._version_key)
 
     def register_input_port(
         self,
@@ -177,12 +205,26 @@ class StubDataProductService:
                 "source_output_port": source_output_port,
             }
         )
-        status = "draft" if self.registration_changed else "active"
+        if not self.registration_changed:
+            existing = self.latest(data_product_id)
+            doc = existing.clone() if existing is not None else DataProductDoc(
+                id=data_product_id,
+                status="active",
+                version="1.0.0",
+            )
+            doc.input_ports.append(
+                DataProductInputPort(name=port_name, version=contract_version, contract_id=contract_id)
+            )
+            self._store_product(doc)
+            return DataProductRegistrationResult(product=doc, changed=False)
+
+        status = "draft"
         doc = DataProductDoc(id=data_product_id, status=status, version="0.1.0-draft")
         doc.input_ports.append(
             DataProductInputPort(name=port_name, version=contract_version, contract_id=contract_id)
         )
-        return DataProductRegistrationResult(product=doc, changed=self.registration_changed)
+        self._store_product(doc)
+        return DataProductRegistrationResult(product=doc, changed=True)
 
     def register_output_port(
         self,
@@ -202,12 +244,26 @@ class StubDataProductService:
                 "contract_version": contract_version,
             }
         )
-        status = "draft" if self.registration_changed else "active"
+        if not self.registration_changed:
+            existing = self.latest(data_product_id)
+            doc = existing.clone() if existing is not None else DataProductDoc(
+                id=data_product_id,
+                status="active",
+                version="1.0.0",
+            )
+            doc.output_ports.append(
+                DataProductOutputPort(name=port_name, version=contract_version, contract_id=contract_id)
+            )
+            self._store_product(doc)
+            return DataProductRegistrationResult(product=doc, changed=False)
+
+        status = "draft"
         doc = DataProductDoc(id=data_product_id, status=status, version="0.1.0-draft")
         doc.output_ports.append(
             DataProductOutputPort(name=port_name, version=contract_version, contract_id=contract_id)
         )
-        return DataProductRegistrationResult(product=doc, changed=self.registration_changed)
+        self._store_product(doc)
+        return DataProductRegistrationResult(product=doc, changed=True)
 
     def resolve_output_contract(
         self,
@@ -217,7 +273,15 @@ class StubDataProductService:
     ) -> Optional[tuple[str, str]]:
         if isinstance(self.contract_ref, Mapping):
             return self.contract_ref.get(port_name)
-        return self.contract_ref
+        if self.contract_ref is not None:
+            return self.contract_ref
+        latest = self.latest(data_product_id)
+        if latest is None:
+            return None
+        port = latest.find_output_port(port_name)
+        if port is None:
+            return None
+        return port.contract_id, port.version
 
 
 def test_read_blocks_on_draft_contract_status(spark, tmp_path: Path) -> None:
@@ -400,13 +464,44 @@ def test_read_with_governance_registers_input_binding(spark, tmp_path: Path) -> 
     assert dp_service.input_calls[0]["data_product_id"] == "dp.analytics"
 
 
+def test_read_with_governance_blocks_on_existing_draft_product(spark, tmp_path: Path) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-input-draft")
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    dp_service = StubDataProductService()
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+
+    with pytest.raises(RuntimeError, match="requires review"):
+        read_with_governance(
+            spark,
+            _gov_read_request(
+                contract,
+                context_overrides={"input_binding": {"data_product": "dp.analytics"}},
+            ),
+            governance_service=governance,
+        )
+
+    dp_service.registration_changed = False
+
+    with pytest.raises(ValueError, match="status"):
+        read_with_governance(
+            spark,
+            _gov_read_request(
+                contract,
+                context_overrides={"input_binding": {"data_product": "dp.analytics"}},
+            ),
+            governance_service=governance,
+        )
+
+
 def test_read_with_governance_skips_registration_when_input_exists(
     spark, tmp_path: Path
 ) -> None:
     data_dir = materialise_orders(spark, tmp_path / "gov-input-existing")
     contract = build_orders_contract(str(data_dir))
     store, _, _ = persist_contract(tmp_path, contract)
-    dp_service = StubDataProductService(registration_changed=False)
+    doc = DataProductDoc(id="dp.analytics", status="active", version="1.0.0")
+    dp_service = StubDataProductService(registration_changed=False, products={"dp.analytics": [doc]})
     governance = build_local_governance_service(store, data_product_backend=dp_service)
 
     df, status = read_with_governance(
@@ -423,6 +518,35 @@ def test_read_with_governance_skips_registration_when_input_exists(
     assert status is not None
     assert dp_service.input_calls
     assert dp_service.input_calls[0]["data_product_id"] == "dp.analytics"
+
+
+def test_read_with_governance_enforces_data_product_version_constraint(
+    spark, tmp_path: Path
+) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "gov-input-version")
+    contract = build_orders_contract(str(data_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    existing_doc = DataProductDoc(id="dp.analytics", status="active", version="2.0.0")
+    dp_service = StubDataProductService(
+        registration_changed=False,
+        products={"dp.analytics": [existing_doc]},
+    )
+    governance = build_local_governance_service(store, data_product_backend=dp_service)
+
+    with pytest.raises(ValueError, match="version"):
+        read_with_governance(
+            spark,
+            _gov_read_request(
+                contract,
+                context_overrides={
+                    "input_binding": {
+                        "data_product": "dp.analytics",
+                        "data_product_version": "==1.0.0",
+                    }
+                },
+            ),
+            governance_service=governance,
+        )
 
 
 def test_read_with_governance_resolves_contract_from_input_binding(

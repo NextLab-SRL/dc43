@@ -15,6 +15,7 @@ from dc43_service_backends.data_products import (
     DataProductRegistrationResult,
     DataProductServiceBackend,
 )
+from dc43_service_backends.core.versioning import version_key
 from dc43_service_clients.contracts import ContractServiceClient
 from dc43_service_clients.data_quality import (
     DataQualityServiceClient,
@@ -651,6 +652,13 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             binding_type="input",
         )
 
+        product = getattr(registration, "product", None) if registration else None
+        self._enforce_input_product_constraints(
+            binding=binding,
+            port_name=port_name,
+            product=product,
+        )
+
     def _register_output_binding(self, *, plan: ResolvedWritePlan) -> None:
         binding = plan.output_binding
         client = self._data_product_client
@@ -688,6 +696,13 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             binding_type="output",
         )
 
+        product = getattr(registration, "product", None) if registration else None
+        self._enforce_output_product_constraints(
+            binding=binding,
+            port_name=port_name,
+            product=product,
+        )
+
     def _raise_if_registration_requires_review(
         self,
         registration: Optional[DataProductRegistrationResult],
@@ -708,6 +723,200 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         raise RuntimeError(
             f"Data product {data_product} {binding_type} port {port_name} requires review "
             f"at version {version}"
+        )
+
+    def _normalise_version_spec(self, spec: Optional[str]) -> Optional[str]:
+        if spec is None:
+            return None
+        value = str(spec).strip()
+        if not value:
+            return None
+        if value.startswith("=="):
+            return value[2:].strip() or None
+        return value
+
+    def _version_satisfies(self, expected: Optional[str], actual: Optional[str]) -> bool:
+        if expected is None or not expected.strip():
+            return True
+        if not actual:
+            return False
+        requirement = expected.strip()
+        if requirement.startswith("=="):
+            target = requirement[2:].strip()
+            return not target or actual == target
+        if requirement.startswith(">="):
+            target = requirement[2:].strip()
+            if not target:
+                return True
+            return version_key(actual) >= version_key(target)
+        return actual == requirement
+
+    def _enforce_version_constraint(
+        self,
+        *,
+        expected: Optional[str],
+        actual: Optional[str],
+        data_product_id: str,
+        subject: str,
+    ) -> None:
+        if self._version_satisfies(expected, actual):
+            return
+        raise ValueError(
+            f"{subject} version {actual or '<unknown>'} does not satisfy {expected} "
+            f"for data product {data_product_id}"
+        )
+
+    def _load_data_product(
+        self,
+        *,
+        data_product_id: Optional[str],
+        version_spec: Optional[str],
+        default: Any = None,
+    ) -> Any:
+        if not data_product_id:
+            return default
+        client = self._data_product_client
+        if client is None:
+            return default
+        requirement = version_spec.strip() if isinstance(version_spec, str) else ""
+        direct_version = None
+        if requirement and not requirement.startswith(">="):
+            direct_version = self._normalise_version_spec(requirement)
+        getter = getattr(client, "get", None)
+        if direct_version and callable(getter):
+            try:
+                return getter(data_product_id, direct_version)
+            except Exception:
+                raise ValueError(
+                    f"Data product {data_product_id} version {direct_version} could not be retrieved"
+                )
+
+        latest = None
+        resolver = getattr(client, "latest", None)
+        if callable(resolver):
+            latest = resolver(data_product_id)
+            if latest and self._version_satisfies(requirement, getattr(latest, "version", None)):
+                return latest
+
+        versions: Sequence[str] = ()
+        lister = getattr(client, "list_versions", None)
+        if callable(lister):
+            versions = list(lister(data_product_id))
+        if requirement:
+            candidates = [version for version in versions if version]
+            for version in sorted(candidates, key=version_key, reverse=True):
+                if not self._version_satisfies(requirement, version):
+                    continue
+                if callable(getter):
+                    return getter(data_product_id, version)
+        return latest or default
+
+    def _enforce_product_status(
+        self,
+        *,
+        product: Any,
+        data_product_id: str,
+        operation: str,
+    ) -> None:
+        status = getattr(product, "status", None)
+        version = getattr(product, "version", None)
+        if status is None or str(status).strip() == "":
+            raise ValueError(
+                f"Data product {data_product_id}@{version or '<unknown>'} status '' "
+                f"is not allowed for {operation} operations"
+            )
+        if str(status).strip().lower() != "active":
+            raise ValueError(
+                f"Data product {data_product_id}@{version or '<unknown>'} status {status!r} "
+                f"is not allowed for {operation} operations"
+            )
+
+    def _enforce_input_product_constraints(
+        self,
+        *,
+        binding: Any,
+        port_name: str,
+        product: Any,
+    ) -> None:
+        data_product_id = getattr(binding, "data_product", None)
+        resolved = product or self._load_data_product(
+            data_product_id=data_product_id,
+            version_spec=getattr(binding, "data_product_version", None),
+        )
+        if resolved is not None:
+            self._enforce_product_status(
+                product=resolved,
+                data_product_id=data_product_id,
+                operation="read",
+            )
+            self._enforce_version_constraint(
+                expected=getattr(binding, "data_product_version", None),
+                actual=getattr(resolved, "version", None),
+                data_product_id=data_product_id,
+                subject="Data product",
+            )
+
+        source_product_id = getattr(binding, "source_data_product", None)
+        if not source_product_id:
+            return
+        source_product = self._load_data_product(
+            data_product_id=source_product_id,
+            version_spec=getattr(binding, "source_data_product_version", None),
+        )
+        if source_product is None:
+            return
+        self._enforce_product_status(
+            product=source_product,
+            data_product_id=source_product_id,
+            operation="read",
+        )
+        self._enforce_version_constraint(
+            expected=getattr(binding, "source_data_product_version", None),
+            actual=getattr(source_product, "version", None),
+            data_product_id=source_product_id,
+            subject="Source data product",
+        )
+        port = getattr(source_product, "find_output_port", lambda name: None)(
+            getattr(binding, "source_output_port", port_name)
+        )
+        if port is None:
+            if getattr(binding, "source_contract_version", None):
+                raise ValueError(
+                    f"Data product {source_product_id} output port "
+                    f"{getattr(binding, 'source_output_port', port_name)} is not defined"
+                )
+            return
+        self._enforce_version_constraint(
+            expected=getattr(binding, "source_contract_version", None),
+            actual=getattr(port, "version", None),
+            data_product_id=source_product_id,
+            subject="Output port contract",
+        )
+
+    def _enforce_output_product_constraints(
+        self,
+        *,
+        binding: Any,
+        port_name: str,
+        product: Any,
+    ) -> None:
+        data_product_id = getattr(binding, "data_product", None)
+        resolved = product or self._load_data_product(
+            data_product_id=data_product_id,
+            version_spec=getattr(binding, "data_product_version", None),
+        )
+        if resolved is None:
+            return
+        self._enforce_product_status(
+            product=resolved,
+            data_product_id=data_product_id,
+            operation="write",
+        )
+        self._enforce_version_constraint(
+            expected=getattr(binding, "data_product_version", None),
+            actual=getattr(resolved, "version", None),
+            data_product_id=data_product_id,
+            subject="Data product",
         )
 
     def _status_from_validation(self, validation: ValidationResult, *, operation: str) -> ValidationResult:

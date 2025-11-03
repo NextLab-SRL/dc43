@@ -38,6 +38,10 @@
   governance-first wrappers. Compatibility calls now emit
   ``DeprecationWarning`` messages to steer pipelines towards
   `read_with_governance`/`write_with_governance`.
+- Governance Spark IO now enforces data product status policies and accepts
+  explicit version constraints for input/output bindings so pipelines can
+  block on draft products by default or target specific releases when
+  required.
 
 ### Fixed
 - Updated the Delta-backed governance stores to compare version strings using

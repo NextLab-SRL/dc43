@@ -59,8 +59,9 @@ from .data_quality import (
 )
 from .validation import apply_contract
 from dc43_service_backends.core.odcs import contract_identity, custom_properties_dict, ensure_version
-from dc43_service_backends.core.versioning import SemVer
+from dc43_service_backends.core.versioning import SemVer, version_key
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
+from dc43_service_clients.odps import OpenDataProductStandard
 
 from .violation_strategy import (
     NoOpWriteViolationStrategy,
@@ -1301,6 +1302,10 @@ class DefaultReadStatusStrategy:
     allow_missing_contract_status: bool = True
     contract_status_case_insensitive: bool = True
     contract_status_failure_message: str | None = None
+    allowed_data_product_statuses: tuple[str, ...] = ("active",)
+    allow_missing_data_product_status: bool = True
+    data_product_status_case_insensitive: bool = True
+    data_product_status_failure_message: str | None = None
 
     def validate_contract_status(
         self,
@@ -1337,6 +1342,23 @@ class DefaultReadStatusStrategy:
         if enforce and status and status.status == "block":
             raise ValueError(f"DQ status is blocking: {status.reason or status.details}")
         return dataframe, status
+
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        _validate_data_product_status(
+            data_product=data_product,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_data_product_statuses,
+            allow_missing=self.allow_missing_data_product_status,
+            case_insensitive=self.data_product_status_case_insensitive,
+            failure_message=self.data_product_status_failure_message,
+        )
 
 def _check_contract_version(expected: str | None, actual: str) -> None:
     """Check expected contract version constraint against an actual version.
@@ -1563,6 +1585,316 @@ def _validate_contract_status(
     logger.warning(message)
 
 
+def _normalise_version_spec(spec: Optional[str]) -> Optional[str]:
+    """Return a normalised version constraint or ``None`` when unset."""
+
+    if spec is None:
+        return None
+    value = str(spec).strip()
+    if not value:
+        return None
+    if value.startswith("=="):
+        return value[2:].strip() or None
+    return value
+
+
+def _check_data_product_version(
+    *,
+    expected: Optional[str],
+    actual: Optional[str],
+    data_product_id: str,
+    subject: str,
+    enforce: bool,
+) -> bool:
+    """Return ``True`` when ``actual`` satisfies the optional ``expected`` constraint."""
+
+    if expected is None or not expected.strip():
+        return True
+    if not actual:
+        message = (
+            f"{subject} version for data product {data_product_id} is unknown; expected {expected}"
+        )
+        if enforce:
+            raise ValueError(message)
+        logger.warning(message)
+        return False
+
+    requirement = expected.strip()
+    if requirement.startswith("=="):
+        target = requirement[2:].strip()
+        if actual != target:
+            message = (
+                f"{subject} version {actual} does not satisfy {expected} for data product {data_product_id}"
+            )
+            if enforce:
+                raise ValueError(message)
+            logger.warning(message)
+            return False
+        return True
+    if requirement.startswith(">="):
+        target = requirement[2:].strip()
+        if not target:
+            return True
+        try:
+            if version_key(actual) < version_key(target):
+                message = (
+                    f"{subject} version {actual} does not satisfy {expected} for data product {data_product_id}"
+                )
+                if enforce:
+                    raise ValueError(message)
+                logger.warning(message)
+                return False
+        except Exception as exc:  # pragma: no cover - defensive against malformed versions
+            message = (
+                f"Unable to compare versions {actual!r} and {target!r} for data product {data_product_id}: {exc}"
+            )
+            if enforce:
+                raise ValueError(message) from exc
+            logger.warning(message)
+            return False
+        return True
+    if actual != requirement:
+        message = (
+            f"{subject} version {actual} does not satisfy {expected} for data product {data_product_id}"
+        )
+        if enforce:
+            raise ValueError(message)
+        logger.warning(message)
+        return False
+    return True
+
+
+def _validate_data_product_status(
+    *,
+    data_product: OpenDataProductStandard,
+    enforce: bool,
+    operation: str,
+    allowed_statuses: Iterable[str] | None = None,
+    allow_missing: bool = True,
+    case_insensitive: bool = True,
+    failure_message: str | None = None,
+) -> None:
+    """Check the data product status against an allowed set."""
+
+    raw_status = getattr(data_product, "status", None)
+    product_id = str(getattr(data_product, "id", ""))
+    product_version = str(getattr(data_product, "version", ""))
+    if raw_status is None:
+        if allow_missing:
+            return
+        status_value = ""
+    else:
+        status_value = str(raw_status).strip()
+        if not status_value and allow_missing:
+            return
+
+    if not status_value:
+        message = (
+            failure_message
+            or "Data product {data_product_id}@{data_product_version} status {status!r} "
+            "is not allowed for {operation} operations"
+        ).format(
+            data_product_id=product_id,
+            data_product_version=product_version,
+            status=status_value,
+            operation=operation,
+        )
+        if enforce:
+            raise ValueError(message)
+        logger.warning(message)
+        return
+
+    options = allowed_statuses or ("active",)
+    allowed = {status.lower() if case_insensitive else status for status in options}
+    candidate = status_value.lower() if case_insensitive else status_value
+    if candidate in allowed:
+        return
+
+    message = (
+        failure_message
+        or "Data product {data_product_id}@{data_product_version} status {status!r} "
+        "is not allowed for {operation} operations"
+    ).format(
+        data_product_id=product_id,
+        data_product_version=product_version,
+        status=status_value,
+        operation=operation,
+    )
+    if enforce:
+        raise ValueError(message)
+    logger.warning(message)
+
+
+def _enforce_data_product_status(
+    *,
+    handler: object,
+    data_product: OpenDataProductStandard,
+    enforce: bool,
+    operation: str,
+) -> None:
+    """Apply a data product status policy defined by ``handler``."""
+
+    validator = getattr(handler, "validate_data_product_status", None)
+    if validator is None:
+        _validate_data_product_status(
+            data_product=data_product,
+            enforce=enforce,
+            operation=operation,
+        )
+        return
+
+    validator(data_product=data_product, enforce=enforce, operation=operation)
+
+
+def _select_data_product(
+    *,
+    service: DataProductServiceClient,
+    data_product_id: str,
+    version_spec: Optional[str],
+    handler: object,
+    enforce: bool,
+    operation: str,
+) -> Optional[OpenDataProductStandard]:
+    """Return a data product respecting ``handler`` status policies."""
+
+    requirement = version_spec.strip() if isinstance(version_spec, str) else ""
+    direct_version = None
+    if requirement and not requirement.startswith(">="):
+        direct_version = _normalise_version_spec(requirement)
+    if direct_version:
+        try:
+            product = service.get(data_product_id, direct_version)
+        except Exception:
+            if enforce:
+                raise
+            logger.warning(
+                "Data product %s version %s could not be retrieved",
+                data_product_id,
+                direct_version,
+            )
+            return None
+        _enforce_data_product_status(
+            handler=handler,
+            data_product=product,
+            enforce=enforce,
+            operation=operation,
+        )
+        if not _check_data_product_version(
+            expected=requirement,
+            actual=product.version,
+            data_product_id=data_product_id,
+            subject="Data product",
+            enforce=enforce,
+        ):
+            return None
+        return product
+
+    latest: Optional[OpenDataProductStandard] = None
+    try:
+        latest = service.latest(data_product_id)
+    except Exception:  # pragma: no cover - defensive logging
+        logger.exception("Failed to resolve latest data product %s", data_product_id)
+
+    candidates: list[tuple[Optional[str], Optional[OpenDataProductStandard]]] = []
+    if latest is not None:
+        candidates.append((latest.version, latest))
+
+    versions: Iterable[str] = ()
+    try:
+        versions = service.list_versions(data_product_id)
+    except Exception:  # pragma: no cover - defensive logging
+        logger.exception("Failed to list versions for data product %s", data_product_id)
+
+    seen_versions: set[str] = set()
+    if latest and latest.version:
+        seen_versions.add(latest.version)
+
+    sorted_versions = sorted(
+        (version for version in versions if version),
+        key=version_key,
+        reverse=True,
+    )
+    for version in sorted_versions:
+        if version in seen_versions:
+            continue
+        seen_versions.add(version)
+        candidates.append((version, None))
+
+    errors: list[str] = []
+    for version, product in candidates:
+        candidate = product
+        if candidate is None and version:
+            try:
+                candidate = service.get(data_product_id, version)
+            except Exception:
+                logger.exception(
+                    "Failed to load data product %s version %s", data_product_id, version
+                )
+                continue
+        if candidate is None:
+            continue
+        try:
+            _enforce_data_product_status(
+                handler=handler,
+                data_product=candidate,
+                enforce=enforce,
+                operation=operation,
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        if requirement:
+            matches = _check_data_product_version(
+                expected=requirement,
+                actual=candidate.version,
+                data_product_id=data_product_id,
+                subject="Data product",
+                enforce=enforce,
+            )
+            if not matches:
+                continue
+        return candidate
+
+    if errors:
+        message = (
+            f"Data product {data_product_id} does not have an allowed version for {operation} operations"
+        )
+        if enforce:
+            detail = "; ".join(dict.fromkeys(errors))
+            raise ValueError(f"{message}: {detail}")
+        logger.warning("%s: %s", message, "; ".join(dict.fromkeys(errors)))
+        return None
+
+    if requirement:
+        message = (
+            f"Data product {data_product_id} has no versions available for {operation} operations"
+        )
+        if enforce:
+            raise ValueError(message)
+        logger.warning(message)
+    return None
+
+    options = allowed_statuses or ("active",)
+    allowed = {status.lower() if case_insensitive else status for status in options}
+    candidate = status_value.lower() if case_insensitive else status_value
+    if candidate in allowed:
+        return
+
+    message = (
+        failure_message
+        or "Contract {contract_id}:{contract_version} status {status!r} "
+        "is not allowed for {operation} operations"
+    ).format(
+        contract_id=str(getattr(contract, "id", "")),
+        contract_version=str(getattr(contract, "version", "")),
+        status=status_value,
+        operation=operation,
+    )
+    if enforce:
+        raise ValueError(message)
+    logger.warning(message)
+
+
 
 class BaseReadExecutor:
     """Shared implementation for batch and streaming read helpers."""
@@ -1688,6 +2020,58 @@ class BaseReadExecutor:
         expected_version = self.expected_contract_version
         dp_service = self.data_product_service
         binding = self.dp_binding
+        if (
+            contract_id is None
+            and dp_service is not None
+            and binding is not None
+            and binding.source_data_product
+            and binding.source_output_port
+        ):
+            product: Optional[OpenDataProductStandard]
+            try:
+                product = _select_data_product(
+                    service=dp_service,
+                    data_product_id=binding.source_data_product,
+                    version_spec=binding.source_data_product_version,
+                    handler=self.status_handler,
+                    enforce=self.enforce,
+                    operation="read",
+                )
+            except ValueError:
+                if self.enforce:
+                    raise
+                product = None
+            if product is not None:
+                port = product.find_output_port(binding.source_output_port)
+                if port is None:
+                    message = (
+                        f"Data product {binding.source_data_product} output port {binding.source_output_port}"
+                        " is not defined"
+                    )
+                    if self.enforce:
+                        raise ValueError(message)
+                    logger.warning(message)
+                else:
+                    matches = _check_data_product_version(
+                        expected=binding.source_contract_version,
+                        actual=port.version,
+                        data_product_id=product.id or binding.source_data_product,
+                        subject="Output port contract",
+                        enforce=self.enforce,
+                    )
+                    if matches:
+                        contract_id = port.contract_id
+                        expected_version = (
+                            _normalise_version_spec(binding.source_contract_version) or port.version
+                        )
+                        logger.info(
+                            "Resolved contract %s:%s from data product %s output %s",
+                            contract_id,
+                            expected_version,
+                            binding.source_data_product,
+                            binding.source_output_port,
+                        )
+
         if (
             contract_id is None
             and dp_service is not None
@@ -2056,6 +2440,10 @@ class BaseReadExecutor:
                 )
             except RuntimeError:
                 raise
+            except ValueError as exc:
+                if self.enforce:
+                    raise
+                logger.warning("Governance read activity rejected: %s", exc)
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception(
                     "Failed to register governance read activity for %s",
@@ -2114,6 +2502,22 @@ class BaseReadExecutor:
                 binding.data_product,
                 port_name,
                 version,
+            )
+
+        product = registration.product
+        _enforce_data_product_status(
+            handler=self.status_handler,
+            data_product=product,
+            enforce=self.enforce,
+            operation="read",
+        )
+        if binding.data_product_version:
+            _check_data_product_version(
+                expected=binding.data_product_version,
+                actual=product.version,
+                data_product_id=binding.data_product,
+                subject="Data product",
+                enforce=self.enforce,
             )
 
 
@@ -2909,6 +3313,48 @@ class BaseWriteExecutor:
             and dp_output_binding.data_product
             and dp_output_binding.port_name
         ):
+            product: Optional[OpenDataProductStandard]
+            try:
+                product = _select_data_product(
+                    service=dp_service,
+                    data_product_id=dp_output_binding.data_product,
+                    version_spec=dp_output_binding.data_product_version,
+                    handler=strategy,
+                    enforce=enforce,
+                    operation="write",
+                )
+            except ValueError:
+                if enforce:
+                    raise
+                product = None
+            if product is not None:
+                port = product.find_output_port(dp_output_binding.port_name)
+                if port is None:
+                    message = (
+                        f"Data product {dp_output_binding.data_product} output port {dp_output_binding.port_name}"
+                        " is not defined"
+                    )
+                    if enforce:
+                        raise ValueError(message)
+                    logger.warning(message)
+                else:
+                    resolved_contract_id = port.contract_id
+                    resolved_expected_version = port.version
+                    logger.info(
+                        "Resolved contract %s:%s from data product %s output %s",
+                        resolved_contract_id,
+                        resolved_expected_version,
+                        dp_output_binding.data_product,
+                        dp_output_binding.port_name,
+                    )
+
+        if (
+            resolved_contract_id is None
+            and dp_service is not None
+            and dp_output_binding is not None
+            and dp_output_binding.data_product
+            and dp_output_binding.port_name
+        ):
             try:
                 contract_ref = dp_service.resolve_output_contract(
                     data_product_id=dp_output_binding.data_product,
@@ -2996,9 +3442,9 @@ class BaseWriteExecutor:
         dataset_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
         dataset_version = resolution.dataset_version
         if governance_plan is not None:
-            if governance_plan.dataset_id:
+            if governance_plan.dataset_id and not dataset_id:
                 dataset_id = governance_plan.dataset_id
-            if governance_plan.dataset_version:
+            if governance_plan.dataset_version and not dataset_version:
                 dataset_version = governance_plan.dataset_version
             if governance_plan.dataset_format and format is None:
                 format = governance_plan.dataset_format
@@ -3174,6 +3620,21 @@ class BaseWriteExecutor:
                     raise RuntimeError(
                         f"Data product {dp_output_binding.data_product} output port {port_name} "
                         f"requires review at version {version}"
+                    )
+                product = registration.product
+                _enforce_data_product_status(
+                    handler=strategy,
+                    data_product=product,
+                    enforce=enforce,
+                    operation="write",
+                )
+                if dp_output_binding.data_product_version:
+                    _check_data_product_version(
+                        expected=dp_output_binding.data_product_version,
+                        actual=product.version,
+                        data_product_id=dp_output_binding.data_product,
+                        subject="Data product",
+                        enforce=enforce,
                     )
 
         options_dict: Dict[str, str] = {}
@@ -3462,6 +3923,10 @@ class BaseWriteExecutor:
                 )
             except RuntimeError:
                 raise
+            except ValueError as exc:
+                if self.enforce:
+                    raise
+                logger.warning("Governance write activity rejected: %s", exc)
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception(
                     "Failed to register governance write activity for %s",

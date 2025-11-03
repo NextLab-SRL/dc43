@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover
     DataFrame = object  # type: ignore[misc,assignment]
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+from dc43_service_clients.odps import OpenDataProductStandard
 
 from dc43_service_clients.data_quality import ValidationResult
 
@@ -153,6 +154,10 @@ class NoOpWriteViolationStrategy:
     allow_missing_contract_status: bool = True
     contract_status_case_insensitive: bool = True
     contract_status_failure_message: str | None = None
+    allowed_data_product_statuses: tuple[str, ...] = ("active",)
+    allow_missing_data_product_status: bool = True
+    data_product_status_case_insensitive: bool = True
+    data_product_status_failure_message: str | None = None
 
     def validate_contract_status(
         self,
@@ -173,6 +178,25 @@ class NoOpWriteViolationStrategy:
             failure_message=self.contract_status_failure_message,
         )
 
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io import _validate_data_product_status  # local import to avoid cycles
+
+        _validate_data_product_status(
+            data_product=data_product,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_data_product_statuses,
+            allow_missing=self.allow_missing_data_product_status,
+            case_insensitive=self.data_product_status_case_insensitive,
+            failure_message=self.data_product_status_failure_message,
+        )
+
     def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401 - short docstring
         return WritePlan(primary=context.base_request())
 
@@ -191,6 +215,10 @@ class SplitWriteViolationStrategy:
     allow_missing_contract_status: bool = True
     contract_status_case_insensitive: bool = True
     contract_status_failure_message: str | None = None
+    allowed_data_product_statuses: tuple[str, ...] = ("active",)
+    allow_missing_data_product_status: bool = True
+    data_product_status_case_insensitive: bool = True
+    data_product_status_failure_message: str | None = None
 
     def validate_contract_status(
         self,
@@ -209,6 +237,25 @@ class SplitWriteViolationStrategy:
             allow_missing=self.allow_missing_contract_status,
             case_insensitive=self.contract_status_case_insensitive,
             failure_message=self.contract_status_failure_message,
+        )
+
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io import _validate_data_product_status  # local import to avoid cycles
+
+        _validate_data_product_status(
+            data_product=data_product,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_data_product_statuses,
+            allow_missing=self.allow_missing_data_product_status,
+            case_insensitive=self.data_product_status_case_insensitive,
+            failure_message=self.data_product_status_failure_message,
         )
 
     def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401 - short docstring

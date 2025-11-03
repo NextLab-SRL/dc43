@@ -89,8 +89,11 @@ def encode_input_binding(binding: DataProductInputBinding | None) -> dict[str, A
     payload: dict[str, Any] = {
         "data_product": binding.data_product,
         "port_name": binding.port_name,
+        "data_product_version": binding.data_product_version,
         "source_data_product": binding.source_data_product,
+        "source_data_product_version": binding.source_data_product_version,
         "source_output_port": binding.source_output_port,
+        "source_contract_version": binding.source_contract_version,
         "bump": binding.bump,
     }
     if binding.custom_properties is not None:
@@ -110,6 +113,7 @@ def encode_output_binding(binding: DataProductOutputBinding | None) -> dict[str,
     payload: dict[str, Any] = {
         "data_product": binding.data_product,
         "port_name": binding.port_name,
+        "data_product_version": binding.data_product_version,
         "bump": binding.bump,
     }
     if binding.custom_properties is not None:
