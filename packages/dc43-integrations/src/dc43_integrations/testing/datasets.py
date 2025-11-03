@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-from typing import Callable, Iterable, List, Sequence, Tuple
 import re
+from decimal import Decimal
+from typing import Callable, Iterable, List, Mapping, Sequence, Tuple
 
 from faker import Faker
 from open_data_contract_standard.model import (  # type: ignore
@@ -14,7 +14,6 @@ from open_data_contract_standard.model import (  # type: ignore
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import types as T
 
-from dc43_service_backends.core.odcs import list_properties
 from dc43_integrations.spark.data_quality import spark_type_name
 from dc43_integrations.spark.validation import apply_contract
 
@@ -23,6 +22,22 @@ Generator = Callable[[Faker, SchemaProperty], object]
 
 _DECIMAL_PATTERN = re.compile(r"decimal\s*\((\d+)\s*,\s*(\d+)\)", re.IGNORECASE)
 _CHAR_PATTERN = re.compile(r"(?:var)?char\s*\((\d+)\)", re.IGNORECASE)
+
+
+def _list_properties(contract: OpenDataContractStandard) -> List[SchemaProperty]:
+    props: List[SchemaProperty] = []
+    schema_objects = getattr(contract, "schema_", None) or getattr(contract, "schema", None) or []
+    for obj in schema_objects:
+        properties = getattr(obj, "properties", None) or []
+        for prop in properties:
+            if isinstance(prop, SchemaProperty):
+                props.append(prop)
+            elif isinstance(prop, Mapping):
+                try:
+                    props.append(SchemaProperty.model_validate(dict(prop)))
+                except Exception:
+                    continue
+    return props
 
 
 _SPARK_TYPES: dict[str, T.DataType] = {
@@ -196,7 +211,7 @@ def generate_contract_dataset(
     if seed is not None:
         fake.seed_instance(seed)
 
-    fields: List[SchemaProperty] = [prop for prop in list_properties(contract) if prop.name]
+    fields: List[SchemaProperty] = [prop for prop in _list_properties(contract) if prop.name]
     if not fields:
         raise ValueError("Contract does not expose any schema properties")
 

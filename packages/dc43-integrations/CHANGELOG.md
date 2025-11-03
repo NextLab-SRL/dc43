@@ -4,11 +4,13 @@
 
 ### Added
 - Added `draft_contract_from_dataframe` to capture schema/metric observations
-  from Spark DataFrames and return ready-to-review ODCS draft contracts.
+  from Spark DataFrames and return ready-to-review ODCS draft contracts without
+  touching backend-only modules.
 
 ### Changed
 - `generate_contract_dataset` now returns only an in-memory DataFrame so tests
-  can persist via the regular governance write helpers when needed.
+  can persist via the regular governance write helpers when needed, and it
+  inspects contract schemas directly instead of calling backend helpers.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Deprecated contract- and data-product-centric helpers (`read_with_contract`,

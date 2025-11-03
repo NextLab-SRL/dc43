@@ -4,7 +4,8 @@
 
 ### Added
 - Introduced the Spark `draft_contract_from_dataframe` helper to generate ODCS
-  draft contracts (plus schema/metric observations) directly from DataFrames.
+  draft contracts (plus schema/metric observations) directly from DataFrames
+  using the public client/core utilities instead of backend-only modules.
 
 ### Changed
 - The `generate_contract_dataset` testing helper now returns only an in-memory
