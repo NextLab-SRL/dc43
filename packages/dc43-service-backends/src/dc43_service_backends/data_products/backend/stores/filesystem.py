@@ -10,6 +10,7 @@ import logging
 from dc43_service_clients.odps import OpenDataProductStandard, as_odps_dict, to_model
 
 from .interface import DataProductStore
+from .._shared import _version_key
 
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ class FilesystemDataProductStore(DataProductStore):
             if not model.version:
                 continue
             versions.append(model.version)
-        return sorted(set(versions))
+        return sorted(set(versions), key=_version_key)
 
     def list_data_product_ids(self) -> Sequence[str]:  # noqa: D401
         product_ids: list[str] = []
