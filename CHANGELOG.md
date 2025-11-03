@@ -42,6 +42,9 @@
   explicit version constraints for input/output bindings so pipelines can
   block on draft products by default or target specific releases when
   required.
+- Governance backends now honour data product version selectors and source
+  contract requirements when resolving read/write contexts, failing fast on
+  draft or mismatched products before registration occurs.
 
 ### Fixed
 - Updated the Delta-backed governance stores to compare version strings using

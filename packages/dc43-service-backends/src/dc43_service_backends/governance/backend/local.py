@@ -554,32 +554,106 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         )
         if not port_name:
             raise ValueError("Input binding requires a port_name or source_output_port")
-        product = self._data_product_latest(binding.data_product)
+
+        data_product_id = getattr(binding, "data_product", None)
+        source_product_id = getattr(binding, "source_data_product", None)
+        source_port_name = getattr(binding, "source_output_port", port_name)
+        source_version_spec = getattr(binding, "source_data_product_version", None)
+        source_contract_spec = getattr(binding, "source_contract_version", None)
+
+        product = self._load_product_for_operation(
+            data_product_id=data_product_id,
+            version_spec=getattr(binding, "data_product_version", None),
+            operation="read",
+            subject="Data product",
+        )
         if product is not None:
             finder = getattr(product, "find_input_port", None)
             if callable(finder):
                 port = finder(port_name)
                 if port and getattr(port, "contract_id", None) and getattr(port, "version", None):
+                    if source_contract_spec:
+                        target_id = source_product_id or data_product_id or ""
+                        self._enforce_version_constraint(
+                            expected=source_contract_spec,
+                            actual=getattr(port, "version", None),
+                            data_product_id=target_id,
+                            subject="Output port contract",
+                        )
                     return port.contract_id, port.version
+
         resolver = getattr(client, "resolve_output_contract", None)
-        if callable(resolver) and getattr(binding, "source_data_product", None):
+
+        if callable(resolver) and source_product_id:
             resolved = resolver(
-                data_product_id=binding.source_data_product,
-                port_name=getattr(binding, "source_output_port", port_name),
+                data_product_id=source_product_id,
+                port_name=source_port_name,
             )
             if resolved:
+                source_product = self._load_product_for_operation(
+                    data_product_id=source_product_id,
+                    version_spec=source_version_spec,
+                    operation="read",
+                    subject="Source data product",
+                )
+                if source_product is None and source_version_spec:
+                    raise ValueError(
+                        f"Source data product {source_product_id} version {source_version_spec} could not be retrieved"
+                    )
+                self._enforce_version_constraint(
+                    expected=source_contract_spec,
+                    actual=resolved[1],
+                    data_product_id=source_product_id,
+                    subject="Output port contract",
+                )
                 return resolved
+
+        if source_product_id:
+            source_product = self._load_product_for_operation(
+                data_product_id=source_product_id,
+                version_spec=source_version_spec,
+                operation="read",
+                subject="Source data product",
+            )
+            if source_product is not None:
+                finder = getattr(source_product, "find_output_port", None)
+                if callable(finder):
+                    port = finder(source_port_name)
+                    if port and getattr(port, "contract_id", None) and getattr(port, "version", None):
+                        self._enforce_version_constraint(
+                            expected=source_contract_spec,
+                            actual=getattr(port, "version", None),
+                            data_product_id=source_product_id,
+                            subject="Output port contract",
+                        )
+                        return port.contract_id, port.version
+
         if product is not None:
             finder = getattr(product, "find_input_port", None)
             if callable(finder):
                 port = finder(port_name)
                 if port and getattr(port, "contract_id", None) and getattr(port, "version", None):
                     return port.contract_id, port.version
+
         raise ValueError("Unable to resolve contract from input binding")
 
     def _resolve_contract_from_output(self, binding: Any) -> Tuple[str, str]:
         client = self._require_data_product_client()
         port_name = getattr(binding, "port_name", None) or "default"
+
+        product = self._load_product_for_operation(
+            data_product_id=getattr(binding, "data_product", None),
+            version_spec=getattr(binding, "data_product_version", None),
+            operation="write",
+            subject="Data product",
+        )
+        if product is not None:
+            finder = getattr(product, "find_output_port", None)
+            if callable(finder):
+                port = finder(port_name)
+                if port and getattr(port, "contract_id", None) and getattr(port, "version", None):
+                    return port.contract_id, port.version
+
         resolver = getattr(client, "resolve_output_contract", None)
         if callable(resolver):
             resolved = resolver(
@@ -587,14 +661,28 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 port_name=port_name,
             )
             if resolved:
+                if product is None and getattr(binding, "data_product_version", None):
+                    product = self._load_product_for_operation(
+                        data_product_id=getattr(binding, "data_product", None),
+                        version_spec=getattr(binding, "data_product_version", None),
+                        operation="write",
+                        subject="Data product",
+                    )
+                self._enforce_version_constraint(
+                    expected=getattr(binding, "data_product_version", None),
+                    actual=None if product is None else getattr(product, "version", None),
+                    data_product_id=binding.data_product,
+                    subject="Data product",
+                )
                 return resolved
-        product = self._data_product_latest(binding.data_product)
+
         if product is not None:
             finder = getattr(product, "find_output_port", None)
             if callable(finder):
                 port = finder(port_name)
                 if port and getattr(port, "contract_id", None) and getattr(port, "version", None):
                     return port.contract_id, port.version
+
         raise ValueError("Unable to resolve contract from output binding")
 
     def _require_data_product_client(self) -> object:
@@ -810,6 +898,34 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 if callable(getter):
                     return getter(data_product_id, version)
         return latest or default
+
+    def _load_product_for_operation(
+        self,
+        *,
+        data_product_id: Optional[str],
+        version_spec: Optional[str],
+        operation: str,
+        subject: str,
+    ) -> Any:
+        product = self._load_data_product(
+            data_product_id=data_product_id,
+            version_spec=version_spec,
+        )
+        if product is None:
+            return None
+        identifier = data_product_id or ""
+        self._enforce_product_status(
+            product=product,
+            data_product_id=identifier,
+            operation=operation,
+        )
+        self._enforce_version_constraint(
+            expected=version_spec,
+            actual=getattr(product, "version", None),
+            data_product_id=identifier,
+            subject=subject,
+        )
+        return product
 
     def _enforce_product_status(
         self,

@@ -19,6 +19,9 @@
   product input/output registrations create new drafts, matching the behaviour
   of the legacy Spark contract helpers so governance-first pipelines surface the
   same guardrails.
+- Governance context resolution now enforces data product version selectors and
+  source contract requirements so reads and writes block on draft products or
+  mismatched upstream contracts before producing new registrations.
 
 ### Fixed
 - SQL governance activity lookups now include the dataset identifier and version

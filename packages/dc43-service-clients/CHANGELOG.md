@@ -21,6 +21,9 @@
 - Strengthened governance client coverage to ensure registering new
   data-product output bindings surfaces the review-required runtime error,
   mirroring the backend guardrails exercised by the Spark integration tests.
+- Governance client context resolution now validates data product version hints
+  and source contract requirements so callers receive immediate feedback when
+  attempting to bind draft or mismatched products.
 - Guarded governance/bootstrap tests with `pytest.importorskip` so the package
   skips cleanly when `dc43_service_backends` is not installed, avoiding
   import-time failures in minimal CI environments.

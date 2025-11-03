@@ -191,3 +191,73 @@ def test_resolve_write_context_from_existing_output(governance_fixture):
         observations=lambda: ObservationPayload(metrics={}, schema=None),
     )
     backend.register_write_activity(plan=plan, assessment=assessment)
+
+
+def test_resolve_read_context_rejects_draft_product(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="dp.analytics",
+            port_name="orders",
+        )
+    )
+
+    with pytest.raises(ValueError, match="status"):
+        backend.resolve_read_context(context=context)
+
+
+def test_resolve_read_context_enforces_source_contract_version(governance_fixture):
+    backend, _, _ = governance_fixture
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="dp.analytics",
+            port_name="orders",
+            source_data_product="dp.analytics",
+            source_output_port="primary",
+            source_contract_version="==9.9.9",
+        )
+    )
+
+    with pytest.raises(ValueError, match="does not satisfy"):
+        backend.resolve_read_context(context=context)
+
+
+def test_resolve_write_context_rejects_draft_product(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+        )
+    )
+
+    with pytest.raises(ValueError, match="status"):
+        backend.resolve_write_context(context=context)
+
+
+def test_resolve_write_context_enforces_product_version(governance_fixture):
+    backend, _, _ = governance_fixture
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+            data_product_version="==9.9.9",
+        )
+    )
+
+    with pytest.raises(ValueError, match="could not be retrieved"):
+        backend.resolve_write_context(context=context)
