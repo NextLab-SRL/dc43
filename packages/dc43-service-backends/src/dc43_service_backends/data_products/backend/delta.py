@@ -2,27 +2,21 @@
 
 from __future__ import annotations
 
-import logging
-from typing import Iterable, Optional
-
 try:  # pragma: no cover - optional dependency
     from pyspark.sql import SparkSession
 except Exception:  # pragma: no cover - Spark is optional for most deployments
     SparkSession = object  # type: ignore
 
-from .interface import DataProductListing, DataProductServiceBackend
-from ._shared import MutableDataProductBackendMixin, _version_key
-from dc43_service_clients.odps import (
-    OpenDataProductStandard,
-    as_odps_dict,
-    to_model,
-)
+from .local import _StoreBackedDataProductServiceBackend
+from .stores import DataProductStore
+
+try:  # pragma: no cover - optional dependency
+    from .stores.delta import DeltaDataProductStore
+except ModuleNotFoundError:  # pragma: no cover - pyspark optional
+    DeltaDataProductStore = None  # type: ignore[assignment]
 
 
-logger = logging.getLogger(__name__)
-
-
-class DeltaDataProductServiceBackend(MutableDataProductBackendMixin, DataProductServiceBackend):
+class DeltaDataProductServiceBackend(_StoreBackedDataProductServiceBackend):
     """Persist ODPS documents in a Delta table or Unity Catalog object."""
 
     def __init__(
@@ -31,164 +25,15 @@ class DeltaDataProductServiceBackend(MutableDataProductBackendMixin, DataProduct
         *,
         table: str | None = None,
         path: str | None = None,
+        store: DataProductStore | None = None,
     ) -> None:
-        if not (table or path):
-            raise ValueError("Provide either a Unity Catalog table name or a Delta path")
-        self._spark = spark
-        self._table = table
-        self._path = path
-        self._ensure_table()
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-    def _table_ref(self) -> str:
-        return self._table if self._table else f"delta.`{self._path}`"
-
-    def _ensure_table(self) -> None:
-        ref = self._table_ref()
-        if self._table:
-            self._spark.sql(
-                f"""
-                CREATE TABLE IF NOT EXISTS {ref} (
-                    data_product_id STRING,
-                    version STRING,
-                    status STRING,
-                    json STRING,
-                    updated_at TIMESTAMP
-                ) USING DELTA
-                PARTITIONED BY (data_product_id)
-                TBLPROPERTIES (delta.autoOptimize.autoCompact = true)
-                """
-            )
-        else:
-            self._spark.sql(
-                f"""
-                CREATE TABLE IF NOT EXISTS {ref} (
-                    data_product_id STRING,
-                    version STRING,
-                    status STRING,
-                    json STRING,
-                    updated_at TIMESTAMP
-                ) USING DELTA
-                LOCATION '{self._path}'
-                PARTITIONED BY (data_product_id)
-                TBLPROPERTIES (delta.autoOptimize.autoCompact = true)
-                """
-            )
-
-    # ------------------------------------------------------------------
-    # Persistence helpers
-    # ------------------------------------------------------------------
-    def _merge_row(self, product: OpenDataProductStandard) -> None:
-        import json
-
-        ref = self._table_ref()
-        payload = as_odps_dict(product)
-        json_payload = json.dumps(payload, separators=(",", ":"))
-        status = product.status or "draft"
-        json_sql = json_payload.replace("'", "''")
-        status_sql = status.replace("'", "''")
-        self._spark.sql(
-            f"""
-            MERGE INTO {ref} t
-            USING (SELECT
-                    '{product.id}' as data_product_id,
-                    '{product.version}' as version,
-                    '{status_sql}' as status,
-                    '{json_sql}' as json,
-                    current_timestamp() as updated_at) s
-            ON t.data_product_id = s.data_product_id AND t.version = s.version
-            WHEN MATCHED THEN UPDATE SET status = s.status, json = s.json, updated_at = s.updated_at
-            WHEN NOT MATCHED THEN INSERT *
-            """
-        )
-
-    @staticmethod
-    def _safe_json(payload: str) -> dict[str, object]:
-        import json
-
-        return json.loads(payload)
-
-    # ------------------------------------------------------------------
-    # Overrides
-    # ------------------------------------------------------------------
-    def put(self, product: OpenDataProductStandard) -> None:  # noqa: D401
-        if not product.version:
-            raise ValueError("Data product version is required")
-        self._merge_row(product)
-
-    def _existing_versions(self, data_product_id: str) -> Iterable[str]:
-        ref = self._table_ref()
-        rows = self._spark.sql(
-            f"SELECT version FROM {ref} WHERE data_product_id = '{data_product_id}'"
-        ).collect()
-        return [row[0] for row in rows]
-
-    def latest(self, data_product_id: str) -> Optional[OpenDataProductStandard]:  # noqa: D401
-        ref = self._table_ref()
-        rows = self._spark.sql(
-            f"SELECT version, json FROM {ref} WHERE data_product_id = '{data_product_id}'"
-        ).collect()
-        entries: list[tuple[str, object]] = []
-        for row in rows:
-            if not row:
-                continue
-            version = str(row[0]).strip()
-            if not version:
-                continue
-            entries.append((version, row[1]))
-        if not entries:
-            return None
-        latest_row = max(entries, key=lambda row: _version_key(row[0]))
-        return to_model(self._safe_json(latest_row[1]))
-
-    def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:  # noqa: D401
-        ref = self._table_ref()
-        rows = self._spark.sql(
-            f"SELECT json FROM {ref} WHERE data_product_id = '{data_product_id}' AND version = '{version}'"
-        ).head(1)
-        if not rows:
-            raise FileNotFoundError(f"data product {data_product_id}:{version} not found")
-        return to_model(self._safe_json(rows[0][0]))
-
-    def list_data_products(
-        self, *, limit: int | None = None, offset: int = 0
-    ) -> DataProductListing:  # noqa: D401
-        ref = self._table_ref()
-        rows = self._spark.sql(
-            f"SELECT data_product_id, version, json FROM {ref}"
-        ).collect()
-        product_ids: set[str] = set()
-        for data_product_id, version, raw_json in rows:
-            try:
-                to_model(self._safe_json(raw_json))
-            except Exception:  # pragma: no cover - defensive, relies on Delta contents
-                logger.warning(
-                    "Skipping invalid data product row for %s:%s", data_product_id, version,
-                    exc_info=True,
+        if store is None:
+            if DeltaDataProductStore is None:
+                raise RuntimeError(
+                    "pyspark is required when using the Delta data product backend"
                 )
-                continue
-            product_ids.add(data_product_id)
-        sorted_ids = sorted(product_ids)
-        total = len(sorted_ids)
-        start = max(int(offset), 0)
-        end = total
-        if limit is not None:
-            span = max(int(limit), 0)
-            end = min(start + span, total)
-        return DataProductListing(
-            items=sorted_ids[start:end],
-            total=total,
-            limit=limit,
-            offset=start,
-        )
+            store = DeltaDataProductStore(spark, table=table, path=path)
+        super().__init__(store)
 
-    def list_versions(self, data_product_id: str) -> list[str]:  # noqa: D401
-        versions = sorted(
-            self._existing_versions(data_product_id),
-            key=_version_key,
-        )
-        return [version for version in versions if version]
 
 __all__ = ["DeltaDataProductServiceBackend"]

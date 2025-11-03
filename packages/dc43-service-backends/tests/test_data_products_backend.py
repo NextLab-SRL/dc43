@@ -409,3 +409,24 @@ def test_delta_backend_ignores_blank_versions(tmp_path: Path) -> None:
     assert latest is not None
     assert latest.version == "1.0.0"
     assert backend.list_versions("dp.sales") == ["1.0.0"]
+
+
+def test_sql_store_persists_products() -> None:
+    sqlalchemy = pytest.importorskip("sqlalchemy")
+    from dc43_service_backends.data_products.backend.stores.sql import SQLDataProductStore
+
+    engine = sqlalchemy.create_engine("sqlite://")
+    backend = LocalDataProductServiceBackend(store=SQLDataProductStore(engine))
+
+    backend.register_output_port(
+        data_product_id="dp.analytics",
+        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+    )
+
+    reloaded = LocalDataProductServiceBackend(store=SQLDataProductStore(engine))
+    product = reloaded.latest("dp.analytics")
+    assert product is not None
+    assert product.output_ports[0].contract_id == "snapshot"
+
+    listing = reloaded.list_data_products()
+    assert "dp.analytics" in list(listing.items)
