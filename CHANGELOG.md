@@ -2,7 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Introduced the Spark `draft_contract_from_dataframe` helper to generate ODCS
+  draft contracts (plus schema/metric observations) directly from DataFrames.
+
 ### Changed
+- The `generate_contract_dataset` testing helper now returns only an in-memory
+  DataFrame, leaving persistence to the governance write wrappers.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Added a `publish-test-pypi` pull request label that triggers CI to build

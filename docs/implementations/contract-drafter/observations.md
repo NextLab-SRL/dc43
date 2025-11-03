@@ -3,11 +3,12 @@
 The dc43 contract drafter operates on runtime-agnostic observations. The
 core helper lives in
 `dc43_service_backends.contracts.backend.drafting.draft_from_observations`
-and expects a schema snapshot plus optional metric payload produced by
-the data-quality engine. Use
+and expects a schema snapshot produced by the data-quality engine. Use
 `dc43_integrations.spark.data_quality.schema_snapshot` (or an
 equivalent helper in your runtime) to gather the fields before delegating
-to the drafter.
+to the drafter. The Spark package also exposes the convenience helper
+`dc43_integrations.spark.contracts.draft_contract_from_dataframe` which
+wraps the snapshotting and draft orchestration for DataFrames.
 
 ## Inputs and context
 
@@ -27,21 +28,19 @@ The helper consumes three categories of inputs:
 ## Usage
 
 ```python
-from dc43_service_backends.contracts.backend.drafting import draft_from_observations
-from dc43_integrations.spark.data_quality import schema_snapshot
+from dc43_integrations.spark.contracts import draft_contract_from_dataframe
 
-schema = schema_snapshot(dataframe)
-metrics = validation_result.metrics
-
-draft = draft_from_observations(
-    schema=schema,
-    metrics=metrics,
+result = draft_contract_from_dataframe(
+    dataframe,
     base_contract=contract,
-    bump="minor",
     dataset_id="table:catalog.schema.orders",
     dataset_version="2024-05-30",
-    dq_feedback={"status": status.status} if status else None,
+    collect_metrics=True,
 )
+
+draft = result.contract
+observed_schema = result.schema
+observed_metrics = result.metrics
 ```
 
 The helper:
@@ -49,7 +48,7 @@ The helper:
 * Rebuilds the contract schema based on the observed fields.
 * Bumps the semantic version (`major`/`minor`/`patch`).
 * Copies IO servers and custom properties, adding provenance metadata and
-  optional metric snapshots.
+  optional metric snapshots when `collect_metrics=True`.
 * Returns an ODCS document flagged as `draft` so governance workflows can decide
   whether to promote or reject it.
 

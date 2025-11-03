@@ -3,14 +3,12 @@
 ## [Unreleased]
 
 ### Added
-- Added `generate_contract_dataset` testing helper to materialise Faker-powered
-  sample datasets aligned with ODCS contracts and write them to the configured
-  storage path for integration tests.
-- `generate_contract_dataset` now wires governance orchestration through a
-  provided or inline governance client instead of requesting contract and data
-  quality services directly, simplifying integration overrides.
+- Added `draft_contract_from_dataframe` to capture schema/metric observations
+  from Spark DataFrames and return ready-to-review ODCS draft contracts.
 
 ### Changed
+- `generate_contract_dataset` now returns only an in-memory DataFrame so tests
+  can persist via the regular governance write helpers when needed.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Deprecated contract- and data-product-centric helpers (`read_with_contract`,

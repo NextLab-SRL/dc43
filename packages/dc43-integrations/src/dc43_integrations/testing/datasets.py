@@ -1,12 +1,10 @@
+"""Testing helpers for synthesising contract-aligned Spark datasets."""
+
 from __future__ import annotations
 
-"""Helpers that materialise random datasets matching ODCS contracts."""
-
 from decimal import Decimal
-from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Iterable, List, Sequence, Tuple
 import re
-from urllib.parse import urlparse
 
 from faker import Faker
 from open_data_contract_standard.model import (  # type: ignore
@@ -17,18 +15,8 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import types as T
 
 from dc43_service_backends.core.odcs import list_properties
-from dc43_service_backends.governance.backend import LocalGovernanceServiceBackend
-from dc43_service_clients.contracts import ContractServiceClient
-from dc43_service_clients.data_quality import LocalDataQualityServiceClient
-from dc43_service_clients.governance import GovernanceServiceClient
-from dc43_service_clients.governance.client.local import LocalGovernanceServiceClient
 from dc43_integrations.spark.data_quality import spark_type_name
-from dc43_integrations.spark.io import (
-    ContractVersionLocator,
-    DatasetLocatorStrategy,
-    GovernanceSparkWriteRequest,
-    write_with_governance,
-)
+from dc43_integrations.spark.validation import apply_contract
 
 
 Generator = Callable[[Faker, SchemaProperty], object]
@@ -190,135 +178,16 @@ def _field_spec(field: SchemaProperty) -> tuple[T.DataType, Generator]:
     return dtype, _string_generator
 
 
-class _InlineContractService(ContractServiceClient):
-    """Contract service that exposes a single in-memory contract."""
-
-    def __init__(self, contract: OpenDataContractStandard) -> None:
-        self._contract = contract
-
-    def put(self, contract: OpenDataContractStandard) -> None:  # pragma: no cover - unused
-        self._validate_identity(contract.id, contract.version)
-        self._contract = contract
-
-    def get(self, contract_id: str, contract_version: str) -> OpenDataContractStandard:
-        self._validate_identity(contract_id, contract_version)
-        return self._contract
-
-    def latest(self, contract_id: str) -> Optional[OpenDataContractStandard]:
-        if contract_id != self._contract.id:
-            return None
-        return self._contract
-
-    def list_versions(self, contract_id: str) -> Sequence[str]:
-        if contract_id != self._contract.id:
-            return []
-        version = self._contract.version
-        return [version] if version else []
-
-    def link_dataset_contract(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: str,
-        contract_id: str,
-        contract_version: str,
-    ) -> None:  # pragma: no cover - not triggered in helper
-        self._validate_identity(contract_id, contract_version)
-
-    def get_linked_contract_version(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: str | None = None,
-    ) -> Optional[str]:  # pragma: no cover - not triggered in helper
-        return None
-
-    def _validate_identity(self, contract_id: str, contract_version: str | None) -> None:
-        if contract_id != self._contract.id:
-            raise ValueError(
-                f"Requested contract {contract_id}:{contract_version} does not match "
-                f"generated contract {self._contract.id}:{self._contract.version}"
-            )
-        version = self._contract.version
-        if version and contract_version and contract_version != version:
-            raise ValueError(
-                f"Requested contract version {contract_version} does not match {version}"
-            )
-
-
-class _CachingLocator(DatasetLocatorStrategy):
-    """Wrap a locator so repeated writes reuse the same resolution."""
-
-    def __init__(self, base: DatasetLocatorStrategy) -> None:
-        self._base = base
-        self._write_resolution: object | None = None
-
-    @property
-    def write_resolution(self) -> object | None:
-        return self._write_resolution
-
-    def for_read(
-        self,
-        *,
-        contract: OpenDataContractStandard | None,
-        spark: SparkSession,
-        format: str | None,
-        path: str | None,
-        table: str | None,
-    ) -> object:
-        return self._base.for_read(
-            contract=contract,
-            spark=spark,
-            format=format,
-            path=path,
-            table=table,
-        )
-
-    def for_write(
-        self,
-        *,
-        contract: OpenDataContractStandard | None,
-        df: DataFrame,
-        format: str | None,
-        path: str | None,
-        table: str | None,
-    ) -> object:
-        if self._write_resolution is None:
-            self._write_resolution = self._base.for_write(
-                contract=contract,
-                df=df,
-                format=format,
-                path=path,
-                table=table,
-            )
-        return self._write_resolution
-
-
-def _storage_path_from_resolution(raw: str) -> Path | str:
-    """Return an appropriate representation for a resolved storage path."""
-
-    parsed = urlparse(raw)
-    if parsed.scheme and (parsed.netloc or raw.startswith(f"{parsed.scheme}:/")):
-        # Preserve remote/storage-specific URIs such as s3://bucket or dbfs:/mnt/data
-        return raw
-
-    return Path(raw)
-
-
 def generate_contract_dataset(
     spark: SparkSession,
     contract: OpenDataContractStandard,
     *,
     rows: int = 100,
-    dataset_version: str | None = None,
-    path: str | Path | None = None,
     faker_locale: str | None = None,
     seed: int | None = None,
-    mode: str = "overwrite",
-    governance_service: GovernanceServiceClient | None = None,
-    dataset_locator: DatasetLocatorStrategy | None = None,
-) -> tuple[DataFrame, Path | str]:
-    """Generate a Spark ``DataFrame`` aligned to ``contract`` and persist it."""
+    validate_schema: bool = True,
+) -> DataFrame:
+    """Return a Spark ``DataFrame`` aligned to ``contract``."""
 
     if rows <= 0:
         raise ValueError("rows must be a positive integer")
@@ -346,55 +215,10 @@ def generate_contract_dataset(
 
     df = spark.createDataFrame(data, schema=schema)
 
-    if not contract.id:
-        raise ValueError("Contract must define an identifier")
-    if not contract.version and not dataset_version:
-        raise ValueError("Contract must define a version or dataset_version must be provided")
+    if validate_schema:
+        apply_contract(df, contract)
 
-    target_version = dataset_version or contract.version or "generated"
-    locator = dataset_locator or ContractVersionLocator(dataset_version=target_version)
-    caching_locator = _CachingLocator(locator)
-
-    dq_client = LocalDataQualityServiceClient()
-    service = _InlineContractService(contract)
-    governance_client = governance_service or LocalGovernanceServiceClient(
-        LocalGovernanceServiceBackend(
-            contract_client=service,
-            dq_client=dq_client,
-        )
-    )
-
-    resolved_path = str(path) if path is not None else None
-
-    request = GovernanceSparkWriteRequest(
-        context={
-            "contract": {
-                "contract_id": contract.id,
-                "contract_version": contract.version,
-            }
-        },
-        path=resolved_path,
-        mode=mode,
-        dataset_locator=caching_locator,
-    )
-    write_with_governance(
-        df=df,
-        request=request,
-        governance_service=governance_client,
-        enforce=False,
-    )
-
-    resolution = caching_locator.write_resolution
-    if resolution is None:
-        raise RuntimeError("Failed to resolve dataset path during write")
-
-    resolved_path_value = getattr(resolution, "path", None)
-    if not resolved_path_value:
-        raise ValueError("Contract server does not define a storage path")
-
-    storage_path = _storage_path_from_resolution(resolved_path_value)
-
-    return df, storage_path
+    return df
 
 
 __all__ = ["generate_contract_dataset"]
