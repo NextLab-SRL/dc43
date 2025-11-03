@@ -18,6 +18,10 @@ on:
       docker_image_tag:
         description: "Tag to apply when pushing Docker images (defaults to commit SHA)"
         required: false
+      publish_test_pypi:
+        description: "Publish eligible packages to Test PyPI"
+        type: boolean
+        default: false
 
 env:
   TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
@@ -93,8 +97,10 @@ jobs:
     name: Publish packages to Test PyPI
     needs: tests
     if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.publish_test_pypi == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,6 +109,7 @@ jobs:
     steps:
       - name: Check for publish label
         id: label
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -120,12 +127,12 @@ jobs:
             core.setOutput('has_label', hasLabel ? 'true' : 'false');
 
       - name: Skip publishing when label is missing
-        if: ${{ steps.label.outputs.has_label != 'true' }}
+        if: ${{ github.event_name == 'pull_request' && steps.label.outputs.has_label != 'true' }}
         run: echo "publish-test-pypi label not present; skipping publish job." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Detect Test PyPI token
         id: token
-        if: ${{ steps.label.outputs.has_label == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true' }}
         run: |
           if [ -z "${TEST_PYPI_TOKEN:-}" ]; then
             echo "has_token=false" >> "$GITHUB_OUTPUT"
@@ -138,22 +145,22 @@ jobs:
         with:
           fetch-depth: 0
           tags: true
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
 
       - name: Prepare build tooling
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
         run: |
           python -m pip install --upgrade pip
           pip install packaging build twine
 
       - name: Compute release plan
         id: plan
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
         run: |
           set -euo pipefail
           python scripts/release.py \
@@ -163,7 +170,7 @@ jobs:
 
       - name: Determine packages to publish
         id: packages
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
         run: |
           python - <<'PY'
           import json
@@ -213,11 +220,11 @@ jobs:
           PY
 
       - name: Bail out when nothing to publish
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages == '' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages == '' }}
         run: echo "No packages require publishing to Test PyPI." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply Test PyPI pre-release suffixes
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages != '' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages != '' }}
         env:
           PACKAGES: ${{ steps.packages.outputs.packages }}
           RUN_NUMBER: ${{ github.run_number }}
@@ -226,7 +233,7 @@ jobs:
           python scripts/test_pypi_versions.py --packages $PACKAGES --stage rc --run-identifier "${RUN_NUMBER}" --output test-pypi-versions.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build packages
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages != '' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages != '' }}
         env:
           PACKAGES: ${{ steps.packages.outputs.packages }}
         run: |
@@ -260,7 +267,7 @@ jobs:
           PY
 
       - name: Publish packages to Test PyPI
-        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages != '' }}
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages != '' }}
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
