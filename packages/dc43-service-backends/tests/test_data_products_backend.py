@@ -11,7 +11,11 @@ from dc43_service_backends.data_products import (
     LocalDataProductServiceBackend,
     StubCollibraDataProductAdapter,
 )
-from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
+from dc43_service_clients.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    OpenDataProductStandard,
+)
 
 
 def test_local_backend_accepts_pydantic_like_payload() -> None:
@@ -286,13 +290,37 @@ def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
     spark = _FakeSpark()
     backend = DeltaDataProductServiceBackend(spark, path=str(tmp_path / "dp"))
 
-    backend.register_output_port(
-        data_product_id="dp.sales",
-        port=DataProductOutputPort(name="orders", version="0.27.0.0rc3", contract_id="sales"),
+    backend.put(
+        OpenDataProductStandard(
+            id="dp.sales",
+            status="draft",
+            version="0.27.0.0rc3",
+            name="Sales",
+            description={"purpose": "Provide Sales Information"},
+            output_ports=[
+                DataProductOutputPort(
+                    name="orders",
+                    version="0.27.0.0rc3",
+                    contract_id="sales",
+                )
+            ],
+        )
     )
-    backend.register_output_port(
-        data_product_id="dp.sales",
-        port=DataProductOutputPort(name="orders", version="0.27.0.0", contract_id="sales"),
+    backend.put(
+        OpenDataProductStandard(
+            id="dp.sales",
+            status="active",
+            version="0.27.0.0",
+            name="Sales",
+            description={"purpose": "Provide Sales Information"},
+            output_ports=[
+                DataProductOutputPort(
+                    name="orders",
+                    version="0.27.0.0",
+                    contract_id="sales",
+                )
+            ],
+        )
     )
 
     latest = backend.latest("dp.sales")
@@ -355,7 +383,7 @@ def test_delta_backend_ignores_blank_versions(tmp_path: Path) -> None:
         "status": "draft",
         "json": json.dumps(
             {
-                "apiVersion": "3.0.2",
+                "apiVersion": "1.0.0",
                 "kind": "DataProduct",
                 "id": "dp.sales",
                 "status": "draft",
@@ -366,7 +394,7 @@ def test_delta_backend_ignores_blank_versions(tmp_path: Path) -> None:
         "status": "active",
         "json": json.dumps(
             {
-                "apiVersion": "3.0.2",
+                "apiVersion": "1.0.0",
                 "kind": "DataProduct",
                 "id": "dp.sales",
                 "status": "active",
