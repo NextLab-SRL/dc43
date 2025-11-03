@@ -441,7 +441,13 @@ else:
 
 
     def as_odps_dict(product: OpenDataProductStandard) -> Dict[str, Any]:
-        payload = product.to_dict()
+        to_dict = getattr(product, "to_dict", None)
+        if not callable(to_dict):
+            raise TypeError(
+                "Unsupported data product object: expected OpenDataProductStandard, "
+                f"got {type(product).__name__}. Did you accidentally pass a data contract?"
+            )
+        payload = to_dict()
         payload["inputPorts"] = [port.to_dict() for port in product.input_ports]
         payload["outputPorts"] = [port.to_dict() for port in product.output_ports]
         return payload

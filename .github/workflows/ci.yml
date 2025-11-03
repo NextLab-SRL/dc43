@@ -1,5 +1,9 @@
 name: ci
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
   push:
@@ -211,6 +215,15 @@ jobs:
       - name: Bail out when nothing to publish
         if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages == '' }}
         run: echo "No packages require publishing to Test PyPI." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply Test PyPI pre-release suffixes
+        if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages != '' }}
+        env:
+          PACKAGES: ${{ steps.packages.outputs.packages }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          python scripts/test_pypi_versions.py --packages $PACKAGES --stage rc --run-identifier "${RUN_NUMBER}" --output test-pypi-versions.json | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build packages
         if: ${{ steps.label.outputs.has_label == 'true' && steps.token.outputs.has_token == 'true' && steps.packages.outputs.packages != '' }}

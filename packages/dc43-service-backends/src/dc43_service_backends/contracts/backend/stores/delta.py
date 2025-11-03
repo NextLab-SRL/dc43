@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover
 from ._sql_common import prepare_contract_row
 from .interface import ContractStore
 from dc43_service_backends.core.odcs import to_model
+from dc43_service_backends.core.versioning import version_key
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
@@ -128,21 +129,22 @@ class DeltaContractStore(ContractStore):
         """Return the latest ODCS model for the given contract id, if any."""
         ref = self._table_ref()
         rows = self.spark.sql(
-            f"""
-            SELECT json FROM {ref}
-            WHERE contract_id = '{contract_id}'
-            ORDER BY
-              CAST(split(version, '\\.')[0] AS INT),
-              CAST(split(version, '\\.')[1] AS INT),
-              CAST(split(version, '\\.')[2] AS INT)
-            DESC LIMIT 1
-            """
-        ).head(1)
-        if not rows:
+            f"SELECT version, json FROM {ref} WHERE contract_id = '{contract_id}'"
+        ).collect()
+        entries: list[tuple[str, object]] = []
+        for row in rows:
+            if not row:
+                continue
+            version = str(row[0]).strip()
+            if not version:
+                continue
+            entries.append((version, row[1]))
+        if not entries:
             return None
+        latest = max(entries, key=lambda row: version_key(row[0]))
         import json
 
-        return to_model(json.loads(rows[0][0]))
+        return to_model(json.loads(latest[1]))
 
 
 __all__ = ["DeltaContractStore"]

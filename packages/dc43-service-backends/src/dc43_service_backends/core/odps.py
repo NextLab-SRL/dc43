@@ -307,7 +307,13 @@ class OpenDataProductStandard:
 
 
 def as_odps_dict(doc: OpenDataProductStandard) -> Dict[str, Any]:
-    return doc.to_dict()
+    to_dict = getattr(doc, "to_dict", None)
+    if callable(to_dict):
+        return to_dict()
+    raise TypeError(
+        "Unsupported data product object: expected OpenDataProductStandard, "
+        f"got {type(doc).__name__}. Did you accidentally pass a data contract?"
+    )
 
 
 def to_model(data: Mapping[str, Any]) -> OpenDataProductStandard:

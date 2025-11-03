@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from dc43_service_backends.core.versioning import version_key
 from dc43_service_backends.data_products import (
     CollibraDataProductServiceBackend,
     DeltaDataProductServiceBackend,
@@ -10,7 +11,11 @@ from dc43_service_backends.data_products import (
     LocalDataProductServiceBackend,
     StubCollibraDataProductAdapter,
 )
-from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
+from dc43_service_clients.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    OpenDataProductStandard,
+)
 
 
 def test_local_backend_accepts_pydantic_like_payload() -> None:
@@ -243,6 +248,14 @@ class _FakeSpark:
                 if stored_id == data_product_id
             ]
             return _FakeSparkResult(rows)
+        if statement.startswith("SELECT version, json"):
+            data_product_id = self._extract(statement, "data_product_id = '")
+            rows = [
+                (version, record["json"])
+                for (stored_id, version), record in self.storage.items()
+                if stored_id == data_product_id
+            ]
+            return _FakeSparkResult(rows)
         if statement.startswith("SELECT json FROM"):
             data_product_id = self._extract(statement, "data_product_id = '")
             if "AND version" in statement:
@@ -259,7 +272,7 @@ class _FakeSpark:
             ]
             if not candidates:
                 return _FakeSparkResult([])
-            candidates.sort(key=lambda item: _version_key(item[0]), reverse=True)
+            candidates.sort(key=lambda item: version_key(item[0]), reverse=True)
             return _FakeSparkResult([(candidates[0][1],)])
         return _FakeSparkResult([])
 
@@ -273,12 +286,55 @@ class _FakeSpark:
         return statement[start:end]
 
 
-def _version_key(version: str) -> tuple[int, int, int]:
-    parts = version.split(".")
-    padded = [int(part) if part.isdigit() else 0 for part in parts]
-    while len(padded) < 3:
-        padded.append(0)
-    return tuple(padded[:3])
+def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
+    spark = _FakeSpark()
+    backend = DeltaDataProductServiceBackend(spark, path=str(tmp_path / "dp"))
+
+    backend.put(
+        OpenDataProductStandard(
+            id="dp.sales",
+            status="draft",
+            version="0.27.0.0rc3",
+            name="Sales",
+            description={"purpose": "Provide Sales Information"},
+            output_ports=[
+                DataProductOutputPort(
+                    name="orders",
+                    version="0.27.0.0rc3",
+                    contract_id="sales",
+                )
+            ],
+        )
+    )
+    backend.put(
+        OpenDataProductStandard(
+            id="dp.sales",
+            status="active",
+            version="0.27.0.0",
+            name="Sales",
+            description={"purpose": "Provide Sales Information"},
+            output_ports=[
+                DataProductOutputPort(
+                    name="orders",
+                    version="0.27.0.0",
+                    contract_id="sales",
+                )
+            ],
+        )
+    )
+
+    latest = backend.latest("dp.sales")
+
+    assert latest is not None
+    assert latest.version == "0.27.0.0"
+
+
+def test_version_key_orders_pre_releases() -> None:
+    assert version_key("0.27.0.0dev1") < version_key("0.27.0.0rc1")
+    assert version_key("0.27.0.0rc1") < version_key("0.27.0.0")
+    assert version_key("0.27.0.0rc2") < version_key("0.27.0.0rc10")
+    assert version_key("0.27.0.0draft2") < version_key("0.27.0.0draft10")
+    assert version_key("0.27.0.0draft1") < version_key("0.27.0.0rc1")
 
 
 def test_delta_backend_uses_spark_sql(tmp_path: Path) -> None:
@@ -319,3 +375,37 @@ def test_delta_backend_skips_invalid_rows(tmp_path: Path) -> None:
 
     listing = backend.list_data_products()
     assert list(listing.items) == []
+
+
+def test_delta_backend_ignores_blank_versions(tmp_path: Path) -> None:
+    spark = _FakeSpark()
+    spark.storage[("dp.sales", "")] = {
+        "status": "draft",
+        "json": json.dumps(
+            {
+                "apiVersion": "1.0.0",
+                "kind": "DataProduct",
+                "id": "dp.sales",
+                "status": "draft",
+            }
+        ),
+    }
+    spark.storage[("dp.sales", "1.0.0")] = {
+        "status": "active",
+        "json": json.dumps(
+            {
+                "apiVersion": "1.0.0",
+                "kind": "DataProduct",
+                "id": "dp.sales",
+                "status": "active",
+                "version": "1.0.0",
+            }
+        ),
+    }
+
+    backend = DeltaDataProductServiceBackend(spark, path=str(tmp_path / "dp"))
+
+    latest = backend.latest("dp.sales")
+    assert latest is not None
+    assert latest.version == "1.0.0"
+    assert backend.list_versions("dp.sales") == ["1.0.0"]
