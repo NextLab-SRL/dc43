@@ -34,18 +34,22 @@ except ModuleNotFoundError as exc:  # pragma: no cover - allow import without py
         "dependencies with 'pip install dc43-service-backends[spark]'.",
     ) from exc
 
-# ``pyspark.errors`` in versions >= 3.5 attempts to import ``is_remote`` from
-# ``pyspark.sql.utils``.  The lightweight stub that backs the unit tests does
-# not expose this helper, which would cause the import above to succeed but the
-# later lookup performed by ``pyspark.errors`` to fail with ``ImportError``.
-# Provide a small shim so that both the stub and older pyspark releases keep
-# working without pulling in the full dependency during tests.
-utils_module = sys.modules.get("pyspark.sql.utils")
-if utils_module is not None and not hasattr(utils_module, "is_remote"):
+def _ensure_pyspark_is_remote_shim() -> None:
+    """Expose ``is_remote`` for stubbed or legacy pyspark installs."""
+
+    utils_module = sys.modules.get("pyspark.sql.utils")
+    if utils_module is None or hasattr(utils_module, "is_remote"):
+        return
+
     def _is_remote(*_: object, **__: object) -> bool:  # pragma: no cover - stub only
         return False
 
     setattr(utils_module, "is_remote", _is_remote)
+
+
+
+
+_ensure_pyspark_is_remote_shim()
 
 
 class DeltaGovernanceStore(GovernanceStore):
@@ -439,6 +443,7 @@ class DeltaGovernanceStore(GovernanceStore):
         self._write(df, table=self._activity_table, folder=folder)
 
     def list_datasets(self) -> Sequence[str]:
+        _ensure_pyspark_is_remote_shim()
         folder = self._table_path("activity") if self._base_path else None
         df = self._read(table=self._activity_table, folder=folder)
         if df is None:
@@ -452,6 +457,7 @@ class DeltaGovernanceStore(GovernanceStore):
         dataset_id: str,
         dataset_version: Optional[str] = None,
     ) -> Sequence[Mapping[str, object]]:
+        _ensure_pyspark_is_remote_shim()
         folder = self._table_path("activity") if self._base_path else None
         df = self._read(table=self._activity_table, folder=folder)
         if df is None:
@@ -494,6 +500,7 @@ class DeltaGovernanceStore(GovernanceStore):
         contract_id: Optional[str] = None,
         contract_version: Optional[str] = None,
     ) -> Sequence[Mapping[str, object]]:
+        _ensure_pyspark_is_remote_shim()
         metrics_folder = self._table_path("metrics") if self._base_path else None
         df = self._read(table=self._metrics_table, folder=metrics_folder)
         if df is None:
