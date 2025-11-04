@@ -4,14 +4,15 @@
 
 ### Added
 - Added `draft_contract_from_dataframe` to capture schema/metric observations
-  from Spark DataFrames and return ready-to-review ODCS draft contracts while
-  preferring public builders and providing a compatibility shim when only the
-  integrations package is installed.
+  from Spark DataFrames and return ready-to-review ODCS draft contracts using
+  the shared builders from the new `dc43-core` package.
 
 ### Changed
 - `generate_contract_dataset` now returns only an in-memory DataFrame so tests
   can persist via the regular governance write helpers when needed, and it
   inspects contract schemas directly instead of calling backend helpers.
+- Spark integrations now require the `dc43-core` package so contract drafting
+  and ODCS utilities rely on a single shared implementation.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Deprecated contract- and data-product-centric helpers (`read_with_contract`,

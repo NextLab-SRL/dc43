@@ -5,12 +5,16 @@
 ### Added
 - Introduced the Spark `draft_contract_from_dataframe` helper to generate ODCS
   draft contracts (plus schema/metric observations) directly from DataFrames
-  using the public contract builders when available and falling back to an
-  embedded compatibility shim in client-only environments.
+  using the shared builders from the new `dc43-core` package.
+- Extracted the ODCS/ODPS helpers and SemVer utilities into the standalone
+  `dc43-core` distribution so services, clients, and integrations share the
+  same implementation without private shims.
 
 ### Changed
 - The `generate_contract_dataset` testing helper now returns only an in-memory
   DataFrame, leaving persistence to the governance write wrappers.
+- Spark integrations now depend on the shared `dc43-core` package instead of
+  embedding fallback builders.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Added a `publish-test-pypi` pull request label that triggers CI to build

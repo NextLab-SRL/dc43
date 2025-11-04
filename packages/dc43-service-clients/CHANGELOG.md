@@ -8,6 +8,9 @@
   configuration, providing a single entry point for application bootstrap.
 
 ### Changed
+- ODPS helpers now prefer the shared `dc43-core` package when available so
+  clients align with the backend implementation without loading service
+  modules.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Governance clients now expose dataset listing, pipeline activity, and

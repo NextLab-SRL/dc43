@@ -15,6 +15,7 @@ from _internal_dependency_versions import load_versions
 
 
 _INTERNAL_CORE_DEPENDENCIES = [
+    "dc43-core",
     "dc43-service-clients",
     "dc43-service-backends",
     "dc43-integrations",

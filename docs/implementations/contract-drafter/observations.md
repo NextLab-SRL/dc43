@@ -2,12 +2,11 @@
 
 The dc43 contract drafter operates on runtime-agnostic observations. The
 Spark helper `dc43_integrations.spark.contracts.draft_contract_from_dataframe`
-wraps schema capture and prefers the public `dc43.core` builders (falling back
-to the service backends or an embedded compatibility shim when those modules
-are unavailable) to produce ODCS drafts from DataFrames. Use
-`dc43_integrations.spark.data_quality.schema_snapshot` (or an equivalent helper
-in your runtime) to gather the fields when you need lower-level control over
-the observations.
+wraps schema capture and builds ODCS drafts using the shared `dc43_core`
+package so services, clients, and integrations all rely on the same
+implementation. Use `dc43_integrations.spark.data_quality.schema_snapshot`
+(or an equivalent helper in your runtime) to gather the fields when you need
+lower-level control over the observations.
 
 ## Inputs and context
 

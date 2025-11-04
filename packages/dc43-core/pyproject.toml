@@ -3,8 +3,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dc43-integrations"
-description = "Runtime integrations built on dc43 service contracts"
+name = "dc43-core"
+description = "Shared contract helpers for dc43 packages"
 readme = "README.md"
 requires-python = ">=3.11"
 dynamic = ["version"]
@@ -17,21 +17,7 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-core>=0.1.0",
-  "dc43-service-clients>=0.0.3",
-  "dc43-service-backends>=0.27.0.0",
-  "pyspark>=3.4",
-]
-
-[project.optional-dependencies]
-spark = [
-  "pyspark>=3.4",
-]
-test = [
-  "dc43-service-backends[sql]>=0.27.0.0",
-  "httpx>=0.24",
-  "databricks-dlt>=0.3",
-  "faker>=25.0",
+  "open-data-contract-standard==3.0.2",
 ]
 
 [tool.setuptools.dynamic]
@@ -42,4 +28,4 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["dc43_integrations*"]
+include = ["dc43_core*"]
