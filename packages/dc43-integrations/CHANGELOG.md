@@ -13,6 +13,8 @@
   inspects contract schemas directly instead of calling backend helpers.
 - Spark integrations now require the `dc43-core` package so contract drafting
   and ODCS utilities rely on a single shared implementation.
+- Raised the minimum `dc43-core` dependency to 0.27.0.0 so pre-release
+  rewrites cover the shared helpers alongside the other internal packages.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Deprecated contract- and data-product-centric helpers (`read_with_contract`,

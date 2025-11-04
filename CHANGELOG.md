@@ -15,6 +15,9 @@
   DataFrame, leaving persistence to the governance write wrappers.
 - Spark integrations now depend on the shared `dc43-core` package instead of
   embedding fallback builders.
+- Updated internal dependency floors to align the new `dc43-core` package with
+  the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
+  requirement during pre-release validation.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Added a `publish-test-pypi` pull request label that triggers CI to build

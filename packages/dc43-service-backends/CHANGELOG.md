@@ -6,6 +6,9 @@
 - Core ODCS/ODPS helpers now live in the shared `dc43-core` package and this
   distribution imports them directly, ensuring all runtimes share the same
   implementation without maintaining duplicate copies.
+- Raised the `dc43-core` dependency floor to 0.27.0.0 so rc rewrites keep the
+  shared helper package in sync with the service backends during Test PyPI
+  validation.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Governance backends and stores now surface `list_datasets` and pipeline

@@ -6,6 +6,8 @@ import sys
 
 from setuptools import setup
 
+from packaging.version import Version
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent / "scripts"
 if str(SCRIPT_DIR) not in sys.path:
@@ -47,11 +49,29 @@ def _local_package_path(name: str) -> Path:
     return Path(__file__).resolve().parent / "packages" / name
 
 
+def _minimum_version(version: str) -> str:
+    """Return the minimum specifier that admits matching pre-releases."""
+
+    parsed = Version(version)
+    if parsed.pre is not None or parsed.dev is not None or parsed.post is not None:
+        # When the declared version already includes pre/dev/post identifiers we
+        # can forward it directly; the comparison will continue to honour the
+        # explicit qualifier.
+        return version
+
+    release = ".".join(str(part) for part in parsed.release)
+    floor = f"{release}rc0"
+    if parsed.epoch:
+        floor = f"{parsed.epoch}!{floor}"
+    return floor
+
+
 def _dependency(name: str, *, extras: str | None = None) -> str:
     version = _PACKAGE_VERSIONS[name]
+    minimum = _minimum_version(version)
     suffix = f"[{extras}]" if extras else ""
     if name not in _LOCAL_FALLBACK_PACKAGES or _use_pypi_versions():
-        return f"{name}{suffix}>={version}"
+        return f"{name}{suffix}>={minimum}"
     candidate = _local_package_path(name)
     if candidate.exists():
         return f"{name}{suffix} @ {candidate.resolve().as_uri()}"
