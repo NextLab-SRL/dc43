@@ -15,6 +15,7 @@ from importlib import import_module, util as importlib_util
 
 
 _CORE_MODULES = (
+    "dc43_core.odps",
     "dc43_service_backends.core.odps",
     "dc43.core.odps",
 )

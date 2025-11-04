@@ -16,6 +16,9 @@ class DataProductInputBinding:
     source_output_port: Optional[str] = None
     bump: str = "minor"
     custom_properties: Optional[Mapping[str, object]] = None
+    data_product_version: Optional[str] = None
+    source_data_product_version: Optional[str] = None
+    source_contract_version: Optional[str] = None
 
 
 @dataclass
@@ -26,6 +29,7 @@ class DataProductOutputBinding:
     port_name: Optional[str] = None
     bump: str = "minor"
     custom_properties: Optional[Mapping[str, object]] = None
+    data_product_version: Optional[str] = None
 
 
 def _normalise_mapping(value: Optional[Mapping[str, object]]) -> Optional[Mapping[str, object]]:
@@ -50,6 +54,9 @@ def normalise_input_binding(
         data_product = spec.get("data_product") or spec.get("dataProduct")
         if not data_product:
             return None
+        version = spec.get("data_product_version") or spec.get("dataProductVersion")
+        source_version = spec.get("source_data_product_version") or spec.get("sourceDataProductVersion")
+        source_contract_version = spec.get("source_contract_version") or spec.get("sourceContractVersion")
         return DataProductInputBinding(
             data_product=str(data_product),
             port_name=str(spec.get("port_name") or spec.get("portName") or "").strip() or None,
@@ -60,6 +67,17 @@ def normalise_input_binding(
                 spec.get("custom_properties")
                 or spec.get("customProperties")
                 or None
+            ),
+            data_product_version=(
+                str(version).strip() or None if version is not None else None
+            ),
+            source_data_product_version=(
+                str(source_version).strip() or None if source_version is not None else None
+            ),
+            source_contract_version=(
+                str(source_contract_version).strip() or None
+                if source_contract_version is not None
+                else None
             ),
         )
     return None
@@ -79,6 +97,7 @@ def normalise_output_binding(
         data_product = spec.get("data_product") or spec.get("dataProduct")
         if not data_product:
             return None
+        version = spec.get("data_product_version") or spec.get("dataProductVersion")
         return DataProductOutputBinding(
             data_product=str(data_product),
             port_name=str(spec.get("port_name") or spec.get("portName") or "").strip() or None,
@@ -87,6 +106,9 @@ def normalise_output_binding(
                 spec.get("custom_properties")
                 or spec.get("customProperties")
                 or None
+            ),
+            data_product_version=(
+                str(version).strip() or None if version is not None else None
             ),
         )
     return None

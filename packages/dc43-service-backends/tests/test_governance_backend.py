@@ -24,7 +24,11 @@ from dc43_service_clients.governance.models import (
     GovernanceReadContext,
     GovernanceWriteContext,
 )
-from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
+from dc43_service_clients.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    OpenDataProductStandard,
+)
 from dc43_service_clients.testing.backends import LocalDataProductServiceBackend
 
 
@@ -96,6 +100,13 @@ def governance_fixture(tmp_path):
         ),
     )
 
+    product = data_product_backend.latest("dp.analytics")
+    if product is not None:
+        product.status = "active"
+        if product.version and product.version.endswith("-draft"):
+            product.version = product.version[: -len("-draft")]
+        data_product_backend.put(product)
+
     backend = LocalGovernanceServiceBackend(
         contract_client=contract_backend,
         dq_client=dq_backend,
@@ -133,6 +144,50 @@ def test_resolve_read_context_uses_data_product_binding(governance_fixture):
     assert data_product_backend.last_input_call["data_product_id"] == "dp.analytics"
 
 
+def test_register_read_activity_respects_binding_version(governance_fixture):
+    backend, data_product_backend, contract = governance_fixture
+
+    product_v1 = OpenDataProductStandard(
+        id="Sales.KPIs",
+        status="draft",
+        version="0.1.0-draft",
+    )
+    product_v1.ensure_input_port(
+        DataProductInputPort(
+            name="sales.orders",
+            version=contract.version,
+            contract_id=contract.id,
+        )
+    )
+    data_product_backend.put(product_v1)
+
+    product_v2 = product_v1.clone()
+    product_v2.version = "0.2.0-draft"
+    data_product_backend.put(product_v2)
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="Sales.KPIs",
+            port_name="sales.orders",
+            data_product_version="0.1.0-draft",
+        ),
+        allowed_data_product_statuses=("draft",),
+        enforce_data_product_status=False,
+    )
+
+    plan = backend.resolve_read_context(context=context)
+    assert plan.input_binding is not None
+    assert plan.input_binding.data_product_version == "0.1.0-draft"
+
+    assessment = backend.evaluate_read_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    backend.register_read_activity(plan=plan, assessment=assessment)
+
+
 def test_resolve_write_context_prefers_contract_reference(governance_fixture):
     backend, data_product_backend, contract = governance_fixture
 
@@ -164,6 +219,52 @@ def test_resolve_write_context_prefers_contract_reference(governance_fixture):
     assert "requires review" in str(excinfo.value)
 
 
+def test_register_write_activity_respects_binding_version(governance_fixture):
+    backend, data_product_backend, contract = governance_fixture
+
+    product_v1 = OpenDataProductStandard(
+        id="Sales.KPIs",
+        status="draft",
+        version="0.1.0-draft",
+    )
+    product_v1.ensure_output_port(
+        DataProductOutputPort(
+            name="kpis.simple",
+            version=contract.version,
+            contract_id=contract.id,
+        )
+    )
+    data_product_backend.put(product_v1)
+
+    product_v2 = product_v1.clone()
+    product_v2.version = "0.2.0-draft"
+    data_product_backend.put(product_v2)
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="Sales.KPIs",
+            port_name="kpis.simple",
+            data_product_version="0.1.0-draft",
+        ),
+        dataset_id="sales.kpis",
+        dataset_version="2024-01-01",
+        allowed_data_product_statuses=("draft",),
+        enforce_data_product_status=False,
+    )
+
+    plan = backend.resolve_write_context(context=context)
+    assert plan.output_binding is not None
+    assert plan.output_binding.data_product_version == "0.1.0-draft"
+
+    assessment = backend.evaluate_write_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    backend.register_write_activity(plan=plan, assessment=assessment)
+
+
 def test_resolve_write_context_from_existing_output(governance_fixture):
     backend, _, contract = governance_fixture
 
@@ -184,3 +285,127 @@ def test_resolve_write_context_from_existing_output(governance_fixture):
         observations=lambda: ObservationPayload(metrics={}, schema=None),
     )
     backend.register_write_activity(plan=plan, assessment=assessment)
+
+
+def test_resolve_read_context_rejects_draft_product(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="dp.analytics",
+            port_name="orders",
+        )
+    )
+
+    with pytest.raises(ValueError, match="status"):
+        backend.resolve_read_context(context=context)
+
+
+def test_resolve_read_context_allows_draft_when_permitted(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="dp.analytics",
+            port_name="orders",
+        ),
+        allowed_data_product_statuses=("active", "draft"),
+    )
+
+    plan = backend.resolve_read_context(context=context)
+    assert plan.allowed_data_product_statuses == ("active", "draft")
+
+    assessment = backend.evaluate_read_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+    backend.register_read_activity(plan=plan, assessment=assessment)
+
+
+def test_resolve_read_context_enforces_source_contract_version(governance_fixture):
+    backend, _, _ = governance_fixture
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="dp.analytics",
+            port_name="orders",
+            source_data_product="dp.analytics",
+            source_output_port="primary",
+            source_contract_version="==9.9.9",
+        )
+    )
+
+    with pytest.raises(ValueError, match="does not satisfy"):
+        backend.resolve_read_context(context=context)
+
+
+def test_resolve_write_context_rejects_draft_product(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+        )
+    )
+
+    with pytest.raises(ValueError, match="status"):
+        backend.resolve_write_context(context=context)
+
+
+def test_resolve_write_context_allows_draft_when_permitted(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+        ),
+        allowed_data_product_statuses=("active", "draft"),
+    )
+
+    plan = backend.resolve_write_context(context=context)
+    assert plan.allowed_data_product_statuses == ("active", "draft")
+
+    assessment = backend.evaluate_write_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+    backend.register_write_activity(plan=plan, assessment=assessment)
+
+
+def test_resolve_write_context_enforces_product_version(governance_fixture):
+    backend, _, _ = governance_fixture
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+            data_product_version="==9.9.9",
+        )
+    )
+
+    with pytest.raises(ValueError, match="could not be retrieved"):
+        backend.resolve_write_context(context=context)

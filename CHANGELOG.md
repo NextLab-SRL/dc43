@@ -2,7 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+- Introduced the Spark `draft_contract_from_dataframe` helper to generate ODCS
+  draft contracts (plus schema/metric observations) directly from DataFrames
+  using the shared builders from the new `dc43-core` package.
+- Extracted the ODCS/ODPS helpers and SemVer utilities into the standalone
+  `dc43-core` distribution so services, clients, and integrations share the
+  same implementation without private shims.
+
 ### Changed
+- The `generate_contract_dataset` testing helper now returns only an in-memory
+  DataFrame, leaving persistence to the governance write wrappers.
+- Spark integrations now depend on the shared `dc43-core` package instead of
+  embedding fallback builders.
+- Updated internal dependency floors to align the new `dc43-core` package with
+  the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
+  requirement during pre-release validation.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Added a `publish-test-pypi` pull request label that triggers CI to build
@@ -38,6 +53,20 @@
   governance-first wrappers. Compatibility calls now emit
   ``DeprecationWarning`` messages to steer pipelines towards
   `read_with_governance`/`write_with_governance`.
+- Governance Spark IO now enforces data product status policies and accepts
+  explicit version constraints for input/output bindings so pipelines can
+  block on draft products by default or target specific releases when
+  required.
+- Governance backends now honour data product version selectors and source
+  contract requirements when resolving read/write contexts, failing fast on
+  draft or mismatched products before registration occurs.
+- Governance read/write requests now forward status allowances (including
+  `DefaultReadStatusStrategy` overrides and enforcement toggles) to the
+  governance service so draft products can be opted into intentionally while
+  the backend continues to block unexpected states by default.
+- The continuous integration workflow now triggers only for pull request
+  events (plus manual dispatch) so pushes to shared branches no longer spawn
+  duplicate runs alongside the PR build.
 
 ### Fixed
 - Updated the Delta-backed governance stores to compare version strings using
@@ -49,6 +78,10 @@
 - Introduced governance-first Spark IO wrappers and updated documentation/tests
   so pipelines can rely on a single governance client instead of wiring
   contract/data-quality services manually.
+- Governance registration now reloads explicitly requested data product
+  versions before enforcing bindings so read/write activity honours historical
+  releases instead of comparing against the latest draft returned by the
+  registration helpers.
 - `read_with_governance` and its streaming counterpart now accept
   `GovernanceReadContext` payloads so pipelines can declare contract references
   or data product bindings explicitly when resolving datasets through

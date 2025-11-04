@@ -8,6 +8,9 @@
   configuration, providing a single entry point for application bootstrap.
 
 ### Changed
+- ODPS helpers now prefer the shared `dc43-core` package when available so
+  clients align with the backend implementation without loading service
+  modules.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Governance clients now expose dataset listing, pipeline activity, and
@@ -21,6 +24,13 @@
 - Strengthened governance client coverage to ensure registering new
   data-product output bindings surfaces the review-required runtime error,
   mirroring the backend guardrails exercised by the Spark integration tests.
+- Governance client context resolution now validates data product version hints
+  and source contract requirements so callers receive immediate feedback when
+  attempting to bind draft or mismatched products.
+- Governance read/write contexts and resolved plans now carry optional data
+  product status policies (and the HTTP transport serialises them) so clients
+  can opt into draft products or relax enforcement in line with their
+  configured status strategies.
 - Guarded governance/bootstrap tests with `pytest.importorskip` so the package
   skips cleanly when `dc43_service_backends` is not installed, avoiding
   import-time failures in minimal CI environments.

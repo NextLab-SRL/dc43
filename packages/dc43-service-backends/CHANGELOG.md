@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Changed
+- Core ODCS/ODPS helpers now live in the shared `dc43-core` package and this
+  distribution imports them directly, ensuring all runtimes share the same
+  implementation without maintaining duplicate copies.
+- Raised the `dc43-core` dependency floor to 0.27.0.0 so rc rewrites keep the
+  shared helper package in sync with the service backends during Test PyPI
+  validation.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Governance backends and stores now surface `list_datasets` and pipeline
@@ -19,6 +25,13 @@
   product input/output registrations create new drafts, matching the behaviour
   of the legacy Spark contract helpers so governance-first pipelines surface the
   same guardrails.
+- Governance context resolution now enforces data product version selectors and
+  source contract requirements so reads and writes block on draft products or
+  mismatched upstream contracts before producing new registrations.
+- Governance backends now honour caller-provided data product status policies,
+  allowing draft versions to resolve when the context explicitly permits them
+  while continuing to block unexpected states by default during resolution and
+  registration.
 
 ### Fixed
 - SQL governance activity lookups now include the dataset identifier and version
@@ -36,4 +49,7 @@
 - Delta-backed stores now ignore empty version markers and rank ``draft``
   suffixes as pre-releases, ensuring ``latest`` resolution succeeds even when
   historical rows contain placeholder records.
+- Data product registration during read/write activity reloads explicit binding
+  versions before enforcement so requested drafts or historical releases are
+  validated rather than the latest product returned by the registration helper.
 

@@ -91,6 +91,7 @@ def test_apply_test_version_rewrites_internal_dependencies(tmp_path, monkeypatch
         """
 [project]
 dependencies = [
+  "dc43-core>=0.27.0.0",
   "dc43-service-backends>=0.27.0.0",
   "something-else>=1.0",
 ]
@@ -113,9 +114,10 @@ spark = [
         info = module.apply_test_version("example", stage="rc", identifier="5")
 
     content = pyproject.read_text(encoding="utf-8")
+    assert "dc43-core>=0.27.0.0rc0" in content
     assert "dc43-service-backends>=0.27.0.0rc0" in content
     assert "dc43-service-backends[spark]>=0.27.0.0rc0" in content
-    assert len(info.dependency_rewrites) == 2
+    assert len(info.dependency_rewrites) == 3
     assert all(rewrite.path == pyproject for rewrite in info.dependency_rewrites)
 
 

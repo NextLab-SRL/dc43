@@ -3,8 +3,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dc43-service-backends"
-description = "Backend service implementations for dc43"
+name = "dc43-core"
+description = "Shared contract helpers for dc43 packages"
 readme = "README.md"
 requires-python = ">=3.11"
 dynamic = ["version"]
@@ -17,21 +17,7 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-core>=0.27.0.0",
-  "dc43-service-clients>=0.0.3",
   "open-data-contract-standard==3.0.2",
-  "sqlalchemy>=2.0",
-  "tomlkit>=0.12",
-]
-
-[project.optional-dependencies]
-spark = ["pyspark>=3.4"]
-http = [
-  "fastapi>=0.118.0",
-]
-sql = ["sqlalchemy>=2.0"]
-test = [
-  "fastapi>=0.118.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -42,9 +28,4 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["dc43_service_backends*"]
-
-[tool.setuptools.package-data]
-"dc43_service_backends" = [
-  "config/*.toml",
-]
+include = ["dc43_core*"]

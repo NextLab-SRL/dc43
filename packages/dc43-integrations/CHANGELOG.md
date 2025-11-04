@@ -3,14 +3,18 @@
 ## [Unreleased]
 
 ### Added
-- Added `generate_contract_dataset` testing helper to materialise Faker-powered
-  sample datasets aligned with ODCS contracts and write them to the configured
-  storage path for integration tests.
-- `generate_contract_dataset` now wires governance orchestration through a
-  provided or inline governance client instead of requesting contract and data
-  quality services directly, simplifying integration overrides.
+- Added `draft_contract_from_dataframe` to capture schema/metric observations
+  from Spark DataFrames and return ready-to-review ODCS draft contracts using
+  the shared builders from the new `dc43-core` package.
 
 ### Changed
+- `generate_contract_dataset` now returns only an in-memory DataFrame so tests
+  can persist via the regular governance write helpers when needed, and it
+  inspects contract schemas directly instead of calling backend helpers.
+- Spark integrations now require the `dc43-core` package so contract drafting
+  and ODCS utilities rely on a single shared implementation.
+- Raised the minimum `dc43-core` dependency to 0.27.0.0 so pre-release
+  rewrites cover the shared helpers alongside the other internal packages.
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
 - Deprecated contract- and data-product-centric helpers (`read_with_contract`,
@@ -51,4 +55,8 @@
   flows across data product bindings, DQ violations, and format guardrails, and
   aligned the helper behaviour so governance-only calls report review-required
   registrations just like the legacy contract wrappers.
+- `read_with_governance` now forwards the active status strategy and enforce
+  flags to the governance service so opting into draft products (for example via
+  `DefaultReadStatusStrategy(allowed_data_product_statuses=("active", "draft"))`)
+  behaves consistently with the contract-only helpers.
 
