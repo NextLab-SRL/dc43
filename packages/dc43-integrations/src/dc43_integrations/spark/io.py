@@ -1933,26 +1933,32 @@ def _select_data_product(
         logger.warning(message)
     return None
 
-    options = allowed_statuses or ("active",)
-    allowed = {status.lower() if case_insensitive else status for status in options}
-    candidate = status_value.lower() if case_insensitive else status_value
-    if candidate in allowed:
-        return
 
-    message = (
-        failure_message
-        or "Contract {contract_id}:{contract_version} status {status!r} "
-        "is not allowed for {operation} operations"
-    ).format(
-        contract_id=str(getattr(contract, "id", "")),
-        contract_version=str(getattr(contract, "version", "")),
-        status=status_value,
-        operation=operation,
-    )
-    if enforce:
-        raise ValueError(message)
-    logger.warning(message)
+def _load_binding_product_version(
+    *,
+    service: DataProductServiceClient,
+    data_product_id: str,
+    version_spec: Optional[str],
+    enforce: bool,
+    operation: str,
+) -> tuple[Optional[OpenDataProductStandard], bool]:
+    """Return the exact product version requested by a binding when available."""
 
+    requirement = _normalise_version_spec(version_spec)
+    if not requirement or requirement.startswith(">="):
+        return None, False
+    try:
+        product = service.get(data_product_id, requirement)
+    except Exception as exc:
+        message = (
+            f"Data product {data_product_id} version {requirement} is not available "
+            f"for {operation} registration"
+        )
+        if enforce:
+            raise ValueError(message) from exc
+        logger.warning(message)
+        return None, False
+    return product, True
 
 
 class BaseReadExecutor:
@@ -2574,13 +2580,25 @@ class BaseReadExecutor:
             )
 
         product = registration.product
+        requested_version = binding.data_product_version
+        matched_spec = False
+        if requested_version:
+            resolved_product, matched_spec = _load_binding_product_version(
+                service=dp_service,
+                data_product_id=binding.data_product,
+                version_spec=requested_version,
+                enforce=self.enforce,
+                operation="input",
+            )
+            if resolved_product is not None:
+                product = resolved_product
         _enforce_data_product_status(
             handler=self.status_handler,
             data_product=product,
             enforce=self.data_product_status_enforce,
             operation="read",
         )
-        if binding.data_product_version:
+        if binding.data_product_version and matched_spec:
             _check_data_product_version(
                 expected=binding.data_product_version,
                 actual=product.version,
@@ -3725,13 +3743,25 @@ class BaseWriteExecutor:
                         f"requires review at version {version}"
                     )
                 product = registration.product
+                requested_version = dp_output_binding.data_product_version
+                matched_spec = False
+                if requested_version:
+                    resolved_product, matched_spec = _load_binding_product_version(
+                        service=dp_service,
+                        data_product_id=dp_output_binding.data_product,
+                        version_spec=requested_version,
+                        enforce=enforce,
+                        operation="output",
+                    )
+                    if resolved_product is not None:
+                        product = resolved_product
                 _enforce_data_product_status(
                     handler=strategy,
                     data_product=product,
                     enforce=self.data_product_status_enforce,
                     operation="write",
                 )
-                if dp_output_binding.data_product_version:
+                if dp_output_binding.data_product_version and matched_spec:
                     _check_data_product_version(
                         expected=dp_output_binding.data_product_version,
                         actual=product.version,

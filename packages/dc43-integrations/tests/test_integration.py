@@ -563,6 +563,72 @@ def test_read_with_governance_enforces_data_product_version_constraint(
         )
 
 
+def test_read_with_contract_uses_requested_data_product_version(
+    spark, tmp_path: Path, caplog
+) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "contract-input-requested-version")
+    contract = build_orders_contract(str(data_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    historical = DataProductDoc(id="dp.analytics", status="active", version="0.1.0")
+    latest = DataProductDoc(id="dp.analytics", status="active", version="0.2.0")
+    dp_service = StubDataProductService(
+        registration_changed=False,
+        products={"dp.analytics": [historical, latest]},
+    )
+
+    caplog.set_level(logging.WARNING, "dc43_integrations.spark.io")
+
+    df, status = read_with_contract(
+        spark,
+        contract_id=contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={contract.version}",
+        path=str(data_dir),
+        format="parquet",
+        data_quality_service=dq_service,
+        data_product_service=dp_service,
+        data_product_input={
+            "data_product": "dp.analytics",
+            "data_product_version": "0.1.0",
+        },
+        return_status=True,
+    )
+
+    assert df.count() == 2
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("does not satisfy" in message for message in messages)
+    assert not any("is not available for input registration" in message for message in messages)
+
+
+def test_read_with_contract_errors_when_data_product_version_missing(
+    spark, tmp_path: Path
+) -> None:
+    data_dir = materialise_orders(spark, tmp_path / "contract-input-missing-version")
+    contract = build_orders_contract(str(data_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    existing_doc = DataProductDoc(id="dp.analytics", status="active", version="0.2.0")
+    dp_service = StubDataProductService(
+        registration_changed=False,
+        products={"dp.analytics": [existing_doc]},
+    )
+
+    with pytest.raises(ValueError, match="0.9.9"):
+        read_with_contract(
+            spark,
+            contract_id=contract.id,
+            contract_service=contract_service,
+            expected_contract_version=f"=={contract.version}",
+            path=str(data_dir),
+            format="parquet",
+            data_quality_service=dq_service,
+            data_product_service=dp_service,
+            data_product_input={
+                "data_product": "dp.analytics",
+                "data_product_version": "0.9.9",
+            },
+        )
+
+
 def test_read_with_governance_resolves_contract_from_input_binding(
     spark, tmp_path: Path
 ) -> None:
@@ -839,6 +905,85 @@ def test_write_with_governance_violation_blocks_by_default(
     assert errors
     assert any("amount" in str(message) for message in errors)
     assert not result.ok
+
+
+def test_write_with_contract_uses_requested_data_product_version(
+    spark, tmp_path: Path, caplog
+) -> None:
+    dest_dir = tmp_path / "contract-output-requested-version"
+    contract = build_orders_contract(str(dest_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    historical = DataProductDoc(id="dp.analytics", status="active", version="0.1.0")
+    latest = DataProductDoc(id="dp.analytics", status="active", version="0.2.0")
+    dp_service = StubDataProductService(
+        registration_changed=False,
+        products={"dp.analytics": [historical, latest]},
+    )
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    caplog.set_level(logging.WARNING, "dc43_integrations.spark.io")
+
+    result = write_with_contract(
+        df=df,
+        contract_id=contract.id,
+        contract_service=contract_service,
+        expected_contract_version=f"=={contract.version}",
+        path=str(dest_dir),
+        mode="overwrite",
+        data_quality_service=dq_service,
+        data_product_service=dp_service,
+        data_product_output={
+            "data_product": "dp.analytics",
+            "port_name": "primary",
+            "data_product_version": "0.1.0",
+        },
+    )
+
+    assert result.ok
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("does not satisfy" in message for message in messages)
+    assert not any("is not available for output registration" in message for message in messages)
+
+
+def test_write_with_contract_errors_when_data_product_version_missing(
+    spark, tmp_path: Path
+) -> None:
+    dest_dir = tmp_path / "contract-output-missing-version"
+    contract = build_orders_contract(str(dest_dir))
+    store, contract_service, dq_service = persist_contract(tmp_path, contract)
+    existing_doc = DataProductDoc(id="dp.analytics", status="active", version="0.2.0")
+    dp_service = StubDataProductService(
+        registration_changed=False,
+        products={"dp.analytics": [existing_doc]},
+    )
+    df = spark.createDataFrame(
+        [
+            (1, 101, datetime(2024, 1, 1, 10, 0, 0), 10.0, "EUR"),
+        ],
+        ["order_id", "customer_id", "order_ts", "amount", "currency"],
+    )
+
+    with pytest.raises(ValueError, match="0.9.9"):
+        write_with_contract(
+            df=df,
+            contract_id=contract.id,
+            contract_service=contract_service,
+            expected_contract_version=f"=={contract.version}",
+            path=str(dest_dir),
+            mode="overwrite",
+            data_quality_service=dq_service,
+            data_product_service=dp_service,
+            data_product_output={
+                "data_product": "dp.analytics",
+                "port_name": "primary",
+                "data_product_version": "0.9.9",
+            },
+        )
 
 
 def test_write_validation_result_on_mismatch(spark, tmp_path: Path):
