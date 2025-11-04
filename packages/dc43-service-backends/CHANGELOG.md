@@ -28,6 +28,10 @@
 - Governance context resolution now enforces data product version selectors and
   source contract requirements so reads and writes block on draft products or
   mismatched upstream contracts before producing new registrations.
+- Governance backends now honour caller-provided data product status policies,
+  allowing draft versions to resolve when the context explicitly permits them
+  while continuing to block unexpected states by default during resolution and
+  registration.
 
 ### Fixed
 - SQL governance activity lookups now include the dataset identifier and version

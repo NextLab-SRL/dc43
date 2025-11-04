@@ -60,6 +60,13 @@
 - Governance backends now honour data product version selectors and source
   contract requirements when resolving read/write contexts, failing fast on
   draft or mismatched products before registration occurs.
+- Governance read/write requests now forward status allowances (including
+  `DefaultReadStatusStrategy` overrides and enforcement toggles) to the
+  governance service so draft products can be opted into intentionally while
+  the backend continues to block unexpected states by default.
+- The continuous integration workflow now triggers only for pull request
+  events (plus manual dispatch) so pushes to shared branches no longer spawn
+  duplicate runs alongside the PR build.
 
 ### Fixed
 - Updated the Delta-backed governance stores to compare version strings using

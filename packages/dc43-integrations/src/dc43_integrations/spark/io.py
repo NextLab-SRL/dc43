@@ -2768,7 +2768,31 @@ def read_with_governance(
         else:
             raise TypeError("request must be a GovernanceSparkReadRequest or mapping")
 
-    plan = governance_service.resolve_read_context(context=request.context)
+    strategy = request.status_strategy or DefaultReadStatusStrategy()
+    context = request.context
+    if getattr(context, "allowed_data_product_statuses", None) is None:
+        allowed = getattr(strategy, "allowed_data_product_statuses", None)
+        if allowed is not None:
+            if isinstance(allowed, str):
+                context.allowed_data_product_statuses = (allowed,)
+            else:
+                context.allowed_data_product_statuses = tuple(allowed)
+    if getattr(context, "allow_missing_data_product_status", None) is None:
+        allow_missing = getattr(strategy, "allow_missing_data_product_status", None)
+        if allow_missing is not None:
+            context.allow_missing_data_product_status = bool(allow_missing)
+    if getattr(context, "data_product_status_case_insensitive", None) is None:
+        case_insensitive = getattr(strategy, "data_product_status_case_insensitive", None)
+        if case_insensitive is not None:
+            context.data_product_status_case_insensitive = bool(case_insensitive)
+    if getattr(context, "data_product_status_failure_message", None) is None:
+        failure_message = getattr(strategy, "data_product_status_failure_message", None)
+        if failure_message is not None:
+            context.data_product_status_failure_message = str(failure_message)
+    if getattr(context, "enforce_data_product_status", None) is None:
+        context.enforce_data_product_status = bool(enforce)
+
+    plan = governance_service.resolve_read_context(context=context)
     pipeline_ctx = request.context.pipeline_context or plan.pipeline_context
 
     return _execute_read(
@@ -2788,7 +2812,7 @@ def read_with_governance(
         data_product_service=None,
         data_product_input=None,
         dataset_locator=request.dataset_locator,
-        status_strategy=request.status_strategy,
+        status_strategy=strategy,
         pipeline_context=pipeline_ctx,
         return_status=return_status,
         plan=plan,
@@ -4201,7 +4225,11 @@ def write_with_governance(
         else:
             raise TypeError("request must be a GovernanceSparkWriteRequest or mapping")
 
-    plan = governance_service.resolve_write_context(context=request.context)
+    context = request.context
+    if getattr(context, "enforce_data_product_status", None) is None:
+        context.enforce_data_product_status = bool(enforce)
+
+    plan = governance_service.resolve_write_context(context=context)
     pipeline_ctx = request.context.pipeline_context or plan.pipeline_context
 
     return _execute_write(

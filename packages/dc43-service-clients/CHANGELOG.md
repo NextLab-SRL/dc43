@@ -27,6 +27,10 @@
 - Governance client context resolution now validates data product version hints
   and source contract requirements so callers receive immediate feedback when
   attempting to bind draft or mismatched products.
+- Governance read/write contexts and resolved plans now carry optional data
+  product status policies (and the HTTP transport serialises them) so clients
+  can opt into draft products or relax enforcement in line with their
+  configured status strategies.
 - Guarded governance/bootstrap tests with `pytest.importorskip` so the package
   skips cleanly when `dc43_service_backends` is not installed, avoiding
   import-time failures in minimal CI environments.

@@ -6,9 +6,6 @@ concurrency:
 
 on:
   pull_request:
-  push:
-    branches:
-      - dev
   workflow_dispatch:
     inputs:
       publish_docker_images:

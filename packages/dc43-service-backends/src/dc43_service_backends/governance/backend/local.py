@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -404,10 +404,14 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         *,
         context: GovernanceReadContext,
     ) -> ResolvedReadPlan:
+        status_options = self._normalise_status_options(
+            self._status_options_from_context(context)
+        )
         contract, contract_id, contract_version = self._resolve_contract_spec(
             contract_reference=context.contract,
             input_binding=context.input_binding,
             output_binding=None,
+            input_status_options=status_options,
         )
         dataset_id = context.dataset_id or contract.id or contract_id
         dataset_version = context.dataset_version or contract.version or contract_version
@@ -423,6 +427,11 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             pipeline_context=pipeline,
             bump=context.bump,
             draft_on_violation=context.draft_on_violation,
+            allowed_data_product_statuses=status_options["allowed_statuses"],
+            allow_missing_data_product_status=status_options["allow_missing"],
+            data_product_status_case_insensitive=status_options["case_insensitive"],
+            data_product_status_failure_message=status_options["failure_message"],
+            enforce_data_product_status=status_options["enforce"],
         )
 
     def resolve_write_context(
@@ -430,10 +439,14 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         *,
         context: GovernanceWriteContext,
     ) -> ResolvedWritePlan:
+        status_options = self._normalise_status_options(
+            self._status_options_from_context(context)
+        )
         contract, contract_id, contract_version = self._resolve_contract_spec(
             contract_reference=context.contract,
             input_binding=None,
             output_binding=context.output_binding,
+            output_status_options=status_options,
         )
         dataset_id = context.dataset_id or contract.id or contract_id
         dataset_version = context.dataset_version or contract.version or contract_version
@@ -449,6 +462,11 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             pipeline_context=pipeline,
             bump=context.bump,
             draft_on_violation=context.draft_on_violation,
+            allowed_data_product_statuses=status_options["allowed_statuses"],
+            allow_missing_data_product_status=status_options["allow_missing"],
+            data_product_status_case_insensitive=status_options["case_insensitive"],
+            data_product_status_failure_message=status_options["failure_message"],
+            enforce_data_product_status=status_options["enforce"],
         )
 
     def evaluate_read_plan(
@@ -522,15 +540,23 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         contract_reference: ContractReference | None,
         input_binding: Any,
         output_binding: Any,
+        input_status_options: Optional[Mapping[str, object]] = None,
+        output_status_options: Optional[Mapping[str, object]] = None,
     ) -> Tuple[OpenDataContractStandard, str, str]:
         if contract_reference is not None:
             return self._resolve_contract_reference(contract_reference)
         if input_binding is not None:
-            contract_id, contract_version = self._resolve_contract_from_input(input_binding)
+            contract_id, contract_version = self._resolve_contract_from_input(
+                input_binding,
+                status_options=input_status_options,
+            )
             contract = self._contract_client.get(contract_id, contract_version)
             return contract, contract_id, contract.version or contract_version
         if output_binding is not None:
-            contract_id, contract_version = self._resolve_contract_from_output(output_binding)
+            contract_id, contract_version = self._resolve_contract_from_output(
+                output_binding,
+                status_options=output_status_options,
+            )
             contract = self._contract_client.get(contract_id, contract_version)
             return contract, contract_id, contract.version or contract_version
         raise ValueError("A contract reference or data-product binding is required")
@@ -547,7 +573,12 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             raise ValueError(f"No contract found for id '{reference.contract_id}'")
         return latest, latest.id or reference.contract_id, latest.version
 
-    def _resolve_contract_from_input(self, binding: Any) -> Tuple[str, str]:
+    def _resolve_contract_from_input(
+        self,
+        binding: Any,
+        *,
+        status_options: Optional[Mapping[str, object]] = None,
+    ) -> Tuple[str, str]:
         client = self._require_data_product_client()
         port_name = getattr(binding, "port_name", None) or getattr(
             binding, "source_output_port", None
@@ -555,6 +586,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         if not port_name:
             raise ValueError("Input binding requires a port_name or source_output_port")
 
+        options = self._normalise_status_options(status_options)
         data_product_id = getattr(binding, "data_product", None)
         source_product_id = getattr(binding, "source_data_product", None)
         source_port_name = getattr(binding, "source_output_port", port_name)
@@ -566,6 +598,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             version_spec=getattr(binding, "data_product_version", None),
             operation="read",
             subject="Data product",
+            status_options=options,
         )
         if product is not None:
             finder = getattr(product, "find_input_port", None)
@@ -595,6 +628,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     version_spec=source_version_spec,
                     operation="read",
                     subject="Source data product",
+                    status_options=options,
                 )
                 if source_product is None and source_version_spec:
                     raise ValueError(
@@ -614,6 +648,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 version_spec=source_version_spec,
                 operation="read",
                 subject="Source data product",
+                status_options=options,
             )
             if source_product is not None:
                 finder = getattr(source_product, "find_output_port", None)
@@ -637,15 +672,22 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
 
         raise ValueError("Unable to resolve contract from input binding")
 
-    def _resolve_contract_from_output(self, binding: Any) -> Tuple[str, str]:
+    def _resolve_contract_from_output(
+        self,
+        binding: Any,
+        *,
+        status_options: Optional[Mapping[str, object]] = None,
+    ) -> Tuple[str, str]:
         client = self._require_data_product_client()
         port_name = getattr(binding, "port_name", None) or "default"
 
+        options = self._normalise_status_options(status_options)
         product = self._load_product_for_operation(
             data_product_id=getattr(binding, "data_product", None),
             version_spec=getattr(binding, "data_product_version", None),
             operation="write",
             subject="Data product",
+            status_options=options,
         )
         if product is not None:
             finder = getattr(product, "find_output_port", None)
@@ -667,6 +709,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                         version_spec=getattr(binding, "data_product_version", None),
                         operation="write",
                         subject="Data product",
+                        status_options=options,
                     )
                 self._enforce_version_constraint(
                     expected=getattr(binding, "data_product_version", None),
@@ -705,6 +748,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         if binding is None or client is None:
             return
         port_name = binding.port_name or binding.source_output_port or "default"
+        options = self._status_options_from_plan(plan)
         register = getattr(client, "register_input_port", None)
         if not callable(register):
             return
@@ -745,6 +789,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             binding=binding,
             port_name=port_name,
             product=product,
+            status_options=options,
         )
 
     def _register_output_binding(self, *, plan: ResolvedWritePlan) -> None:
@@ -753,6 +798,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         if binding is None or client is None:
             return
         port_name = binding.port_name or "default"
+        options = self._status_options_from_plan(plan)
         register = getattr(client, "register_output_port", None)
         if not callable(register):
             return
@@ -789,6 +835,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             binding=binding,
             port_name=port_name,
             product=product,
+            status_options=options,
         )
 
     def _raise_if_registration_requires_review(
@@ -854,6 +901,94 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             f"for data product {data_product_id}"
         )
 
+    def _status_options_from_context(
+        self,
+        context: GovernanceReadContext | GovernanceWriteContext,
+    ) -> Mapping[str, object]:
+        return {
+            "allowed_statuses": getattr(context, "allowed_data_product_statuses", None),
+            "allow_missing": getattr(context, "allow_missing_data_product_status", None),
+            "case_insensitive": getattr(
+                context,
+                "data_product_status_case_insensitive",
+                None,
+            ),
+            "failure_message": getattr(
+                context,
+                "data_product_status_failure_message",
+                None,
+            ),
+            "enforce": getattr(context, "enforce_data_product_status", None),
+        }
+
+    def _status_options_from_plan(
+        self,
+        plan: ResolvedReadPlan | ResolvedWritePlan,
+    ) -> Mapping[str, object]:
+        return {
+            "allowed_statuses": getattr(plan, "allowed_data_product_statuses", None),
+            "allow_missing": getattr(plan, "allow_missing_data_product_status", None),
+            "case_insensitive": getattr(
+                plan,
+                "data_product_status_case_insensitive",
+                None,
+            ),
+            "failure_message": getattr(
+                plan,
+                "data_product_status_failure_message",
+                None,
+            ),
+            "enforce": getattr(plan, "enforce_data_product_status", None),
+        }
+
+    def _normalise_status_options(
+        self,
+        options: Optional[Mapping[str, object]],
+    ) -> Dict[str, object]:
+        allowed_raw = None if options is None else options.get("allowed_statuses")
+        if allowed_raw is None:
+            allowed: Tuple[str, ...] = ("active",)
+        elif isinstance(allowed_raw, str):
+            allowed = (allowed_raw.strip(),) if allowed_raw.strip() else ()
+        else:
+            values: Iterable[str] = (
+                str(value).strip()
+                for value in allowed_raw  # type: ignore[arg-type]
+                if value is not None
+            )
+            allowed = tuple(value for value in values if value)
+
+        allow_missing_raw = None if options is None else options.get("allow_missing")
+        allow_missing = bool(allow_missing_raw) if allow_missing_raw is not None else False
+
+        case_insensitive_raw = None if options is None else options.get("case_insensitive")
+        case_insensitive = (
+            True if case_insensitive_raw is None else bool(case_insensitive_raw)
+        )
+
+        failure_message = None if options is None else options.get("failure_message")
+
+        enforce_raw = None if options is None else options.get("enforce")
+        enforce = True if enforce_raw is None else bool(enforce_raw)
+
+        return {
+            "allowed_statuses": allowed,
+            "allow_missing": allow_missing,
+            "case_insensitive": case_insensitive,
+            "failure_message": failure_message,
+            "enforce": enforce,
+        }
+
+    def _status_kwargs(self, options: Mapping[str, object]) -> Dict[str, object]:
+        allowed = options.get("allowed_statuses")
+        return {
+            "allowed_statuses": allowed if allowed is not None else None,
+            "allow_missing": bool(options.get("allow_missing", False)),
+            "case_insensitive": bool(options.get("case_insensitive", True)),
+            "failure_message": options.get("failure_message"),
+            "enforce": bool(options.get("enforce", True)),
+        }
+
     def _load_data_product(
         self,
         *,
@@ -906,6 +1041,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         version_spec: Optional[str],
         operation: str,
         subject: str,
+        status_options: Optional[Mapping[str, object]] = None,
     ) -> Any:
         product = self._load_data_product(
             data_product_id=data_product_id,
@@ -914,10 +1050,12 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         if product is None:
             return None
         identifier = data_product_id or ""
+        options = self._normalise_status_options(status_options)
         self._enforce_product_status(
             product=product,
             data_product_id=identifier,
             operation=operation,
+            **self._status_kwargs(options),
         )
         self._enforce_version_constraint(
             expected=version_spec,
@@ -933,19 +1071,65 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         product: Any,
         data_product_id: str,
         operation: str,
+        allowed_statuses: Optional[Iterable[str]] = None,
+        allow_missing: bool = False,
+        case_insensitive: bool = True,
+        failure_message: Optional[str] = None,
+        enforce: bool = True,
     ) -> None:
-        status = getattr(product, "status", None)
+        raw_status = getattr(product, "status", None)
         version = getattr(product, "version", None)
-        if status is None or str(status).strip() == "":
-            raise ValueError(
-                f"Data product {data_product_id}@{version or '<unknown>'} status '' "
-                f"is not allowed for {operation} operations"
+        if raw_status is None:
+            if allow_missing:
+                return
+            status_value = ""
+        else:
+            status_value = str(raw_status).strip()
+            if not status_value and allow_missing:
+                return
+
+        if not status_value:
+            message = (
+                failure_message
+                or "Data product {data_product_id}@{data_product_version} status {status!r} "
+                "is not allowed for {operation} operations"
+            ).format(
+                data_product_id=data_product_id,
+                data_product_version=version or "<unknown>",
+                status=status_value,
+                operation=operation,
             )
-        if str(status).strip().lower() != "active":
-            raise ValueError(
-                f"Data product {data_product_id}@{version or '<unknown>'} status {status!r} "
-                f"is not allowed for {operation} operations"
-            )
+            if enforce:
+                raise ValueError(message)
+            return
+
+        if allowed_statuses is None:
+            statuses: Iterable[str] = ("active",)
+        else:
+            statuses = allowed_statuses
+        prepared = [
+            (str(candidate).strip().lower() if case_insensitive else str(candidate).strip())
+            for candidate in statuses
+            if candidate is not None and str(candidate).strip()
+        ]
+        comparison = status_value.lower() if case_insensitive else status_value
+        if prepared and comparison in prepared:
+            return
+        if not prepared and allow_missing:
+            return
+
+        message = (
+            failure_message
+            or "Data product {data_product_id}@{data_product_version} status {status!r} "
+            "is not allowed for {operation} operations"
+        ).format(
+            data_product_id=data_product_id,
+            data_product_version=version or "<unknown>",
+            status=status_value,
+            operation=operation,
+        )
+        if enforce:
+            raise ValueError(message)
 
     def _enforce_input_product_constraints(
         self,
@@ -953,8 +1137,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         binding: Any,
         port_name: str,
         product: Any,
+        status_options: Optional[Mapping[str, object]] = None,
     ) -> None:
         data_product_id = getattr(binding, "data_product", None)
+        options = self._normalise_status_options(status_options)
         resolved = product or self._load_data_product(
             data_product_id=data_product_id,
             version_spec=getattr(binding, "data_product_version", None),
@@ -964,6 +1150,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 product=resolved,
                 data_product_id=data_product_id,
                 operation="read",
+                **self._status_kwargs(options),
             )
             self._enforce_version_constraint(
                 expected=getattr(binding, "data_product_version", None),
@@ -985,6 +1172,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             product=source_product,
             data_product_id=source_product_id,
             operation="read",
+            **self._status_kwargs(options),
         )
         self._enforce_version_constraint(
             expected=getattr(binding, "source_data_product_version", None),
@@ -1015,8 +1203,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         binding: Any,
         port_name: str,
         product: Any,
+        status_options: Optional[Mapping[str, object]] = None,
     ) -> None:
         data_product_id = getattr(binding, "data_product", None)
+        options = self._normalise_status_options(status_options)
         resolved = product or self._load_data_product(
             data_product_id=data_product_id,
             version_spec=getattr(binding, "data_product_version", None),
@@ -1027,6 +1217,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             product=resolved,
             data_product_id=data_product_id,
             operation="write",
+            **self._status_kwargs(options),
         )
         self._enforce_version_constraint(
             expected=getattr(binding, "data_product_version", None),

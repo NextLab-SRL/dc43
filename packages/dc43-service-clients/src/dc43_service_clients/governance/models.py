@@ -108,6 +108,11 @@ class GovernanceReadContext:
     pipeline_context: Optional[PipelineContextSpec] = None
     bump: str = "minor"
     draft_on_violation: bool = False
+    allowed_data_product_statuses: Optional[tuple[str, ...]] = None
+    allow_missing_data_product_status: Optional[bool] = None
+    data_product_status_case_insensitive: Optional[bool] = None
+    data_product_status_failure_message: Optional[str] = None
+    enforce_data_product_status: Optional[bool] = None
 
     def __post_init__(self) -> None:
         if self.contract is not None and not isinstance(self.contract, ContractReference):
@@ -136,6 +141,11 @@ class GovernanceWriteContext:
     pipeline_context: Optional[PipelineContextSpec] = None
     bump: str = "minor"
     draft_on_violation: bool = False
+    allowed_data_product_statuses: Optional[tuple[str, ...]] = None
+    allow_missing_data_product_status: Optional[bool] = None
+    data_product_status_case_insensitive: Optional[bool] = None
+    data_product_status_failure_message: Optional[str] = None
+    enforce_data_product_status: Optional[bool] = None
 
     def __post_init__(self) -> None:
         if self.contract is not None and not isinstance(self.contract, ContractReference):
@@ -166,6 +176,11 @@ class ResolvedReadPlan:
     pipeline_context: Optional[Mapping[str, object]] = None
     bump: str = "minor"
     draft_on_violation: bool = False
+    allowed_data_product_statuses: Optional[tuple[str, ...]] = None
+    allow_missing_data_product_status: Optional[bool] = None
+    data_product_status_case_insensitive: Optional[bool] = None
+    data_product_status_failure_message: Optional[str] = None
+    enforce_data_product_status: Optional[bool] = None
 
 
 @dataclass(slots=True)
@@ -182,6 +197,11 @@ class ResolvedWritePlan:
     pipeline_context: Optional[Mapping[str, object]] = None
     bump: str = "minor"
     draft_on_violation: bool = False
+    allowed_data_product_statuses: Optional[tuple[str, ...]] = None
+    allow_missing_data_product_status: Optional[bool] = None
+    data_product_status_case_insensitive: Optional[bool] = None
+    data_product_status_failure_message: Optional[str] = None
+    enforce_data_product_status: Optional[bool] = None
 
 
 def normalise_pipeline_context(

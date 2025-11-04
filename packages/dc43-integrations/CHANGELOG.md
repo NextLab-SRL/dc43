@@ -55,4 +55,8 @@
   flows across data product bindings, DQ violations, and format guardrails, and
   aligned the helper behaviour so governance-only calls report review-required
   registrations just like the legacy contract wrappers.
+- `read_with_governance` now forwards the active status strategy and enforce
+  flags to the governance service so opting into draft products (for example via
+  `DefaultReadStatusStrategy(allowed_data_product_statuses=("active", "draft"))`)
+  behaves consistently with the contract-only helpers.
 
