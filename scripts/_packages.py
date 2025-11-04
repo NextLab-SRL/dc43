@@ -18,6 +18,14 @@ PACKAGES = {
         "tag_prefix": "dc43",
         "package_dir": ".",
     },
+    "dc43-core": {
+        "paths": [ROOT / "packages" / "dc43-core"],
+        "pyproject": ROOT / "packages" / "dc43-core" / "pyproject.toml",
+        "version_file": ROOT / "packages" / "dc43-core" / "VERSION",
+        "pypi": "dc43-core",
+        "tag_prefix": "dc43-core",
+        "package_dir": "packages/dc43-core",
+    },
     "dc43-demo-app": {
         "paths": [ROOT / "packages" / "dc43-demo-app"],
         "pyproject": ROOT / "packages" / "dc43-demo-app" / "pyproject.toml",
@@ -61,6 +69,7 @@ PACKAGES = {
 }
 
 DEFAULT_RELEASE_ORDER = [
+    "dc43-core",
     "dc43",
     "dc43-service-clients",
     "dc43-service-backends",

@@ -46,20 +46,20 @@ from .data_quality.backend.engines import (
 from .governance.backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
 from .governance.bootstrap import build_dataset_contract_link_hooks
 from .governance.hooks import DatasetContractLinkHook
-from .governance.storage import (
+from .governance.backend.stores import (
     GovernanceStore,
     InMemoryGovernanceStore,
     SQLGovernanceStore,
 )
-from .governance.storage.filesystem import FilesystemGovernanceStore
+from .governance.backend.stores.filesystem import FilesystemGovernanceStore
 
 try:  # pragma: no cover - optional dependencies
-    from .governance.storage.delta import DeltaGovernanceStore
+    from .governance.backend.stores.delta import DeltaGovernanceStore
 except ModuleNotFoundError:  # pragma: no cover - pyspark optional
     DeltaGovernanceStore = None  # type: ignore[assignment]
 
 try:  # pragma: no cover - optional dependencies
-    from .governance.storage.http import HttpGovernanceStore
+    from .governance.backend.stores.http import HttpGovernanceStore
 except ModuleNotFoundError:  # pragma: no cover - httpx optional
     HttpGovernanceStore = None  # type: ignore[assignment]
 
@@ -231,6 +231,26 @@ def build_data_product_backend(config: DataProductStoreConfig) -> DataProductSer
         path = Path(root) if root else Path.cwd() / "data-products"
         path.mkdir(parents=True, exist_ok=True)
         return FilesystemDataProductServiceBackend(path)
+
+    if store_type == "sql":
+        try:
+            from sqlalchemy import create_engine
+        except ModuleNotFoundError as exc:  # pragma: no cover - handled in tests
+            raise RuntimeError(
+                "sqlalchemy is required when data_product_store.type is 'sql'.",
+            ) from exc
+
+        from .data_products.backend.stores.sql import SQLDataProductStore
+
+        if not config.dsn:
+            raise RuntimeError(
+                "data_product_store.dsn must be configured when type is 'sql'",
+            )
+
+        engine = create_engine(config.dsn)
+        table_name = config.table or "data_products"
+        store = SQLDataProductStore(engine, table_name=table_name, schema=config.schema)
+        return LocalDataProductServiceBackend(store=store)
 
     if store_type == "delta":
         spark = _get_spark_session("data_product_store")

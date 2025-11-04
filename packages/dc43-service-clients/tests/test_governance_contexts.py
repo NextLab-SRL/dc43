@@ -99,6 +99,17 @@ def governance_client(tmp_path):
         ),
     )
 
+    # Mirror the approval workflow by marking the initial draft as an active
+    # release so read/write flows exercise the post-review path.  The local
+    # backend keeps every submitted draft, so promote the latest version while
+    # leaving the draft history in place for other assertions.
+    product = data_product_backend.latest("dp.analytics")
+    if product is not None:
+        product.status = "active"
+        if product.version and product.version.endswith("-draft"):
+            product.version = product.version[: -len("-draft")]
+        data_product_backend.put(product)
+
     backend = LocalGovernanceServiceBackend(
         contract_client=contract_backend,
         dq_client=dq_backend,

@@ -1,85 +1,23 @@
-"""Interface for persisting governance artefacts."""
+"""Compatibility shim exposing the relocated governance store interface."""
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Protocol, Sequence
+from ..backend.stores import interface as _interface  # type: ignore
+from ..backend.stores.interface import *  # type: ignore[F401,F403]
 
-from dc43_service_clients.data_quality import ValidationResult
-
-
-class GovernanceStore(Protocol):
-    """Persistence contract used by :class:`LocalGovernanceServiceBackend`."""
-
-    def save_status(
-        self,
-        *,
-        contract_id: str,
-        contract_version: str,
-        dataset_id: str,
-        dataset_version: str,
-        status: ValidationResult | None,
-    ) -> None:
-        """Persist the latest validation ``status`` for the dataset version."""
-
-    def load_status(
-        self,
-        *,
-        contract_id: str,
-        contract_version: str,
-        dataset_id: str,
-        dataset_version: str,
-    ) -> ValidationResult | None:
-        """Return the stored validation status for the dataset version."""
-
-    def record_pipeline_event(
-        self,
-        *,
-        contract_id: str,
-        contract_version: str,
-        dataset_id: str,
-        dataset_version: str,
-        event: Mapping[str, object],
-    ) -> None:
-        """Append ``event`` metadata to the pipeline activity log."""
-
-    def list_datasets(self) -> Sequence[str]:
-        """Return dataset identifiers recorded by the governance store."""
-
-    def load_pipeline_activity(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: Optional[str] = None,
-    ) -> Sequence[Mapping[str, object]]:
-        """Return pipeline activity entries for the dataset."""
-
-    def link_dataset_contract(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: str,
-        contract_id: str,
-        contract_version: str,
-    ) -> None:
-        """Persist an association between the dataset version and contract."""
-
-    def get_linked_contract_version(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: Optional[str] = None,
-    ) -> str | None:
-        """Return the contract reference linked to the dataset if any."""
-
-    def load_metrics(
-        self,
-        *,
-        dataset_id: str,
-        dataset_version: Optional[str] = None,
-        contract_id: Optional[str] = None,
-        contract_version: Optional[str] = None,
-    ) -> Sequence[Mapping[str, object]]:
-        """Return stored metric entries associated with the dataset."""
+__all__ = list(getattr(_interface, "__all__", []))
 
 
-__all__ = ["GovernanceStore"]
+def __getattr__(name: str) -> object:
+    """Delegate attribute access to the relocated module."""
+
+    try:
+        return getattr(_interface, name)
+    except AttributeError as exc:  # pragma: no cover - mirrors default behaviour
+        raise AttributeError(name) from exc
+
+
+def __dir__() -> list[str]:  # pragma: no cover - trivial passthrough
+    """Combine the compatibility shim attributes with the target module ones."""
+
+    return sorted(set(globals()) | set(dir(_interface)))

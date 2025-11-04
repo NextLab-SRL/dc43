@@ -32,6 +32,61 @@ from .models import (
 )
 
 
+def _coerce_optional_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y"}:
+            return True
+        if lowered in {"false", "0", "no", "n"}:
+            return False
+        if not lowered:
+            return None
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return bool(value)
+
+
+def _decode_allowed_statuses(raw: Mapping[str, Any]) -> Optional[tuple[str, ...]]:
+    allowed_statuses_raw = raw.get("allowed_data_product_statuses") or raw.get(
+        "allowedDataProductStatuses"
+    )
+    if isinstance(allowed_statuses_raw, str):
+        values = [value.strip() for value in allowed_statuses_raw.split(",")]
+        filtered = tuple(filter(None, values))
+        return filtered or None
+    if isinstance(allowed_statuses_raw, Sequence):
+        prepared = [
+            str(value).strip()
+            for value in allowed_statuses_raw
+            if str(value).strip()
+        ]
+        result = tuple(prepared)
+        return result or None
+    return None
+
+
+def _extract_status_policy_fields(
+    raw: Mapping[str, Any],
+) -> tuple[Any, Any, Any, Any]:
+    allow_missing_raw = raw.get("allow_missing_data_product_status")
+    if allow_missing_raw is None:
+        allow_missing_raw = raw.get("allowMissingDataProductStatus")
+    case_insensitive_raw = raw.get("data_product_status_case_insensitive")
+    if case_insensitive_raw is None:
+        case_insensitive_raw = raw.get("dataProductStatusCaseInsensitive")
+    failure_message_raw = raw.get("data_product_status_failure_message")
+    if failure_message_raw is None:
+        failure_message_raw = raw.get("dataProductStatusFailureMessage")
+    enforce_raw = raw.get("enforce_data_product_status")
+    if enforce_raw is None:
+        enforce_raw = raw.get("enforceDataProductStatus")
+    return allow_missing_raw, case_insensitive_raw, failure_message_raw, enforce_raw
+
+
 def encode_credentials(credentials: GovernanceCredentials | None) -> dict[str, Any] | None:
     if credentials is None:
         return None
@@ -89,8 +144,11 @@ def encode_input_binding(binding: DataProductInputBinding | None) -> dict[str, A
     payload: dict[str, Any] = {
         "data_product": binding.data_product,
         "port_name": binding.port_name,
+        "data_product_version": binding.data_product_version,
         "source_data_product": binding.source_data_product,
+        "source_data_product_version": binding.source_data_product_version,
         "source_output_port": binding.source_output_port,
+        "source_contract_version": binding.source_contract_version,
         "bump": binding.bump,
     }
     if binding.custom_properties is not None:
@@ -110,6 +168,7 @@ def encode_output_binding(binding: DataProductOutputBinding | None) -> dict[str,
     payload: dict[str, Any] = {
         "data_product": binding.data_product,
         "port_name": binding.port_name,
+        "data_product_version": binding.data_product_version,
         "bump": binding.bump,
     }
     if binding.custom_properties is not None:
@@ -182,10 +241,24 @@ def encode_read_context(context: GovernanceReadContext) -> dict[str, Any]:
         "pipeline_context": encode_pipeline_context(context.pipeline_context),
         "bump": context.bump,
         "draft_on_violation": context.draft_on_violation,
+        "allowed_data_product_statuses": list(context.allowed_data_product_statuses)
+        if context.allowed_data_product_statuses is not None
+        else None,
+        "allow_missing_data_product_status": context.allow_missing_data_product_status,
+        "data_product_status_case_insensitive": context.data_product_status_case_insensitive,
+        "data_product_status_failure_message": context.data_product_status_failure_message,
+        "enforce_data_product_status": context.enforce_data_product_status,
     }
 
 
 def decode_read_context(raw: Mapping[str, Any]) -> GovernanceReadContext:
+    allowed_statuses = _decode_allowed_statuses(raw)
+    (
+        allow_missing_raw,
+        case_insensitive_raw,
+        failure_message_raw,
+        enforce_raw,
+    ) = _extract_status_policy_fields(raw)
     return GovernanceReadContext(
         contract=decode_contract_reference(raw.get("contract")),
         input_binding=decode_input_binding(raw.get("input_binding")),
@@ -195,6 +268,15 @@ def decode_read_context(raw: Mapping[str, Any]) -> GovernanceReadContext:
         pipeline_context=raw.get("pipeline_context"),
         bump=str(raw.get("bump") or "minor"),
         draft_on_violation=bool(raw.get("draft_on_violation", False)),
+        allowed_data_product_statuses=allowed_statuses,
+        allow_missing_data_product_status=_coerce_optional_bool(allow_missing_raw),
+        data_product_status_case_insensitive=_coerce_optional_bool(
+            case_insensitive_raw
+        ),
+        data_product_status_failure_message=str(failure_message_raw)
+        if failure_message_raw is not None
+        else None,
+        enforce_data_product_status=_coerce_optional_bool(enforce_raw),
     )
 
 
@@ -208,10 +290,24 @@ def encode_write_context(context: GovernanceWriteContext) -> dict[str, Any]:
         "pipeline_context": encode_pipeline_context(context.pipeline_context),
         "bump": context.bump,
         "draft_on_violation": context.draft_on_violation,
+        "allowed_data_product_statuses": list(context.allowed_data_product_statuses)
+        if context.allowed_data_product_statuses is not None
+        else None,
+        "allow_missing_data_product_status": context.allow_missing_data_product_status,
+        "data_product_status_case_insensitive": context.data_product_status_case_insensitive,
+        "data_product_status_failure_message": context.data_product_status_failure_message,
+        "enforce_data_product_status": context.enforce_data_product_status,
     }
 
 
 def decode_write_context(raw: Mapping[str, Any]) -> GovernanceWriteContext:
+    allowed_statuses = _decode_allowed_statuses(raw)
+    (
+        allow_missing_raw,
+        case_insensitive_raw,
+        failure_message_raw,
+        enforce_raw,
+    ) = _extract_status_policy_fields(raw)
     return GovernanceWriteContext(
         contract=decode_contract_reference(raw.get("contract")),
         output_binding=decode_output_binding(raw.get("output_binding")),
@@ -221,6 +317,15 @@ def decode_write_context(raw: Mapping[str, Any]) -> GovernanceWriteContext:
         pipeline_context=raw.get("pipeline_context"),
         bump=str(raw.get("bump") or "minor"),
         draft_on_violation=bool(raw.get("draft_on_violation", False)),
+        allowed_data_product_statuses=allowed_statuses,
+        allow_missing_data_product_status=_coerce_optional_bool(allow_missing_raw),
+        data_product_status_case_insensitive=_coerce_optional_bool(
+            case_insensitive_raw
+        ),
+        data_product_status_failure_message=str(failure_message_raw)
+        if failure_message_raw is not None
+        else None,
+        enforce_data_product_status=_coerce_optional_bool(enforce_raw),
     )
 
 
@@ -236,6 +341,13 @@ def encode_read_plan(plan: ResolvedReadPlan) -> dict[str, Any]:
         "pipeline_context": dict(plan.pipeline_context) if isinstance(plan.pipeline_context, Mapping) else plan.pipeline_context,
         "bump": plan.bump,
         "draft_on_violation": plan.draft_on_violation,
+        "allowed_data_product_statuses": list(plan.allowed_data_product_statuses)
+        if plan.allowed_data_product_statuses is not None
+        else None,
+        "allow_missing_data_product_status": plan.allow_missing_data_product_status,
+        "data_product_status_case_insensitive": plan.data_product_status_case_insensitive,
+        "data_product_status_failure_message": plan.data_product_status_failure_message,
+        "enforce_data_product_status": plan.enforce_data_product_status,
     }
 
 
@@ -243,6 +355,13 @@ def decode_read_plan(raw: Mapping[str, Any]) -> ResolvedReadPlan:
     contract = decode_contract(raw.get("contract"))
     if contract is None:
         raise ValueError("Resolved plan payload missing contract definition")
+    allowed_statuses = _decode_allowed_statuses(raw)
+    (
+        allow_missing_raw,
+        case_insensitive_raw,
+        failure_message_raw,
+        enforce_raw,
+    ) = _extract_status_policy_fields(raw)
     return ResolvedReadPlan(
         contract=contract,
         contract_id=str(raw.get("contract_id")),
@@ -254,6 +373,15 @@ def decode_read_plan(raw: Mapping[str, Any]) -> ResolvedReadPlan:
         pipeline_context=decode_pipeline_context(raw.get("pipeline_context")),
         bump=str(raw.get("bump") or "minor"),
         draft_on_violation=bool(raw.get("draft_on_violation", False)),
+        allowed_data_product_statuses=allowed_statuses,
+        allow_missing_data_product_status=_coerce_optional_bool(allow_missing_raw),
+        data_product_status_case_insensitive=_coerce_optional_bool(
+            case_insensitive_raw
+        ),
+        data_product_status_failure_message=str(failure_message_raw)
+        if failure_message_raw is not None
+        else None,
+        enforce_data_product_status=_coerce_optional_bool(enforce_raw),
     )
 
 
@@ -269,6 +397,13 @@ def encode_write_plan(plan: ResolvedWritePlan) -> dict[str, Any]:
         "pipeline_context": dict(plan.pipeline_context) if isinstance(plan.pipeline_context, Mapping) else plan.pipeline_context,
         "bump": plan.bump,
         "draft_on_violation": plan.draft_on_violation,
+        "allowed_data_product_statuses": list(plan.allowed_data_product_statuses)
+        if plan.allowed_data_product_statuses is not None
+        else None,
+        "allow_missing_data_product_status": plan.allow_missing_data_product_status,
+        "data_product_status_case_insensitive": plan.data_product_status_case_insensitive,
+        "data_product_status_failure_message": plan.data_product_status_failure_message,
+        "enforce_data_product_status": plan.enforce_data_product_status,
     }
 
 
@@ -276,6 +411,13 @@ def decode_write_plan(raw: Mapping[str, Any]) -> ResolvedWritePlan:
     contract = decode_contract(raw.get("contract"))
     if contract is None:
         raise ValueError("Resolved plan payload missing contract definition")
+    allowed_statuses = _decode_allowed_statuses(raw)
+    (
+        allow_missing_raw,
+        case_insensitive_raw,
+        failure_message_raw,
+        enforce_raw,
+    ) = _extract_status_policy_fields(raw)
     return ResolvedWritePlan(
         contract=contract,
         contract_id=str(raw.get("contract_id")),
@@ -287,6 +429,15 @@ def decode_write_plan(raw: Mapping[str, Any]) -> ResolvedWritePlan:
         pipeline_context=decode_pipeline_context(raw.get("pipeline_context")),
         bump=str(raw.get("bump") or "minor"),
         draft_on_violation=bool(raw.get("draft_on_violation", False)),
+        allowed_data_product_statuses=allowed_statuses,
+        allow_missing_data_product_status=_coerce_optional_bool(allow_missing_raw),
+        data_product_status_case_insensitive=_coerce_optional_bool(
+            case_insensitive_raw
+        ),
+        data_product_status_failure_message=str(failure_message_raw)
+        if failure_message_raw is not None
+        else None,
+        enforce_data_product_status=_coerce_optional_bool(enforce_raw),
     )
 
 

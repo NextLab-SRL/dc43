@@ -17,6 +17,7 @@ jobs:
       should_run: ${{ steps.summarize.outputs.should_run }}
       packages_to_release: ${{ steps.summarize.outputs.packages_to_release }}
       core_tag: ${{ steps.summarize.outputs.core_tag }}
+      dc43_core_tag: ${{ steps.summarize.outputs.dc43_core_tag }}
       service_clients_tag: ${{ steps.summarize.outputs.service_clients_tag }}
       service_backends_tag: ${{ steps.summarize.outputs.service_backends_tag }}
       integrations_tag: ${{ steps.summarize.outputs.integrations_tag }}
@@ -52,6 +53,7 @@ jobs:
 
           key_map = {
               "dc43": "core_tag",
+              "dc43-core": "dc43_core_tag",
               "dc43-service-clients": "service_clients_tag",
               "dc43-service-backends": "service_backends_tag",
               "dc43-integrations": "integrations_tag",
@@ -142,6 +144,7 @@ jobs:
       - name: Record release plan
         env:
           CORE_TAG: ${{ needs.determine.outputs.core_tag }}
+          DC43_CORE_TAG: ${{ needs.determine.outputs.dc43_core_tag }}
           SERVICE_CLIENTS_TAG: ${{ needs.determine.outputs.service_clients_tag }}
           SERVICE_BACKENDS_TAG: ${{ needs.determine.outputs.service_backends_tag }}
           INTEGRATIONS_TAG: ${{ needs.determine.outputs.integrations_tag }}
@@ -149,6 +152,7 @@ jobs:
         run: |
           set -euo pipefail
           core_tag=${CORE_TAG:-—}
+          dc43_core_tag=${DC43_CORE_TAG:-—}
           clients_tag=${SERVICE_CLIENTS_TAG:-—}
           backends_tag=${SERVICE_BACKENDS_TAG:-—}
           integrations_tag=${INTEGRATIONS_TAG:-—}
@@ -159,11 +163,30 @@ jobs:
           | Package | Tag |
           | --- | --- |
           | dc43 | ${core_tag} |
+          | dc43-core | ${dc43_core_tag} |
           | dc43-service-clients | ${clients_tag} |
           | dc43-service-backends | ${backends_tag} |
           | dc43-integrations | ${integrations_tag} |
           | dc43-contracts-app | ${contracts_tag} |
           SUMMARY
+
+      - name: Build dc43-core
+        if: needs.determine.outputs.dc43_core_tag != ''
+        env:
+          TAG_NAME: ${{ needs.determine.outputs.dc43_core_tag }}
+          TAG_PREFIX: dc43-core-v
+          VERSION_FILE: packages/dc43-core/VERSION
+        run: |
+          set -euo pipefail
+          pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+          pip install pytest
+          pytest packages/dc43-core/tests
+          python scripts/check_tag_version.py \
+            --tag "$TAG_NAME" \
+            --prefix "$TAG_PREFIX" \
+            --version-file "$VERSION_FILE"
+          rm -rf release-artifacts/dc43-core
+          (cd packages/dc43-core && python -m build --outdir ../../release-artifacts/dc43-core)
 
       - name: Build dc43
         if: needs.determine.outputs.core_tag != ''
@@ -317,6 +340,14 @@ jobs:
         with:
           tag_name: ${{ needs.determine.outputs.core_tag }}
           files: release-artifacts/dc43/*
+          generate_release_notes: true
+
+      - name: Publish dc43-core GitHub release
+        if: needs.determine.outputs.dc43_core_tag != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.determine.outputs.dc43_core_tag }}
+          files: release-artifacts/dc43-core/*
           generate_release_notes: true
 
       - name: Publish dc43-service-clients GitHub release

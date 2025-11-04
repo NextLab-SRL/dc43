@@ -6,29 +6,14 @@ import tempfile
 from typing import Dict, Mapping, Optional, Protocol, Sequence
 
 from dc43_service_clients.odps import (
-    DataProductInputPort,
-    DataProductOutputPort,
     OpenDataProductStandard,
     as_odps_dict,
-    evolve_to_draft,
     to_model,
 )
 
-from .interface import (
-    DataProductListing,
-    DataProductRegistrationResult,
-    DataProductServiceBackend,
-)
+from .interface import DataProductListing, DataProductServiceBackend
 from .local import FilesystemDataProductServiceBackend
-
-
-def _as_custom_properties(data: Optional[Mapping[str, object]]) -> list[dict[str, object]]:
-    if not data:
-        return []
-    props: list[dict[str, object]] = []
-    for key, value in data.items():
-        props.append({"property": str(key), "value": value})
-    return props
+from ._shared import MutableDataProductBackendMixin
 
 
 class CollibraDataProductAdapter(Protocol):
@@ -52,7 +37,7 @@ class CollibraDataProductAdapter(Protocol):
         """Persist ``product`` in Collibra with the desired lifecycle ``status``."""
 
 
-class CollibraDataProductServiceBackend(DataProductServiceBackend):
+class CollibraDataProductServiceBackend(MutableDataProductBackendMixin, DataProductServiceBackend):
     """Expose Collibra-managed data products through the backend interface."""
 
     def __init__(
@@ -98,108 +83,12 @@ class CollibraDataProductServiceBackend(DataProductServiceBackend):
     # ------------------------------------------------------------------
     # Port registration helpers
     # ------------------------------------------------------------------
-    def _existing_versions(self, data_product_id: str) -> Sequence[str]:
-        return self.list_versions(data_product_id)
-
     def _ensure_product(self, data_product_id: str) -> OpenDataProductStandard:
         product = self.latest(data_product_id)
         if product is not None:
             return product.clone()
         status = self._default_status.lower() if self._default_status else "draft"
         return OpenDataProductStandard(id=data_product_id, status=status)
-
-    def _store_updated(
-        self,
-        product: OpenDataProductStandard,
-        *,
-        bump: str,
-        data_product_id: str,
-    ) -> OpenDataProductStandard:
-        evolve_to_draft(
-            product,
-            existing_versions=self._existing_versions(data_product_id),
-            bump=bump,
-        )
-        self.put(product)
-        return product
-
-    def register_input_port(
-        self,
-        *,
-        data_product_id: str,
-        port: DataProductInputPort,
-        bump: str = "minor",
-        custom_properties: Optional[Mapping[str, object]] = None,
-        source_data_product: Optional[str] = None,
-        source_output_port: Optional[str] = None,
-    ) -> DataProductRegistrationResult:
-        product = self._ensure_product(data_product_id)
-        did_change = product.ensure_input_port(port)
-        if not did_change:
-            return DataProductRegistrationResult(product=product, changed=False)
-
-        props = _as_custom_properties(custom_properties)
-        if source_data_product:
-            props.append(
-                {
-                    "property": "dc43.input.source_data_product",
-                    "value": source_data_product,
-                }
-            )
-        if source_output_port:
-            props.append(
-                {
-                    "property": "dc43.input.source_output_port",
-                    "value": source_output_port,
-                }
-            )
-        if props:
-            existing = list(port.custom_properties)
-            for item in props:
-                if item not in existing:
-                    existing.append(item)
-            port.custom_properties = existing
-
-        updated = self._store_updated(product, bump=bump, data_product_id=data_product_id)
-        return DataProductRegistrationResult(product=updated, changed=True)
-
-    def register_output_port(
-        self,
-        *,
-        data_product_id: str,
-        port: DataProductOutputPort,
-        bump: str = "minor",
-        custom_properties: Optional[Mapping[str, object]] = None,
-    ) -> DataProductRegistrationResult:
-        product = self._ensure_product(data_product_id)
-        did_change = product.ensure_output_port(port)
-        if not did_change:
-            return DataProductRegistrationResult(product=product, changed=False)
-
-        props = _as_custom_properties(custom_properties)
-        if props:
-            existing = list(port.custom_properties)
-            for item in props:
-                if item not in existing:
-                    existing.append(item)
-            port.custom_properties = existing
-
-        updated = self._store_updated(product, bump=bump, data_product_id=data_product_id)
-        return DataProductRegistrationResult(product=updated, changed=True)
-
-    def resolve_output_contract(
-        self,
-        *,
-        data_product_id: str,
-        port_name: str,
-    ) -> Optional[tuple[str, str]]:
-        product = self.latest(data_product_id)
-        if product is None:
-            return None
-        port = product.find_output_port(port_name)
-        if port is None or not port.contract_id:
-            return None
-        return port.contract_id, port.version
 
 
 class StubCollibraDataProductAdapter(CollibraDataProductAdapter):

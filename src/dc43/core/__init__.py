@@ -1,8 +1,8 @@
-"""Compatibility facade for core helpers exposed from dc43-service-backends."""
+"""Compatibility facade exposing :mod:`dc43_core` helpers via ``dc43.core``."""
 
 from __future__ import annotations
 
-from dc43_service_backends.core import (  # noqa: F401 re-export
+from dc43_core import (  # noqa: F401 re-export
     BITOL_SCHEMA_URL,
     ODCS_REQUIRED,
     ODPS_REQUIRED,

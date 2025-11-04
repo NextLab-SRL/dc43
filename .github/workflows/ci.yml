@@ -1,11 +1,11 @@
 name: ci
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
-  push:
-    branches:
-      - main
-      - dev
   workflow_dispatch:
     inputs:
       publish_docker_images:
@@ -15,6 +15,13 @@ on:
       docker_image_tag:
         description: "Tag to apply when pushing Docker images (defaults to commit SHA)"
         required: false
+      publish_test_pypi:
+        description: "Publish eligible packages to Test PyPI"
+        type: boolean
+        default: false
+
+env:
+  TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
 
 jobs:
   tests:
@@ -27,19 +34,28 @@ jobs:
           - display: meta
             install: |
               pip install -e . --no-deps
+              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
             test_command: "pytest tests -q"
+          - display: core
+            install: |
+              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+            test_command: "pytest packages/dc43-core/tests -q"
           - display: service-clients
-            install: "pip install -e packages/dc43-service-clients[test]"
+            install: |
+              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+              pip install -e packages/dc43-service-clients[test]
             test_command: "pytest packages/dc43-service-clients/tests -q"
           - display: service-backends
             install: |
               pip install -e . --no-deps
+              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
               pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
               pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
             test_command: "pytest packages/dc43-service-backends/tests -q"
           - display: integrations
             install: |
               pip install -e . --no-deps
+              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
               pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
               pip install "dc43-service-backends[sql] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
               pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
@@ -47,6 +63,7 @@ jobs:
           - display: contracts-app
             install: |
               pip install -e . --no-deps
+              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
               pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
               pip install fastapi jinja2 python-multipart pyspark
               pip install "sqlalchemy>=2.0"
@@ -57,6 +74,7 @@ jobs:
           - display: demo-app
             install: |
               pip install -e . --no-deps
+              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
               pip install fastapi jinja2 python-multipart uvicorn pyspark httpx "sqlalchemy>=2.0"
               pip install "open-data-contract-standard==3.0.2"
               pip install --no-deps "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
@@ -82,6 +100,191 @@ jobs:
 
       - name: Run tests
         run: ${{ matrix.test_command }}
+
+  publish-test-pypi:
+    name: Publish packages to Test PyPI
+    needs: tests
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.publish_test_pypi == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+    steps:
+      - name: Check for publish label
+        id: label
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.pull_request.number;
+            const { data } = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number: pull_number,
+            });
+            const hasLabel = data.labels.some(
+              (label) => label.name === 'publish-test-pypi'
+            );
+            core.setOutput('has_label', hasLabel ? 'true' : 'false');
+
+      - name: Skip publishing when label is missing
+        if: ${{ github.event_name == 'pull_request' && steps.label.outputs.has_label != 'true' }}
+        run: echo "publish-test-pypi label not present; skipping publish job." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Detect Test PyPI token
+        id: token
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true' }}
+        run: |
+          if [ -z "${TEST_PYPI_TOKEN:-}" ]; then
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "Test PyPI token not configured; skipping publish job." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          tags: true
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
+
+      - name: Prepare build tooling
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install packaging build twine
+
+      - name: Compute release plan
+        id: plan
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
+        run: |
+          set -euo pipefail
+          python scripts/release.py \
+            --commit "$GITHUB_SHA" \
+            --json-output plan.json \
+            --allow-missing-release-marker
+
+      - name: Determine packages to publish
+        id: packages
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          allowed = {
+              "dc43",
+              "dc43-core",
+              "dc43-service-clients",
+              "dc43-service-backends",
+              "dc43-integrations",
+              "dc43-contracts-app",
+          }
+
+          plan = json.loads(Path("plan.json").read_text(encoding="utf-8"))
+          packages: list[str] = []
+          rows = [
+              "| Package | Needs release | Has changes | Included |",
+              "| --- | --- | --- | --- |",
+          ]
+
+          for entry in plan.get("packages", []):
+              name = entry.get("package")
+              if name not in allowed:
+                  continue
+              needs_release = bool(entry.get("needs_release"))
+              has_changes = bool(entry.get("changed_files"))
+              include = needs_release or has_changes
+              rows.append(
+                  "| {name} | {release} | {changes} | {included} |".format(
+                      name=name,
+                      release="yes" if needs_release else "no",
+                      changes="yes" if has_changes else "no",
+                      included="yes" if include else "no",
+                  )
+              )
+              if include:
+                  packages.append(name)
+
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary.write_text("\n".join(["### Test PyPI publish plan", *rows]) + "\n", encoding="utf-8")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"packages={' '.join(packages)}\n")
+
+          Path("packages-to-release.txt").write_text("\n".join(packages), encoding="utf-8")
+          PY
+
+      - name: Bail out when nothing to publish
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages == '' }}
+        run: echo "No packages require publishing to Test PyPI." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply Test PyPI pre-release suffixes
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages != '' }}
+        env:
+          PACKAGES: ${{ steps.packages.outputs.packages }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          python scripts/test_pypi_versions.py --packages $PACKAGES --stage rc --run-identifier "${RUN_NUMBER}" --output test-pypi-versions.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Build packages
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages != '' }}
+        env:
+          PACKAGES: ${{ steps.packages.outputs.packages }}
+        run: |
+          set -euo pipefail
+          rm -rf release-artifacts
+          mkdir -p release-artifacts
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          packages = os.environ["PACKAGES"].split()
+
+          script_dir = Path("scripts").resolve()
+          if str(script_dir) not in sys.path:
+              sys.path.insert(0, str(script_dir))
+
+          from _packages import PACKAGES as PACKAGE_META, ROOT
+
+          for name in packages:
+              meta = PACKAGE_META[name]
+              outdir = Path("release-artifacts") / name
+              outdir.mkdir(parents=True, exist_ok=True)
+              package_dir = ROOT / meta["package_dir"]
+              subprocess.run(
+                  [sys.executable, "-m", "build", "--outdir", str(outdir.resolve())],
+                  cwd=package_dir,
+                  check=True,
+              )
+          PY
+
+      - name: Publish packages to Test PyPI
+        if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') && steps.packages.outputs.packages != '' }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: |
+          set -euo pipefail
+          for package in ${{ steps.packages.outputs.packages }}; do
+            python -m twine upload --repository-url https://test.pypi.org/legacy/ release-artifacts/$package/*
+          done
 
   docker-ecr-smoke:
     name: Docker image smoke publish

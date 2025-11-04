@@ -3,14 +3,20 @@
 ## [Unreleased]
 
 ### Added
-- Added `generate_contract_dataset` testing helper to materialise Faker-powered
-  sample datasets aligned with ODCS contracts and write them to the configured
-  storage path for integration tests.
-- `generate_contract_dataset` now wires governance orchestration through a
-  provided or inline governance client instead of requesting contract and data
-  quality services directly, simplifying integration overrides.
+- Added `draft_contract_from_dataframe` to capture schema/metric observations
+  from Spark DataFrames and return ready-to-review ODCS draft contracts using
+  the shared builders from the new `dc43-core` package.
 
 ### Changed
+- `generate_contract_dataset` now returns only an in-memory DataFrame so tests
+  can persist via the regular governance write helpers when needed, and it
+  inspects contract schemas directly instead of calling backend helpers.
+- Spark integrations now require the `dc43-core` package so contract drafting
+  and ODCS utilities rely on a single shared implementation.
+- Raised the minimum `dc43-core` dependency to 0.27.0.0 so pre-release
+  rewrites cover the shared helpers alongside the other internal packages.
+- Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
+  continue after the ``0.26.0.0`` build was removed upstream.
 - Deprecated contract- and data-product-centric helpers (`read_with_contract`,
   `write_with_contract`, their streaming counterparts, and related aliases).
   They continue to forward into the governance flow but now emit
@@ -49,93 +55,8 @@
   flows across data product bindings, DQ violations, and format guardrails, and
   aligned the helper behaviour so governance-only calls report review-required
   registrations just like the legacy contract wrappers.
+- `read_with_governance` now forwards the active status strategy and enforce
+  flags to the governance service so opting into draft products (for example via
+  `DefaultReadStatusStrategy(allowed_data_product_statuses=("active", "draft"))`)
+  behaves consistently with the contract-only helpers.
 
-## [0.22.0.0] - 2025-10-25
-### Changed
-- No functional updates landed for this distribution. Metadata is bumped for the
-  0.22.0.0 release rollout.
-
-## [0.21.0.0] - 2025-10-23
-### Added
-- Spark and Delta Live Tables setup-bundle providers now export complete
-  example projects (pipeline modules, README files, and operational helpers)
-  so the wizard's archive contains runnable scaffolds for each integration.
-- Published setup bundle pipeline stub providers for Spark and Delta Live
-  Tables so the setup wizard can assemble integration-specific helper scripts
-  directly from the runtime packages.
-- Added explicit streaming read/write helpers (``read_stream_with_contract``,
-  ``read_stream_from_contract``, ``read_stream_from_data_product``,
-  ``write_stream_with_contract``, and ``write_stream_to_data_product``) so
-  Structured Streaming jobs can enforce contracts via
-  ``readStream``/``writeStream`` while still invoking the data-quality service
-  and governance catalogue (metrics are deferred but schema observations
-  continue to flow). Documentation now demonstrates capturing the resulting
-  ``StreamingQuery`` handles and the integration tests cover both read and
-  write pipelines.
-- Streaming validations now surface the ``dataset_id`` and ``dataset_version``
-  submitted to governance so micro-batch monitors can inspect the active
-  snapshot and request asynchronous metric computation when necessary.
-- Streaming writes launch an auxiliary ``foreachBatch`` metrics collector so
-  contract expectations compute Spark metrics per micro-batch, feed the
-  data-quality service, and update the returned validation payloads while the
-  primary sink continues to run.
-- Streaming validation payloads now expose a ``streaming_batches`` timeline so
-  callers can inspect per-batch row counts, violation totals, timestamps, and
-  intervention reasons alongside the aggregated metrics.
-- Streaming write helpers accept an ``on_streaming_batch`` callback that emits
-  the same payloads recorded in ``streaming_batches`` so applications can stream
-  live progress updates or power custom dashboards while the pipeline runs.
-- Added a streaming scenarios walkthrough and linked demo-application flows that
-  demonstrate continuous validation, reject routing, and schema break handling
-  for Structured Streaming pipelines.
-- Streaming writes now rely on a dedicated ``StreamingObservationWriter`` that
-  avoids shared-state locking, exposes optional ``StreamingInterventionStrategy``
-  hooks to block or reroute pipelines after repeated issues, and ships
-  convenience wrappers (``read_stream_with_contract`` /
-  ``write_stream_with_contract``) to separate batch and streaming flows in
-  caller code.
-- Enforced Open Data Contract status guardrails in the Spark read/write helpers with
-  configurable policies that default to rejecting non-active contracts and expose
-  overrides through the existing read and write strategies.
-- Documented the new contract status options across the demo pipeline, integration
-  helper, and docs to help teams opt into draft or deprecated contracts for
-  development scenarios while keeping production defaults strict.
-- Added contract- and data-product-specific helpers
-  (`read_from_contract`, `write_with_contract_id`, `read_from_data_product`,
-  `write_to_data_product`) that resolve ODPS contracts automatically and abort
-  pipelines when port registration produces a draft version.
-- `read_from_data_product` accepts an `expected_contract_version` argument so
-  data-product reads can pin the upstream schema revision.
-- Local DLT helpers now expose ``ensure_dlt_module`` and ship an in-repo stub so
-  demo pipelines and tests keep running even when the ``databricks-dlt`` wheel
-  is not available (still recommending the official package for parity).
-
-### Removed
-- Removed the Databricks `UnityCatalogPublisher` wrapper now that Unity Catalog
-  tagging is handled transparently by the governance backend configuration.
-- Removed the standalone `streaming_contract_scenarios.py` example script; the
-  demo application now hosts the streaming walkthrough.
-
-### Fixed
-- Installing the ``test`` extra now pulls in ``databricks-dlt`` so the local DLT
-  harness tests execute instead of being skipped when the dependency is absent.
-- The CI workflow now installs the repository's ``dc43-service-backends``
-  package before resolving the ``test`` extra so dependency checks continue to
-  target ``0.21.0.0`` while avoiding missing-distribution errors during
-  integration runs.
-- Installing the ``test`` extra now pulls in ``dc43-service-backends`` with its
-  SQL dependencies and ``httpx`` so the integration suite runs without tweaking
-  import guards.
-- Declared a direct dependency on ``dc43-service-backends`` so Spark helpers
-  can import the shared ODCS utilities without relying on the meta package.
-- `StrictWriteViolationStrategy` now reuses the wrapped strategy's contract status
-  allowances so strict enforcement respects custom governance policies.
-- Spark writes that overwrite their source path now checkpoint the aligned dataframe
-  before executing so contract-enforced data product registrations succeed without
-  triggering spurious "file not found" failures, and `write_to_data_product`
-  accepts explicit contract identifiers for the final stage of DP pipelines.
-- Streaming observation writers skip empty micro-batches instead of overwriting
-  the previous validation payload, so governance metrics (e.g., `row_count`) and
-  intervention reasons remain visible after queries drain or stop.
-- Filtered missing metric warnings for streaming reads when metrics collection
-  is deferred, keeping schema snapshots visible without spurious alerts.
