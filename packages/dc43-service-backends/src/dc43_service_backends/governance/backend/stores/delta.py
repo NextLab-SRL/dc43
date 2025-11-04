@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from numbers import Number
@@ -32,6 +33,19 @@ except ModuleNotFoundError as exc:  # pragma: no cover - allow import without py
         "pyspark is required for Delta governance storage. Install the optional "
         "dependencies with 'pip install dc43-service-backends[spark]'.",
     ) from exc
+
+# ``pyspark.errors`` in versions >= 3.5 attempts to import ``is_remote`` from
+# ``pyspark.sql.utils``.  The lightweight stub that backs the unit tests does
+# not expose this helper, which would cause the import above to succeed but the
+# later lookup performed by ``pyspark.errors`` to fail with ``ImportError``.
+# Provide a small shim so that both the stub and older pyspark releases keep
+# working without pulling in the full dependency during tests.
+utils_module = sys.modules.get("pyspark.sql.utils")
+if utils_module is not None and not hasattr(utils_module, "is_remote"):
+    def _is_remote(*_: object, **__: object) -> bool:  # pragma: no cover - stub only
+        return False
+
+    setattr(utils_module, "is_remote", _is_remote)
 
 
 class DeltaGovernanceStore(GovernanceStore):
