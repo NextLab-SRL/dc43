@@ -784,7 +784,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             binding_type="input",
         )
 
-        product = getattr(registration, "product", None) if registration else None
+        product = self._registration_product_for_binding(
+            binding=binding,
+            registration=registration,
+        )
         self._enforce_input_product_constraints(
             binding=binding,
             port_name=port_name,
@@ -830,7 +833,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             binding_type="output",
         )
 
-        product = getattr(registration, "product", None) if registration else None
+        product = self._registration_product_for_binding(
+            binding=binding,
+            registration=registration,
+        )
         self._enforce_output_product_constraints(
             binding=binding,
             port_name=port_name,
@@ -869,6 +875,33 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         if value.startswith("=="):
             return value[2:].strip() or None
         return value
+
+    def _registration_product_for_binding(
+        self,
+        *,
+        binding: Any,
+        registration: Optional[DataProductRegistrationResult],
+    ) -> Any:
+        data_product_id = getattr(binding, "data_product", None)
+        if not data_product_id:
+            return getattr(registration, "product", None) if registration else None
+
+        version_spec = getattr(binding, "data_product_version", None)
+        requirement = self._normalise_version_spec(version_spec)
+        if requirement and not requirement.startswith(">="):
+            return self._load_data_product(
+                data_product_id=data_product_id,
+                version_spec=requirement,
+            )
+
+        product = getattr(registration, "product", None) if registration else None
+        if product is not None:
+            return product
+
+        return self._load_data_product(
+            data_product_id=data_product_id,
+            version_spec=version_spec,
+        )
 
     def _version_satisfies(self, expected: Optional[str], actual: Optional[str]) -> bool:
         if expected is None or not expected.strip():

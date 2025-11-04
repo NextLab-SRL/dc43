@@ -49,4 +49,7 @@
 - Delta-backed stores now ignore empty version markers and rank ``draft``
   suffixes as pre-releases, ensuring ``latest`` resolution succeeds even when
   historical rows contain placeholder records.
+- Data product registration during read/write activity reloads explicit binding
+  versions before enforcement so requested drafts or historical releases are
+  validated rather than the latest product returned by the registration helper.
 

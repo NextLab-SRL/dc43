@@ -78,6 +78,10 @@
 - Introduced governance-first Spark IO wrappers and updated documentation/tests
   so pipelines can rely on a single governance client instead of wiring
   contract/data-quality services manually.
+- Governance registration now reloads explicitly requested data product
+  versions before enforcing bindings so read/write activity honours historical
+  releases instead of comparing against the latest draft returned by the
+  registration helpers.
 - `read_with_governance` and its streaming counterpart now accept
   `GovernanceReadContext` payloads so pipelines can declare contract references
   or data product bindings explicitly when resolving datasets through
