@@ -4,8 +4,9 @@
 
 ### Added
 - Added `draft_contract_from_dataframe` to capture schema/metric observations
-  from Spark DataFrames and return ready-to-review ODCS draft contracts without
-  touching backend-only modules.
+  from Spark DataFrames and return ready-to-review ODCS draft contracts while
+  preferring public builders and providing a compatibility shim when only the
+  integrations package is installed.
 
 ### Changed
 - `generate_contract_dataset` now returns only an in-memory DataFrame so tests
