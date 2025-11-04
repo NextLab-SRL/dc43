@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
@@ -20,6 +21,8 @@ from dc43_integrations.spark.io import (
     ContractVersionLocator,
     DatasetResolution,
     DefaultReadStatusStrategy,
+    BatchReadExecutor,
+    BatchWriteExecutor,
 )
 from dc43_integrations.spark.violation_strategy import (
     SplitWriteViolationStrategy,
@@ -30,6 +33,9 @@ from dc43_service_clients.governance import (
     GovernanceReadContext,
     build_local_governance_service,
 )
+from dc43_service_clients.governance.models import ResolvedReadPlan, ResolvedWritePlan
+from dc43_service_clients.data_products import DataProductInputBinding, DataProductOutputBinding
+from dc43_service_clients.odps import OpenDataProductStandard
 from dc43_service_backends.data_products import DataProductRegistrationResult
 from dc43_service_backends.core.odps import (
     DataProductInputPort,
@@ -39,6 +45,14 @@ from dc43_service_backends.core.odps import (
 from .helpers.orders import build_orders_contract, materialise_orders
 from datetime import datetime
 import logging
+
+
+@dataclass
+class _StubContract:
+    id: str
+    version: str
+    status: str = "active"
+    servers: list = field(default_factory=list)
 
 
 def persist_contract(
@@ -1833,3 +1847,107 @@ def test_read_write_with_governance_only(spark, tmp_path: Path) -> None:
 
     assert read_df.count() == 2
     assert status is not None
+
+
+def test_read_executor_applies_plan_data_product_status(spark) -> None:
+    contract = _StubContract(id="sales.orders", version="1.0.0")
+    binding = DataProductInputBinding(
+        data_product="Sales.KPIs",
+        port_name="orders",
+        data_product_version="0.1.0-draft",
+    )
+    plan = ResolvedReadPlan(
+        contract=contract,  # type: ignore[arg-type]
+        contract_id=contract.id,
+        contract_version=contract.version,
+        dataset_id="orders",
+        dataset_version="2024-01-01",
+        input_binding=binding,
+        allowed_data_product_statuses=("active", "draft"),
+    )
+    executor = BatchReadExecutor(
+        spark=spark,
+        contract_id=None,
+        contract_service=None,
+        expected_contract_version=None,
+        format=None,
+        path=None,
+        table=None,
+        options=None,
+        enforce=True,
+        auto_cast=True,
+        data_quality_service=None,
+        governance_service=None,
+        data_product_service=None,
+        data_product_input=None,
+        dataset_locator=None,
+        status_strategy=None,
+        pipeline_context=None,
+        plan=plan,
+    )
+    product = OpenDataProductStandard(
+        id="Sales.KPIs",
+        status="draft",
+        version="0.1.0-draft",
+    )
+
+    assert executor.status_handler.allowed_data_product_statuses == ("active", "draft")
+    executor.status_handler.validate_data_product_status(
+        data_product=product,
+        enforce=executor.data_product_status_enforce,
+        operation="read",
+    )
+
+
+def test_write_executor_applies_plan_data_product_status(spark) -> None:
+    contract = _StubContract(id="sales.orders", version="1.0.0")
+    binding = DataProductOutputBinding(
+        data_product="Sales.KPIs",
+        port_name="kpis.simple",
+        data_product_version="0.1.0-draft",
+    )
+    plan = ResolvedWritePlan(
+        contract=contract,  # type: ignore[arg-type]
+        contract_id=contract.id,
+        contract_version=contract.version,
+        dataset_id="sales.kpis",
+        dataset_version="2024-01-01",
+        output_binding=binding,
+        allowed_data_product_statuses=("active", "draft"),
+    )
+    df = spark.createDataFrame([(1,)], ["value"])
+    executor = BatchWriteExecutor(
+        df=df,
+        contract_id=None,
+        contract_service=None,
+        expected_contract_version=None,
+        path=None,
+        table=None,
+        format=None,
+        options=None,
+        mode="append",
+        enforce=True,
+        auto_cast=True,
+        data_quality_service=None,
+        governance_service=None,
+        data_product_service=None,
+        data_product_output=None,
+        dataset_locator=None,
+        pipeline_context=None,
+        violation_strategy=None,
+        streaming_intervention_strategy=None,
+        streaming_batch_callback=None,
+        plan=plan,
+    )
+    product = OpenDataProductStandard(
+        id="Sales.KPIs",
+        status="draft",
+        version="0.1.0-draft",
+    )
+
+    assert executor.strategy.allowed_data_product_statuses == ("active", "draft")
+    executor.strategy.validate_data_product_status(
+        data_product=product,
+        enforce=executor.data_product_status_enforce,
+        operation="write",
+    )

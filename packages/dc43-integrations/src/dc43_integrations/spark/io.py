@@ -22,10 +22,11 @@ from typing import (
     Union,
     overload,
 )
+import copy
 import logging
 import warnings
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, is_dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1725,6 +1726,62 @@ def _validate_data_product_status(
     logger.warning(message)
 
 
+def _clone_status_handler(handler: object, overrides: Mapping[str, Any]) -> object:
+    """Return ``handler`` updated with ``overrides`` without mutating the input."""
+
+    if not overrides:
+        return handler
+    if is_dataclass(handler):
+        try:
+            return replace(handler, **overrides)
+        except TypeError:
+            pass
+    try:
+        clone = copy.copy(handler)
+    except Exception:  # pragma: no cover - fallback when cloning fails
+        clone = handler
+    for key, value in overrides.items():
+        if hasattr(clone, key):
+            setattr(clone, key, value)
+    return clone
+
+
+def _apply_plan_data_product_policy(
+    handler: object,
+    plan: Any | None,
+    *,
+    default_enforce: bool,
+) -> tuple[object, bool]:
+    """Return a handler/enforcement pair honouring plan-defined policies."""
+
+    if plan is None:
+        return handler, default_enforce
+
+    overrides: Dict[str, Any] = {}
+    allowed_statuses = getattr(plan, "allowed_data_product_statuses", None)
+    if allowed_statuses is not None and hasattr(handler, "allowed_data_product_statuses"):
+        overrides["allowed_data_product_statuses"] = tuple(allowed_statuses)
+
+    allow_missing = getattr(plan, "allow_missing_data_product_status", None)
+    if allow_missing is not None and hasattr(handler, "allow_missing_data_product_status"):
+        overrides["allow_missing_data_product_status"] = bool(allow_missing)
+
+    case_insensitive = getattr(plan, "data_product_status_case_insensitive", None)
+    if case_insensitive is not None and hasattr(handler, "data_product_status_case_insensitive"):
+        overrides["data_product_status_case_insensitive"] = bool(case_insensitive)
+
+    failure_message = getattr(plan, "data_product_status_failure_message", None)
+    if failure_message is not None and hasattr(handler, "data_product_status_failure_message"):
+        overrides["data_product_status_failure_message"] = failure_message
+
+    handler = _clone_status_handler(handler, overrides)
+
+    enforce_override = getattr(plan, "enforce_data_product_status", None)
+    if enforce_override is None:
+        return handler, default_enforce
+    return handler, bool(enforce_override)
+
+
 def _enforce_data_product_status(
     *,
     handler: object,
@@ -1754,11 +1811,13 @@ def _select_data_product(
     handler: object,
     enforce: bool,
     operation: str,
+    status_enforce: Optional[bool] = None,
 ) -> Optional[OpenDataProductStandard]:
     """Return a data product respecting ``handler`` status policies."""
 
     requirement = version_spec.strip() if isinstance(version_spec, str) else ""
     direct_version = None
+    policy_enforce = enforce if status_enforce is None else status_enforce
     if requirement and not requirement.startswith(">="):
         direct_version = _normalise_version_spec(requirement)
     if direct_version:
@@ -1776,7 +1835,7 @@ def _select_data_product(
         _enforce_data_product_status(
             handler=handler,
             data_product=product,
-            enforce=enforce,
+            enforce=policy_enforce,
             operation=operation,
         )
         if not _check_data_product_version(
@@ -1837,7 +1896,7 @@ def _select_data_product(
             _enforce_data_product_status(
                 handler=handler,
                 data_product=candidate,
-                enforce=enforce,
+                enforce=policy_enforce,
                 operation=operation,
             )
         except ValueError as exc:
@@ -1948,7 +2007,16 @@ class BaseReadExecutor:
         else:
             self.dp_binding = normalise_input_binding(data_product_input)
         self.locator = dataset_locator or ContractFirstDatasetLocator()
-        self.status_handler = status_strategy or DefaultReadStatusStrategy()
+        handler = status_strategy or DefaultReadStatusStrategy()
+        self.data_product_status_enforce = enforce
+        if plan is not None:
+            handler, status_enforce = _apply_plan_data_product_policy(
+                handler,
+                plan,
+                default_enforce=enforce,
+            )
+            self.data_product_status_enforce = status_enforce
+        self.status_handler = handler
         if pipeline_context is not None:
             self.pipeline_context = pipeline_context
         elif plan is not None:
@@ -2036,6 +2104,7 @@ class BaseReadExecutor:
                     handler=self.status_handler,
                     enforce=self.enforce,
                     operation="read",
+                    status_enforce=self.data_product_status_enforce,
                 )
             except ValueError:
                 if self.enforce:
@@ -2508,7 +2577,7 @@ class BaseReadExecutor:
         _enforce_data_product_status(
             handler=self.status_handler,
             data_product=product,
-            enforce=self.enforce,
+            enforce=self.data_product_status_enforce,
             operation="read",
         )
         if binding.data_product_version:
@@ -3296,7 +3365,16 @@ class BaseWriteExecutor:
             self.pipeline_context = plan.pipeline_context
         else:
             self.pipeline_context = None
-        self.strategy = violation_strategy or NoOpWriteViolationStrategy()
+        strategy = violation_strategy or NoOpWriteViolationStrategy()
+        self.data_product_status_enforce = enforce
+        if plan is not None:
+            strategy, status_enforce = _apply_plan_data_product_policy(
+                strategy,
+                plan,
+                default_enforce=enforce,
+            )
+            self.data_product_status_enforce = status_enforce
+        self.strategy = strategy
         self.streaming_intervention_strategy = streaming_intervention_strategy
         self.streaming_batch_callback = streaming_batch_callback
 
@@ -3346,6 +3424,7 @@ class BaseWriteExecutor:
                     handler=strategy,
                     enforce=enforce,
                     operation="write",
+                    status_enforce=self.data_product_status_enforce,
                 )
             except ValueError:
                 if enforce:
@@ -3649,7 +3728,7 @@ class BaseWriteExecutor:
                 _enforce_data_product_status(
                     handler=strategy,
                     data_product=product,
-                    enforce=enforce,
+                    enforce=self.data_product_status_enforce,
                     operation="write",
                 )
                 if dp_output_binding.data_product_version:
