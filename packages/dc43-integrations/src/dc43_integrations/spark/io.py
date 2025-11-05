@@ -821,7 +821,13 @@ class ContractFirstDatasetLocator:
         if contract and contract.servers:
             c_path, c_table = _ref_from_contract(contract)
             server = contract.servers[0]
-            c_format = server.format if server is not None else None
+            if server is not None:
+                try:
+                    c_format = server.format  # type: ignore[attr-defined]
+                except AttributeError:
+                    c_format = None
+            else:
+                c_format = None
             if c_path is not None:
                 path = c_path
             if c_table is not None:
