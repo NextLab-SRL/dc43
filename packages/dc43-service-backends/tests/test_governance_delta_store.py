@@ -2,13 +2,28 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
-from types import SimpleNamespace
 import sys
 import types
+from pathlib import Path
+from types import SimpleNamespace
 
 
-def _install_pyspark_stub() -> None:
+def _maybe_install_pyspark_stub() -> None:
+    """Provide a lightweight pyspark replacement when the real package is absent."""
+
+    try:
+        import pyspark  # noqa: F401  # pragma: no cover - import check only
+        from pyspark import SparkContext  # type: ignore  # pragma: no cover - import check only
+        from pyspark.sql import SparkSession  # type: ignore  # pragma: no cover - import check only
+        from pyspark.sql.functions import col  # type: ignore  # pragma: no cover - import check only
+        from pyspark.sql.types import StructType  # type: ignore  # pragma: no cover - import check only
+        from pyspark.sql.utils import AnalysisException  # type: ignore  # pragma: no cover - import check only
+    except ModuleNotFoundError:
+        pass
+    else:
+        # A functional pyspark installation is available; no stub required.
+        return
+
     for name in [
         "pyspark",
         "pyspark.sql",
@@ -22,14 +37,18 @@ def _install_pyspark_stub() -> None:
     sql_module = types.ModuleType("pyspark.sql")
 
     class _StubSparkContext:  # pragma: no cover - attribute container only
-        """Fallback stand-in so imports expecting ``SparkContext`` succeed.
+        """Fallback stand-in so imports expecting ``SparkContext`` succeed."""
 
-        The release workflow imports ``pyspark.SparkContext`` as part of the
-        column helpers, so expose a placeholder to avoid repeated bespoke
-        shims when new helpers reach for it.
-        """
+        _active_spark_context: "_StubSparkContext | None" = None
 
-        pass
+        def __init__(self) -> None:  # pragma: no cover - behaviour unused in tests
+            _StubSparkContext._active_spark_context = self
+
+        @classmethod
+        def getOrCreate(cls) -> "_StubSparkContext":  # pragma: no cover - helper parity
+            if cls._active_spark_context is None:
+                cls._active_spark_context = cls()
+            return cls._active_spark_context
 
     class _StubSparkSession:  # pragma: no cover - attribute container only
         _active_session: "_StubSparkSession | None" = None
@@ -44,6 +63,22 @@ def _install_pyspark_stub() -> None:
         ) -> None:
             cls._active_session = session
 
+        class builder:  # pragma: no cover - builder parity for defensive code paths
+            @staticmethod
+            def master(_: str) -> "_StubSparkSession.builder":
+                return _StubSparkSession.builder()
+
+            @staticmethod
+            def appName(_: str) -> "_StubSparkSession.builder":
+                return _StubSparkSession.builder()
+
+            @staticmethod
+            def getOrCreate() -> "_StubSparkSession":
+                session = _StubSparkSession()
+                _StubSparkSession.setActiveSession(session)
+                _StubSparkContext.getOrCreate()
+                return session
+
     class _StubDataFrame:  # pragma: no cover - attribute container only
         pass
 
@@ -55,6 +90,15 @@ def _install_pyspark_stub() -> None:
     class _StubColumn:  # pragma: no cover - attribute container only
         def __init__(self, name: str) -> None:
             self.name = name
+
+        def __eq__(self, _: object) -> "_StubColumn":
+            return self
+
+        def __and__(self, _: object) -> "_StubColumn":
+            return self
+
+        def desc(self) -> "_StubColumn":  # pragma: no cover - behaviour ignored in stub
+            return self
 
     def _col(name: str) -> _StubColumn:
         return _StubColumn(name)
@@ -106,8 +150,7 @@ def _install_pyspark_stub() -> None:
     sys.modules["pyspark.sql.utils"] = utils_module
 
 
-_install_pyspark_stub()
-
+_maybe_install_pyspark_stub()
 
 class _StubFileSystem:
     def __init__(self, existing_paths: set[str]) -> None:
@@ -588,8 +631,14 @@ def test_load_metrics_filters_results(tmp_path: Path) -> None:
         def desc(self) -> "_StubColumn":  # pragma: no cover - behaviour ignored in stub
             return self
 
+    stub_factory = lambda name: _StubColumn(name)
+
     original_col = delta_module.col
-    delta_module.col = lambda name: _StubColumn(name)  # type: ignore[assignment]
+    delta_module.col = stub_factory  # type: ignore[assignment]
+
+    load_metrics_globals = DeltaGovernanceStore.load_metrics.__globals__
+    original_load_metrics_col = load_metrics_globals["col"]
+    load_metrics_globals["col"] = stub_factory  # type: ignore[index]
     try:
         entries = store.load_metrics(
             dataset_id=target_dataset_id,
@@ -597,6 +646,7 @@ def test_load_metrics_filters_results(tmp_path: Path) -> None:
         )
     finally:
         delta_module.col = original_col  # type: ignore[assignment]
+        load_metrics_globals["col"] = original_load_metrics_col
 
     assert len(entries) == 1
     entry = entries[0]
