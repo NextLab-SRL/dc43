@@ -21,6 +21,7 @@ from typing import (
     Type,
     Union,
     overload,
+    runtime_checkable,
 )
 import copy
 import logging
@@ -78,6 +79,44 @@ PipelineContextLike = Union[
     Sequence[tuple[str, object]],
     str,
 ]
+
+
+@runtime_checkable
+class SupportsContractStatusValidation(Protocol):
+    """Expose a contract-status validation hook."""
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        ...
+
+
+@runtime_checkable
+class SupportsDataProductStatusValidation(Protocol):
+    """Expose a data-product status validation hook."""
+
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        ...
+
+
+@runtime_checkable
+class SupportsDataProductStatusPolicy(Protocol):
+    """Expose data product status policy attributes."""
+
+    allowed_data_product_statuses: Sequence[str]
+    allow_missing_data_product_status: bool
+    data_product_status_case_insensitive: bool
+    data_product_status_failure_message: str | None
 
 
 @dataclass(slots=True)
@@ -262,7 +301,10 @@ def _promote_delta_path_to_table(
         return None, path
 
     if spark is not None:
-        catalog = getattr(spark, "catalog", None)
+        try:
+            catalog = spark.catalog
+        except AttributeError:
+            catalog = None
         if catalog is not None:
             try:
                 if catalog.tableExists(path):
@@ -467,7 +509,10 @@ class StreamingObservationWriter:
     def _stop_sink_queries(self) -> None:
         for query in list(self._sink_queries):
             try:
-                stop = getattr(query, "stop", None)
+                stop = query.stop  # type: ignore[attr-defined]
+            except AttributeError:
+                stop = None
+            try:
                 if callable(stop):
                     stop()
             except Exception:  # pragma: no cover - best effort cleanup
@@ -622,11 +667,19 @@ class StreamingObservationWriter:
         if self.query_name:
             writer = writer.queryName(self.query_name)
         query = writer.start()
+        try:
+            query_name = query.name  # type: ignore[attr-defined]
+        except AttributeError:
+            query_name = self.query_name
+        try:
+            query_id = query.id  # type: ignore[attr-defined]
+        except AttributeError:
+            query_id = ""
         self._notify_progress(
             {
                 "type": "observer-started",
-                "query_name": getattr(query, "name", self.query_name),
-                "id": getattr(query, "id", ""),
+                "query_name": query_name,
+                "id": query_id,
             }
         )
         return query
@@ -768,7 +821,7 @@ class ContractFirstDatasetLocator:
         if contract and contract.servers:
             c_path, c_table = _ref_from_contract(contract)
             server = contract.servers[0]
-            c_format = getattr(server, "format", None)
+            c_format = server.format if server is not None else None
             if c_path is not None:
                 path = c_path
             if c_table is not None:
@@ -1391,16 +1444,12 @@ def _ref_from_contract(contract: OpenDataContractStandard) -> tuple[Optional[str
     if not contract.servers:
         return None, None
     server: Server = contract.servers[0]
-    path = getattr(server, "path", None)
+    path = server.path
     if path:
         return path, None
     # Build table name from catalog/schema/database/dataset parts when present
-    last = getattr(server, "dataset", None) or getattr(server, "database", None)
-    parts = [
-        getattr(server, "catalog", None),
-        getattr(server, "schema_", None),
-        last,
-    ]
+    last = server.dataset or server.database
+    parts = [server.catalog, server.schema_, last]
     table = ".".join([p for p in parts if p]) if any(parts) else None
     return None, table
 
@@ -1515,16 +1564,19 @@ def _enforce_contract_status(
 ) -> None:
     """Apply a contract status policy defined by ``handler``."""
 
-    validator = getattr(handler, "validate_contract_status", None)
-    if validator is None:
-        _validate_contract_status(
+    if isinstance(handler, SupportsContractStatusValidation):
+        handler.validate_contract_status(
             contract=contract,
             enforce=enforce,
             operation=operation,
         )
         return
 
-    validator(contract=contract, enforce=enforce, operation=operation)
+    _validate_contract_status(
+        contract=contract,
+        enforce=enforce,
+        operation=operation,
+    )
 
 
 def _validate_contract_status(
@@ -1539,7 +1591,7 @@ def _validate_contract_status(
 ) -> None:
     """Check the contract status against an allowed set."""
 
-    raw_status = getattr(contract, "status", None)
+    raw_status = contract.status
     if raw_status is None:
         if allow_missing:
             return
@@ -1555,8 +1607,8 @@ def _validate_contract_status(
             or "Contract {contract_id}:{contract_version} status {status!r} "
             "is not allowed for {operation} operations"
         ).format(
-            contract_id=str(getattr(contract, "id", "")),
-            contract_version=str(getattr(contract, "version", "")),
+            contract_id=str(contract.id or ""),
+            contract_version=str(contract.version or ""),
             status=status_value,
             operation=operation,
         )
@@ -1576,8 +1628,8 @@ def _validate_contract_status(
         or "Contract {contract_id}:{contract_version} status {status!r} "
         "is not allowed for {operation} operations"
     ).format(
-        contract_id=str(getattr(contract, "id", "")),
-        contract_version=str(getattr(contract, "version", "")),
+        contract_id=str(contract.id or ""),
+        contract_version=str(contract.version or ""),
         status=status_value,
         operation=operation,
     )
@@ -1677,9 +1729,9 @@ def _validate_data_product_status(
 ) -> None:
     """Check the data product status against an allowed set."""
 
-    raw_status = getattr(data_product, "status", None)
-    product_id = str(getattr(data_product, "id", ""))
-    product_version = str(getattr(data_product, "version", ""))
+    raw_status = data_product.status
+    product_id = str(data_product.id or "")
+    product_version = str(data_product.version or "")
     if raw_status is None:
         if allow_missing:
             return
@@ -1742,7 +1794,7 @@ def _clone_status_handler(handler: object, overrides: Mapping[str, Any]) -> obje
         clone = handler
     for key, value in overrides.items():
         try:
-            getattr(clone, key)
+            object.__getattribute__(clone, key)
         except AttributeError:
             continue
         setattr(clone, key, value)
@@ -1765,53 +1817,48 @@ def _apply_plan_data_product_policy(
         allowed_statuses = plan.allowed_data_product_statuses  # type: ignore[attr-defined]
     except AttributeError:
         allowed_statuses = None
-    else:
-        try:
-            getattr(handler, "allowed_data_product_statuses")
-        except AttributeError:
-            allowed_statuses = None
-    if allowed_statuses is not None:
+    if (
+        allowed_statuses is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["allowed_data_product_statuses"] = tuple(allowed_statuses)
 
     try:
         allow_missing = plan.allow_missing_data_product_status  # type: ignore[attr-defined]
     except AttributeError:
         allow_missing = None
-    else:
-        try:
-            getattr(handler, "allow_missing_data_product_status")
-        except AttributeError:
-            allow_missing = None
-    if allow_missing is not None:
+    if (
+        allow_missing is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["allow_missing_data_product_status"] = bool(allow_missing)
 
     try:
         case_insensitive = plan.data_product_status_case_insensitive  # type: ignore[attr-defined]
     except AttributeError:
         case_insensitive = None
-    else:
-        try:
-            getattr(handler, "data_product_status_case_insensitive")
-        except AttributeError:
-            case_insensitive = None
-    if case_insensitive is not None:
+    if (
+        case_insensitive is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["data_product_status_case_insensitive"] = bool(case_insensitive)
 
     try:
         failure_message = plan.data_product_status_failure_message  # type: ignore[attr-defined]
     except AttributeError:
         failure_message = None
-    else:
-        try:
-            getattr(handler, "data_product_status_failure_message")
-        except AttributeError:
-            failure_message = None
-    if failure_message is not None:
+    if (
+        failure_message is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["data_product_status_failure_message"] = failure_message
 
     handler = _clone_status_handler(handler, overrides)
 
-    enforce_override = getattr(plan, "enforce_data_product_status", None)
+    try:
+        enforce_override = plan.enforce_data_product_status  # type: ignore[attr-defined]
+    except AttributeError:
+        enforce_override = None
     if enforce_override is None:
         return handler, default_enforce
     return handler, bool(enforce_override)
@@ -1826,16 +1873,19 @@ def _enforce_data_product_status(
 ) -> None:
     """Apply a data product status policy defined by ``handler``."""
 
-    validator = getattr(handler, "validate_data_product_status", None)
-    if validator is None:
-        _validate_data_product_status(
+    if isinstance(handler, SupportsDataProductStatusValidation):
+        handler.validate_data_product_status(
             data_product=data_product,
             enforce=enforce,
             operation=operation,
         )
         return
 
-    validator(data_product=data_product, enforce=enforce, operation=operation)
+    _validate_data_product_status(
+        data_product=data_product,
+        enforce=enforce,
+        operation=operation,
+    )
 
 
 def _select_data_product(
@@ -2314,7 +2364,11 @@ class BaseReadExecutor:
         return self.spark.readStream if self.streaming else self.spark.read
 
     def _detect_streaming(self, dataframe: DataFrame) -> bool:
-        streaming_active = self.streaming or bool(getattr(dataframe, "isStreaming", False))
+        try:
+            is_streaming = bool(dataframe.isStreaming)  # type: ignore[attr-defined]
+        except AttributeError:
+            is_streaming = False
+        streaming_active = self.streaming or is_streaming
         if streaming_active and not self.streaming:
             logger.info("Detected streaming dataframe; enabling streaming mode")
         return streaming_active
@@ -2892,26 +2946,37 @@ def read_with_governance(
 
     strategy = request.status_strategy or DefaultReadStatusStrategy()
     context = request.context
-    if getattr(context, "allowed_data_product_statuses", None) is None:
-        allowed = getattr(strategy, "allowed_data_product_statuses", None)
-        if allowed is not None:
-            if isinstance(allowed, str):
-                context.allowed_data_product_statuses = (allowed,)
-            else:
-                context.allowed_data_product_statuses = tuple(allowed)
-    if getattr(context, "allow_missing_data_product_status", None) is None:
-        allow_missing = getattr(strategy, "allow_missing_data_product_status", None)
-        if allow_missing is not None:
-            context.allow_missing_data_product_status = bool(allow_missing)
-    if getattr(context, "data_product_status_case_insensitive", None) is None:
-        case_insensitive = getattr(strategy, "data_product_status_case_insensitive", None)
-        if case_insensitive is not None:
-            context.data_product_status_case_insensitive = bool(case_insensitive)
-    if getattr(context, "data_product_status_failure_message", None) is None:
-        failure_message = getattr(strategy, "data_product_status_failure_message", None)
+    if (
+        context.allowed_data_product_statuses is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        allowed = strategy.allowed_data_product_statuses
+        if isinstance(allowed, str):
+            context.allowed_data_product_statuses = (allowed,)
+        else:
+            context.allowed_data_product_statuses = tuple(allowed)
+    if (
+        context.allow_missing_data_product_status is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        context.allow_missing_data_product_status = bool(
+            strategy.allow_missing_data_product_status
+        )
+    if (
+        context.data_product_status_case_insensitive is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        context.data_product_status_case_insensitive = bool(
+            strategy.data_product_status_case_insensitive
+        )
+    if (
+        context.data_product_status_failure_message is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        failure_message = strategy.data_product_status_failure_message
         if failure_message is not None:
             context.data_product_status_failure_message = str(failure_message)
-    if getattr(context, "enforce_data_product_status", None) is None:
+    if context.enforce_data_product_status is None:
         context.enforce_data_product_status = bool(enforce)
 
     plan = governance_service.resolve_read_context(context=context)
@@ -3627,7 +3692,11 @@ class BaseWriteExecutor:
                 format = c_fmt
 
         out_df = df
-        streaming_active = self.streaming or bool(getattr(df, "isStreaming", False))
+        try:
+            is_streaming = bool(df.isStreaming)  # type: ignore[attr-defined]
+        except AttributeError:
+            is_streaming = False
+        streaming_active = self.streaming or is_streaming
         if streaming_active and not self.streaming:
             logger.info("Detected streaming dataframe; enabling streaming mode")
         if streaming_active and not dataset_version:
@@ -4370,7 +4439,7 @@ def write_with_governance(
             raise TypeError("request must be a GovernanceSparkWriteRequest or mapping")
 
     context = request.context
-    if getattr(context, "enforce_data_product_status", None) is None:
+    if context.enforce_data_product_status is None:
         context.enforce_data_product_status = bool(enforce)
 
     plan = governance_service.resolve_write_context(context=context)
