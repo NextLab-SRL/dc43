@@ -44,19 +44,6 @@ def _install_pyspark_stub() -> None:
         ) -> None:
             cls._active_session = session
 
-    class _StubSparkSession:  # pragma: no cover - attribute container only
-        _active_session: "_StubSparkSession | None" = None
-
-        @classmethod
-        def getActiveSession(cls) -> "_StubSparkSession | None":
-            return cls._active_session
-
-        @classmethod
-        def setActiveSession(
-            cls, session: "_StubSparkSession | None"
-        ) -> None:
-            cls._active_session = session
-
     class _StubDataFrame:  # pragma: no cover - attribute container only
         pass
 
