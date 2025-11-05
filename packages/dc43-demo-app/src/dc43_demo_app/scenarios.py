@@ -988,7 +988,7 @@ def enforce_active_contract_only(
     '''Abort publishing when the target contract remains in draft status.'''
 
     contract = contract_service.get("orders_enriched", "3.0.0")
-    status = (getattr(contract, "status", "") or "").lower()
+    status = (contract.status or "").lower()
     if status != "active":
         raise RuntimeError(
             "orders_enriched:3.0.0 must be promoted to 'active' before enforcement",

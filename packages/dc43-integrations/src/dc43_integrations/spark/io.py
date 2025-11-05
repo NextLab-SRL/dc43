@@ -1741,8 +1741,11 @@ def _clone_status_handler(handler: object, overrides: Mapping[str, Any]) -> obje
     except Exception:  # pragma: no cover - fallback when cloning fails
         clone = handler
     for key, value in overrides.items():
-        if hasattr(clone, key):
-            setattr(clone, key, value)
+        try:
+            getattr(clone, key)
+        except AttributeError:
+            continue
+        setattr(clone, key, value)
     return clone
 
 
@@ -1758,20 +1761,52 @@ def _apply_plan_data_product_policy(
         return handler, default_enforce
 
     overrides: Dict[str, Any] = {}
-    allowed_statuses = getattr(plan, "allowed_data_product_statuses", None)
-    if allowed_statuses is not None and hasattr(handler, "allowed_data_product_statuses"):
+    try:
+        allowed_statuses = plan.allowed_data_product_statuses  # type: ignore[attr-defined]
+    except AttributeError:
+        allowed_statuses = None
+    else:
+        try:
+            getattr(handler, "allowed_data_product_statuses")
+        except AttributeError:
+            allowed_statuses = None
+    if allowed_statuses is not None:
         overrides["allowed_data_product_statuses"] = tuple(allowed_statuses)
 
-    allow_missing = getattr(plan, "allow_missing_data_product_status", None)
-    if allow_missing is not None and hasattr(handler, "allow_missing_data_product_status"):
+    try:
+        allow_missing = plan.allow_missing_data_product_status  # type: ignore[attr-defined]
+    except AttributeError:
+        allow_missing = None
+    else:
+        try:
+            getattr(handler, "allow_missing_data_product_status")
+        except AttributeError:
+            allow_missing = None
+    if allow_missing is not None:
         overrides["allow_missing_data_product_status"] = bool(allow_missing)
 
-    case_insensitive = getattr(plan, "data_product_status_case_insensitive", None)
-    if case_insensitive is not None and hasattr(handler, "data_product_status_case_insensitive"):
+    try:
+        case_insensitive = plan.data_product_status_case_insensitive  # type: ignore[attr-defined]
+    except AttributeError:
+        case_insensitive = None
+    else:
+        try:
+            getattr(handler, "data_product_status_case_insensitive")
+        except AttributeError:
+            case_insensitive = None
+    if case_insensitive is not None:
         overrides["data_product_status_case_insensitive"] = bool(case_insensitive)
 
-    failure_message = getattr(plan, "data_product_status_failure_message", None)
-    if failure_message is not None and hasattr(handler, "data_product_status_failure_message"):
+    try:
+        failure_message = plan.data_product_status_failure_message  # type: ignore[attr-defined]
+    except AttributeError:
+        failure_message = None
+    else:
+        try:
+            getattr(handler, "data_product_status_failure_message")
+        except AttributeError:
+            failure_message = None
+    if failure_message is not None:
         overrides["data_product_status_failure_message"] = failure_message
 
     handler = _clone_status_handler(handler, overrides)

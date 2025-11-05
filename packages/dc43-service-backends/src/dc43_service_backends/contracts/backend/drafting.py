@@ -280,7 +280,11 @@ def draft_from_validation_result(
             }
         )
 
-    custom_properties = list(normalise_custom_properties(getattr(draft, "customProperties", None)))
+    try:
+        draft_custom_properties = draft.customProperties
+    except AttributeError:
+        draft_custom_properties = None
+    custom_properties = list(normalise_custom_properties(draft_custom_properties))
 
     if dq_status or dq_feedback:
         feedback = dict(dq_feedback or {})
@@ -405,7 +409,11 @@ def draft_from_observations(
         change_log=[],
     )
 
-    custom_properties = list(normalise_custom_properties(getattr(draft, "customProperties", None)))
+    try:
+        draft_custom_properties = draft.customProperties
+    except AttributeError:
+        draft_custom_properties = None
+    custom_properties = list(normalise_custom_properties(draft_custom_properties))
     custom_properties.append(
         CustomProperty(
             property="base_contract",

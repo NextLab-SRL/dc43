@@ -179,11 +179,11 @@ def build_app(
         except Exception as exc:  # pragma: no cover - invalid payload handling
             raise HTTPException(status_code=400, detail=f"invalid contract payload: {exc}") from exc
 
-        payload_id = str(contract.id) if getattr(contract, "id", None) else None
+        payload_id = str(contract.id) if contract.id else None
         if payload_id and payload_id != contract_id:
             raise HTTPException(status_code=400, detail="contract.id does not match request path")
 
-        payload_version = str(contract.version) if getattr(contract, "version", None) else None
+        payload_version = str(contract.version) if contract.version else None
         if payload_version and payload_version != contract_version:
             raise HTTPException(status_code=400, detail="contract.version does not match request path")
 
@@ -253,11 +253,11 @@ def build_app(
         except Exception as exc:  # pragma: no cover - invalid payload handling
             raise HTTPException(status_code=400, detail=f"invalid data product payload: {exc}") from exc
 
-        payload_id = str(product.id) if getattr(product, "id", None) else None
+        payload_id = str(product.id) if product.id else None
         if payload_id and payload_id != data_product_id:
             raise HTTPException(status_code=400, detail="data_product.id does not match request path")
 
-        payload_version = str(product.version) if getattr(product, "version", None) else None
+        payload_version = str(product.version) if product.version else None
         if payload_version and payload_version != version:
             raise HTTPException(status_code=400, detail="data_product.version does not match request path")
 

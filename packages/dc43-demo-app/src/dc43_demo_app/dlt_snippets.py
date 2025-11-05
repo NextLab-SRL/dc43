@@ -236,7 +236,7 @@ def _draft_guard_snippet() -> str:
 
         def ensure_active_contract(contract_id: str, version: str) -> None:
             contract = contract_service.get(contract_id, version)
-            status = (getattr(contract, "status", "") or "").lower()
+            status = (contract.status or "").lower()
             if status != "active":
                 raise RuntimeError(
                     f"{contract_id}:{version} must be promoted to 'active' before enforcement",
