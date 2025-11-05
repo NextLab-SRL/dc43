@@ -3,16 +3,31 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from numbers import Number
 from typing import Mapping, Optional, Sequence
 
-from sqlalchemy import Column, Float, MetaData, String, Table, Text, select
+from sqlalchemy import (
+    Column,
+    Float,
+    MetaData,
+    String,
+    Table,
+    Text,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
 from .interface import GovernanceStore
+
+
+logger = logging.getLogger(__name__)
 
 
 class SQLGovernanceStore(GovernanceStore):
@@ -70,6 +85,24 @@ class SQLGovernanceStore(GovernanceStore):
             Column("metric_numeric_value", Float, nullable=True),
         )
         metadata.create_all(engine)
+        inspector = inspect(engine)
+        try:
+            activity_columns = {
+                str(column["name"])
+                for column in inspector.get_columns(activity_table, schema=schema)
+            }
+        except SQLAlchemyError:
+            activity_columns = {column.name for column in self._activity.columns}
+        self._activity_has_updated_at = "updated_at" in activity_columns
+
+        try:
+            link_columns = {
+                str(column["name"])
+                for column in inspector.get_columns(link_table, schema=schema)
+            }
+        except SQLAlchemyError:
+            link_columns = {column.name for column in self._links.columns}
+        self._links_has_linked_at = "linked_at" in link_columns
 
     # ------------------------------------------------------------------
     # Helpers
@@ -85,16 +118,28 @@ class SQLGovernanceStore(GovernanceStore):
         dataset_version: str,
         sort_column: Column | None = None,
     ) -> dict[str, object] | None:
-        stmt = (
+        base_stmt = (
             select(table.c.payload)
             .where(table.c.dataset_id == dataset_id)
             .where(table.c.dataset_version == dataset_version)
+            .limit(1)
         )
+        stmt = base_stmt
         if sort_column is not None:
-            stmt = stmt.order_by(sort_column.desc())
-        stmt = stmt.limit(1)
+            stmt = base_stmt.order_by(sort_column.desc())
         with self._engine.begin() as conn:
-            result = conn.execute(stmt).scalars().first()
+            try:
+                result = conn.execute(stmt).scalars().first()
+            except SQLAlchemyError:
+                if sort_column is None:
+                    raise
+                logger.exception(
+                    "Failed to order pipeline activity for %s@%s by %s; retrying without sort",
+                    dataset_id,
+                    dataset_version,
+                    getattr(sort_column, "key", sort_column),
+                )
+                result = conn.execute(base_stmt).scalars().first()
         if not result:
             return None
         try:
@@ -118,20 +163,47 @@ class SQLGovernanceStore(GovernanceStore):
         if extra:
             record.update(extra)
         serialized = json.dumps(record)
+        filtered_extra = {
+            key: value for key, value in (extra or {}).items() if key in table.c
+        }
+        base_values = {
+            "dataset_id": dataset_id,
+            "dataset_version": dataset_version,
+            "payload": serialized,
+        }
         with self._engine.begin() as conn:
             conn.execute(
                 table.delete()
                 .where(table.c.dataset_id == dataset_id)
                 .where(table.c.dataset_version == dataset_version)
             )
-            conn.execute(
-                table.insert().values(
-                    dataset_id=dataset_id,
-                    dataset_version=dataset_version,
-                    payload=serialized,
-                    **{key: value for key, value in (extra or {}).items() if key in table.c},
-                )
-            )
+            try:
+                conn.execute(table.insert().values(**base_values, **filtered_extra))
+            except SQLAlchemyError:
+                if filtered_extra:
+                    logger.exception(
+                        "Falling back to storing %s@%s without auxiliary columns",
+                        dataset_id,
+                        dataset_version,
+                    )
+                    fallback_columns = [
+                        key
+                        for key in ("dataset_id", "dataset_version", "payload")
+                        if key in base_values
+                    ]
+                    if not fallback_columns:
+                        raise
+                    statement = text(
+                        "INSERT INTO "
+                        f"{table.fullname} ({', '.join(fallback_columns)}) "
+                        f"VALUES ({', '.join(f':{name}' for name in fallback_columns)})"
+                    )
+                    conn.execute(
+                        statement,
+                        {key: base_values[key] for key in fallback_columns},
+                    )
+                else:
+                    raise
 
     # ------------------------------------------------------------------
     # Status persistence
@@ -246,23 +318,22 @@ class SQLGovernanceStore(GovernanceStore):
         contract_id: str,
         contract_version: str,
     ) -> None:
-        payload = {
-            "contract_id": contract_id,
-            "contract_version": contract_version,
-            "dataset_version": dataset_version,
-            "linked_at": self._now(),
-        }
-        self._write_payload(
-            self._links,
-            dataset_id=dataset_id,
-            dataset_version=dataset_version,
-            payload=payload,
-            extra={
-                "contract_id": contract_id,
-                "contract_version": contract_version,
-                "linked_at": self._now(),
-            },
-        )
+        linked_at = self._now()
+        with self._engine.begin() as conn:
+            conn.execute(
+                self._links.delete()
+                .where(self._links.c.dataset_id == dataset_id)
+                .where(self._links.c.dataset_version == dataset_version)
+            )
+            conn.execute(
+                self._links.insert().values(
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    contract_id=contract_id,
+                    contract_version=contract_version,
+                    linked_at=linked_at,
+                )
+            )
 
     def get_linked_contract_version(
         self,
@@ -271,17 +342,21 @@ class SQLGovernanceStore(GovernanceStore):
         dataset_version: Optional[str] = None,
     ) -> str | None:
         if dataset_version is not None:
-            payload = self._load_payload(
-                self._links,
-                dataset_id=dataset_id,
-                dataset_version=dataset_version,
-                sort_column=self._links.c.linked_at,
+            stmt = (
+                select(
+                    self._links.c.contract_id,
+                    self._links.c.contract_version,
+                )
+                .where(self._links.c.dataset_id == dataset_id)
+                .where(self._links.c.dataset_version == dataset_version)
             )
-            if payload:
-                cid = payload.get("contract_id")
-                cver = payload.get("contract_version")
-                if cid and cver:
-                    return f"{cid}:{cver}"
+            if self._links_has_linked_at:
+                stmt = stmt.order_by(self._links.c.linked_at.desc())
+            stmt = stmt.limit(1)
+            with self._engine.begin() as conn:
+                row = conn.execute(stmt).first()
+            if row and row.contract_id and row.contract_version:
+                return f"{row.contract_id}:{row.contract_version}"
             return None
 
         stmt = select(self._links.c.contract_id, self._links.c.contract_version).where(
@@ -350,11 +425,12 @@ class SQLGovernanceStore(GovernanceStore):
         dataset_version: str,
         event: Mapping[str, object],
     ) -> None:
+        sort_column = self._activity.c.updated_at if self._activity_has_updated_at else None
         record = self._load_payload(
             self._activity,
             dataset_id=dataset_id,
             dataset_version=dataset_version,
-            sort_column=self._activity.c.updated_at,
+            sort_column=sort_column,
         )
         if not isinstance(record, dict):
             record = {
@@ -369,12 +445,15 @@ class SQLGovernanceStore(GovernanceStore):
         record["events"] = events
         record["contract_id"] = contract_id
         record["contract_version"] = contract_version
+        extra: Mapping[str, object] | None = None
+        if self._activity_has_updated_at:
+            extra = {"updated_at": self._now()}
         self._write_payload(
             self._activity,
             dataset_id=dataset_id,
             dataset_version=dataset_version,
             payload=record,
-            extra={"updated_at": self._now()},
+            extra=extra,
         )
 
     def list_datasets(self) -> Sequence[str]:
@@ -395,11 +474,12 @@ class SQLGovernanceStore(GovernanceStore):
         dataset_version: Optional[str] = None,
     ) -> Sequence[Mapping[str, object]]:
         if dataset_version is not None:
+            sort_column = self._activity.c.updated_at if self._activity_has_updated_at else None
             record = self._load_payload(
                 self._activity,
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
-                sort_column=self._activity.c.updated_at,
+                sort_column=sort_column,
             )
             if record:
                 record.setdefault("dataset_id", dataset_id)

@@ -12,7 +12,10 @@ pytest.importorskip("fastapi")
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 
+from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
+from dc43_service_backends.governance.backend.stores.sql import SQLGovernanceStore
 from dc43_service_backends.server import build_app
 from dc43_service_clients.data_quality import ValidationResult
 
@@ -146,4 +149,63 @@ def test_status_matrix_handles_mixed_status_payloads():
     assert entries[0]["status"]["status"] == "ok"
     assert entries[1]["status"]["status"] == "warn"
     assert entries[2]["status"] is None
+
+
+def test_status_matrix_handles_legacy_activity_table(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'governance.db'}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE dq_activity (dataset_id TEXT, dataset_version TEXT, payload TEXT)"
+        )
+
+    store = SQLGovernanceStore(engine)
+    dataset_id = "sales.kpis"
+    dataset_version = "0.1.0"
+    contract_id = "sales.kpis"
+    contract_version = "0.1.0"
+    store.record_pipeline_event(
+        contract_id=contract_id,
+        contract_version=contract_version,
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        event={
+            "recorded_at": "2024-01-01T00:00:00Z",
+            "dq_status": "success",
+        },
+    )
+    store.save_status(
+        contract_id=contract_id,
+        contract_version=contract_version,
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+        status=ValidationResult(status="ok"),
+    )
+
+    governance_backend = LocalGovernanceServiceBackend(
+        contract_client=_StubServiceBackend(),
+        dq_client=_StubServiceBackend(),
+        data_product_client=_StubServiceBackend(),
+        store=store,
+    )
+
+    app = build_app(
+        contract_backend=_StubServiceBackend(),
+        dq_backend=_StubServiceBackend(),
+        governance_backend=governance_backend,
+        data_product_backend=_StubServiceBackend(),
+    )
+
+    client = TestClient(app)
+    response = client.get(
+        "/governance/status-matrix",
+        params=[
+            ("dataset_id", dataset_id),
+            ("dataset_version", dataset_version),
+            ("contract_id", contract_id),
+        ],
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entries"]
+    assert payload["entries"][0]["status"]["status"] == "ok"
 

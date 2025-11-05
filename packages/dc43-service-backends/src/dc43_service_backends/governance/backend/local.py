@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -42,6 +43,9 @@ from dc43_service_clients.governance.models import (
     derive_feedback,
     merge_pipeline_context,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class LocalGovernanceServiceBackend(GovernanceServiceBackend):
@@ -400,7 +404,13 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         if version_filter:
             versions = list(dict.fromkeys(version_filter))
         else:
-            activity = self._store.load_pipeline_activity(dataset_id=dataset_id)
+            try:
+                activity = self._store.load_pipeline_activity(dataset_id=dataset_id)
+            except Exception:  # pragma: no cover - defensive guard for legacy stores
+                logger.exception(
+                    "Failed to load pipeline activity for %s", dataset_id
+                )
+                activity = ()
             seen_versions: set[str] = set()
             for entry in activity:
                 candidate = str(entry.get("dataset_version") or "")
@@ -410,10 +420,16 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
 
         combos: set[tuple[str, str, str]] = set()
         for dataset_version in versions:
-            events = self._store.load_pipeline_activity(
-                dataset_id=dataset_id,
-                dataset_version=dataset_version,
-            )
+            try:
+                events = self._store.load_pipeline_activity(
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                )
+            except Exception:  # pragma: no cover - defensive guard for legacy stores
+                logger.exception(
+                    "Failed to load pipeline events for %s@%s", dataset_id, dataset_version
+                )
+                continue
             for event in events:
                 contract_id = str(event.get("contract_id") or "")
                 contract_version = str(event.get("contract_version") or "")
@@ -452,12 +468,22 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         for dataset_version, contract_id, contract_version in sorted_combos:
             if contract_filter and contract_id not in contract_filter:
                 continue
-            status = self._store.load_status(
-                contract_id=contract_id,
-                contract_version=contract_version,
-                dataset_id=dataset_id,
-                dataset_version=dataset_version,
-            )
+            try:
+                status = self._store.load_status(
+                    contract_id=contract_id,
+                    contract_version=contract_version,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                )
+            except Exception:  # pragma: no cover - defensive guard for legacy stores
+                logger.exception(
+                    "Failed to load status for %s@%s via %s:%s",
+                    dataset_id,
+                    dataset_version,
+                    contract_id,
+                    contract_version,
+                )
+                status = None
             results.append(
                 {
                     "dataset_id": dataset_id,

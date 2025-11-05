@@ -80,6 +80,9 @@
 - Contracts app status history now honours the governance status matrix
   endpoint, trimming redundant per-pair status requests and avoiding failures
   when remote backends return pre-encoded validation payloads.
+- Governance status lookups now tolerate legacy SQL activity tables that lack
+  timestamp columns, preventing 500 errors and eliminating the fallback storm
+  of per-version requests from the contracts UI.
 - Updated the Delta-backed governance stores to compare version strings using
   suffix-aware keys so rc/dev builds resolve without Spark casting errors when
   fetching the latest contract or data product entries.
