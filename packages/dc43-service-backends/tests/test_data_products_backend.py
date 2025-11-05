@@ -81,7 +81,9 @@ def test_local_backend_lists_products() -> None:
     backend = LocalDataProductServiceBackend()
     backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.0.0", contract_id="snapshot"
+        ),
     )
 
     listing = backend.list_data_products()
@@ -128,12 +130,16 @@ def test_register_output_port_updates_version_once() -> None:
     backend = LocalDataProductServiceBackend()
     backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.0.0", contract_id="snapshot"
+        ),
     )
     first_version = backend.latest("dp.analytics").version
     update = backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.1.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.1.0", contract_id="snapshot"
+        ),
     )
     assert update.changed is True
     second_version = backend.latest("dp.analytics").version
@@ -144,7 +150,9 @@ def test_resolve_output_contract_returns_contract_reference() -> None:
     backend = LocalDataProductServiceBackend()
     backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="report", version="2.0.0", contract_id="report"),
+        port=DataProductOutputPort(
+            name="report", version="2.0.0", contract_id="report"
+        ),
     )
     resolved = backend.resolve_output_contract(
         data_product_id="dp.analytics",
@@ -158,7 +166,9 @@ def test_filesystem_backend_persists_products(tmp_path: Path) -> None:
 
     backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.0.0", contract_id="snapshot"
+        ),
     )
 
     on_disk = list(tmp_path.rglob("*.json"))
@@ -177,7 +187,9 @@ def test_filesystem_backend_does_not_cache_state(tmp_path: Path) -> None:
 
     backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.0.0", contract_id="snapshot"
+        ),
     )
 
     latest = backend.latest("dp.analytics")
@@ -193,7 +205,9 @@ def test_collibra_backend_uses_stub_adapter(tmp_path: Path) -> None:
 
     registration = backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.0.0", contract_id="snapshot"
+        ),
     )
 
     assert registration.changed is True
@@ -278,7 +292,9 @@ class _FakeSpark:
 
     @staticmethod
     def _extract(statement: str, marker: str, *, after: str | None = None) -> str:
-        start = statement.find(marker if after is None else marker, statement.find(after) if after else 0)
+        start = statement.find(
+            marker if after is None else marker, statement.find(after) if after else 0
+        )
         if start == -1:
             return ""
         start += len(marker)
@@ -294,13 +310,13 @@ def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
         OpenDataProductStandard(
             id="dp.sales",
             status="draft",
-            version="0.27.0.0rc3",
+            version="0.28.0.0rc3",
             name="Sales",
             description={"purpose": "Provide Sales Information"},
             output_ports=[
                 DataProductOutputPort(
                     name="orders",
-                    version="0.27.0.0rc3",
+                    version="0.28.0.0rc3",
                     contract_id="sales",
                 )
             ],
@@ -310,13 +326,13 @@ def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
         OpenDataProductStandard(
             id="dp.sales",
             status="active",
-            version="0.27.0.0",
+            version="0.28.0.0",
             name="Sales",
             description={"purpose": "Provide Sales Information"},
             output_ports=[
                 DataProductOutputPort(
                     name="orders",
-                    version="0.27.0.0",
+                    version="0.28.0.0",
                     contract_id="sales",
                 )
             ],
@@ -326,15 +342,15 @@ def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
     latest = backend.latest("dp.sales")
 
     assert latest is not None
-    assert latest.version == "0.27.0.0"
+    assert latest.version == "0.28.0.0"
 
 
 def test_version_key_orders_pre_releases() -> None:
-    assert version_key("0.27.0.0dev1") < version_key("0.27.0.0rc1")
-    assert version_key("0.27.0.0rc1") < version_key("0.27.0.0")
-    assert version_key("0.27.0.0rc2") < version_key("0.27.0.0rc10")
-    assert version_key("0.27.0.0draft2") < version_key("0.27.0.0draft10")
-    assert version_key("0.27.0.0draft1") < version_key("0.27.0.0rc1")
+    assert version_key("0.28.0.0dev1") < version_key("0.28.0.0rc1")
+    assert version_key("0.28.0.0rc1") < version_key("0.28.0.0")
+    assert version_key("0.28.0.0rc2") < version_key("0.28.0.0rc10")
+    assert version_key("0.28.0.0draft2") < version_key("0.28.0.0draft10")
+    assert version_key("0.28.0.0draft1") < version_key("0.28.0.0rc1")
 
 
 def test_delta_backend_uses_spark_sql(tmp_path: Path) -> None:
@@ -345,7 +361,9 @@ def test_delta_backend_uses_spark_sql(tmp_path: Path) -> None:
 
     backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.0.0", contract_id="snapshot"
+        ),
     )
 
     latest = backend.latest("dp.analytics")
@@ -413,14 +431,18 @@ def test_delta_backend_ignores_blank_versions(tmp_path: Path) -> None:
 
 def test_sql_store_persists_products() -> None:
     sqlalchemy = pytest.importorskip("sqlalchemy")
-    from dc43_service_backends.data_products.backend.stores.sql import SQLDataProductStore
+    from dc43_service_backends.data_products.backend.stores.sql import (
+        SQLDataProductStore,
+    )
 
     engine = sqlalchemy.create_engine("sqlite://")
     backend = LocalDataProductServiceBackend(store=SQLDataProductStore(engine))
 
     backend.register_output_port(
         data_product_id="dp.analytics",
-        port=DataProductOutputPort(name="snapshot", version="1.0.0", contract_id="snapshot"),
+        port=DataProductOutputPort(
+            name="snapshot", version="1.0.0", contract_id="snapshot"
+        ),
     )
 
     reloaded = LocalDataProductServiceBackend(store=SQLDataProductStore(engine))
