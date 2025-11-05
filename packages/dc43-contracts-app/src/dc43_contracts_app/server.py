@@ -5761,14 +5761,18 @@ def load_records() -> List[DatasetRecord]:
         status_lookup: Dict[Tuple[str, str, str], Any] = {}
         if activity:
             contract_candidates = {
-                str(item.get("contract_id") or "")
+                str(item.get("contract_id") or "").strip()
                 for item in activity
                 if item.get("contract_id")
             }
             version_candidates = {
-                str(item.get("dataset_version") or "")
-                for item in activity
-                if item.get("dataset_version")
+                value
+                for value in (
+                    str(item.get("dataset_version") or "").strip()
+                    for item in activity
+                    if item.get("dataset_version")
+                )
+                if value and value.lower() != "latest"
             }
             matrix_entries = dataset_status_matrix(
                 dataset_id,
@@ -5777,14 +5781,14 @@ def load_records() -> List[DatasetRecord]:
             )
             for entry in matrix_entries:
                 if isinstance(entry, Mapping):
-                    cid = str(entry.get("contract_id") or "")
-                    cver = str(entry.get("contract_version") or "")
-                    dver = str(entry.get("dataset_version") or "")
+                    cid = str(entry.get("contract_id") or "").strip()
+                    cver = str(entry.get("contract_version") or "").strip()
+                    dver = str(entry.get("dataset_version") or "").strip()
                     status_obj: Any = entry.get("status")
                 else:
-                    cid = str(getattr(entry, "contract_id", "") or "")
-                    cver = str(getattr(entry, "contract_version", "") or "")
-                    dver = str(getattr(entry, "dataset_version", "") or "")
+                    cid = str(getattr(entry, "contract_id", "") or "").strip()
+                    cver = str(getattr(entry, "contract_version", "") or "").strip()
+                    dver = str(getattr(entry, "dataset_version", "") or "").strip()
                     status_obj = getattr(entry, "status", None)
                 if isinstance(status_obj, Mapping):
                     try:
@@ -5794,9 +5798,9 @@ def load_records() -> List[DatasetRecord]:
                 if cid and cver and dver:
                     status_lookup[(cid, cver, dver)] = status_obj
         for entry in activity:
-            dataset_version = str(entry.get("dataset_version") or "")
-            contract_id = str(entry.get("contract_id") or "")
-            contract_version = str(entry.get("contract_version") or "")
+            dataset_version = str(entry.get("dataset_version") or "").strip()
+            contract_id = str(entry.get("contract_id") or "").strip()
+            contract_version = str(entry.get("contract_version") or "").strip()
 
             latest_event = _latest_event(entry)
             status_payload = None
@@ -5804,7 +5808,7 @@ def load_records() -> List[DatasetRecord]:
                 status_payload = status_lookup.get(
                     (contract_id, contract_version, dataset_version)
                 )
-                if status_payload is None:
+                if status_payload is None and dataset_version.lower() != "latest":
                     status_payload = dataset_validation_status(
                         contract_id=contract_id,
                         contract_version=contract_version,

@@ -77,6 +77,9 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Contracts app status history now honours the governance status matrix
+  endpoint, trimming redundant per-pair status requests and avoiding failures
+  when remote backends return pre-encoded validation payloads.
 - Updated the Delta-backed governance stores to compare version strings using
   suffix-aware keys so rc/dev builds resolve without Spark casting errors when
   fetching the latest contract or data product entries.

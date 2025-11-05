@@ -552,13 +552,16 @@ def build_app(
             if not isinstance(record, Mapping):
                 continue
             status_payload = record.get("status")
-            encoded = (
-                encode_validation_result(status_payload)
-                if isinstance(status_payload, ValidationResult)
-                else encode_validation_result(status_payload)
-                if status_payload is not None
-                else None
-            )
+            encoded = None
+            if isinstance(status_payload, ValidationResult):
+                encoded = encode_validation_result(status_payload)
+            elif isinstance(status_payload, Mapping):
+                encoded = dict(status_payload)
+            elif status_payload is not None:
+                try:
+                    encoded = encode_validation_result(status_payload)  # type: ignore[arg-type]
+                except Exception:  # pragma: no cover - defensive guard for unexpected payloads
+                    encoded = None
             entries.append(
                 {
                     "dataset_id": record.get("dataset_id"),

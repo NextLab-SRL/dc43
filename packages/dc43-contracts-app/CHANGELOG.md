@@ -47,6 +47,9 @@
   `~/.dc43/docs_chat/index` when no explicit `index_path` is supplied.
 
 ### Fixed
+- Dataset history pages now rely exclusively on the governance status matrix
+  endpoint so the UI avoids spamming per-version validation lookups and skips
+  pointless calls for "latest" aliases when rendering activity tables.
 - Adjusted the documentation assistant to discover repository Markdown when running from
   editable installs so the chat surface no longer reports missing documentation directories.
 - Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured

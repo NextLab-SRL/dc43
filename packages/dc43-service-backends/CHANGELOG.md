@@ -34,6 +34,9 @@
   registration.
 
 ### Fixed
+- Hardened the governance status matrix endpoint so mixed payload types (for
+  example, pre-encoded validation dictionaries) no longer trigger 500 errors
+  when UI clients request batched status snapshots.
 - SQL governance activity lookups now include the dataset identifier and version
   from the table columns when payloads omit those fields, ensuring clients can
   enumerate available dataset versions even for legacy records.
