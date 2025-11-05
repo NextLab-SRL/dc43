@@ -72,7 +72,9 @@ from dc43_service_clients.odps import (
     ODPS_REQUIRED,
     OpenDataProductStandard,
 )
+from dc43_service_clients.data_quality.models import ValidationResult
 from dc43_service_clients.data_quality.transport import decode_validation_result
+from dc43_service_clients.governance.models import DatasetContractStatus
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
 from .config import (
@@ -4134,7 +4136,21 @@ def _pipeline_bootstrap_script(state: Mapping[str, Any]) -> str:
             "    elif integration == 'dlt':",
             "        context = build_dlt_context()",
             "        workspace = context.get('workspace')",
-            "        host = getattr(getattr(workspace, 'config', None), 'host', None)",
+            "        host = None",
+            "        if isinstance(workspace, dict):",
+            "            config = workspace.get('config')",
+            "            if isinstance(config, dict):",
+            "                host = config.get('host')",
+            "        elif workspace is not None:",
+            "            try:",
+            "                config = workspace.config  # type: ignore[attr-defined]",
+            "            except AttributeError:",
+            "                config = None",
+            "            if config is not None:",
+            "                try:",
+            "                    host = config.host  # type: ignore[attr-defined]",
+            "                except AttributeError:",
+            "                    host = None",
             "        if host:",
             "            print(\"DLT workspace host:\", host)",
             "        pipeline_name = context.get('pipeline_name')",
@@ -5469,6 +5485,38 @@ def _dq_version_records(
     return records
 
 
+@dataclass
+class _ValidationSnapshot:
+    status: str
+    details: Any
+    reason: Optional[str] = None
+
+
+def _as_validation_result(payload: Any) -> Optional[ValidationResult | _ValidationSnapshot]:
+    """Coerce governance payloads into :class:`ValidationResult` instances."""
+
+    if payload is None:
+        return None
+    if isinstance(payload, ValidationResult):
+        return payload
+    if isinstance(payload, Mapping):
+        try:
+            return decode_validation_result(payload)
+        except Exception:  # pragma: no cover - defensive guard for malformed payloads
+            logger.exception("Failed to decode validation result payload")
+            return None
+    try:
+        status_value = payload.status  # type: ignore[attr-defined]
+        details_value = payload.details  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+    try:
+        reason_value = payload.reason  # type: ignore[attr-defined]
+    except AttributeError:
+        reason_value = None
+    return _ValidationSnapshot(status=str(status_value), details=details_value, reason=reason_value)
+
+
 def _server_details(contract: OpenDataContractStandard) -> Optional[Dict[str, Any]]:
     """Summarise the first server entry for UI consumption."""
 
@@ -5476,13 +5524,13 @@ def _server_details(contract: OpenDataContractStandard) -> Optional[Dict[str, An
         return None
     first = contract.servers[0]
     custom: Dict[str, Any] = custom_properties_dict(first)
-    dataset_id = contract.id or getattr(first, "dataset", None) or contract.id
+    dataset_id = contract.id or first.dataset or contract.id
     info: Dict[str, Any] = {
-        "server": getattr(first, "server", ""),
-        "type": getattr(first, "type", ""),
-        "format": getattr(first, "format", ""),
-        "path": getattr(first, "path", ""),
-        "dataset": getattr(first, "dataset", ""),
+        "server": first.server or "",
+        "type": first.type or "",
+        "format": first.format or "",
+        "path": first.path or "",
+        "dataset": first.dataset or "",
         "dataset_id": dataset_id,
     }
     if custom:
@@ -5646,9 +5694,11 @@ def _contract_change_log(contract: OpenDataContractStandard) -> List[Dict[str, A
         if isinstance(prop, Mapping):
             key = prop.get("property")
             value = prop.get("value")
+        elif isinstance(prop, CustomProperty):
+            key = prop.property
+            value = prop.value
         else:
-            key = getattr(prop, "property", None)
-            value = getattr(prop, "value", None)
+            continue
         if key != "draft_change_log":
             continue
         try:
@@ -5785,45 +5835,48 @@ def load_records() -> List[DatasetRecord]:
                     cver = str(entry.get("contract_version") or "").strip()
                     dver = str(entry.get("dataset_version") or "").strip()
                     status_obj: Any = entry.get("status")
+                elif isinstance(entry, DatasetContractStatus):
+                    cid = str(entry.contract_id or "").strip()
+                    cver = str(entry.contract_version or "").strip()
+                    dver = str(entry.dataset_version or "").strip()
+                    status_obj = entry.status
                 else:
-                    cid = str(getattr(entry, "contract_id", "") or "").strip()
-                    cver = str(getattr(entry, "contract_version", "") or "").strip()
-                    dver = str(getattr(entry, "dataset_version", "") or "").strip()
-                    status_obj = getattr(entry, "status", None)
-                if isinstance(status_obj, Mapping):
-                    try:
-                        status_obj = decode_validation_result(status_obj)
-                    except Exception:  # pragma: no cover - defensive when payload malformed
-                        status_obj = None
+                    continue
+                result = _as_validation_result(status_obj)
                 if cid and cver and dver:
-                    status_lookup[(cid, cver, dver)] = status_obj
+                    status_lookup[(cid, cver, dver)] = result
         for entry in activity:
             dataset_version = str(entry.get("dataset_version") or "").strip()
             contract_id = str(entry.get("contract_id") or "").strip()
             contract_version = str(entry.get("contract_version") or "").strip()
 
             latest_event = _latest_event(entry)
-            status_payload = None
+            validation: Optional[ValidationResult] = None
             if contract_id and contract_version and dataset_version:
-                status_payload = status_lookup.get(
+                validation = status_lookup.get(
                     (contract_id, contract_version, dataset_version)
                 )
-                if status_payload is None and dataset_version.lower() != "latest":
-                    status_payload = dataset_validation_status(
-                        contract_id=contract_id,
-                        contract_version=contract_version,
-                        dataset_id=dataset_id,
-                        dataset_version=dataset_version,
+                if (
+                    validation is None
+                    and dataset_version.lower() != "latest"
+                ):
+                    validation = _as_validation_result(
+                        dataset_validation_status(
+                            contract_id=contract_id,
+                            contract_version=contract_version,
+                            dataset_id=dataset_id,
+                            dataset_version=dataset_version,
+                        )
                     )
 
             details: Dict[str, Any] = {}
             reason = ""
             status_value = "unknown"
-            if status_payload is not None:
+            if validation is not None:
                 try:
-                    status_value = _normalise_record_status(status_payload.status)
-                    details = dict(getattr(status_payload, "details", {}) or {})
-                    reason = getattr(status_payload, "reason", "") or ""
+                    status_value = _normalise_record_status(validation.status)
+                    details = dict(validation.details)
+                    reason = validation.reason or ""
                 except Exception:  # pragma: no cover - defensive guard
                     logger.exception(
                         "Failed to interpret validation status for %s@%s",
@@ -6015,11 +6068,7 @@ def load_contract_meta() -> List[Dict[str, Any]]:
             server = (contract.servers or [None])[0]
             path = ""
             if server:
-                parts: List[str] = []
-                if getattr(server, "path", None):
-                    parts.append(server.path)
-                if getattr(server, "dataset", None):
-                    parts.append(server.dataset)
+                parts = [part for part in (server.path, server.dataset) if part]
                 path = "/".join(parts)
             meta.append({"id": cid, "version": ver, "path": path})
     return meta
@@ -6042,22 +6091,22 @@ def _flatten_schema_entries(contract: OpenDataContractStandard) -> List[Dict[str
     """Return a flattened list of schema properties for UI displays."""
 
     entries: List[Dict[str, Any]] = []
-    for obj in getattr(contract, "schema_", None) or []:
-        object_name = str(getattr(obj, "name", "") or "")
+    for obj in contract.schema_ or []:
+        object_name = str(obj.name or "")
         prefix = f"{object_name}." if object_name else ""
-        for prop in getattr(obj, "properties", None) or []:
-            field_name = str(getattr(prop, "name", "") or "")
+        for prop in obj.properties or []:
+            field_name = str(prop.name or "")
             full_name = f"{prefix}{field_name}".strip(".")
             entries.append(
                 {
                     "field": full_name,
                     "object": object_name,
                     "name": field_name,
-                    "physicalType": getattr(prop, "physicalType", "") or "",
-                    "logicalType": getattr(prop, "logicalType", "") or "",
-                    "required": bool(getattr(prop, "required", False)),
-                    "description": getattr(prop, "description", "") or "",
-                    "businessName": getattr(prop, "businessName", "") or "",
+                    "physicalType": prop.physicalType or "",
+                    "logicalType": prop.logicalType or "",
+                    "required": bool(prop.required),
+                    "description": prop.description or "",
+                    "businessName": prop.businessName or "",
                 }
             )
     return entries
@@ -6068,18 +6117,15 @@ def _integration_data_product_links() -> Dict[str, List[Dict[str, Any]]]:
 
     associations: Dict[str, List[Dict[str, Any]]] = {}
     for product in load_data_products():
-        product_id = str(getattr(product, "id", "") or "")
-        product_name = getattr(product, "name", "") or product_id
-        product_status = getattr(product, "status", "") or ""
+        product_id = str(product.id or "")
+        product_name = product.name or product_id
+        product_status = product.status or ""
         product_status_label = product_status.replace("_", " ").title() if product_status else ""
-        product_version = str(getattr(product, "version", "") or "")
+        product_version = str(product.version or "")
 
-        for direction, ports in (
-            ("input", getattr(product, "input_ports", None) or []),
-            ("output", getattr(product, "output_ports", None) or []),
-        ):
+        for direction, ports in (("input", product.input_ports), ("output", product.output_ports)):
             for port in ports:
-                contract_id = getattr(port, "contract_id", None)
+                contract_id = port.contract_id or ""
                 if not contract_id:
                     continue
                 props = _port_custom_map(port)
@@ -6090,9 +6136,9 @@ def _integration_data_product_links() -> Dict[str, List[Dict[str, Any]]]:
                     "product_status_label": product_status_label,
                     "product_version": product_version,
                     "direction": direction,
-                    "port_name": getattr(port, "name", "") or "",
-                    "port_version": getattr(port, "version", "") or "",
-                    "contract_version": getattr(port, "version", "") or "",
+                    "port_name": port.name or "",
+                    "port_version": port.version or "",
+                    "contract_version": port.version or "",
                     "dataset_id": props.get("dc43.dataset.id") or props.get("dc43.contract.ref"),
                     "stage_contract": props.get("dc43.stage.contract"),
                     "source_data_product": props.get("dc43.input.source_data_product"),
@@ -6107,7 +6153,7 @@ def _integration_data_product_links() -> Dict[str, List[Dict[str, Any]]]:
 def _data_product_description_text(product: OpenDataProductStandard) -> str:
     """Return a plain-text description for a data product."""
 
-    description = getattr(product, "description", None)
+    description = product.description
     if isinstance(description, Mapping):
         return str(
             description.get("usage")
@@ -6117,8 +6163,21 @@ def _data_product_description_text(product: OpenDataProductStandard) -> str:
         )
     if isinstance(description, str):
         return description
-    if hasattr(description, "usage"):
-        return str(getattr(description, "usage", "") or "")
+    if isinstance(description, Description):
+        return str(description.usage or "")
+    return ""
+
+
+def _contract_description_text(contract: OpenDataContractStandard) -> str:
+    """Return the usage text from a contract description when available."""
+
+    description = contract.description
+    if isinstance(description, Mapping):
+        return str(description.get("usage") or "")
+    if isinstance(description, str):
+        return description
+    if isinstance(description, Description):
+        return str(description.usage or "")
     return ""
 
 
@@ -6129,33 +6188,33 @@ def _integration_data_product_ports(
 
     inputs: List[Dict[str, Any]] = []
     outputs: List[Dict[str, Any]] = []
-    for port in getattr(product, "input_ports", []) or []:
+    for port in product.input_ports:
         props = _port_custom_map(port)
-        contract_version = props.get("dc43.contract.version") or getattr(port, "version", "")
+        contract_version = props.get("dc43.contract.version") or port.version
         inputs.append(
             {
-                "name": getattr(port, "name", "") or "",
-                "portName": getattr(port, "name", "") or "",
+                "name": port.name or "",
+                "portName": port.name or "",
                 "direction": "input",
-                "contractId": getattr(port, "contract_id", "") or "",
+                "contractId": port.contract_id or "",
                 "contractVersion": contract_version or "",
-                "portVersion": getattr(port, "version", "") or "",
+                "portVersion": port.version or "",
                 "sourceDataProduct": props.get("dc43.input.source_data_product") or "",
                 "sourceOutputPort": props.get("dc43.input.source_output_port") or "",
                 "customProperties": props,
             }
         )
-    for port in getattr(product, "output_ports", []) or []:
+    for port in product.output_ports:
         props = _port_custom_map(port)
-        contract_version = props.get("dc43.contract.version") or getattr(port, "version", "")
+        contract_version = props.get("dc43.contract.version") or port.version
         outputs.append(
             {
-                "name": getattr(port, "name", "") or "",
-                "portName": getattr(port, "name", "") or "",
+                "name": port.name or "",
+                "portName": port.name or "",
                 "direction": "output",
-                "contractId": getattr(port, "contract_id", "") or "",
+                "contractId": port.contract_id or "",
                 "contractVersion": contract_version or "",
-                "portVersion": getattr(port, "version", "") or "",
+                "portVersion": port.version or "",
                 "datasetId": props.get("dc43.dataset.id") or props.get("dc43.contract.ref") or "",
                 "stageContract": props.get("dc43.stage.contract") or "",
                 "customProperties": props,
@@ -6171,12 +6230,12 @@ def _integration_data_product_summary(
 ) -> Dict[str, Any]:
     """Build a serialisable summary for a data product."""
 
-    product_id = str(getattr(product, "id", "") or "")
-    status = str(getattr(product, "status", "") or "")
+    product_id = str(product.id or "")
+    status = str(product.status or "")
     status_label = status.replace("_", " ").title() if status else ""
-    version = str(getattr(product, "version", "") or "")
+    version = str(product.version or "")
     ports = _integration_data_product_ports(product)
-    tags = [str(tag) for tag in getattr(product, "tags", []) if str(tag)]
+    tags = [str(tag) for tag in product.tags if str(tag)]
     try:
         versions = _sorted_versions(data_product_versions(product_id))
     except FileNotFoundError:
@@ -6190,7 +6249,7 @@ def _integration_data_product_summary(
     description = _data_product_description_text(product)
     search_terms = [
         product_id,
-        getattr(product, "name", "") or "",
+        product.name or "",
         status,
         version,
         description,
@@ -6206,7 +6265,7 @@ def _integration_data_product_summary(
         )
     summary = {
         "id": product_id,
-        "name": getattr(product, "name", "") or product_id,
+        "name": product.name or product_id,
         "status": status,
         "statusLabel": status_label,
         "version": version,
@@ -6230,7 +6289,7 @@ def _integration_data_product_catalog() -> List[Dict[str, Any]]:
         try:
             summary = _integration_data_product_summary(product)
         except Exception:  # pragma: no cover - defensive guard for corrupt payloads
-            logger.exception("Failed to summarise data product %s", getattr(product, "id", "?"))
+            logger.exception("Failed to summarise data product %s", product.id or "?")
             continue
         summaries.append(summary)
     summaries.sort(key=lambda item: item["id"])
@@ -6282,10 +6341,9 @@ def _integration_catalog() -> List[Dict[str, Any]]:
         status = ""
         name = ""
         if latest_contract is not None:
-            name = getattr(latest_contract, "name", "") or ""
-            if getattr(latest_contract, "description", None):
-                description = getattr(latest_contract.description, "usage", "") or ""
-            status = getattr(latest_contract, "status", "") or ""
+            name = latest_contract.name or ""
+            description = _contract_description_text(latest_contract)
+            status = latest_contract.status or ""
 
         linked_products = product_links.get(cid, [])
         product_terms = sorted(
@@ -6341,9 +6399,7 @@ async def _load_integration_contract(cid: str, ver: str) -> IntegrationContractC
         raise HTTPException(status_code=404, detail=str(exc))
     expectations = await _expectation_predicates(contract)
     server_info = _server_details(contract)
-    description = ""
-    if getattr(contract, "description", None):
-        description = getattr(contract.description, "usage", "") or ""
+    description = _contract_description_text(contract)
     schema_entries = _flatten_schema_entries(contract)
     product_links = _integration_data_product_links().get(cid, [])
     version_links = [
@@ -6356,7 +6412,7 @@ async def _load_integration_contract(cid: str, ver: str) -> IntegrationContractC
     summary: Dict[str, Any] = {
         "id": cid,
         "version": ver,
-        "name": getattr(contract, "name", "") or cid,
+        "name": contract.name or cid,
         "description": description,
         "server": jsonable_encoder(server_info) if server_info else None,
         "expectations": expectations,
@@ -6381,7 +6437,7 @@ def _resolve_contract_version(cid: str, selector: str) -> str:
             raise HTTPException(status_code=404, detail=str(exc))
         if contract is None:
             raise HTTPException(status_code=404, detail=f"Contract {cid} has no versions")
-        version_value = getattr(contract, "version", None)
+        version_value = contract.version
         if not version_value:
             raise HTTPException(
                 status_code=422,
@@ -7494,7 +7550,7 @@ async def api_contract_preview(
 
     effective_dataset_id = str(dataset_id or contract.id or cid)
     server = (contract.servers or [None])[0]
-    dataset_path_hint = getattr(server, "path", None) if server else None
+    dataset_path_hint = server.path if server else None
     version_contract = contract if effective_dataset_id == (contract.id or cid) else None
     scoped_records = [
         record
@@ -7957,7 +8013,7 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
         except FileNotFoundError:
             continue
 
-        status_raw = getattr(contract, "status", "") or "unknown"
+        status_raw = contract.status or "unknown"
         status_value = str(status_raw).lower()
         status_label = str(status_raw).replace("_", " ").title()
         status_badge = _CONTRACT_STATUS_BADGES.get(status_value, "bg-secondary")
@@ -8165,9 +8221,9 @@ def _custom_properties_state(raw: Any) -> List[Dict[str, str]]:
         if isinstance(item, Mapping):
             key = item.get("property")
             value = item.get("value")
-        else:
-            key = getattr(item, "property", None)
-            value = getattr(item, "value", None)
+        elif isinstance(item, CustomProperty):
+            key = item.property
+            value = item.value
         if key:
             state.append({"property": str(key), "value": _stringify_value(value)})
     return state
@@ -8210,37 +8266,37 @@ def _quality_state(items: Optional[Iterable[Any]]) -> List[Dict[str, Any]]:
 
 
 def _schema_property_state(prop: SchemaProperty) -> Dict[str, Any]:
-    examples = getattr(prop, "examples", None) or []
+    examples = list(prop.examples or [])
     return {
-        "name": getattr(prop, "name", "") or "",
-        "physicalType": getattr(prop, "physicalType", "") or "",
-        "description": getattr(prop, "description", "") or "",
-        "businessName": getattr(prop, "businessName", "") or "",
-        "logicalType": getattr(prop, "logicalType", "") or "",
-        "logicalTypeOptions": _stringify_value(getattr(prop, "logicalTypeOptions", None)),
-        "required": bool(getattr(prop, "required", False)),
-        "unique": bool(getattr(prop, "unique", False)),
-        "partitioned": bool(getattr(prop, "partitioned", False)),
-        "primaryKey": bool(getattr(prop, "primaryKey", False)),
-        "classification": getattr(prop, "classification", "") or "",
+        "name": prop.name or "",
+        "physicalType": prop.physicalType or "",
+        "description": prop.description or "",
+        "businessName": prop.businessName or "",
+        "logicalType": prop.logicalType or "",
+        "logicalTypeOptions": _stringify_value(prop.logicalTypeOptions),
+        "required": bool(prop.required),
+        "unique": bool(prop.unique),
+        "partitioned": bool(prop.partitioned),
+        "primaryKey": bool(prop.primaryKey),
+        "classification": prop.classification or "",
         "examples": "\n".join(str(item) for item in examples),
-        "customProperties": _custom_properties_state(getattr(prop, "customProperties", None)),
-        "quality": _quality_state(getattr(prop, "quality", None)),
+        "customProperties": _custom_properties_state(prop.customProperties),
+        "quality": _quality_state(prop.quality),
     }
 
 
 def _schema_object_state(obj: SchemaObject) -> Dict[str, Any]:
     properties = [
         _schema_property_state(prop)
-        for prop in getattr(obj, "properties", None) or []
+        for prop in obj.properties or []
     ]
     return {
-        "name": getattr(obj, "name", "") or "",
-        "description": getattr(obj, "description", "") or "",
-        "businessName": getattr(obj, "businessName", "") or "",
-        "logicalType": getattr(obj, "logicalType", "") or "",
-        "customProperties": _custom_properties_state(getattr(obj, "customProperties", None)),
-        "quality": _quality_state(getattr(obj, "quality", None)),
+        "name": obj.name or "",
+        "description": obj.description or "",
+        "businessName": obj.businessName or "",
+        "logicalType": obj.logicalType or "",
+        "customProperties": _custom_properties_state(obj.customProperties),
+        "quality": _quality_state(obj.quality),
         "properties": properties,
     }
 
@@ -8268,25 +8324,32 @@ _SERVER_FIELD_MAP = {
 
 
 def _server_state(server: Server) -> Dict[str, Any]:
+    try:
+        raw = server.model_dump(by_alias=True)
+    except AttributeError:  # pragma: no cover - Pydantic v1 fallback
+        raw = server.dict(by_alias=True)  # type: ignore[attr-defined]
     state = {
-        "server": getattr(server, "server", "") or "",
-        "type": getattr(server, "type", "") or "",
-        "port": getattr(server, "port", None) or "",
+        "server": raw.get("server", "") or "",
+        "type": raw.get("type", "") or "",
+        "port": raw.get("port") or "",
     }
     for field, attr in _SERVER_FIELD_MAP.items():
-        state[field] = getattr(server, attr, "") or ""
+        value = raw.get(field)
+        if value in (None, ""):
+            value = raw.get(attr)
+        state[field] = value or ""
     versioning_value: Any | None = None
     path_pattern_value: Any | None = None
     custom_entries: List[Dict[str, str]] = []
-    for item in normalise_custom_properties(getattr(server, "customProperties", None)):
+    for item in normalise_custom_properties(server.customProperties):
         key = None
         value = None
         if isinstance(item, Mapping):
             key = item.get("property")
             value = item.get("value")
-        else:
-            key = getattr(item, "property", None)
-            value = getattr(item, "value", None)
+        elif isinstance(item, CustomProperty):
+            key = item.property
+            value = item.value
         if not key:
             continue
         if str(key) == "dc43.core.versioning":
@@ -8312,11 +8375,15 @@ def _support_state(items: Optional[Iterable[Support]]) -> List[Dict[str, Any]]:
     if not items:
         return result
     for entry in items:
-        payload: Dict[str, Any] = {}
-        for field in ("channel", "url", "description", "tool", "scope", "invitationUrl"):
-            value = getattr(entry, field, None)
-            if value:
-                payload[field] = value
+        try:
+            raw = entry.model_dump(exclude_none=True)
+        except AttributeError:  # pragma: no cover - Pydantic v1 fallback
+            raw = entry.dict(exclude_none=True)  # type: ignore[attr-defined]
+        payload = {
+            field: raw[field]
+            for field in ("channel", "url", "description", "tool", "scope", "invitationUrl")
+            if raw.get(field) not in (None, "")
+        }
         if payload:
             result.append(payload)
     return result
@@ -8327,9 +8394,13 @@ def _sla_state(items: Optional[Iterable[ServiceLevelAgreementProperty]]) -> List
     if not items:
         return result
     for entry in items:
+        try:
+            raw = entry.model_dump(exclude_none=True)
+        except AttributeError:  # pragma: no cover - Pydantic v1 fallback
+            raw = entry.dict(exclude_none=True)  # type: ignore[attr-defined]
         payload: Dict[str, Any] = {}
         for field in ("property", "value", "valueExt", "unit", "element", "driver"):
-            value = getattr(entry, field, None)
+            value = raw.get(field)
             if value is None:
                 continue
             if field in {"value", "valueExt"}:
@@ -8360,38 +8431,38 @@ def _data_product_editor_state(
     if isinstance(product.description, Mapping):
         description = str(product.description.get("usage") or "")
     state = {
-        "id": getattr(product, "id", "") or "",
-        "version": getattr(product, "version", "") or "",
-        "status": getattr(product, "status", "") or "",
-        "name": getattr(product, "name", "") or "",
+        "id": product.id or "",
+        "version": product.version or "",
+        "status": product.status or "",
+        "name": product.name or "",
         "description": description,
-        "tags": list(getattr(product, "tags", []) or []),
-        "customProperties": _custom_properties_state(getattr(product, "custom_properties", None)),
+        "tags": list(product.tags or []),
+        "customProperties": _custom_properties_state(product.custom_properties),
         "inputPorts": [],
         "outputPorts": [],
     }
-    for port in getattr(product, "input_ports", []) or []:
+    for port in product.input_ports:
         props = _port_custom_map(port)
         state["inputPorts"].append(
             {
-                "name": getattr(port, "name", "") or "",
-                "contractId": getattr(port, "contract_id", "") or "",
-                "contractVersion": getattr(port, "version", "") or "",
+                "name": port.name or "",
+                "contractId": port.contract_id or "",
+                "contractVersion": port.version or "",
                 "sourceDataProduct": props.get("dc43.input.source_data_product"),
                 "sourceOutputPort": props.get("dc43.input.source_output_port"),
-                "customProperties": _custom_properties_state(getattr(port, "custom_properties", None)),
+                "customProperties": _custom_properties_state(port.custom_properties),
             }
         )
-    for port in getattr(product, "output_ports", []) or []:
+    for port in product.output_ports:
         props = _port_custom_map(port)
         state["outputPorts"].append(
             {
-                "name": getattr(port, "name", "") or "",
-                "contractId": getattr(port, "contract_id", "") or "",
-                "contractVersion": getattr(port, "version", "") or "",
+                "name": port.name or "",
+                "contractId": port.contract_id or "",
+                "contractVersion": port.version or "",
                 "datasetId": props.get("dc43.dataset.id") or props.get("dc43.contract.ref"),
                 "stageContract": props.get("dc43.stage.contract"),
-                "customProperties": _custom_properties_state(getattr(port, "custom_properties", None)),
+                "customProperties": _custom_properties_state(port.custom_properties),
             }
         )
     return state
@@ -8510,9 +8581,7 @@ def _input_ports_from_payload(
     baseline: Optional[OpenDataProductStandard],
 ) -> List[DataProductInputPort]:
     ports: List[DataProductInputPort] = []
-    baseline_map = {
-        port.name: port for port in getattr(baseline, "input_ports", []) or []
-    }
+    baseline_map = {port.name: port for port in (baseline.input_ports if baseline else [])}
 
     items = payload if isinstance(payload, list) else []
     for item in items:
@@ -8530,7 +8599,7 @@ def _input_ports_from_payload(
         )
         baseline_port = baseline_map.get(name)
         custom_entries = _merge_custom_entries(
-            getattr(baseline_port, "custom_properties", None),
+            baseline_port.custom_properties if baseline_port else None,
             overrides,
         )
 
@@ -8549,8 +8618,10 @@ def _input_ports_from_payload(
                 version=version,
                 contract_id=contract_id,
                 custom_properties=custom_entries,
-                authoritative_definitions=list(getattr(baseline_port, "authoritative_definitions", []) or []),
-                extra=dict(getattr(baseline_port, "extra", {}) or {}),
+                authoritative_definitions=list(
+                    baseline_port.authoritative_definitions if baseline_port else []
+                ),
+                extra=dict(baseline_port.extra if baseline_port else {}),
             )
         )
     return ports
@@ -8562,9 +8633,7 @@ def _output_ports_from_payload(
     baseline: Optional[OpenDataProductStandard],
 ) -> List[DataProductOutputPort]:
     ports: List[DataProductOutputPort] = []
-    baseline_map = {
-        port.name: port for port in getattr(baseline, "output_ports", []) or []
-    }
+    baseline_map = {port.name: port for port in (baseline.output_ports if baseline else [])}
 
     items = payload if isinstance(payload, list) else []
     for item in items:
@@ -8582,7 +8651,7 @@ def _output_ports_from_payload(
         )
         baseline_port = baseline_map.get(name)
         custom_entries = _merge_custom_entries(
-            getattr(baseline_port, "custom_properties", None),
+            baseline_port.custom_properties if baseline_port else None,
             overrides,
         )
 
@@ -8604,13 +8673,15 @@ def _output_ports_from_payload(
                 name=name,
                 version=version,
                 contract_id=contract_id,
-                description=getattr(baseline_port, "description", None),
-                type=getattr(baseline_port, "type", None),
-                sbom=list(getattr(baseline_port, "sbom", []) or []),
-                input_contracts=list(getattr(baseline_port, "input_contracts", []) or []),
+                description=baseline_port.description if baseline_port else None,
+                type=baseline_port.type if baseline_port else None,
+                sbom=list(baseline_port.sbom if baseline_port else []),
+                input_contracts=list(baseline_port.input_contracts if baseline_port else []),
                 custom_properties=custom_entries,
-                authoritative_definitions=list(getattr(baseline_port, "authoritative_definitions", []) or []),
-                extra=dict(getattr(baseline_port, "extra", {}) or {}),
+                authoritative_definitions=list(
+                    baseline_port.authoritative_definitions if baseline_port else []
+                ),
+                extra=dict(baseline_port.extra if baseline_port else {}),
             )
         )
     return ports
@@ -8630,7 +8701,7 @@ def _build_data_product_from_payload(
     custom_entries = _custom_properties_entries(
         payload.get("customProperties") if isinstance(payload.get("customProperties"), list) else []
     )
-    baseline_extra = dict(getattr(baseline_product, "extra", {}) or {})
+    baseline_extra = dict(baseline_product.extra if baseline_product else {})
     input_ports = _input_ports_from_payload(
         payload.get("inputPorts"),
         baseline=baseline_product,
@@ -8643,8 +8714,9 @@ def _build_data_product_from_payload(
     return OpenDataProductStandard(
         id=product_id,
         status=status_value,
-        api_version=getattr(baseline_product, "api_version", None) or ODPS_REQUIRED,
-        kind=getattr(baseline_product, "kind", "DataProduct"),
+        api_version=(baseline_product.api_version if baseline_product else None)
+        or ODPS_REQUIRED,
+        kind=(baseline_product.kind if baseline_product else "DataProduct") or "DataProduct",
         version=version_value,
         name=name_value or None,
         description=description_payload,
@@ -8686,26 +8758,26 @@ def _contract_editor_state(contract: Optional[OpenDataContractStandard] = None) 
             "support": [],
             "slaProperties": [],
         }
-    description = getattr(contract.description, "usage", "") if getattr(contract, "description", None) else ""
+    description = _contract_description_text(contract)
     state = {
-        "id": getattr(contract, "id", "") or "",
-        "version": getattr(contract, "version", "") or "",
-        "kind": getattr(contract, "kind", "DataContract") or "DataContract",
-        "apiVersion": getattr(contract, "apiVersion", "3.0.2") or "3.0.2",
-        "name": getattr(contract, "name", "") or "",
+        "id": contract.id or "",
+        "version": contract.version or "",
+        "kind": contract.kind or "DataContract",
+        "apiVersion": contract.apiVersion or "3.0.2",
+        "name": contract.name or "",
         "description": description,
-        "status": getattr(contract, "status", "") or "",
-        "domain": getattr(contract, "domain", "") or "",
-        "dataProduct": getattr(contract, "dataProduct", "") or "",
-        "tenant": getattr(contract, "tenant", "") or "",
-        "tags": list(getattr(contract, "tags", []) or []),
-        "customProperties": _custom_properties_state(getattr(contract, "customProperties", None)),
-        "servers": [_server_state(server) for server in getattr(contract, "servers", []) or []],
+        "status": contract.status or "",
+        "domain": contract.domain or "",
+        "dataProduct": contract.dataProduct or "",
+        "tenant": contract.tenant or "",
+        "tags": list(contract.tags or []),
+        "customProperties": _custom_properties_state(contract.customProperties),
+        "servers": [_server_state(server) for server in contract.servers or []],
         "schemaObjects": [
-            _schema_object_state(obj) for obj in getattr(contract, "schema_", None) or []
+            _schema_object_state(obj) for obj in contract.schema_ or []
         ],
-        "support": _support_state(getattr(contract, "support", None)),
-        "slaProperties": _sla_state(getattr(contract, "slaProperties", None)),
+        "support": _support_state(contract.support),
+        "slaProperties": _sla_state(contract.slaProperties),
     }
     if not state["schemaObjects"]:
         state["schemaObjects"] = _contract_editor_state(None)["schemaObjects"]
@@ -8747,9 +8819,8 @@ def _build_editor_meta(
         "existingVersions": version_map,
         "editing": editing,
         "originalVersion": original_version,
-        "contractId": str(editor_state.get("id", "")) or (
-            getattr(baseline_contract, "id", "") if baseline_contract else ""
-        ),
+        "contractId": str(editor_state.get("id", ""))
+        or (baseline_contract.id if baseline_contract else ""),
     }
     if original_version:
         meta["baseVersion"] = original_version
@@ -9097,7 +9168,7 @@ def _schema_objects_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List
         properties = _schema_properties_models(item.get("properties"))
         if properties:
             name_counts = Counter(
-                prop.name for prop in properties if getattr(prop, "name", None)
+                prop.name for prop in properties if prop.name
             )
             duplicates = [name for name, count in name_counts.items() if count > 1]
             if duplicates:
@@ -9499,13 +9570,22 @@ def load_data_products() -> List[OpenDataProductStandard]:
 
 
 def _port_custom_map(port: Any) -> Dict[str, Any]:
-    props = getattr(port, "custom_properties", []) or []
+    if isinstance(port, (DataProductInputPort, DataProductOutputPort)):
+        props = list(port.custom_properties or [])
+    elif isinstance(port, Mapping):
+        raw = port.get("custom_properties") or port.get("customProperties")
+        props = list(raw or []) if isinstance(raw, list) else []
+    else:
+        props = []
     mapping: Dict[str, Any] = {}
     for entry in props:
         if isinstance(entry, Mapping):
             key = entry.get("property")
             if key:
                 mapping[str(key)] = entry.get("value")
+        elif isinstance(entry, CustomProperty):
+            if entry.property:
+                mapping[str(entry.property)] = entry.value
     return mapping
 
 
@@ -9707,7 +9787,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
             contracts.append(
                 {
                     "version": version,
-                    "status": getattr(contract, "status", ""),
+                    "status": contract.status or "",
                     "server": server_info,
                 }
             )
