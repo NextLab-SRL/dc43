@@ -138,6 +138,15 @@ class GovernanceServiceBackend(Protocol):
     ) -> Sequence[Mapping[str, object]]:
         ...
 
+    def get_status_matrix(
+        self,
+        *,
+        dataset_id: str,
+        contract_ids: Sequence[str] | None = None,
+        dataset_versions: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        ...
+
     def list_datasets(self) -> Sequence[str]:
         ...
 

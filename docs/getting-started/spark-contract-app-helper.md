@@ -76,6 +76,17 @@ hover across the timeline to reveal dataset versions, contract revisions, and th
 recorded values. This makes it easy to validate row counts, violation totals, and
 other KPIs without querying the backend directly.
 
+### Create or edit data products visually
+
+The data products tab now includes **Add** and **Edit** buttons when a data
+product backend is configured. Clicking either option launches an editor that
+lets you manage the full definition—ID, status, descriptive metadata, input and
+output ports, and custom properties—without hand-writing JSON. Contract and
+dataset selectors pull from the live catalog so you can search for the correct
+IDs instead of memorising version numbers, and the form automatically suggests
+the next semantic version when you publish a draft. Save the form to persist the
+definition through the same backend service used by your governance pipelines.
+
 ## 4. Generate a Spark stub
 
 1. Select one or more contracts from the catalog tree.

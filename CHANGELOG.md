@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- Added a data product editor to the contracts application with searchable
+  contract and dataset selectors so definitions no longer require manual ID
+  lookups.
+- Added Playwright coverage for the data product editor to exercise contract
+  lookup lists, port configuration, and save flows end to end.
+- Added a governance status matrix endpoint that returns batched contract /
+  dataset validation results to avoid repeated single-status lookups from the
+  UI.
 - Introduced the Spark `draft_contract_from_dataframe` helper to generate ODCS
   draft contracts (plus schema/metric observations) directly from DataFrames
   using the shared builders from the new `dc43-core` package.

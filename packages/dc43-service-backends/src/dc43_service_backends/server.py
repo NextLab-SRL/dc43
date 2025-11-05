@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 try:  # pragma: no cover - import guard exercised in packaging contexts
     from fastapi import APIRouter, FastAPI, HTTPException, Query, Response
@@ -22,6 +22,7 @@ from dc43_service_clients.odps import (
     as_odps_dict as as_odps_product_dict,
     to_model as to_data_product_model,
 )
+from dc43_service_clients.data_quality import ValidationResult
 from dc43_service_clients.data_quality.transport import (
     decode_observation_payload,
     decode_validation_result,
@@ -516,6 +517,58 @@ def build_app(
         if status is None:
             raise HTTPException(status_code=404, detail="status unavailable")
         return encode_validation_result(status) or {}
+
+    @router.get("/governance/status-matrix")
+    def get_status_matrix(
+        dataset_id: str,
+        contract_id: List[str] | None = None,
+        dataset_version: List[str] | None = None,
+    ) -> Mapping[str, Any]:
+        contract_ids: Sequence[str] | None
+        if contract_id is None:
+            contract_ids = None
+        elif isinstance(contract_id, (list, tuple, set)):
+            contract_ids = [str(item) for item in contract_id if str(item)]
+        else:
+            value = str(contract_id)
+            contract_ids = [value] if value else None
+
+        dataset_versions: Sequence[str] | None
+        if dataset_version is None:
+            dataset_versions = None
+        elif isinstance(dataset_version, (list, tuple, set)):
+            dataset_versions = [str(item) for item in dataset_version if str(item)]
+        else:
+            value = str(dataset_version)
+            dataset_versions = [value] if value else None
+
+        records = governance_backend.get_status_matrix(
+            dataset_id=dataset_id,
+            contract_ids=contract_ids,
+            dataset_versions=dataset_versions,
+        )
+        entries: List[Mapping[str, Any]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                continue
+            status_payload = record.get("status")
+            encoded = (
+                encode_validation_result(status_payload)
+                if isinstance(status_payload, ValidationResult)
+                else encode_validation_result(status_payload)
+                if status_payload is not None
+                else None
+            )
+            entries.append(
+                {
+                    "dataset_id": record.get("dataset_id"),
+                    "dataset_version": record.get("dataset_version"),
+                    "contract_id": record.get("contract_id"),
+                    "contract_version": record.get("contract_version"),
+                    "status": encoded,
+                }
+            )
+        return {"dataset_id": dataset_id, "entries": entries}
 
     @router.post("/governance/link", status_code=204)
     def link_dataset(payload: _LinkDatasetPayload) -> None:

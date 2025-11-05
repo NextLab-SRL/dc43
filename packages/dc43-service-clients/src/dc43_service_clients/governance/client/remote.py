@@ -21,6 +21,7 @@ from dc43_service_clients.data_quality.transport import (
     decode_validation_result,
 )
 from dc43_service_clients.governance.models import (
+    DatasetContractStatus,
     GovernanceReadContext,
     GovernanceWriteContext,
     GovernanceCredentials,
@@ -390,6 +391,69 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
         if isinstance(payload, Mapping):
             return [dict(payload)]
         return []
+
+    def get_status_matrix(
+        self,
+        *,
+        dataset_id: str,
+        contract_ids: Sequence[str] | None = None,
+        dataset_versions: Sequence[str] | None = None,
+    ) -> Sequence[DatasetContractStatus]:
+        params: dict[str, object] = {"dataset_id": dataset_id}
+        if contract_ids:
+            params["contract_id"] = [str(item) for item in contract_ids]
+        if dataset_versions:
+            params["dataset_version"] = [str(item) for item in dataset_versions]
+        response = ensure_response(
+            self._client.get(
+                self._request_path("/governance/status-matrix"),
+                params=params,
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, Mapping):
+            return ()
+        entries = payload.get("entries")
+        if not isinstance(entries, Sequence):
+            return ()
+        results: list[DatasetContractStatus] = []
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            contract_id = str(entry.get("contract_id") or "")
+            contract_version = str(entry.get("contract_version") or "")
+            dataset_version = str(entry.get("dataset_version") or "")
+            if not contract_id or not contract_version or not dataset_version:
+                continue
+            status_payload = entry.get("status")
+            status = None
+            if isinstance(status_payload, Mapping):
+                status = decode_validation_result(status_payload)
+            results.append(
+                DatasetContractStatus(
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    contract_id=contract_id,
+                    contract_version=contract_version,
+                    status=status,
+                )
+            )
+        if contract_ids:
+            contract_filter = {str(item) for item in contract_ids if str(item)}
+            if contract_filter:
+                results = [
+                    entry for entry in results if entry.contract_id in contract_filter
+                ]
+        if dataset_versions:
+            version_filter = {str(item) for item in dataset_versions if str(item)}
+            if version_filter:
+                results = [
+                    entry
+                    for entry in results
+                    if entry.dataset_version in version_filter
+                ]
+        return tuple(results)
 
     def list_datasets(self) -> Sequence[str]:
         response = ensure_response(

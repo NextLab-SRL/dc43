@@ -386,6 +386,89 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             contract_version=contract_version,
         )
 
+    def get_status_matrix(
+        self,
+        *,
+        dataset_id: str,
+        contract_ids: Sequence[str] | None = None,
+        dataset_versions: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        contract_filter = {str(item) for item in contract_ids or [] if str(item)}
+        version_filter = [str(item) for item in dataset_versions or [] if str(item)]
+
+        versions: list[str] = []
+        if version_filter:
+            versions = list(dict.fromkeys(version_filter))
+        else:
+            activity = self._store.load_pipeline_activity(dataset_id=dataset_id)
+            seen_versions: set[str] = set()
+            for entry in activity:
+                candidate = str(entry.get("dataset_version") or "")
+                if candidate and candidate not in seen_versions:
+                    seen_versions.add(candidate)
+                    versions.append(candidate)
+
+        combos: set[tuple[str, str, str]] = set()
+        for dataset_version in versions:
+            events = self._store.load_pipeline_activity(
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+            )
+            for event in events:
+                contract_id = str(event.get("contract_id") or "")
+                contract_version = str(event.get("contract_version") or "")
+                if contract_id and contract_version:
+                    combos.add((dataset_version, contract_id, contract_version))
+            linked = self._store.get_linked_contract_version(
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+            )
+            if linked:
+                contract_id, _, contract_version = str(linked).partition(":")
+                if contract_id and contract_version:
+                    combos.add((dataset_version, contract_id, contract_version))
+
+        if not combos and versions:
+            for dataset_version in versions:
+                linked = self._store.get_linked_contract_version(
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                )
+                if linked:
+                    contract_id, _, contract_version = str(linked).partition(":")
+                    if contract_id and contract_version:
+                        combos.add((dataset_version, contract_id, contract_version))
+
+        sorted_combos = sorted(
+            combos,
+            key=lambda item: (
+                version_key(item[0]),
+                item[1],
+                version_key(item[2]),
+            ),
+        )
+
+        results: list[Mapping[str, object]] = []
+        for dataset_version, contract_id, contract_version in sorted_combos:
+            if contract_filter and contract_id not in contract_filter:
+                continue
+            status = self._store.load_status(
+                contract_id=contract_id,
+                contract_version=contract_version,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+            )
+            results.append(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "status": status,
+                }
+            )
+        return tuple(results)
+
     def list_datasets(self) -> Sequence[str]:
         return self._store.list_datasets()
 

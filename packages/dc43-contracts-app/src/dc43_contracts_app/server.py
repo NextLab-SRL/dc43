@@ -66,7 +66,13 @@ from dc43_service_backends.config import (
     UnityCatalogConfig as BackendUnityCatalogConfig,
     dumps as dump_service_backends_config,
 )
-from dc43_service_clients.odps import OpenDataProductStandard
+from dc43_service_clients.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    ODPS_REQUIRED,
+    OpenDataProductStandard,
+)
+from dc43_service_clients.data_quality.transport import decode_validation_result
 from ._odcs import custom_properties_dict, normalise_custom_properties
 from ._versioning import SemVer
 from .config import (
@@ -84,10 +90,13 @@ from .services import (
     contract_service_client,
     contract_versions,
     data_product_service_client,
+    data_product_versions,
     data_quality_service_client,
     dataset_pipeline_activity,
+    dataset_status_matrix,
     dataset_validation_status,
     get_contract,
+    get_data_product,
     governance_service_client,
     latest_contract,
     latest_data_product,
@@ -95,6 +104,7 @@ from .services import (
     list_data_product_ids,
     list_dataset_ids,
     put_contract,
+    put_data_product,
     service_backends_config,
     thread_service_clients,
 )
@@ -5748,6 +5758,41 @@ def load_records() -> List[DatasetRecord]:
     records: List[DatasetRecord] = []
     for dataset_id in list_dataset_ids():
         activity = dataset_pipeline_activity(dataset_id)
+        status_lookup: Dict[Tuple[str, str, str], Any] = {}
+        if activity:
+            contract_candidates = {
+                str(item.get("contract_id") or "")
+                for item in activity
+                if item.get("contract_id")
+            }
+            version_candidates = {
+                str(item.get("dataset_version") or "")
+                for item in activity
+                if item.get("dataset_version")
+            }
+            matrix_entries = dataset_status_matrix(
+                dataset_id,
+                contract_ids=[c for c in contract_candidates if c],
+                dataset_versions=[v for v in version_candidates if v],
+            )
+            for entry in matrix_entries:
+                if isinstance(entry, Mapping):
+                    cid = str(entry.get("contract_id") or "")
+                    cver = str(entry.get("contract_version") or "")
+                    dver = str(entry.get("dataset_version") or "")
+                    status_obj: Any = entry.get("status")
+                else:
+                    cid = str(getattr(entry, "contract_id", "") or "")
+                    cver = str(getattr(entry, "contract_version", "") or "")
+                    dver = str(getattr(entry, "dataset_version", "") or "")
+                    status_obj = getattr(entry, "status", None)
+                if isinstance(status_obj, Mapping):
+                    try:
+                        status_obj = decode_validation_result(status_obj)
+                    except Exception:  # pragma: no cover - defensive when payload malformed
+                        status_obj = None
+                if cid and cver and dver:
+                    status_lookup[(cid, cver, dver)] = status_obj
         for entry in activity:
             dataset_version = str(entry.get("dataset_version") or "")
             contract_id = str(entry.get("contract_id") or "")
@@ -5755,13 +5800,17 @@ def load_records() -> List[DatasetRecord]:
 
             latest_event = _latest_event(entry)
             status_payload = None
-            if contract_id and contract_version:
-                status_payload = dataset_validation_status(
-                    contract_id=contract_id,
-                    contract_version=contract_version,
-                    dataset_id=dataset_id,
-                    dataset_version=dataset_version,
+            if contract_id and contract_version and dataset_version:
+                status_payload = status_lookup.get(
+                    (contract_id, contract_version, dataset_version)
                 )
+                if status_payload is None:
+                    status_payload = dataset_validation_status(
+                        contract_id=contract_id,
+                        contract_version=contract_version,
+                        dataset_id=dataset_id,
+                        dataset_version=dataset_version,
+                    )
 
             details: Dict[str, Any] = {}
             reason = ""
@@ -7429,6 +7478,321 @@ def _sla_state(items: Optional[Iterable[ServiceLevelAgreementProperty]]) -> List
     return result
 
 
+def _data_product_editor_state(
+    product: Optional[OpenDataProductStandard] = None,
+) -> Dict[str, Any]:
+    if product is None:
+        return {
+            "id": "",
+            "version": "",
+            "status": "",
+            "name": "",
+            "description": "",
+            "tags": [],
+            "customProperties": [],
+            "inputPorts": [],
+            "outputPorts": [],
+        }
+    description = ""
+    if isinstance(product.description, Mapping):
+        description = str(product.description.get("usage") or "")
+    state = {
+        "id": getattr(product, "id", "") or "",
+        "version": getattr(product, "version", "") or "",
+        "status": getattr(product, "status", "") or "",
+        "name": getattr(product, "name", "") or "",
+        "description": description,
+        "tags": list(getattr(product, "tags", []) or []),
+        "customProperties": _custom_properties_state(getattr(product, "custom_properties", None)),
+        "inputPorts": [],
+        "outputPorts": [],
+    }
+    for port in getattr(product, "input_ports", []) or []:
+        props = _port_custom_map(port)
+        state["inputPorts"].append(
+            {
+                "name": getattr(port, "name", "") or "",
+                "contractId": getattr(port, "contract_id", "") or "",
+                "contractVersion": getattr(port, "version", "") or "",
+                "sourceDataProduct": props.get("dc43.input.source_data_product"),
+                "sourceOutputPort": props.get("dc43.input.source_output_port"),
+                "customProperties": _custom_properties_state(getattr(port, "custom_properties", None)),
+            }
+        )
+    for port in getattr(product, "output_ports", []) or []:
+        props = _port_custom_map(port)
+        state["outputPorts"].append(
+            {
+                "name": getattr(port, "name", "") or "",
+                "contractId": getattr(port, "contract_id", "") or "",
+                "contractVersion": getattr(port, "version", "") or "",
+                "datasetId": props.get("dc43.dataset.id") or props.get("dc43.contract.ref"),
+                "stageContract": props.get("dc43.stage.contract"),
+                "customProperties": _custom_properties_state(getattr(port, "custom_properties", None)),
+            }
+        )
+    return state
+
+
+def _data_product_editor_meta(
+    *,
+    editor_state: Mapping[str, Any],
+    editing: bool,
+    original_version: Optional[str],
+    baseline_state: Optional[Mapping[str, Any]],
+    baseline_product: Optional[OpenDataProductStandard],
+) -> Dict[str, Any]:
+    contract_ids = sorted(list_contract_ids())
+    contract_versions_map: Dict[str, List[str]] = {}
+    for contract_id in contract_ids:
+        try:
+            contract_versions_map[contract_id] = _sorted_versions(contract_versions(contract_id))
+        except FileNotFoundError:
+            contract_versions_map[contract_id] = []
+    dataset_ids = sorted(list_dataset_ids())
+    dataset_versions_map: Dict[str, List[str]] = {}
+    for dataset_id in dataset_ids:
+        versions = {
+            str(entry.get("dataset_version") or "")
+            for entry in dataset_pipeline_activity(dataset_id)
+            if entry.get("dataset_version")
+        }
+        dataset_versions_map[dataset_id] = sorted(
+            [version for version in versions if version],
+            key=_version_sort_key,
+        )
+    existing_products = sorted(list_data_product_ids())
+    product_versions_map: Dict[str, List[str]] = {}
+    for product_id in existing_products:
+        product_versions_map[product_id] = _sorted_versions(data_product_versions(product_id))
+    meta: Dict[str, Any] = {
+        "contractOptions": contract_ids,
+        "contractVersions": contract_versions_map,
+        "datasetOptions": dataset_ids,
+        "datasetVersions": dataset_versions_map,
+        "existingProducts": existing_products,
+        "existingVersions": product_versions_map,
+        "editing": editing,
+        "productId": str(editor_state.get("id", "") or ""),
+    }
+    if original_version:
+        meta["originalVersion"] = original_version
+    if baseline_state is not None:
+        meta["baselineState"] = jsonable_encoder(baseline_state)
+    if baseline_product is not None:
+        meta["baseProduct"] = baseline_product.to_dict()
+    return meta
+
+
+def _data_product_editor_context(
+    request: Request,
+    *,
+    editor_state: Dict[str, Any],
+    editing: bool = False,
+    original_version: Optional[str] = None,
+    baseline_state: Optional[Mapping[str, Any]] = None,
+    baseline_product: Optional[OpenDataProductStandard] = None,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    context = {
+        "request": request,
+        "editing": editing,
+        "editor_state": editor_state,
+        "status_options": _STATUS_OPTIONS,
+        "editor_meta": _data_product_editor_meta(
+            editor_state=editor_state,
+            editing=editing,
+            original_version=original_version,
+            baseline_state=baseline_state,
+            baseline_product=baseline_product,
+        ),
+    }
+    if original_version:
+        context["original_version"] = original_version
+    if error:
+        context["error"] = error
+    return context
+
+
+def _validate_data_product_payload(
+    payload: Mapping[str, Any],
+    *,
+    editing: bool,
+    base_version: Optional[str] = None,
+) -> None:
+    product_id = (str(payload.get("id", ""))).strip()
+    if not product_id:
+        raise ValueError("Data product ID is required")
+    version_value = (str(payload.get("version", ""))).strip()
+    if not version_value:
+        raise ValueError("Version is required")
+    try:
+        new_version = SemVer.parse(version_value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid version '{version_value}': {exc}") from exc
+    if editing:
+        if not base_version:
+            raise ValueError("Base version is required when editing a data product")
+        try:
+            base_semver = SemVer.parse(base_version)
+        except ValueError as exc:
+            raise ValueError(f"Invalid base version '{base_version}': {exc}") from exc
+        if new_version <= base_semver:
+            raise ValueError("New version must be greater than the base version")
+
+
+def _input_ports_from_payload(
+    payload: Any,
+    *,
+    baseline: Optional[OpenDataProductStandard],
+) -> List[DataProductInputPort]:
+    ports: List[DataProductInputPort] = []
+    baseline_map = {
+        port.name: port for port in getattr(baseline, "input_ports", []) or []
+    }
+
+    items = payload if isinstance(payload, list) else []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        name = (str(item.get("name", ""))).strip()
+        contract_id = (str(item.get("contractId", ""))).strip()
+        version = (str(item.get("contractVersion", ""))).strip()
+        if not name or not contract_id or not version:
+            continue
+        source_product = (str(item.get("sourceDataProduct", ""))).strip()
+        source_port = (str(item.get("sourceOutputPort", ""))).strip()
+        overrides = _custom_properties_entries(
+            item.get("customProperties") if isinstance(item.get("customProperties"), list) else []
+        )
+        baseline_port = baseline_map.get(name)
+        custom_entries = _merge_custom_entries(
+            getattr(baseline_port, "custom_properties", None),
+            overrides,
+        )
+
+        def _apply(entries: List[Dict[str, Any]], key: str, value: str) -> List[Dict[str, Any]]:
+            filtered = [entry for entry in entries if entry.get("property") != key]
+            if value:
+                filtered.append({"property": key, "value": value})
+            return filtered
+
+        custom_entries = _apply(custom_entries, "dc43.input.source_data_product", source_product)
+        custom_entries = _apply(custom_entries, "dc43.input.source_output_port", source_port)
+
+        ports.append(
+            DataProductInputPort(
+                name=name,
+                version=version,
+                contract_id=contract_id,
+                custom_properties=custom_entries,
+                authoritative_definitions=list(getattr(baseline_port, "authoritative_definitions", []) or []),
+                extra=dict(getattr(baseline_port, "extra", {}) or {}),
+            )
+        )
+    return ports
+
+
+def _output_ports_from_payload(
+    payload: Any,
+    *,
+    baseline: Optional[OpenDataProductStandard],
+) -> List[DataProductOutputPort]:
+    ports: List[DataProductOutputPort] = []
+    baseline_map = {
+        port.name: port for port in getattr(baseline, "output_ports", []) or []
+    }
+
+    items = payload if isinstance(payload, list) else []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        name = (str(item.get("name", ""))).strip()
+        contract_id = (str(item.get("contractId", ""))).strip()
+        version = (str(item.get("contractVersion", ""))).strip()
+        if not name or not contract_id or not version:
+            continue
+        dataset_id = (str(item.get("datasetId", ""))).strip()
+        stage_contract = (str(item.get("stageContract", ""))).strip()
+        overrides = _custom_properties_entries(
+            item.get("customProperties") if isinstance(item.get("customProperties"), list) else []
+        )
+        baseline_port = baseline_map.get(name)
+        custom_entries = _merge_custom_entries(
+            getattr(baseline_port, "custom_properties", None),
+            overrides,
+        )
+
+        def _apply(entries: List[Dict[str, Any]], key: str, value: str) -> List[Dict[str, Any]]:
+            filtered = [entry for entry in entries if entry.get("property") != key]
+            if value:
+                filtered.append({"property": key, "value": value})
+            return filtered
+
+        custom_entries = _apply(custom_entries, "dc43.dataset.id", dataset_id)
+        if not dataset_id:
+            custom_entries = [
+                entry for entry in custom_entries if entry.get("property") != "dc43.dataset.id"
+            ]
+        custom_entries = _apply(custom_entries, "dc43.stage.contract", stage_contract)
+
+        ports.append(
+            DataProductOutputPort(
+                name=name,
+                version=version,
+                contract_id=contract_id,
+                description=getattr(baseline_port, "description", None),
+                type=getattr(baseline_port, "type", None),
+                sbom=list(getattr(baseline_port, "sbom", []) or []),
+                input_contracts=list(getattr(baseline_port, "input_contracts", []) or []),
+                custom_properties=custom_entries,
+                authoritative_definitions=list(getattr(baseline_port, "authoritative_definitions", []) or []),
+                extra=dict(getattr(baseline_port, "extra", {}) or {}),
+            )
+        )
+    return ports
+
+
+def _build_data_product_from_payload(
+    payload: Mapping[str, Any],
+    *,
+    baseline_product: Optional[OpenDataProductStandard] = None,
+) -> OpenDataProductStandard:
+    product_id = (str(payload.get("id", ""))).strip()
+    version_value = (str(payload.get("version", ""))).strip()
+    status_value = (str(payload.get("status", ""))).strip() or "draft"
+    name_value = (str(payload.get("name", ""))).strip()
+    description_text = (str(payload.get("description", ""))).strip()
+    tags = _normalise_tags(payload.get("tags")) or []
+    custom_entries = _custom_properties_entries(
+        payload.get("customProperties") if isinstance(payload.get("customProperties"), list) else []
+    )
+    baseline_extra = dict(getattr(baseline_product, "extra", {}) or {})
+    input_ports = _input_ports_from_payload(
+        payload.get("inputPorts"),
+        baseline=baseline_product,
+    )
+    output_ports = _output_ports_from_payload(
+        payload.get("outputPorts"),
+        baseline=baseline_product,
+    )
+    description_payload = {"usage": description_text} if description_text else None
+    return OpenDataProductStandard(
+        id=product_id,
+        status=status_value,
+        api_version=getattr(baseline_product, "api_version", None) or ODPS_REQUIRED,
+        kind=getattr(baseline_product, "kind", "DataProduct"),
+        version=version_value,
+        name=name_value or None,
+        description=description_payload,
+        tags=tags,
+        custom_properties=custom_entries,
+        input_ports=input_ports,
+        output_ports=output_ports,
+        extra=baseline_extra,
+    )
+
+
 def _contract_editor_state(contract: Optional[OpenDataContractStandard] = None) -> Dict[str, Any]:
     if contract is None:
         return {
@@ -7580,6 +7944,43 @@ def _custom_properties_models(items: Optional[Iterable[Mapping[str, Any]]]) -> L
         value = _parse_json_value(item.get("value"))
         result.append(CustomProperty(property=key, value=value))
     return result or None
+
+
+def _custom_properties_entries(items: Optional[Iterable[Mapping[str, Any]]]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    if not items:
+        return entries
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        key = (str(item.get("property", ""))).strip()
+        if not key:
+            continue
+        value = _parse_json_value(item.get("value"))
+        entries.append({"property": key, "value": value})
+    return entries
+
+
+def _merge_custom_entries(
+    base_entries: Iterable[Mapping[str, Any]] | None,
+    overrides: Iterable[Mapping[str, Any]] | None,
+) -> List[Dict[str, Any]]:
+    merged: Dict[str, Any] = {}
+    if base_entries:
+        for item in base_entries:
+            if not isinstance(item, Mapping):
+                continue
+            key = (str(item.get("property", ""))).strip()
+            if key:
+                merged[key] = item.get("value")
+    if overrides:
+        for item in overrides:
+            if not isinstance(item, Mapping):
+                continue
+            key = (str(item.get("property", ""))).strip()
+            if key:
+                merged[key] = item.get("value")
+    return [{"property": key, "value": merged[key]} for key in merged]
 
 
 def _validate_contract_payload(
@@ -8051,8 +8452,134 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
 async def list_data_products(request: Request) -> HTMLResponse:
     records = load_records()
     catalog = data_product_catalog(records)
-    context = {"request": request, "products": catalog}
+    context = {
+        "request": request,
+        "products": catalog,
+        "can_manage_products": bool(data_product_service),
+    }
     return templates.TemplateResponse("data_products.html", context)
+
+
+@router.get("/data-products/new", response_class=HTMLResponse)
+async def new_data_product_form(request: Request) -> HTMLResponse:
+    if not data_product_service:
+        raise HTTPException(status_code=503, detail="Data product backend is not configured")
+    editor_state = _data_product_editor_state()
+    editor_state["version"] = editor_state.get("version") or "0.1.0"
+    editor_state["status"] = editor_state.get("status") or "draft"
+    context = _data_product_editor_context(request, editor_state=editor_state)
+    return templates.TemplateResponse("new_data_product.html", context)
+
+
+@router.post("/data-products/new", response_class=HTMLResponse)
+async def create_data_product(
+    request: Request,
+    payload: str = Form(...),
+) -> HTMLResponse:
+    if not data_product_service:
+        raise HTTPException(status_code=503, detail="Data product backend is not configured")
+    error: Optional[str] = None
+    try:
+        editor_state = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        error = f"Invalid editor payload: {exc.msg}"
+        editor_state = _data_product_editor_state()
+        editor_state["version"] = editor_state.get("version") or "0.1.0"
+        editor_state["status"] = editor_state.get("status") or "draft"
+    else:
+        try:
+            _validate_data_product_payload(editor_state, editing=False)
+            model = _build_data_product_from_payload(editor_state)
+            put_data_product(model)
+            return RedirectResponse(url="/data-products", status_code=303)
+        except (ValidationError, ValueError) as exc:
+            error = str(exc)
+        except Exception as exc:  # pragma: no cover - display unexpected errors
+            error = str(exc)
+    context = _data_product_editor_context(
+        request,
+        editor_state=editor_state,
+        error=error,
+    )
+    return templates.TemplateResponse("new_data_product.html", context)
+
+
+@router.get("/data-products/{product_id}/{version}/edit", response_class=HTMLResponse)
+async def edit_data_product_form(
+    request: Request,
+    product_id: str,
+    version: str,
+) -> HTMLResponse:
+    if not data_product_service:
+        raise HTTPException(status_code=503, detail="Data product backend is not configured")
+    try:
+        baseline_product = get_data_product(product_id, version)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    editor_state = _data_product_editor_state(baseline_product)
+    baseline_state = json.loads(json.dumps(editor_state))
+    editor_state["version"] = _next_version(version)
+    context = _data_product_editor_context(
+        request,
+        editor_state=editor_state,
+        editing=True,
+        original_version=version,
+        baseline_state=baseline_state,
+        baseline_product=baseline_product,
+    )
+    return templates.TemplateResponse("new_data_product.html", context)
+
+
+@router.post("/data-products/{product_id}/{version}/edit", response_class=HTMLResponse)
+async def save_data_product_edits(
+    request: Request,
+    product_id: str,
+    version: str,
+    payload: str = Form(...),
+    original_version: str = Form(""),
+) -> HTMLResponse:
+    if not data_product_service:
+        raise HTTPException(status_code=503, detail="Data product backend is not configured")
+    base_version = original_version or version
+    try:
+        baseline_product = get_data_product(product_id, base_version)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    baseline_state = json.loads(json.dumps(_data_product_editor_state(baseline_product)))
+    error: Optional[str] = None
+    try:
+        editor_state = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        error = f"Invalid editor payload: {exc.msg}"
+        editor_state = _data_product_editor_state(baseline_product)
+        editor_state["version"] = _next_version(base_version)
+    else:
+        try:
+            _validate_data_product_payload(
+                editor_state,
+                editing=True,
+                base_version=base_version,
+            )
+            model = _build_data_product_from_payload(
+                editor_state,
+                baseline_product=baseline_product,
+            )
+            put_data_product(model)
+            return RedirectResponse(url=f"/data-products/{product_id}", status_code=303)
+        except (ValidationError, ValueError) as exc:
+            error = str(exc)
+        except Exception as exc:  # pragma: no cover - display unexpected errors
+            error = str(exc)
+    context = _data_product_editor_context(
+        request,
+        editor_state=editor_state,
+        editing=True,
+        original_version=base_version,
+        baseline_state=baseline_state,
+        baseline_product=baseline_product,
+        error=error,
+    )
+    return templates.TemplateResponse("new_data_product.html", context)
 
 
 @router.get("/data-products/{product_id}", response_class=HTMLResponse)
@@ -8061,7 +8588,11 @@ async def data_product_detail_view(request: Request, product_id: str) -> HTMLRes
     details = describe_data_product(product_id, records)
     if details is None:
         raise HTTPException(status_code=404, detail="Data product not found")
-    context = {"request": request, "product": details}
+    context = {
+        "request": request,
+        "product": details,
+        "can_manage_products": bool(data_product_service),
+    }
     return templates.TemplateResponse("data_product_detail.html", context)
 
 

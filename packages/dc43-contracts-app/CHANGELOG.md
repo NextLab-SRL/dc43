@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Added a rich data product editor with searchable contract and dataset
+  selectors, dynamic port controls, and inline custom property management so
+  stewards can publish new versions without leaving the UI.
+- Added Playwright regression coverage for the editor, validating contract
+  search helpers, port wiring, and successful saves through the browser.
+
 ### Changed
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
