@@ -24,8 +24,17 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
-    max-height: calc(100vh - 6rem);
+    max-height: calc(100vh - 3rem);
     align-self: start;
+    overflow: hidden;
+  }
+  .helper-sidebar .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+    flex: 1 1 auto;
   }
   .helper-panel .card-body {
     display: flex;
@@ -36,10 +45,43 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    flex: 1 1 auto;
   }
   #contractResults {
-    max-height: calc(100vh - 18rem);
-    overflow-y: auto;
+    max-height: none;
+  }
+  #dataProductResults {
+    max-height: none;
+  }
+  .catalog-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .catalog-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .catalog-results .catalog-result-list {
+    flex: 0 0 auto;
+  }
+  .catalog-results[data-role="product-results"] .catalog-result-list {
+    flex: 1 1 auto;
+    min-height: 16rem;
+  }
+  .catalog-results[data-role="product-results"] {
+    flex: 1 1 auto;
+  }
+  .catalog-results [data-role="drag-handle"] {
+    cursor: grab;
+  }
+  .catalog-results [data-role="drag-handle"].is-dragging,
+  .catalog-results [data-role="drag-handle"]:active {
+    cursor: grabbing;
+  }
+  .catalog-results .list-group-item.is-dragging {
+    opacity: 0.85;
   }
   .helper-pipeline .card-body {
     gap: 1rem;
@@ -370,6 +412,12 @@
     align-items: center;
     gap: 0.5rem;
   }
+  .product-port .port-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+  }
   .product-port .port-body {
     display: flex;
     flex-direction: column;
@@ -565,8 +613,15 @@
       position: static;
       max-height: none;
     }
+    .helper-sidebar .card-body {
+      overflow: visible;
+      padding-right: 0;
+    }
     #contractResults {
       max-height: 20rem;
+    }
+    #dataProductResults {
+      max-height: none;
     }
     .pipeline-workspace {
       grid-template-columns: 1fr;
@@ -590,19 +645,23 @@
         <label for="contractSearch" class="form-label">Search contracts</label>
         <input type="search" class="form-control" id="contractSearch" placeholder="Filter by id, name, version"/>
       </div>
-      <div>
+      <div class="catalog-section">
         <h2 class="h6 text-uppercase text-muted mb-2">Contracts</h2>
-        <div id="contractResults" class="list-group"></div>
-        <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
+        <div class="catalog-results" data-role="contract-results">
+          <div id="contractResults" class="list-group catalog-result-list"></div>
+          <p class="text-muted small mb-0 d-none" id="contractResultsEmpty">No matching contracts found.</p>
+        </div>
       </div>
       <div class="pt-3 border-top">
         <label for="dataProductSearch" class="form-label">Search data products</label>
         <input type="search" class="form-control" id="dataProductSearch" placeholder="Filter by id, name, port, contract"/>
       </div>
-      <div>
+      <div class="catalog-section flex-grow-1">
         <h2 class="h6 text-uppercase text-muted mb-2">Data products</h2>
-        <div id="dataProductResults" class="list-group"></div>
-        <p class="text-muted small mt-3 d-none" id="dataProductResultsEmpty">No matching data products found.</p>
+        <div class="catalog-results" data-role="product-results">
+          <div id="dataProductResults" class="list-group catalog-result-list"></div>
+          <p class="text-muted small mb-0 d-none" id="dataProductResultsEmpty">No matching data products found.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -868,6 +927,11 @@
     transformation: null,
   };
 
+  const NODE_SIZE_HINTS = {
+    contract: { width: 260, height: 200 },
+    "data-product": { width: 280, height: 220 },
+  };
+
   function ensureBootstrapModal(key) {
     const lib = window.bootstrap;
     if (!lib) {
@@ -896,6 +960,114 @@
 
   function clampZoom(value) {
     return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+  }
+
+  function nodeSizeHint(kind) {
+    return NODE_SIZE_HINTS[kind] || NODE_SIZE_HINTS.contract;
+  }
+
+  function screenPointToStage(clientX, clientY) {
+    if (!dom.pipelineCanvas) {
+      return { x: clientX, y: clientY };
+    }
+    const rect = dom.pipelineCanvas.getBoundingClientRect();
+    const x = (clientX - rect.left - state.pan.x) / state.zoom;
+    const y = (clientY - rect.top - state.pan.y) / state.zoom;
+    return { x, y };
+  }
+
+  function dropPositionFromEvent(event, kind) {
+    const stagePoint = screenPointToStage(event.clientX, event.clientY);
+    const hint = nodeSizeHint(kind);
+    return {
+      x: stagePoint.x - hint.width / 2,
+      y: stagePoint.y - hint.height / 2,
+    };
+  }
+
+  function registerDraggableResult(element, payloadResolver, options = {}) {
+    if (!element) {
+      return;
+    }
+    const dragTarget = options.dragClassTarget || element;
+    element.setAttribute("draggable", "true");
+    element.addEventListener("dragstart", (event) => {
+      if (!event.dataTransfer) {
+        return;
+      }
+      if (event.target && event.target.closest("button, select")) {
+        event.preventDefault();
+        return;
+      }
+      const payload = typeof payloadResolver === "function" ? payloadResolver() : null;
+      if (!payload) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.effectAllowed = "copy";
+      try {
+        event.dataTransfer.setData("application/json", JSON.stringify(payload));
+      } catch (error) {
+        console.warn("Failed to encode drag payload", error);
+        event.preventDefault();
+        return;
+      }
+      if (payload.kind) {
+        event.dataTransfer.setData("text/plain", payload.kind);
+      }
+      element.classList.add("is-dragging");
+      if (dragTarget && dragTarget !== element) {
+        dragTarget.classList.add("is-dragging");
+      }
+    });
+    element.addEventListener("dragend", () => {
+      element.classList.remove("is-dragging");
+      if (dragTarget && dragTarget !== element) {
+        dragTarget.classList.remove("is-dragging");
+      }
+    });
+  }
+
+  function parseDragPayload(event) {
+    if (!event.dataTransfer) {
+      return null;
+    }
+    const raw = event.dataTransfer.getData("application/json");
+    if (!raw) {
+      return null;
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (error) {
+      console.warn("Unable to parse drag payload", error);
+      return null;
+    }
+  }
+
+  function handlePipelineDragOver(event) {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }
+
+  function handlePipelineDrop(event) {
+    event.preventDefault();
+    const payload = parseDragPayload(event);
+    if (!payload) {
+      return;
+    }
+    if (payload.kind === "contract" && payload.contractId) {
+      const version = payload.version || "latest";
+      const position = dropPositionFromEvent(event, "contract");
+      addContractToPipeline(payload.contractId, version, position);
+      return;
+    }
+    if (payload.kind === "data-product" && payload.productId) {
+      const version = payload.version || "latest";
+      const position = dropPositionFromEvent(event, "data-product");
+      addDataProductToPipeline(payload.productId, version, position);
+    }
   }
 
   function updateZoomControls() {
@@ -1023,6 +1195,95 @@
     return state.transformations.find((item) => item.id === transformationId) || null;
   }
 
+  function ensureCustomPortStore(node) {
+    if (!node) {
+      return { outputs: [], inputs: [] };
+    }
+    if (!node.customPorts) {
+      node.customPorts = { outputs: [], inputs: [] };
+    }
+    if (!Array.isArray(node.customPorts.outputs)) {
+      node.customPorts.outputs = [];
+    }
+    if (!Array.isArray(node.customPorts.inputs)) {
+      node.customPorts.inputs = [];
+    }
+    return node.customPorts;
+  }
+
+  function dataProductPorts(node) {
+    if (!node) {
+      return { outputs: [], inputs: [] };
+    }
+    const summary = node.summary || {};
+    const ports = summary.ports || {};
+    const custom = ensureCustomPortStore(node);
+    const outputs = [
+      ...((ports.outputs || []).map((port) => ({ ...port, requiresNewVersion: !!port.requiresNewVersion, isCustom: false }))),
+      ...(custom.outputs || []),
+    ];
+    const inputs = [
+      ...((ports.inputs || []).map((port) => ({ ...port, requiresNewVersion: !!port.requiresNewVersion, isCustom: false }))),
+      ...(custom.inputs || []),
+    ];
+    return { outputs, inputs };
+  }
+
+  function sanitisePortSlug(value, fallback) {
+    const base = String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const clean = base || fallback;
+    return clean.replace(/_{2,}/g, "_");
+  }
+
+  function uniquePortName(node, direction, label) {
+    const fallback = direction === "output" ? "output_port" : "input_port";
+    const base = sanitisePortSlug(label, fallback);
+    const ports = dataProductPorts(node);
+    const list = direction === "output" ? ports.outputs : ports.inputs;
+    const existing = new Set(
+      list.map((port) => (port.portName || port.name || "").toLowerCase())
+    );
+    if (!existing.has(base)) {
+      return base;
+    }
+    let index = 2;
+    let candidate = `${base}_${index}`;
+    while (existing.has(candidate)) {
+      index += 1;
+      candidate = `${base}_${index}`;
+    }
+    return candidate;
+  }
+
+  function dataProductPortRequiresNewVersion(nodeId, direction, portName) {
+    const node = findDataProductNode(nodeId);
+    if (!node) {
+      return false;
+    }
+    const port = findDataProductPort(node, direction, portName);
+    return !!(port && port.requiresNewVersion);
+  }
+
+  function transformationPendingProductVersion(transformation) {
+    if (!transformation) {
+      return false;
+    }
+    const pendingInputs = transformation.inputs.some(
+      (conn) =>
+        conn.kind === "data-product" &&
+        dataProductPortRequiresNewVersion(conn.dataProductNodeId, "output", conn.portName)
+    );
+    const pendingOutputs = transformation.outputs.some(
+      (conn) =>
+        conn.kind === "data-product" &&
+        dataProductPortRequiresNewVersion(conn.dataProductNodeId, "input", conn.portName)
+    );
+    return pendingInputs || pendingOutputs;
+  }
+
   function nodeSummary(node) {
     if (!node || !node.summary) {
       if (!node) {
@@ -1040,9 +1301,8 @@
     if (!node) {
       return null;
     }
-    const summary = node.summary || {};
-    const ports = summary.ports || {};
-    const list = direction === "output" ? ports.outputs || [] : ports.inputs || [];
+    const ports = dataProductPorts(node);
+    const list = direction === "output" ? ports.outputs : ports.inputs;
     return list.find((port) => (port.portName || port.name || "") === portName) || null;
   }
 
@@ -1079,6 +1339,9 @@
       }
       if (role === "inputs" && port.stageContract) {
         lines.push(`Stage contract: ${port.stageContract}`);
+      }
+      if (port.requiresNewVersion) {
+        lines.push("New data-product version required");
       }
       return {
         type: "data-product",
@@ -1130,7 +1393,7 @@
         .join("");
       group.innerHTML = `
         <div class="d-flex flex-column gap-2">
-          <div class="d-flex justify-content-between align-items-start gap-3">
+          <div class="result-drag-handle d-flex justify-content-between align-items-start gap-3" data-role="drag-handle" title="Drag into the pipeline">
             <div>
               <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
               <div class="small text-muted">${escapeHtml(item.id)}</div>
@@ -1140,7 +1403,7 @@
               <select class="form-select form-select-sm" data-role="version-picker">${versionOptions}</select>
             </div>
           </div>
-          <div class="d-flex gap-2">
+          <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
             <button type="button" class="btn btn-primary btn-sm" data-action="add">Add to pipeline</button>
           </div>
@@ -1149,14 +1412,22 @@
       const versionSelect = group.querySelector('[data-role="version-picker"]');
       const previewButton = group.querySelector('[data-action="preview"]');
       const addButton = group.querySelector('[data-action="add"]');
+      const dragHandle = group.querySelector('[data-role="drag-handle"]');
+      const fallbackVersion = latest || (item.versions || [])[0] || "latest";
+      const resolveVersion = () => (versionSelect ? versionSelect.value || fallbackVersion : fallbackVersion);
       previewButton.addEventListener("click", () => {
-        const ver = versionSelect.value || latest;
-        previewContract(item.id, ver);
+        const ver = resolveVersion();
+        previewContract(item.id, ver || fallbackVersion);
       });
       addButton.addEventListener("click", () => {
-        const ver = versionSelect.value || latest;
-        addContractToPipeline(item.id, ver);
+        const ver = resolveVersion();
+        addContractToPipeline(item.id, ver || fallbackVersion);
       });
+      registerDraggableResult(dragHandle || group, () => ({
+        kind: "contract",
+        contractId: item.id,
+        version: resolveVersion() || fallbackVersion || "latest",
+      }), { dragClassTarget: group });
       dom.contractResults.appendChild(group);
     });
   }
@@ -1192,7 +1463,7 @@
       const counts = `<div class="small text-muted">Inputs: ${item.inputCount ?? 0} · Outputs: ${item.outputCount ?? 0}</div>`;
       group.innerHTML = `
         <div class="d-flex flex-column gap-2">
-          <div class="d-flex justify-content-between align-items-start gap-3">
+          <div class="result-drag-handle d-flex justify-content-between align-items-start gap-3" data-role="drag-handle" title="Drag into the pipeline">
             <div>
               <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
               <div class="small text-muted d-flex align-items-center gap-2 flex-wrap">${escapeHtml(item.id)}${statusBadge ? `<span>${statusBadge}</span>` : ""}</div>
@@ -1205,7 +1476,7 @@
                 : "<div class=\"small text-muted\">No versions</div>"}
             </div>
           </div>
-          <div class="d-flex gap-2">
+          <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
             <button type="button" class="btn btn-primary btn-sm" data-action="add">Add to pipeline</button>
           </div>
@@ -1214,6 +1485,7 @@
       const versionSelect = group.querySelector('[data-role="version-picker"]');
       const previewButton = group.querySelector('[data-action="preview"]');
       const addButton = group.querySelector('[data-action="add"]');
+      const dragHandle = group.querySelector('[data-role="drag-handle"]');
       const fallbackVersion = latest || item.version || "latest";
       const resolveVersion = () => (versionSelect ? versionSelect.value || fallbackVersion : fallbackVersion);
       previewButton.addEventListener("click", () => {
@@ -1224,6 +1496,11 @@
         const ver = resolveVersion();
         addDataProductToPipeline(item.id, ver);
       });
+      registerDraggableResult(dragHandle || group, () => ({
+        kind: "data-product",
+        productId: item.id,
+        version: resolveVersion(),
+      }), { dragClassTarget: group });
       dom.dataProductResults.appendChild(group);
     });
   }
@@ -1481,6 +1758,20 @@
     focusButton.addEventListener("click", () => focusNode(node.id));
     actions.appendChild(focusButton);
 
+    const addOutputButton = document.createElement("button");
+    addOutputButton.type = "button";
+    addOutputButton.className = "btn btn-outline-secondary btn-sm";
+    addOutputButton.textContent = "Add output";
+    addOutputButton.addEventListener("click", () => addCustomDataProductPort(node.id, "output"));
+    actions.appendChild(addOutputButton);
+
+    const addInputButton = document.createElement("button");
+    addInputButton.type = "button";
+    addInputButton.className = "btn btn-outline-secondary btn-sm";
+    addInputButton.textContent = "Add input";
+    addInputButton.addEventListener("click", () => addCustomDataProductPort(node.id, "input"));
+    actions.appendChild(addInputButton);
+
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "btn btn-outline-danger btn-sm";
@@ -1489,27 +1780,61 @@
     actions.appendChild(removeButton);
     panel.appendChild(actions);
 
-    const ports = summary.ports || { outputs: [], inputs: [] };
-    if ((ports.outputs || []).length) {
+    const ports = dataProductPorts(node);
+    const outputPorts = ports.outputs || [];
+    const inputPorts = ports.inputs || [];
+    const customCount = (node.customPorts?.outputs?.length || 0) + (node.customPorts?.inputs?.length || 0);
+    if (customCount) {
+      const warning = document.createElement("div");
+      warning.className = "alert alert-warning small";
+      warning.textContent = "Proposed ports require publishing a new data product version.";
+      panel.appendChild(warning);
+    }
+
+    if (outputPorts.length) {
       const outputsSection = document.createElement("div");
       outputsSection.className = "pb-3";
       const title = document.createElement("h4");
       title.className = "h6";
-      title.textContent = `Outputs (${ports.outputs.length})`;
+      title.textContent = `Outputs (${outputPorts.length})`;
       outputsSection.appendChild(title);
       const list = document.createElement("ul");
       list.className = "small mb-0";
-      ports.outputs.forEach((port) => {
+      outputPorts.forEach((port) => {
         const item = document.createElement("li");
         const name = document.createElement("code");
         name.textContent = port.name || port.portName || "";
         item.appendChild(name);
         const metaLine = document.createElement("span");
         metaLine.className = "text-muted ms-2";
-        const contractBits = [port.contractId || "", port.contractVersion ? `v${port.contractVersion}` : ""].filter(Boolean);
-        const datasetBits = [port.datasetId || "", port.stageContract ? `Stage: ${port.stageContract}` : ""].filter(Boolean);
-        const details = [contractBits.join(" "), datasetBits.join(" · ")].filter(Boolean).join(" · ");
-        metaLine.textContent = details ? `(${details})` : "";
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const datasetBits = [
+          port.datasetId || "",
+          port.stageContract ? `Stage: ${port.stageContract}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const baseDetails = [contractBits, datasetBits].filter(Boolean).join(" · ");
+        const notes = [];
+        if (port.sourceDataProduct) {
+          const sourceLabel = port.sourceOutputPort
+            ? `${port.sourceDataProduct} · Port ${port.sourceOutputPort}`
+            : port.sourceDataProduct;
+          notes.push(`Source: ${sourceLabel}`);
+        }
+        if (port.requiresNewVersion) {
+          notes.push("New version required");
+        }
+        if (port.isCustom) {
+          notes.push("Proposed port");
+        }
+        const textBits = [baseDetails, notes.join(" · ")].filter(Boolean).join(" · ");
+        metaLine.textContent = textBits ? `(${textBits})` : "";
         item.appendChild(metaLine);
         list.appendChild(item);
       });
@@ -1517,25 +1842,45 @@
       panel.appendChild(outputsSection);
     }
 
-    if ((ports.inputs || []).length) {
+    if (inputPorts.length) {
       const inputsSection = document.createElement("div");
       inputsSection.className = "pb-3";
       const title = document.createElement("h4");
       title.className = "h6";
-      title.textContent = `Inputs (${ports.inputs.length})`;
+      title.textContent = `Inputs (${inputPorts.length})`;
       inputsSection.appendChild(title);
       const list = document.createElement("ul");
       list.className = "small mb-0";
-      ports.inputs.forEach((port) => {
+      inputPorts.forEach((port) => {
         const item = document.createElement("li");
         const name = document.createElement("code");
         name.textContent = port.name || port.portName || "";
         item.appendChild(name);
         const metaLine = document.createElement("span");
         metaLine.className = "text-muted ms-2";
-        const contractBits = [port.contractId || "", port.contractVersion ? `v${port.contractVersion}` : ""].filter(Boolean);
-        const sourceBits = [port.sourceDataProduct || "", port.sourceOutputPort ? `Port ${port.sourceOutputPort}` : ""].filter(Boolean);
-        const details = [contractBits.join(" "), sourceBits.join(" · ")].filter(Boolean).join(" · ");
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const notes = [];
+        if (port.sourceDataProduct) {
+          const sourceLabel = port.sourceOutputPort
+            ? `${port.sourceDataProduct} · Port ${port.sourceOutputPort}`
+            : port.sourceDataProduct;
+          notes.push(`Source: ${sourceLabel}`);
+        }
+        if (port.stageContract) {
+          notes.push(`Stage: ${port.stageContract}`);
+        }
+        if (port.requiresNewVersion) {
+          notes.push("New version required");
+        }
+        if (port.isCustom) {
+          notes.push("Proposed port");
+        }
+        const details = [contractBits, notes.join(" · ")].filter(Boolean).join(" · ");
         metaLine.textContent = details ? `(${details})` : "";
         item.appendChild(metaLine);
         list.appendChild(item);
@@ -1750,17 +2095,22 @@
     return true;
   }
 
-  function addContractToPipeline(contractId, version) {
+  function addContractToPipeline(contractId, version, positionOverride = null) {
     const existing = state.contractNodes.find((node) => node.contractId === contractId && node.version === version);
     if (existing) {
       focusNode(existing.id);
       setSelection({ kind: "contract", nodeId: existing.id });
       return;
     }
-    const position = {
-      x: 80 + state.contractNodes.length * 40,
-      y: 80 + state.contractNodes.length * 60,
-    };
+    const position = positionOverride
+      ? {
+          x: Number.isFinite(Number(positionOverride.x)) ? Number(positionOverride.x) : 0,
+          y: Number.isFinite(Number(positionOverride.y)) ? Number(positionOverride.y) : 0,
+        }
+      : {
+          x: 80 + state.contractNodes.length * 40,
+          y: 80 + state.contractNodes.length * 60,
+        };
     loadContractSummary(contractId, version).then((summary) => {
       const node = {
         id: createId("contract"),
@@ -1919,7 +2269,7 @@
     return summary;
   }
 
-  function addDataProductToPipeline(productId, version) {
+  function addDataProductToPipeline(productId, version, positionOverride = null) {
     const existing = state.dataProductNodes.find(
       (node) => node.productId === productId && node.version === version
     );
@@ -1928,10 +2278,15 @@
       setSelection({ kind: "data-product", nodeId: existing.id });
       return;
     }
-    const position = {
-      x: 80 + state.dataProductNodes.length * 40,
-      y: 220 + state.dataProductNodes.length * 60,
-    };
+    const position = positionOverride
+      ? {
+          x: Number.isFinite(Number(positionOverride.x)) ? Number(positionOverride.x) : 0,
+          y: Number.isFinite(Number(positionOverride.y)) ? Number(positionOverride.y) : 0,
+        }
+      : {
+          x: 80 + state.dataProductNodes.length * 40,
+          y: 220 + state.dataProductNodes.length * 60,
+        };
     loadDataProductSummary(productId, version).then((summary) => {
       const node = {
         id: createId("product"),
@@ -1941,12 +2296,93 @@
         position,
         summary,
         size: { width: 280, height: 220 },
+        customPorts: { outputs: [], inputs: [] },
       };
       state.dataProductNodes.push(node);
       renderPipeline();
       renderTransformations();
       setSelection({ kind: "data-product", nodeId: node.id });
     });
+  }
+
+  function addCustomDataProductPort(nodeId, direction) {
+    const node = findDataProductNode(nodeId);
+    if (!node) {
+      return;
+    }
+    const labelDefault = direction === "output" ? "New output port" : "New input port";
+    const promptLabel = direction === "output" ? "output" : "input";
+    const response = window.prompt(`Name for the new ${promptLabel} port`, labelDefault);
+    if (response === null) {
+      return;
+    }
+    const trimmed = response.trim();
+    if (!trimmed) {
+      return;
+    }
+    window.alert(
+      "Adding a new input or output requires publishing a new version of this data product. The port will be marked as pending until a new version is available."
+    );
+    const store = ensureCustomPortStore(node);
+    const key = direction === "output" ? "outputs" : "inputs";
+    const portName = uniquePortName(node, direction, trimmed);
+    store[key].push({
+      portName,
+      name: trimmed,
+      requiresNewVersion: true,
+      isCustom: true,
+    });
+    renderPipeline();
+    renderTransformations();
+    setSelection({ kind: "data-product", nodeId: node.id });
+    setPipelineStatus(`Added proposed ${promptLabel} port "${trimmed}".`, "success", { duration: 3200 });
+  }
+
+  function removeCustomDataProductPort(nodeId, direction, portName) {
+    const node = findDataProductNode(nodeId);
+    if (!node || !node.customPorts) {
+      return;
+    }
+    const key = direction === "output" ? "outputs" : "inputs";
+    const before = node.customPorts[key]?.length || 0;
+    node.customPorts[key] = (node.customPorts[key] || []).filter(
+      (port) => (port.portName || port.name || "") !== portName
+    );
+    if (node.customPorts[key].length === before) {
+      return;
+    }
+    state.transformations.forEach((transformation) => {
+      if (direction === "output") {
+        const previous = transformation.inputs.length;
+        transformation.inputs = transformation.inputs.filter(
+          (conn) =>
+            !(
+              conn.kind === "data-product" &&
+              conn.dataProductNodeId === nodeId &&
+              conn.portName === portName
+            )
+        );
+        if (transformation.inputs.length !== previous) {
+          markTransformationDirty(transformation.id);
+        }
+      } else {
+        const previous = transformation.outputs.length;
+        transformation.outputs = transformation.outputs.filter(
+          (conn) =>
+            !(
+              conn.kind === "data-product" &&
+              conn.dataProductNodeId === nodeId &&
+              conn.portName === portName
+            )
+        );
+        if (transformation.outputs.length !== previous) {
+          markTransformationDirty(transformation.id);
+        }
+      }
+    });
+    renderPipeline();
+    renderTransformations();
+    setPipelineStatus("Removed proposed data product port.", "muted");
   }
 
   function removeDataProductNode(nodeId) {
@@ -2153,11 +2589,17 @@
       <div class="node-body">
         ${description}
         <div class="product-port-section">
-          <h4 class="mb-1">Outputs</h4>
+          <div class="d-flex justify-content-between align-items-center gap-2">
+            <h4 class="mb-1">Outputs</h4>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-action="add-output-port">Add output</button>
+          </div>
           <div class="product-port-list" data-role="outputs"></div>
         </div>
         <div class="product-port-section">
-          <h4 class="mb-1">Inputs</h4>
+          <div class="d-flex justify-content-between align-items-center gap-2">
+            <h4 class="mb-1">Inputs</h4>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-action="add-input-port">Add input</button>
+          </div>
           <div class="product-port-list" data-role="inputs"></div>
         </div>
         <div class="node-actions">
@@ -2169,62 +2611,178 @@
 
     const outputsList = element.querySelector('[data-role="outputs"]');
     const inputsList = element.querySelector('[data-role="inputs"]');
-    const ports = summary.ports || { outputs: [], inputs: [] };
+    const addOutputButton = element.querySelector('[data-action="add-output-port"]');
+    const addInputButton = element.querySelector('[data-action="add-input-port"]');
+    if (addOutputButton) {
+      addOutputButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        addCustomDataProductPort(node.id, "output");
+      });
+    }
+    if (addInputButton) {
+      addInputButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        addCustomDataProductPort(node.id, "input");
+      });
+    }
 
-    (ports.outputs || []).forEach((port) => {
-      const item = document.createElement("div");
-      item.className = "product-port product-port-output";
-      item.dataset.portName = port.portName || port.name || "";
-      const handle = document.createElement("span");
-      handle.className = "connector-anchor";
-      handle.dataset.role = "product-output";
-      handle.dataset.portName = item.dataset.portName;
-      handle.textContent = "▶";
-      const body = document.createElement("div");
-      body.className = "port-body";
-      body.innerHTML = `
-        <div class="port-name">${escapeHtml(port.name || port.portName || "")}</div>
-        <div class="port-meta">${escapeHtml(port.contractId || "")} · ${escapeHtml(port.contractVersion || "")}</div>
-        ${port.datasetId ? `<div class="port-meta">${escapeHtml(port.datasetId)}</div>` : ""}
-      `;
-      item.appendChild(body);
-      item.appendChild(handle);
-      outputsList.appendChild(item);
-      handle.addEventListener("pointerdown", (event) =>
-        beginConnection(event, {
-          kind: "data-product-output",
-          productNodeId: node.id,
-          portName: item.dataset.portName,
-          element: handle,
-        })
-      );
-      handle.addEventListener("pointerenter", () => setHoverHandle(handle));
-      handle.addEventListener("pointerleave", () => clearHoverHandle(handle));
-    });
+    outputsList.innerHTML = "";
+    inputsList.innerHTML = "";
 
-    (ports.inputs || []).forEach((port) => {
-      const item = document.createElement("div");
-      item.className = "product-port product-port-input";
-      item.dataset.role = "product-input-container";
-      item.dataset.portName = port.portName || port.name || "";
-      const handle = document.createElement("span");
-      handle.className = "connector-anchor";
-      handle.dataset.role = "product-input";
-      handle.dataset.portName = item.dataset.portName;
-      handle.textContent = "◀";
-      const body = document.createElement("div");
-      body.className = "port-body";
-      body.innerHTML = `
-        <div class="port-name">${escapeHtml(port.name || port.portName || "")}</div>
-        <div class="port-meta">${escapeHtml(port.contractId || "")} · ${escapeHtml(port.contractVersion || "")}</div>
-        ${port.sourceDataProduct ? `<div class="port-meta">Source: ${escapeHtml(port.sourceDataProduct)}</div>` : ""}
-      `;
-      item.appendChild(handle);
-      item.appendChild(body);
-      inputsList.appendChild(item);
-      item.addEventListener("pointerenter", () => setHoverHandle(handle));
-      item.addEventListener("pointerleave", () => clearHoverHandle(handle));
-    });
+    const ports = dataProductPorts(node);
+    const outputPorts = ports.outputs || [];
+    const inputPorts = ports.inputs || [];
+
+    if (!outputPorts.length) {
+      const empty = document.createElement("div");
+      empty.className = "text-muted small fst-italic";
+      empty.textContent = "No output ports defined.";
+      outputsList.appendChild(empty);
+    } else {
+      outputPorts.forEach((port) => {
+        const item = document.createElement("div");
+        item.className = "product-port product-port-output";
+        item.dataset.portName = port.portName || port.name || "";
+        const handle = document.createElement("span");
+        handle.className = "connector-anchor";
+        handle.dataset.role = "product-output";
+        handle.dataset.portName = item.dataset.portName;
+        handle.textContent = "▶";
+        const body = document.createElement("div");
+        body.className = "port-body";
+        const name = escapeHtml(port.name || port.portName || "");
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const lines = [];
+        if (contractBits) {
+          lines.push(`<div class="port-meta">${escapeHtml(contractBits)}</div>`);
+        }
+        if (port.datasetId) {
+          lines.push(`<div class="port-meta">${escapeHtml(port.datasetId)}</div>`);
+        }
+        if (port.requiresNewVersion) {
+          lines.push('<div class="port-meta text-warning">Pending new version</div>');
+        }
+        if (port.isCustom) {
+          lines.push('<div class="port-meta text-muted">Proposed port</div>');
+        }
+        body.innerHTML = `<div class="port-name">${name}</div>${lines.join("")}`;
+        item.appendChild(body);
+        const actions = document.createElement("div");
+        actions.className = "port-actions ms-auto";
+        if (port.requiresNewVersion) {
+          const badge = document.createElement("span");
+          badge.className = "badge text-bg-warning text-dark";
+          badge.textContent = "New version required";
+          actions.appendChild(badge);
+        }
+        if (port.isCustom) {
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "btn btn-outline-danger btn-sm";
+          removeBtn.textContent = "Remove";
+          removeBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            removeCustomDataProductPort(node.id, "output", item.dataset.portName);
+          });
+          actions.appendChild(removeBtn);
+        }
+        if (actions.childElementCount > 0) {
+          item.appendChild(actions);
+        }
+        item.appendChild(handle);
+        outputsList.appendChild(item);
+        handle.addEventListener("pointerdown", (event) =>
+          beginConnection(event, {
+            kind: "data-product-output",
+            productNodeId: node.id,
+            portName: item.dataset.portName,
+            element: handle,
+          })
+        );
+        handle.addEventListener("pointerenter", () => setHoverHandle(handle));
+        handle.addEventListener("pointerleave", () => clearHoverHandle(handle));
+      });
+    }
+
+    if (!inputPorts.length) {
+      const empty = document.createElement("div");
+      empty.className = "text-muted small fst-italic";
+      empty.textContent = "No input ports defined.";
+      inputsList.appendChild(empty);
+    } else {
+      inputPorts.forEach((port) => {
+        const item = document.createElement("div");
+        item.className = "product-port product-port-input";
+        item.dataset.role = "product-input-container";
+        item.dataset.portName = port.portName || port.name || "";
+        const handle = document.createElement("span");
+        handle.className = "connector-anchor";
+        handle.dataset.role = "product-input";
+        handle.dataset.portName = item.dataset.portName;
+        handle.textContent = "◀";
+        const body = document.createElement("div");
+        body.className = "port-body";
+        const name = escapeHtml(port.name || port.portName || "");
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const lines = [];
+        if (contractBits) {
+          lines.push(`<div class="port-meta">${escapeHtml(contractBits)}</div>`);
+        }
+        if (port.sourceDataProduct) {
+          const sourceLabel = port.sourceOutputPort
+            ? `${port.sourceDataProduct} · Port ${port.sourceOutputPort}`
+            : port.sourceDataProduct;
+          lines.push(`<div class="port-meta">Source: ${escapeHtml(sourceLabel)}</div>`);
+        }
+        if (port.stageContract) {
+          lines.push(`<div class="port-meta">Stage: ${escapeHtml(port.stageContract)}</div>`);
+        }
+        if (port.requiresNewVersion) {
+          lines.push('<div class="port-meta text-warning">Pending new version</div>');
+        }
+        if (port.isCustom) {
+          lines.push('<div class="port-meta text-muted">Proposed port</div>');
+        }
+        body.innerHTML = `<div class="port-name">${name}</div>${lines.join("")}`;
+        item.appendChild(handle);
+        item.appendChild(body);
+        const actions = document.createElement("div");
+        actions.className = "port-actions ms-auto";
+        if (port.requiresNewVersion) {
+          const badge = document.createElement("span");
+          badge.className = "badge text-bg-warning text-dark";
+          badge.textContent = "New version required";
+          actions.appendChild(badge);
+        }
+        if (port.isCustom) {
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "btn btn-outline-danger btn-sm";
+          removeBtn.textContent = "Remove";
+          removeBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            removeCustomDataProductPort(node.id, "input", item.dataset.portName);
+          });
+          actions.appendChild(removeBtn);
+        }
+        if (actions.childElementCount > 0) {
+          item.appendChild(actions);
+        }
+        inputsList.appendChild(item);
+        item.addEventListener("pointerenter", () => setHoverHandle(handle));
+        item.addEventListener("pointerleave", () => clearHoverHandle(handle));
+      });
+    }
 
     const previewButton = element.querySelector('[data-action="preview"]');
     const removeButton = element.querySelector('[data-action="remove"]');
@@ -3355,8 +3913,11 @@
         });
       }
       renderInlineWriteToggles(writeToggleList, writeToggleField, transformation);
+      const pendingNewVersion = transformationPendingProductVersion(transformation);
       if (!transformation.inputs.length || !transformation.outputs.length) {
         statusContainer.innerHTML = '<div class="alert alert-warning small mb-0">Connect at least one input and one output contract to generate code.</div>';
+      } else if (pendingNewVersion) {
+        statusContainer.innerHTML = '<div class="alert alert-info small mb-0">Publish a new data product version to activate proposed ports before generating code.</div>';
       } else if (transformation.error) {
         statusContainer.innerHTML = `<div class="alert alert-danger small mb-0">${escapeHtml(transformation.error)}</div>`;
       } else if (transformation.isGenerating) {
@@ -3379,7 +3940,9 @@
         strategyContainer.innerHTML = "";
       }
       stubContainer.innerHTML = "";
-      if (transformation.stub) {
+      if (pendingNewVersion) {
+        stubContainer.innerHTML = '<div class="alert alert-light border small mb-0">Code will be available after the new data product version is published.</div>';
+      } else if (transformation.stub) {
         if (!transformation.stubLanguage) {
           transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
         }
@@ -3387,7 +3950,13 @@
         stubContainer.appendChild(section);
       }
       dom.transformationList.appendChild(summary);
-      if (transformation.dirty && transformation.inputs.length && transformation.outputs.length && !transformation.isGenerating) {
+      if (
+        transformation.dirty &&
+        transformation.inputs.length &&
+        transformation.outputs.length &&
+        !transformation.isGenerating &&
+        !pendingNewVersion
+      ) {
         scheduleStubRefresh(transformation.id);
       }
     });
@@ -3698,6 +4267,11 @@
     if (transformation.isGenerating) {
       return;
     }
+    if (transformationPendingProductVersion(transformation)) {
+      transformation.dirty = false;
+      renderTransformations();
+      return;
+    }
     transformation.isGenerating = true;
     transformation.error = null;
     renderTransformations();
@@ -3821,6 +4395,12 @@
         }
         setSelection(null);
       });
+      dom.pipelineCanvas.addEventListener("dragover", handlePipelineDragOver);
+      dom.pipelineCanvas.addEventListener("drop", handlePipelineDrop);
+    }
+    if (dom.pipelineStage) {
+      dom.pipelineStage.addEventListener("dragover", handlePipelineDragOver);
+      dom.pipelineStage.addEventListener("drop", handlePipelineDrop);
     }
     window.addEventListener("resize", () => {
       requestAnimationFrame(() => {

@@ -6,6 +6,11 @@
 - Integration helper pipeline now surfaces governed data products alongside
   contracts so you can add product nodes, wire their ports into transformations,
   and generate stubs with the correct product bindings.
+- The integration helper sidebar now scrolls independently with taller catalog
+  sections, adds explicit drag handles so contracts or data products drop into
+  the canvas reliably, and mirrors the product **Add input/output** controls in
+  the selection panel while flagging that a fresh product version is required
+  before code generation resumes.
 - Added a data product editor to the contracts application with searchable
   contract and dataset selectors so definitions no longer require manual ID
   lookups.

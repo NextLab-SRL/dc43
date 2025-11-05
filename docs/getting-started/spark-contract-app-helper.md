@@ -48,7 +48,9 @@ uvicorn dc43_contracts_app.server:app --host 0.0.0.0 --port 8000
 Visit `http://localhost:8000/integration-helper` in your browser. The landing
 page shows your available datasets on the left and the integration helper on the
 right. Contracts and governed data products now share the sidebar so you can
-bind existing ports into the same lineage you use for raw contract feeds.
+bind existing ports into the same lineage you use for raw contract feeds. The
+sidebar scrolls independently, keeping long contract or product lists visible,
+and you can drag either card straight into the canvas to position new nodes.
 
 ### Option B – run from a container
 
@@ -93,12 +95,19 @@ provisional definition immediately bumps the base version without manual edits.
 ### Incorporate data products
 
 The helper lists governed data products beneath the contract catalog. Choose a
-product version to drop a node onto the canvas, then inspect its inputs and
-outputs from the selection sidebar. Drag from a product’s output port into a
-transformation input to read from the curated dataset, or route transformation
-outputs into a product input port to model writes back into the governed layer.
-Port metadata travels with the node so generated stubs include the correct
-contract IDs, product identifiers, and dataset hints.
+product version and either click **Add to pipeline** or drag the card directly
+onto the canvas using the handle at the top of each result to place a node, then
+inspect its inputs and outputs from the selection sidebar. Drag from a product’s
+output port into a transformation input
+to read from the curated dataset, or route transformation outputs into a product
+input port to model writes back into the governed layer. Each data product node
+now exposes **Add output** and **Add input** controls for proposing new ports,
+and the selection panel mirrors those buttons so you can add bindings without
+leaving the sidebar. When you confirm a new port name the helper shows a reminder
+that a new product version must be published, then holds code generation until
+that release is available. Port metadata travels with the node so generated stubs
+include the correct contract IDs, product identifiers, and dataset hints once the
+bindings are published.
 
 ## 4. Generate a Spark stub
 
