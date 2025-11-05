@@ -7228,8 +7228,24 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
 
 
 def _next_version(ver: str) -> str:
-    v = Version(ver)
-    return f"{v.major}.{v.minor}.{v.micro + 1}"
+    """Return the next semantic version for ``ver``.
+
+    Draft-style suffixes (``-draft``/``-rc1``/...) are tolerated by the local
+    :class:`SemVer` helper so we can bump the base version even when the string
+    is not a valid :mod:`packaging` release identifier. If the value does not
+    resemble a semantic version at all we fall back to returning it unchanged so
+    the UI keeps working for bespoke schemes.
+    """
+
+    try:
+        semver = SemVer.parse(ver)
+    except ValueError:
+        try:
+            v = Version(ver)
+        except InvalidVersion:
+            return ver
+        return f"{v.major}.{v.minor}.{v.micro + 1}"
+    return str(semver.bump("patch"))
 
 
 _EXPECTATION_KEYS = (

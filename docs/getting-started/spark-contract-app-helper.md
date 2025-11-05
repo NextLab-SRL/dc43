@@ -86,6 +86,8 @@ dataset selectors pull from the live catalog so you can search for the correct
 IDs instead of memorising version numbers, and the form automatically suggests
 the next semantic version when you publish a draft. Save the form to persist the
 definition through the same backend service used by your governance pipelines.
+Draft suffixes such as ``-draft`` are handled automatically, so promoting a
+provisional definition immediately bumps the base version without manual edits.
 
 ## 4. Generate a Spark stub
 

@@ -77,6 +77,9 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- The contracts app data product editor now bumps draft-suffixed versions
+  without crashing, so editing ``*-draft`` releases no longer triggers 500
+  errors when calculating the suggested version.
 - Contracts app status history now honours the governance status matrix
   endpoint, trimming redundant per-pair status requests and avoiding failures
   when remote backends return pre-encoded validation payloads.

@@ -47,6 +47,9 @@
   `~/.dc43/docs_chat/index` when no explicit `index_path` is supplied.
 
 ### Fixed
+- Editing data products that were still marked as drafts now bumps the next
+  semantic version automatically, eliminating the 500 error triggered when the
+  editor encountered ``*-draft`` identifiers.
 - Dataset history pages now rely exclusively on the governance status matrix
   endpoint so the UI avoids spamming per-version validation lookups and skips
   pointless calls for "latest" aliases when rendering activity tables.
