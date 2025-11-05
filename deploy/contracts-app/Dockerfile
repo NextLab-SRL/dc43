@@ -9,15 +9,17 @@ WORKDIR /app
 
 # Install dc43 packages from the repository to keep contracts metadata in sync with the
 # backend services.
+COPY packages/dc43-core /tmp/dc43-core
 COPY packages/dc43-service-clients /tmp/dc43-service-clients
 COPY packages/dc43-service-backends /tmp/dc43-service-backends
 COPY packages/dc43-contracts-app /tmp/dc43-contracts-app
 
-RUN pip install --no-cache-dir /tmp/dc43-service-clients \
+RUN pip install --no-cache-dir /tmp/dc43-core \
+    && pip install --no-cache-dir /tmp/dc43-service-clients \
     && pip install --no-cache-dir "/tmp/dc43-service-backends[http]" \
     && pip install --no-cache-dir /tmp/dc43-contracts-app \
     && pip install --no-cache-dir "uvicorn[standard]>=0.24" \
-    && rm -rf /tmp/dc43-service-clients /tmp/dc43-service-backends /tmp/dc43-contracts-app
+    && rm -rf /tmp/dc43-core /tmp/dc43-service-clients /tmp/dc43-service-backends /tmp/dc43-contracts-app
 
 EXPOSE 8000
 
