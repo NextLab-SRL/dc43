@@ -4,110 +4,6 @@ import json
 import re
 from pathlib import Path
 from types import SimpleNamespace
-import sys
-import types
-
-
-def _install_pyspark_stub() -> None:
-    for name in [
-        "pyspark",
-        "pyspark.sql",
-        "pyspark.sql.functions",
-        "pyspark.sql.types",
-        "pyspark.sql.utils",
-    ]:
-        sys.modules.pop(name, None)
-
-    pyspark = types.ModuleType("pyspark")
-    sql_module = types.ModuleType("pyspark.sql")
-
-    class _StubSparkContext:  # pragma: no cover - attribute container only
-        """Fallback stand-in so imports expecting ``SparkContext`` succeed.
-
-        The release workflow imports ``pyspark.SparkContext`` as part of the
-        column helpers, so expose a placeholder to avoid repeated bespoke
-        shims when new helpers reach for it.
-        """
-
-        pass
-
-    class _StubSparkSession:  # pragma: no cover - attribute container only
-        _active_session: "_StubSparkSession | None" = None
-
-        @classmethod
-        def getActiveSession(cls) -> "_StubSparkSession | None":
-            return cls._active_session
-
-        @classmethod
-        def setActiveSession(
-            cls, session: "_StubSparkSession | None"
-        ) -> None:
-            cls._active_session = session
-
-    class _StubDataFrame:  # pragma: no cover - attribute container only
-        pass
-
-    sql_module.SparkSession = _StubSparkSession
-    sql_module.DataFrame = _StubDataFrame
-
-    functions_module = types.ModuleType("pyspark.sql.functions")
-
-    class _StubColumn:  # pragma: no cover - attribute container only
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-    def _col(name: str) -> _StubColumn:
-        return _StubColumn(name)
-
-    functions_module.col = _col
-
-    types_module = types.ModuleType("pyspark.sql.types")
-
-    class _StubStructField(tuple):
-        def __new__(cls, name: str, data_type: object, nullable: bool) -> "_StubStructField":
-            return tuple.__new__(cls, (name, data_type, nullable))
-
-    class _StubStructType(list):
-        def __init__(self, fields: list[_StubStructField]):
-            super().__init__(fields)
-
-    def _boolean_type() -> str:
-        return "boolean"
-
-    def _double_type() -> str:
-        return "double"
-
-    def _string_type() -> str:
-        return "string"
-
-    types_module.StructField = _StubStructField
-    types_module.StructType = _StubStructType
-    types_module.BooleanType = _boolean_type
-    types_module.DoubleType = _double_type
-    types_module.StringType = _string_type
-
-    utils_module = types.ModuleType("pyspark.sql.utils")
-
-    class _StubAnalysisException(Exception):
-        pass
-
-    utils_module.AnalysisException = _StubAnalysisException
-
-    pyspark.SparkContext = _StubSparkContext  # type: ignore[attr-defined]
-    pyspark.sql = sql_module
-    sql_module.functions = functions_module
-    sql_module.types = types_module
-    sql_module.utils = utils_module
-
-    sys.modules["pyspark"] = pyspark
-    sys.modules["pyspark.sql"] = sql_module
-    sys.modules["pyspark.sql.functions"] = functions_module
-    sys.modules["pyspark.sql.types"] = types_module
-    sys.modules["pyspark.sql.utils"] = utils_module
-
-
-_install_pyspark_stub()
-
 
 class _StubFileSystem:
     def __init__(self, existing_paths: set[str]) -> None:
@@ -507,96 +403,82 @@ def test_save_status_appends_metrics_to_derived_table_target() -> None:
 
 
 def test_load_metrics_filters_results(tmp_path: Path) -> None:
-    spark = _StubSpark()
-    store = DeltaGovernanceStore(spark, base_path=tmp_path, bootstrap_tables=False)
+    from pyspark.sql import SparkSession
 
-    rows = [
-        {
-            "dataset_id": "orders",
-            "dataset_version": "2024-03-01",
-            "contract_id": "contracts",
-            "contract_version": "1.0.0",
-            "status_recorded_at": "2024-03-02T00:00:00Z",
-            "metric_key": "violations.total",
-            "metric_value": "0",
-            "metric_numeric_value": 0.0,
-        },
-        {
-            "dataset_id": "orders",
-            "dataset_version": "2024-03-02",
-            "contract_id": "contracts",
-            "contract_version": "1.0.0",
-            "status_recorded_at": "2024-03-03T00:00:00Z",
-            "metric_key": "summary",
-            "metric_value": "{\"passed\": 10}",
-            "metric_numeric_value": None,
-        },
-        {
-            "dataset_id": "returns",
-            "dataset_version": "2024-03-01",
-            "contract_id": "contracts",
-            "contract_version": "1.0.0",
-            "status_recorded_at": "2024-03-02T00:00:00Z",
-            "metric_key": "violations.total",
-            "metric_value": "1",
-            "metric_numeric_value": 1.0,
-        },
-    ]
-
-    class _FakeRow(dict):
-        def asDict(self, recursive: bool = False) -> dict[str, object]:
-            return dict(self)
-
-    class _FakeDataFrame:
-        def __init__(self, data: list[dict[str, object]]) -> None:
-            self._data = data
-
-        def filter(self, _condition: object) -> "_FakeDataFrame":
-            return self
-
-        def orderBy(self, *_: object) -> "_FakeDataFrame":
-            return self
-
-        def collect(self) -> list[_FakeRow]:
-            return [_FakeRow(row) for row in self._data]
-
-    target_dataset_id = "orders"
-    target_version = "2024-03-01"
-
-    def _fake_read(**_: object) -> _FakeDataFrame:
-        filtered = [
-            row
-            for row in rows
-            if row["dataset_id"] == target_dataset_id and row["dataset_version"] == target_version
-        ]
-        return _FakeDataFrame(filtered)
-
-    store._read = _fake_read  # type: ignore[assignment]
-
-    from dc43_service_backends.governance.storage import delta as delta_module
-
-    class _StubColumn:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-        def __eq__(self, _: object) -> "_StubColumn":
-            return self
-
-        def __and__(self, _: object) -> "_StubColumn":
-            return self
-
-        def desc(self) -> "_StubColumn":  # pragma: no cover - behaviour ignored in stub
-            return self
-
-    original_col = delta_module.col
-    delta_module.col = lambda name: _StubColumn(name)  # type: ignore[assignment]
+    session = SparkSession.builder.master("local[1]").appName("dc43-tests").getOrCreate()
     try:
+        spark = _StubSpark()
+        store = DeltaGovernanceStore(spark, base_path=tmp_path, bootstrap_tables=False)
+
+        rows = [
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-03-01",
+                "contract_id": "contracts",
+                "contract_version": "1.0.0",
+                "status_recorded_at": "2024-03-02T00:00:00Z",
+                "metric_key": "violations.total",
+                "metric_value": "0",
+                "metric_numeric_value": 0.0,
+            },
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-03-02",
+                "contract_id": "contracts",
+                "contract_version": "1.0.0",
+                "status_recorded_at": "2024-03-03T00:00:00Z",
+                "metric_key": "summary",
+                "metric_value": "{\"passed\": 10}",
+                "metric_numeric_value": None,
+            },
+            {
+                "dataset_id": "returns",
+                "dataset_version": "2024-03-01",
+                "contract_id": "contracts",
+                "contract_version": "1.0.0",
+                "status_recorded_at": "2024-03-02T00:00:00Z",
+                "metric_key": "violations.total",
+                "metric_value": "1",
+                "metric_numeric_value": 1.0,
+            },
+        ]
+
+        class _FakeRow(dict):
+            def asDict(self, recursive: bool = False) -> dict[str, object]:
+                return dict(self)
+
+        class _FakeDataFrame:
+            def __init__(self, data: list[dict[str, object]]) -> None:
+                self._data = data
+
+            def filter(self, _condition: object) -> "_FakeDataFrame":
+                return self
+
+            def orderBy(self, *_: object) -> "_FakeDataFrame":
+                return self
+
+            def collect(self) -> list[_FakeRow]:
+                return [_FakeRow(row) for row in self._data]
+
+        target_dataset_id = "orders"
+        target_version = "2024-03-01"
+
+        def _fake_read(**_: object) -> _FakeDataFrame:
+            filtered = [
+                row
+                for row in rows
+                if row["dataset_id"] == target_dataset_id and row["dataset_version"] == target_version
+            ]
+            return _FakeDataFrame(filtered)
+
+        store._read = _fake_read  # type: ignore[assignment]
+
         entries = store.load_metrics(
             dataset_id=target_dataset_id,
             dataset_version=target_version,
         )
     finally:
-        delta_module.col = original_col  # type: ignore[assignment]
+        session.stop()
 
     assert len(entries) == 1
     entry = entries[0]
