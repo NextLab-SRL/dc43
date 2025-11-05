@@ -2994,7 +2994,8 @@
       if (event.pointerId !== activePointerId) {
         return;
       }
-      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      const node =
+        findContractNode(nodeId) || findDataProductNode(nodeId) || findTransformation(nodeId);
       if (!node) {
         return;
       }
@@ -3027,7 +3028,8 @@
       if (event.button && event.button !== 0) {
         return;
       }
-      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      const node =
+        findContractNode(nodeId) || findDataProductNode(nodeId) || findTransformation(nodeId);
       if (!node) {
         return;
       }

@@ -58,6 +58,9 @@
 - Integration helper transformation panels now list linked data product ports
   alongside contracts so you can focus nodes and remove bindings for product
   connectors directly from the summary view.
+- Data product nodes on the integration helper canvas now drag the same way as
+  contracts, so you can reposition governed products without reloading the
+  page.
 - Editing data products that were still marked as drafts now bumps the next
   semantic version automatically, eliminating the 500 error triggered when the
   editor encountered ``*-draft`` identifiers.

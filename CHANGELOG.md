@@ -88,6 +88,9 @@
 - Integration helper transformation details now surface linked data product
   ports, so the focus/remove actions work for governed product bindings as well
   as contract connectors.
+- Data product nodes dropped onto the integration helper canvas now drag just
+  like contract cards, so you can rearrange layouts without refreshing the
+  page.
 - The contracts app data product editor now bumps draft-suffixed versions
   without crashing, so editing ``*-draft`` releases no longer triggers 500
   errors when calculating the suggested version.

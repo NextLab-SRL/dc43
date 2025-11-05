@@ -97,7 +97,8 @@ provisional definition immediately bumps the base version without manual edits.
 The helper lists governed data products beneath the contract catalog. Choose a
 product version and either click **Add to pipeline** or drag the card directly
 onto the canvas using the handle at the top of each result to place a node, then
-inspect its inputs and outputs from the selection sidebar. Drag from a product’s
+grab the header handle on any contract or product card to reposition it as the
+flow evolves. Inspect its inputs and outputs from the selection sidebar. Drag from a product’s
 output port into a transformation input
 to read from the curated dataset, or route transformation outputs into a product
 input port to model writes back into the governed layer. Each data product node
