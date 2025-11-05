@@ -58,7 +58,7 @@ def create_app(config: ServiceBackendsConfig | None = None) -> FastAPI:
     active_config = configure_from_config(config)
     suite = build_backends(active_config)
     dependencies = _resolve_dependencies(active_config)
-    contract_store = suite.contract_store or getattr(suite.contract, "_store", None)
+    contract_store = suite.contract_store
     if contract_store is None:  # pragma: no cover - defensive guard
         raise RuntimeError("build_backends did not expose a contract store")
     return build_local_app(

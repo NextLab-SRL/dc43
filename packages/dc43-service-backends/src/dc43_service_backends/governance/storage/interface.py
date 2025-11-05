@@ -5,16 +5,18 @@ from __future__ import annotations
 from ..backend.stores import interface as _interface  # type: ignore
 from ..backend.stores.interface import *  # type: ignore[F401,F403]
 
-__all__ = list(getattr(_interface, "__all__", []))
+try:
+    __all__ = list(_interface.__all__)
+except AttributeError:
+    __all__ = []
 
 
 def __getattr__(name: str) -> object:
     """Delegate attribute access to the relocated module."""
 
-    try:
-        return getattr(_interface, name)
-    except AttributeError as exc:  # pragma: no cover - mirrors default behaviour
-        raise AttributeError(name) from exc
+    if name in _interface.__dict__:
+        return _interface.__dict__[name]
+    raise AttributeError(name)
 
 
 def __dir__() -> list[str]:  # pragma: no cover - trivial passthrough

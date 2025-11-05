@@ -23,9 +23,17 @@ try:  # pragma: no cover - optional dependency in runtime builds
 except ImportError:  # pragma: no cover - fastapi may be missing at runtime
     _FastAPITestClient = None  # type: ignore[assignment]
 else:
-    _orig_init = getattr(_FastAPITestClient, "__init__", None)
+    try:
+        _orig_init = _FastAPITestClient.__init__  # type: ignore[attr-defined]
+    except AttributeError:
+        _orig_init = None
 
-    if callable(_orig_init) and not getattr(_orig_init, "_dc43_follow_patch", False):
+    try:
+        patched = bool(_orig_init._dc43_follow_patch)  # type: ignore[attr-defined]
+    except AttributeError:
+        patched = False
+
+    if callable(_orig_init) and not patched:
 
         def _patched_init(self, app, *args, **kwargs):  # type: ignore[override]
             kwargs.setdefault("follow_redirects", False)

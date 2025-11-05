@@ -220,16 +220,20 @@ def _is_streaming_shutdown_error(exc: BaseException | None) -> bool:
         lowered = text.lower()
         if "interruptedexception" in lowered or "interruptedioexception" in lowered:
             return True
-        nested = getattr(current, "__cause__", None)
+        if isinstance(current.__cause__, BaseException):
+            stack.append(current.__cause__)
+        if isinstance(current.__context__, BaseException):
+            stack.append(current.__context__)
+        try:
+            nested = current.cause  # type: ignore[attr-defined]
+        except AttributeError:
+            nested = None
         if isinstance(nested, BaseException):
             stack.append(nested)
-        nested = getattr(current, "__context__", None)
-        if isinstance(nested, BaseException):
-            stack.append(nested)
-        nested = getattr(current, "cause", None)
-        if isinstance(nested, BaseException):
-            stack.append(nested)
-        java_exc = getattr(current, "java_exception", None)
+        try:
+            java_exc = current.java_exception  # type: ignore[attr-defined]
+        except AttributeError:
+            java_exc = None
         if java_exc is not None:
             try:
                 java_text = str(java_exc).lower()
@@ -354,7 +358,10 @@ def _stop_queries(queries: Iterable[StreamingQuery]) -> None:
     metrics_queries: List[StreamingQuery] = []
     other_queries: List[StreamingQuery] = []
     for query in active:
-        name = getattr(query, "name", "") or ""
+        try:
+            name = query.name  # type: ignore[attr-defined]
+        except AttributeError:
+            name = ""
         if isinstance(name, str) and name.startswith(metrics_prefix):
             metrics_queries.append(query)
         else:
@@ -374,7 +381,11 @@ def _stop_queries(queries: Iterable[StreamingQuery]) -> None:
                 # Best-effort termination; ignore failures from Spark shutting down.
                 pass
         except Exception:  # pragma: no cover - defensive shutdown
-            logger.exception("Failed to stop streaming query %s", getattr(query, "name", ""))
+            try:
+                query_name = query.name  # type: ignore[attr-defined]
+            except AttributeError:
+                query_name = ""
+            logger.exception("Failed to stop streaming query %s", query_name)
 
     for query in metrics_queries:
         _stop(query)
@@ -391,11 +402,23 @@ def _query_metadata(queries: Iterable[StreamingQuery]) -> List[Mapping[str, Any]
             status = query.status
         except Exception:
             status = {}
+        try:
+            query_id = query.id  # type: ignore[attr-defined]
+        except AttributeError:
+            query_id = ""
+        try:
+            query_name = query.name  # type: ignore[attr-defined]
+        except AttributeError:
+            query_name = ""
+        try:
+            is_active = bool(query.isActive)  # type: ignore[attr-defined]
+        except AttributeError:
+            is_active = False
         info.append(
             {
-                "id": getattr(query, "id", ""),
-                "name": getattr(query, "name", ""),
-                "isActive": getattr(query, "isActive", False),
+                "id": query_id,
+                "name": query_name,
+                "isActive": is_active,
                 "recentProgress": status.get("recentProgress", []),
                 "message": status.get("message"),
             }

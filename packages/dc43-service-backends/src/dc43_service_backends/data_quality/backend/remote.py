@@ -36,9 +36,11 @@ class RemoteDataQualityServiceBackend(DataQualityServiceBackend):
     def close(self) -> None:
         """Close the underlying client when it exposes a ``close`` hook."""
 
-        close = getattr(self._client, "close", None)
-        if callable(close):  # pragma: no branch - attribute detection is deterministic
-            close()
+        try:
+            closer = self._client.close
+        except AttributeError:
+            return
+        closer()
 
 
 __all__ = ["RemoteDataQualityServiceBackend"]

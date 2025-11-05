@@ -11,7 +11,10 @@ def _ensure_local_package(module_name: str, local_root: Path) -> None:
 
     module = sys.modules.get(module_name)
     if module is not None:
-        module_file = getattr(module, "__file__", None)
+        try:
+            module_file = module.__file__  # type: ignore[attr-defined]
+        except AttributeError:
+            module_file = None
         if module_file is not None:
             try:
                 module_path = Path(module_file).resolve()
@@ -29,7 +32,10 @@ def _ensure_local_package(module_name: str, local_root: Path) -> None:
     # Import once more to surface a clear error if the local package is missing
     # or shadowed by an installed distribution.
     module = __import__(module_name)
-    module_file = getattr(module, "__file__", None)
+    try:
+        module_file = module.__file__  # type: ignore[attr-defined]
+    except AttributeError:
+        module_file = None
     if module_file is None or not Path(module_file).resolve().is_relative_to(local_root):
         raise ModuleNotFoundError(
             f"Local package for {module_name!r} not found at {local_root}",
