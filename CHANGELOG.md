@@ -27,6 +27,9 @@
   same implementation without private shims.
 
 ### Changed
+- The integration helper now auto-adds referenced contracts and transformation
+  scaffolding when you drop a governed data product that already exposes ports,
+  so the canvas immediately reflects the product’s input/output lineage.
 - The `generate_contract_dataset` testing helper now returns only an in-memory
   DataFrame, leaving persistence to the governance write wrappers.
 - Spark integrations now depend on the shared `dc43-core` package instead of
