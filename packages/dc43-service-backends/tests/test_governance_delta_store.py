@@ -21,8 +21,28 @@ def _install_pyspark_stub() -> None:
     pyspark = types.ModuleType("pyspark")
     sql_module = types.ModuleType("pyspark.sql")
 
-    class _StubSparkSession:  # pragma: no cover - attribute container only
+    class _StubSparkContext:  # pragma: no cover - attribute container only
+        """Fallback stand-in so imports expecting ``SparkContext`` succeed.
+
+        The release workflow imports ``pyspark.SparkContext`` as part of the
+        column helpers, so expose a placeholder to avoid repeated bespoke
+        shims when new helpers reach for it.
+        """
+
         pass
+
+    class _StubSparkSession:  # pragma: no cover - attribute container only
+        _active_session: "_StubSparkSession | None" = None
+
+        @classmethod
+        def getActiveSession(cls) -> "_StubSparkSession | None":
+            return cls._active_session
+
+        @classmethod
+        def setActiveSession(
+            cls, session: "_StubSparkSession | None"
+        ) -> None:
+            cls._active_session = session
 
     class _StubDataFrame:  # pragma: no cover - attribute container only
         pass
@@ -73,6 +93,7 @@ def _install_pyspark_stub() -> None:
 
     utils_module.AnalysisException = _StubAnalysisException
 
+    pyspark.SparkContext = _StubSparkContext  # type: ignore[attr-defined]
     pyspark.sql = sql_module
     sql_module.functions = functions_module
     sql_module.types = types_module
