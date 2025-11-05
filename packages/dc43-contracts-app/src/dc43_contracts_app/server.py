@@ -6063,10 +6063,206 @@ def _flatten_schema_entries(contract: OpenDataContractStandard) -> List[Dict[str
     return entries
 
 
+def _integration_data_product_links() -> Dict[str, List[Dict[str, Any]]]:
+    """Return data-product associations grouped by contract identifier."""
+
+    associations: Dict[str, List[Dict[str, Any]]] = {}
+    for product in load_data_products():
+        product_id = str(getattr(product, "id", "") or "")
+        product_name = getattr(product, "name", "") or product_id
+        product_status = getattr(product, "status", "") or ""
+        product_status_label = product_status.replace("_", " ").title() if product_status else ""
+        product_version = str(getattr(product, "version", "") or "")
+
+        for direction, ports in (
+            ("input", getattr(product, "input_ports", None) or []),
+            ("output", getattr(product, "output_ports", None) or []),
+        ):
+            for port in ports:
+                contract_id = getattr(port, "contract_id", None)
+                if not contract_id:
+                    continue
+                props = _port_custom_map(port)
+                entry = {
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "product_status": product_status,
+                    "product_status_label": product_status_label,
+                    "product_version": product_version,
+                    "direction": direction,
+                    "port_name": getattr(port, "name", "") or "",
+                    "port_version": getattr(port, "version", "") or "",
+                    "contract_version": getattr(port, "version", "") or "",
+                    "dataset_id": props.get("dc43.dataset.id") or props.get("dc43.contract.ref"),
+                    "stage_contract": props.get("dc43.stage.contract"),
+                    "source_data_product": props.get("dc43.input.source_data_product"),
+                    "source_output_port": props.get("dc43.input.source_output_port"),
+                    "custom_properties": props,
+                }
+                associations.setdefault(str(contract_id), []).append(entry)
+
+    return associations
+
+
+def _data_product_description_text(product: OpenDataProductStandard) -> str:
+    """Return a plain-text description for a data product."""
+
+    description = getattr(product, "description", None)
+    if isinstance(description, Mapping):
+        return str(
+            description.get("usage")
+            or description.get("summary")
+            or description.get("text")
+            or ""
+        )
+    if isinstance(description, str):
+        return description
+    if hasattr(description, "usage"):
+        return str(getattr(description, "usage", "") or "")
+    return ""
+
+
+def _integration_data_product_ports(
+    product: OpenDataProductStandard,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Return normalised port metadata for helper summaries."""
+
+    inputs: List[Dict[str, Any]] = []
+    outputs: List[Dict[str, Any]] = []
+    for port in getattr(product, "input_ports", []) or []:
+        props = _port_custom_map(port)
+        contract_version = props.get("dc43.contract.version") or getattr(port, "version", "")
+        inputs.append(
+            {
+                "name": getattr(port, "name", "") or "",
+                "portName": getattr(port, "name", "") or "",
+                "direction": "input",
+                "contractId": getattr(port, "contract_id", "") or "",
+                "contractVersion": contract_version or "",
+                "portVersion": getattr(port, "version", "") or "",
+                "sourceDataProduct": props.get("dc43.input.source_data_product") or "",
+                "sourceOutputPort": props.get("dc43.input.source_output_port") or "",
+                "customProperties": props,
+            }
+        )
+    for port in getattr(product, "output_ports", []) or []:
+        props = _port_custom_map(port)
+        contract_version = props.get("dc43.contract.version") or getattr(port, "version", "")
+        outputs.append(
+            {
+                "name": getattr(port, "name", "") or "",
+                "portName": getattr(port, "name", "") or "",
+                "direction": "output",
+                "contractId": getattr(port, "contract_id", "") or "",
+                "contractVersion": contract_version or "",
+                "portVersion": getattr(port, "version", "") or "",
+                "datasetId": props.get("dc43.dataset.id") or props.get("dc43.contract.ref") or "",
+                "stageContract": props.get("dc43.stage.contract") or "",
+                "customProperties": props,
+            }
+        )
+    inputs.sort(key=lambda item: (item["contractId"], item["portName"]))
+    outputs.sort(key=lambda item: (item["contractId"], item["portName"]))
+    return {"inputs": inputs, "outputs": outputs}
+
+
+def _integration_data_product_summary(
+    product: OpenDataProductStandard,
+) -> Dict[str, Any]:
+    """Build a serialisable summary for a data product."""
+
+    product_id = str(getattr(product, "id", "") or "")
+    status = str(getattr(product, "status", "") or "")
+    status_label = status.replace("_", " ").title() if status else ""
+    version = str(getattr(product, "version", "") or "")
+    ports = _integration_data_product_ports(product)
+    tags = [str(tag) for tag in getattr(product, "tags", []) if str(tag)]
+    try:
+        versions = _sorted_versions(data_product_versions(product_id))
+    except FileNotFoundError:
+        versions = []
+    except Exception:  # pragma: no cover - defensive guard for backend issues
+        logger.exception("Failed to list versions for data product %s", product_id)
+        versions = []
+    if version and version not in versions:
+        versions = _sorted_versions([*versions, version])
+    latest_version = versions[-1] if versions else version
+    description = _data_product_description_text(product)
+    search_terms = [
+        product_id,
+        getattr(product, "name", "") or "",
+        status,
+        version,
+        description,
+        *tags,
+    ]
+    for entry in ports["inputs"] + ports["outputs"]:
+        search_terms.extend(
+            [
+                entry.get("name", ""),
+                entry.get("contractId", ""),
+                entry.get("contractVersion", ""),
+            ]
+        )
+    summary = {
+        "id": product_id,
+        "name": getattr(product, "name", "") or product_id,
+        "status": status,
+        "statusLabel": status_label,
+        "version": version,
+        "latestVersion": latest_version,
+        "versions": versions,
+        "description": description,
+        "tags": tags,
+        "ports": ports,
+        "inputCount": len(ports["inputs"]),
+        "outputCount": len(ports["outputs"]),
+        "searchText": " ".join(str(term or "") for term in search_terms if term),
+    }
+    return summary
+
+
+def _integration_data_product_catalog() -> List[Dict[str, Any]]:
+    """Return metadata for all stored data products."""
+
+    summaries: List[Dict[str, Any]] = []
+    for product in load_data_products():
+        try:
+            summary = _integration_data_product_summary(product)
+        except Exception:  # pragma: no cover - defensive guard for corrupt payloads
+            logger.exception("Failed to summarise data product %s", getattr(product, "id", "?"))
+            continue
+        summaries.append(summary)
+    summaries.sort(key=lambda item: item["id"])
+    return summaries
+
+
+async def _load_integration_data_product(
+    product_id: str, version: str
+) -> IntegrationDataProductContext:
+    """Return data product details enriched for the integration helper."""
+
+    selector = str(version or "").strip()
+    if not selector or selector.lower() in {"latest", "newest"}:
+        product = latest_data_product(product_id)
+        if product is None:
+            raise HTTPException(
+                status_code=404, detail=f"Data product {product_id} has no versions"
+            )
+    else:
+        try:
+            product = get_data_product(product_id, selector)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+    summary = _integration_data_product_summary(product)
+    return IntegrationDataProductContext(data_product=product, summary=summary)
+
+
 def _integration_catalog() -> List[Dict[str, Any]]:
     """Return basic metadata for all stored contracts."""
 
     catalog: List[Dict[str, Any]] = []
+    product_links = _integration_data_product_links()
     for cid in sorted(list_contract_ids()):
         try:
             versions = contract_versions(cid)
@@ -6090,6 +6286,21 @@ def _integration_catalog() -> List[Dict[str, Any]]:
             if getattr(latest_contract, "description", None):
                 description = getattr(latest_contract.description, "usage", "") or ""
             status = getattr(latest_contract, "status", "") or ""
+
+        linked_products = product_links.get(cid, [])
+        product_terms = sorted(
+            {
+                term
+                for entry in linked_products
+                for term in (
+                    entry.get("product_id"),
+                    entry.get("product_name"),
+                    entry.get("port_name"),
+                )
+                if term
+            }
+        )
+
         catalog.append(
             {
                 "id": cid,
@@ -6098,6 +6309,8 @@ def _integration_catalog() -> List[Dict[str, Any]]:
                 "versions": sorted_versions,
                 "latestVersion": sorted_versions[-1],
                 "status": status,
+                "dataProducts": linked_products,
+                "dataProductTerms": product_terms,
             }
         )
     return catalog
@@ -6108,6 +6321,14 @@ class IntegrationContractContext:
     """Container storing contract objects alongside serialized metadata."""
 
     contract: OpenDataContractStandard
+    summary: Dict[str, Any]
+
+
+@dataclass
+class IntegrationDataProductContext:
+    """Container storing data products alongside serialized metadata."""
+
+    data_product: OpenDataProductStandard
     summary: Dict[str, Any]
 
 
@@ -6124,6 +6345,14 @@ async def _load_integration_contract(cid: str, ver: str) -> IntegrationContractC
     if getattr(contract, "description", None):
         description = getattr(contract.description, "usage", "") or ""
     schema_entries = _flatten_schema_entries(contract)
+    product_links = _integration_data_product_links().get(cid, [])
+    version_links = [
+        entry
+        for entry in product_links
+        if not str(entry.get("contract_version") or "").strip()
+        or str(entry.get("contract_version") or "").strip() == ver
+    ]
+
     summary: Dict[str, Any] = {
         "id": cid,
         "version": ver,
@@ -6134,22 +6363,119 @@ async def _load_integration_contract(cid: str, ver: str) -> IntegrationContractC
         "schemaEntries": schema_entries,
         "fieldCount": len(schema_entries),
         "datasetId": (server_info.get("dataset_id") if server_info else contract.id or cid),
+        "dataProducts": jsonable_encoder(version_links),
     }
     return IntegrationContractContext(contract=contract, summary=summary)
 
 
-def _normalise_selection(entries: Iterable[Mapping[str, Any]]) -> List[Dict[str, str]]:
-    """Normalise payload selections into ``contract_id``/``version`` pairs."""
+def _resolve_contract_version(cid: str, selector: str) -> str:
+    """Return the contract version indicated by ``selector``."""
 
-    result: List[Dict[str, str]] = []
+    selector_value = str(selector or "").strip()
+    if not selector_value:
+        raise HTTPException(status_code=422, detail="Version selector cannot be empty")
+    if selector_value.lower() in {"latest", "newest"}:
+        try:
+            contract = latest_contract(cid)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        if contract is None:
+            raise HTTPException(status_code=404, detail=f"Contract {cid} has no versions")
+        version_value = getattr(contract, "version", None)
+        if not version_value:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Contract {cid} does not expose a version for selection {selector_value}",
+            )
+        return str(version_value)
+    if selector_value.startswith("=="):
+        candidate = selector_value[2:].strip()
+        if not candidate:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Version selector {selector_value!r} must include a target version",
+            )
+        return candidate
+    return selector_value
+
+
+def _normalise_selection(entries: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    """Normalise payload selections including optional data-product bindings."""
+
+    result: List[Dict[str, Any]] = []
     for entry in entries:
         if not isinstance(entry, Mapping):
             continue
-        cid = entry.get("contract_id") or entry.get("contractId") or entry.get("id")
-        ver = entry.get("version")
-        if not cid or not ver:
-            raise HTTPException(status_code=422, detail="contract_id and version are required")
-        result.append({"contract_id": str(cid), "version": str(ver)})
+        contract_payload = entry.get("contract") if isinstance(entry.get("contract"), Mapping) else {}
+        cid = (
+            contract_payload.get("contract_id")
+            or contract_payload.get("id")
+            or entry.get("contract_id")
+            or entry.get("contractId")
+            or entry.get("id")
+        )
+        selector = (
+            contract_payload.get("version_selector")
+            or contract_payload.get("versionSelector")
+            or entry.get("version_selector")
+            or entry.get("versionSelector")
+        )
+        ver = (
+            entry.get("version")
+            or entry.get("contract_version")
+            or entry.get("contractVersion")
+            or contract_payload.get("contract_version")
+            or contract_payload.get("version")
+        )
+        if not cid:
+            raise HTTPException(status_code=422, detail="contract_id is required")
+        if not ver:
+            if selector:
+                ver = _resolve_contract_version(str(cid), str(selector))
+            else:
+                raise HTTPException(status_code=422, detail="version is required")
+        payload: Dict[str, Any] = {"contract_id": str(cid), "version": str(ver)}
+        if selector:
+            payload["version_selector"] = str(selector)
+
+        dp_payload = entry.get("data_product") if isinstance(entry.get("data_product"), Mapping) else {}
+        if not dp_payload:
+            dp_payload = {}
+
+        dp_id = (
+            dp_payload.get("id")
+            or dp_payload.get("data_product")
+            or entry.get("data_product_id")
+        )
+        port_name = (
+            dp_payload.get("port")
+            or dp_payload.get("port_name")
+            or entry.get("port_name")
+        )
+        if dp_id or port_name:
+            binding: Dict[str, Any] = {
+                "product_id": str(dp_id) if dp_id else None,
+                "product_name": dp_payload.get("product_name") or entry.get("product_name"),
+                "product_version": dp_payload.get("product_version") or entry.get("product_version"),
+                "product_status": dp_payload.get("product_status") or entry.get("product_status"),
+                "product_status_label": dp_payload.get("product_status_label")
+                or entry.get("product_status_label"),
+                "direction": dp_payload.get("direction") or entry.get("direction"),
+                "port_name": str(port_name) if port_name else None,
+                "port_version": dp_payload.get("port_version") or entry.get("port_version"),
+                "dataset_id": dp_payload.get("dataset_id") or entry.get("dataset_id"),
+                "stage_contract": dp_payload.get("stage_contract") or entry.get("stage_contract"),
+                "source_data_product": dp_payload.get("source_data_product") or entry.get("source_data_product"),
+                "source_output_port": dp_payload.get("source_output_port") or entry.get("source_output_port"),
+                "custom_properties": dp_payload.get("custom_properties")
+                if isinstance(dp_payload.get("custom_properties"), Mapping)
+                else entry.get("custom_properties"),
+            }
+            binding = {key: value for key, value in binding.items() if value is not None}
+            if binding:
+                payload["data_product"] = binding
+
+        result.append(payload)
     return result
 
 
@@ -6180,11 +6506,74 @@ def _summarise_predicates(expectations: Mapping[str, str]) -> str:
 def _normalise_read_strategy(payload: Mapping[str, Any] | None) -> Dict[str, Any]:
     """Validate and normalise the requested read strategy."""
 
-    raw_mode = (payload or {}).get("mode")
+    data = dict(payload or {})
+    raw_mode = data.get("mode")
     mode = str(raw_mode or "status").lower()
     if mode not in {"status", "strict"}:
         raise HTTPException(status_code=400, detail=f"Unsupported read strategy: {mode}")
-    return {"mode": mode}
+
+    def _coerce_statuses(value: Any) -> Optional[tuple[str, ...]]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            candidates = [item.strip() for item in value.split(",")]
+        else:
+            candidates = [str(item).strip() for item in value if str(item).strip()]
+        cleaned = tuple(item for item in candidates if item)
+        return cleaned or None
+
+    strategy: Dict[str, Any] = {"mode": mode}
+    contract_statuses = _coerce_statuses(data.get("allowed_contract_statuses"))
+    if contract_statuses is not None:
+        strategy["allowed_contract_statuses"] = contract_statuses
+    if "allow_missing_contract_status" in data:
+        strategy["allow_missing_contract_status"] = bool(
+            data.get("allow_missing_contract_status")
+        )
+    if "contract_status_case_insensitive" in data:
+        strategy["contract_status_case_insensitive"] = bool(
+            data.get("contract_status_case_insensitive")
+        )
+    failure_message = str(data.get("contract_status_failure_message") or "").strip()
+    if failure_message:
+        strategy["contract_status_failure_message"] = failure_message
+
+    product_statuses = _coerce_statuses(data.get("allowed_data_product_statuses"))
+    if product_statuses is not None:
+        strategy["allowed_data_product_statuses"] = product_statuses
+    if "allow_missing_data_product_status" in data:
+        strategy["allow_missing_data_product_status"] = bool(
+            data.get("allow_missing_data_product_status")
+        )
+    if "data_product_status_case_insensitive" in data:
+        strategy["data_product_status_case_insensitive"] = bool(
+            data.get("data_product_status_case_insensitive")
+        )
+    product_failure = str(data.get("data_product_status_failure_message") or "").strip()
+    if product_failure:
+        strategy["data_product_status_failure_message"] = product_failure
+    if "enforce_data_product_status" in data:
+        raw_enforce = data.get("enforce_data_product_status")
+        if raw_enforce is None:
+            strategy["enforce_data_product_status"] = None
+        elif isinstance(raw_enforce, str):
+            flag = raw_enforce.strip().lower()
+            if flag in {"", "none"}:
+                strategy["enforce_data_product_status"] = None
+            elif flag in {"false", "0", "no"}:
+                strategy["enforce_data_product_status"] = False
+            else:
+                strategy["enforce_data_product_status"] = True
+        else:
+            strategy["enforce_data_product_status"] = bool(raw_enforce)
+
+    if "draft_on_violation" in data:
+        strategy["draft_on_violation"] = bool(data.get("draft_on_violation"))
+    bump = str(data.get("bump") or "").strip()
+    if bump:
+        strategy["bump"] = bump
+
+    return strategy
 
 
 def _normalise_write_strategy(payload: Mapping[str, Any] | None) -> Dict[str, Any]:
@@ -6194,31 +6583,73 @@ def _normalise_write_strategy(payload: Mapping[str, Any] | None) -> Dict[str, An
     mode_raw = data.get("mode")
     mode = str(mode_raw or "split").lower()
     if mode == "noop":
-        return {"mode": "noop"}
+        strategy: Dict[str, Any] = {"mode": "noop"}
+    else:
+        include_valid = bool(data.get("include_valid", True))
+        include_reject = bool(data.get("include_reject", True))
+        if not include_valid and not include_reject:
+            include_valid = True
+        strategy = {
+            "mode": mode,
+            "include_valid": include_valid,
+            "include_reject": include_reject,
+        }
+        if mode not in {"split", "strict"}:
+            raise HTTPException(status_code=400, detail=f"Unsupported write strategy: {mode}")
+        if mode == "strict":
+            strategy["fail_on_warnings"] = bool(data.get("fail_on_warnings", False))
 
-    include_valid = bool(data.get("include_valid", True))
-    include_reject = bool(data.get("include_reject", True))
-    if not include_valid and not include_reject:
-        include_valid = True
-    if mode == "split":
-        return {
-            "mode": "split",
-            "include_valid": include_valid,
-            "include_reject": include_reject,
-        }
-    if mode == "strict":
-        return {
-            "mode": "strict",
-            "include_valid": include_valid,
-            "include_reject": include_reject,
-            "fail_on_warnings": bool(data.get("fail_on_warnings", False)),
-        }
-    raise HTTPException(status_code=400, detail=f"Unsupported write strategy: {mode}")
+    def _coerce_statuses(value: Any) -> Optional[tuple[str, ...]]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            entries = [item.strip() for item in value.split(",")]
+        else:
+            entries = [str(item).strip() for item in value if str(item).strip()]
+        cleaned = tuple(item for item in entries if item)
+        return cleaned or None
+
+    product_statuses = _coerce_statuses(data.get("allowed_data_product_statuses"))
+    if product_statuses is not None:
+        strategy["allowed_data_product_statuses"] = product_statuses
+    if "allow_missing_data_product_status" in data:
+        strategy["allow_missing_data_product_status"] = bool(
+            data.get("allow_missing_data_product_status")
+        )
+    if "data_product_status_case_insensitive" in data:
+        strategy["data_product_status_case_insensitive"] = bool(
+            data.get("data_product_status_case_insensitive")
+        )
+    failure_message = str(data.get("data_product_status_failure_message") or "").strip()
+    if failure_message:
+        strategy["data_product_status_failure_message"] = failure_message
+    if "enforce_data_product_status" in data:
+        raw_enforce = data.get("enforce_data_product_status")
+        if raw_enforce is None:
+            strategy["enforce_data_product_status"] = None
+        elif isinstance(raw_enforce, str):
+            flag = raw_enforce.strip().lower()
+            if flag in {"", "none"}:
+                strategy["enforce_data_product_status"] = None
+            elif flag in {"false", "0", "no"}:
+                strategy["enforce_data_product_status"] = False
+            else:
+                strategy["enforce_data_product_status"] = True
+        else:
+            strategy["enforce_data_product_status"] = bool(raw_enforce)
+
+    if "draft_on_violation" in data:
+        strategy["draft_on_violation"] = bool(data.get("draft_on_violation"))
+    bump = str(data.get("bump") or "").strip()
+    if bump:
+        strategy["bump"] = bump
+
+    return strategy
 
 
 def _spark_stub_for_selection(
-    inputs: List[Dict[str, str]],
-    outputs: List[Dict[str, str]],
+    inputs: List[Dict[str, Any]],
+    outputs: List[Dict[str, Any]],
     context_map: Mapping[Tuple[str, str], IntegrationContractContext],
     *,
     read_strategy: Mapping[str, Any],
@@ -6229,6 +6660,17 @@ def _spark_stub_for_selection(
     read_mode = str(read_strategy.get("mode") or "status").lower()
     write_mode = str(write_strategy.get("mode") or "split").lower()
 
+    def _format_bool(flag: bool) -> str:
+        return "True" if flag else "False"
+
+    def _format_tuple(values: Iterable[str]) -> str:
+        entries = [repr(str(value)) for value in values]
+        if not entries:
+            return "()"
+        if len(entries) == 1:
+            return f"({entries[0]},)"
+        return f"({', '.join(entries)})"
+
     violation_imports: List[str] = []
     if outputs:
         if write_mode == "noop":
@@ -6238,15 +6680,52 @@ def _spark_stub_for_selection(
             if write_mode == "strict":
                 violation_imports.append("StrictWriteViolationStrategy")
 
-    lines: List[str] = [
-        "from pyspark.sql import SparkSession",
-        "from dc43_integrations.spark.io import (",
-        "    GovernanceSparkReadRequest,",
-        "    GovernanceSparkWriteRequest,",
-        "    read_with_governance,",
-        "    write_with_governance,",
-        ")",
+    read_status_args: Dict[str, str] = {}
+    contract_statuses = tuple(read_strategy.get("allowed_contract_statuses") or ())
+    if contract_statuses:
+        read_status_args["allowed_contract_statuses"] = _format_tuple(contract_statuses)
+    if "allow_missing_contract_status" in read_strategy:
+        read_status_args["allow_missing_contract_status"] = _format_bool(
+            bool(read_strategy.get("allow_missing_contract_status"))
+        )
+    if "contract_status_case_insensitive" in read_strategy:
+        read_status_args["contract_status_case_insensitive"] = _format_bool(
+            bool(read_strategy.get("contract_status_case_insensitive"))
+        )
+    if read_strategy.get("contract_status_failure_message"):
+        read_status_args["contract_status_failure_message"] = repr(
+            str(read_strategy.get("contract_status_failure_message"))
+        )
+
+    product_statuses = tuple(read_strategy.get("allowed_data_product_statuses") or ())
+    if product_statuses:
+        read_status_args["allowed_data_product_statuses"] = _format_tuple(product_statuses)
+    if "allow_missing_data_product_status" in read_strategy:
+        read_status_args["allow_missing_data_product_status"] = _format_bool(
+            bool(read_strategy.get("allow_missing_data_product_status"))
+        )
+    if "data_product_status_case_insensitive" in read_strategy:
+        read_status_args["data_product_status_case_insensitive"] = _format_bool(
+            bool(read_strategy.get("data_product_status_case_insensitive"))
+        )
+    if read_strategy.get("data_product_status_failure_message"):
+        read_status_args["data_product_status_failure_message"] = repr(
+            str(read_strategy.get("data_product_status_failure_message"))
+        )
+
+    io_imports = [
+        "GovernanceSparkReadRequest",
+        "GovernanceSparkWriteRequest",
+        "read_with_governance",
+        "write_with_governance",
     ]
+    if read_status_args:
+        io_imports.insert(0, "DefaultReadStatusStrategy")
+
+    lines: List[str] = ["from pyspark.sql import SparkSession", "from dc43_integrations.spark.io import ("]
+    for name in io_imports:
+        lines.append(f"    {name},")
+    lines.append(")")
     lines.append(
         "# Contract status guardrails reject draft/deprecated contracts unless the strategies opt in."
     )
@@ -6268,6 +6747,14 @@ def _spark_stub_for_selection(
             'spark = SparkSession.builder.appName("dc43-pipeline").getOrCreate()',
         ]
     )
+
+    if read_status_args:
+        lines.append("")
+        lines.append("# Make contract/data-product status handling explicit for governed reads.")
+        lines.append("read_status_strategy = DefaultReadStatusStrategy(")
+        for key, value in read_status_args.items():
+            lines.append(f"    {key}={value},")
+        lines.append(")")
 
     if outputs:
         lines.append("")
@@ -6311,6 +6798,48 @@ def _spark_stub_for_selection(
             else:
                 lines.extend(["", "write_strategy = split_strategy"])
 
+    read_context_overrides: List[tuple[str, str]] = []
+    if read_strategy.get("draft_on_violation"):
+        read_context_overrides.append(("draft_on_violation", "True"))
+    if read_strategy.get("bump"):
+        read_context_overrides.append(("bump", repr(str(read_strategy.get("bump")))))
+    if product_statuses:
+        read_context_overrides.append(
+            ("allowed_data_product_statuses", _format_tuple(product_statuses))
+        )
+    if "allow_missing_data_product_status" in read_strategy:
+        read_context_overrides.append(
+            (
+                "allow_missing_data_product_status",
+                _format_bool(bool(read_strategy.get("allow_missing_data_product_status"))),
+            )
+        )
+    if "data_product_status_case_insensitive" in read_strategy:
+        read_context_overrides.append(
+            (
+                "data_product_status_case_insensitive",
+                _format_bool(bool(read_strategy.get("data_product_status_case_insensitive"))),
+            )
+        )
+    if read_strategy.get("data_product_status_failure_message"):
+        read_context_overrides.append(
+            (
+                "data_product_status_failure_message",
+                repr(str(read_strategy.get("data_product_status_failure_message"))),
+            )
+        )
+    if "enforce_data_product_status" in read_strategy:
+        enforce_value = read_strategy.get("enforce_data_product_status")
+        if enforce_value is None:
+            read_context_overrides.append(("enforce_data_product_status", "None"))
+        else:
+            read_context_overrides.append(
+                (
+                    "enforce_data_product_status",
+                    _format_bool(bool(enforce_value)),
+                )
+            )
+
     input_vars: List[str] = []
     for index, entry in enumerate(inputs, start=1):
         key = (entry["contract_id"], entry["version"])
@@ -6320,51 +6849,103 @@ def _spark_stub_for_selection(
         server = dict(server_raw) if isinstance(server_raw, Mapping) else {}
         location = server.get("path") or server.get("dataset")
         fmt = server.get("format")
+        binding = entry.get("data_product") or {}
         base_name = _sanitise_identifier(summary["id"], f"input{index}")
         df_var = f"{base_name}_df"
         status_var = f"{base_name}_status"
         input_vars.append(df_var)
 
-        lines.extend(
-            [
-                "",
-                f"# Input: {summary['id']} {summary['version']} ({summary['datasetId']})",
-            ]
-        )
+        lines.append("")
+        lines.append(f"# Input: {summary['id']} {summary['version']} ({summary['datasetId']})")
         if location:
             lines.append(f"#   Location: {location}")
         if fmt:
             lines.append(f"#   Format: {fmt}")
-        request_lines: List[str] = [
-            f"{df_var}, {status_var} = read_with_governance(",
-            "    spark,",
-            "    GovernanceSparkReadRequest(",
-            "        context={",
-            "            \"contract\": {",
-            f"                \"contract_id\": {summary['id']!r},",
-            f"                \"contract_version\": {summary['version']!r},",
-            "            },",
-            "        },",
-        ]
-        if server.get("dataset"):
-            request_lines.append(f"        table={server['dataset']!r},")
-        if server.get("path"):
-            request_lines.append(f"        path={server['path']!r},")
+        if entry.get("version_selector"):
+            lines.append(f"#   Version selector: {entry['version_selector']}")
+        if binding:
+            product_id = binding.get("product_id")
+            port_name = binding.get("port_name")
+            direction = (binding.get("direction") or "output").lower()
+            if product_id and port_name:
+                lines.append(
+                    f"#   Data product: {product_id} · {port_name} ({direction})"
+                )
+            elif product_id:
+                lines.append(f"#   Data product: {product_id} ({direction})")
+            if binding.get("product_status_label"):
+                lines.append(
+                    f"#   Data product status: {binding['product_status_label']}"
+                )
+            elif binding.get("product_status"):
+                lines.append(
+                    f"#   Data product status: {binding['product_status']}"
+                )
+            if binding.get("source_data_product") or binding.get("source_output_port"):
+                source_product = binding.get("source_data_product") or "?"
+                source_port = binding.get("source_output_port") or "?"
+                lines.append(
+                    f"#   Source: {source_product} · {source_port} (upstream)"
+                )
+
+        lines.append(f"{df_var}, {status_var} = read_with_governance(")
+        lines.append("    spark,")
+        lines.append("    GovernanceSparkReadRequest(")
+        lines.append("        context={")
+        lines.append("            \"contract\": {")
+        lines.append(f"                \"contract_id\": {summary['id']!r},")
+        lines.append(f"                \"contract_version\": {summary['version']!r},")
+        lines.append("            },")
+
+        if binding.get("product_id") or binding.get("port_name"):
+            lines.append("            \"input_binding\": {")
+            lines.append(
+                f"                \"data_product\": {binding.get('product_id')!r},"
+            )
+            if binding.get("port_name"):
+                lines.append(
+                    f"                \"port_name\": {binding.get('port_name')!r},"
+                )
+            if binding.get("product_version"):
+                lines.append(
+                    f"                \"data_product_version\": {binding.get('product_version')!r},"
+                )
+            if binding.get("source_data_product"):
+                lines.append(
+                    f"                \"source_data_product\": {binding.get('source_data_product')!r},"
+                )
+            if binding.get("source_output_port"):
+                lines.append(
+                    f"                \"source_output_port\": {binding.get('source_output_port')!r},"
+                )
+            lines.append("            },")
+
+        for key_name, value in read_context_overrides:
+            lines.append(f"            \"{key_name}\": {value},")
+
+        dataset_id_value = binding.get("dataset_id") or summary.get("datasetId")
+        if dataset_id_value:
+            lines.append(f"            \"dataset_id\": {dataset_id_value!r},")
         if fmt:
-            request_lines.append(f"        format={fmt!r},")
-        request_lines.extend(
-            [
-                "    ),",
-                "    governance_service=governance_client,",
-                "    enforce=True,",
-                "    auto_cast=True,",
-                "    return_status=True,",
-                "    # status_strategy=DefaultReadStatusStrategy(allowed_contract_statuses=(\"active\", \"draft\")),",
-                ")",
-                "",
-            ]
-        )
-        lines.extend(request_lines)
+            lines.append(f"            \"dataset_format\": {fmt!r},")
+
+        lines.append("        },")
+        table_value = server.get("dataset") or server.get("table")
+        if table_value:
+            lines.append(f"        table={table_value!r},")
+        if server.get("path"):
+            lines.append(f"        path={server['path']!r},")
+        if fmt:
+            lines.append(f"        format={fmt!r},")
+        lines.append("    ),")
+        lines.append("    governance_service=governance_client,")
+        lines.append("    enforce=True,")
+        lines.append("    auto_cast=True,")
+        if read_status_args:
+            lines.append("    status_strategy=read_status_strategy,")
+        lines.append("    return_status=True,")
+        lines.append(")")
+
         if read_mode == "strict":
             lines.extend(
                 [
@@ -6424,6 +7005,25 @@ def _spark_stub_for_selection(
             lines.append(f"#   Location: {location}")
         if fmt:
             lines.append(f"#   Format: {fmt}")
+        if entry.get("version_selector"):
+            lines.append(f"#   Version selector: {entry['version_selector']}")
+        if binding:
+            product_id = binding.get("product_id")
+            port_name = binding.get("port_name")
+            if product_id and port_name:
+                lines.append(f"#   Data product: {product_id} · {port_name} (output)")
+            elif product_id:
+                lines.append(f"#   Data product: {product_id} (output)")
+            if binding.get("product_status_label"):
+                lines.append(
+                    f"#   Data product status: {binding['product_status_label']}"
+                )
+            elif binding.get("product_status"):
+                lines.append(
+                    f"#   Data product status: {binding['product_status']}"
+                )
+            if binding.get("stage_contract"):
+                lines.append(f"#   Stage contract: {binding['stage_contract']}")
         write_lines: List[str] = [
             f"{validation_var}, {status_var} = write_with_governance(",
             "    df=transformed_df,  # TODO: replace with dataframe for this output",
@@ -6433,10 +7033,76 @@ def _spark_stub_for_selection(
             f"                \"contract_id\": {summary['id']!r},",
             f"                \"contract_version\": {summary['version']!r},",
             "            },",
-            "        },",
         ]
-        if server.get("dataset"):
-            write_lines.append(f"        table={server['dataset']!r},")
+        binding = entry.get("data_product") or {}
+        if binding.get("product_id") or binding.get("port_name"):
+            write_lines.append("            \"output_binding\": {")
+            write_lines.append(
+                f"                \"data_product\": {binding.get('product_id')!r},"
+            )
+            if binding.get("port_name"):
+                write_lines.append(
+                    f"                \"port_name\": {binding.get('port_name')!r},"
+                )
+            if binding.get("product_version"):
+                write_lines.append(
+                    f"                \"data_product_version\": {binding.get('product_version')!r},"
+                )
+            write_lines.append("            },")
+
+        write_context_overrides: List[tuple[str, str]] = []
+        if write_strategy.get("draft_on_violation"):
+            write_context_overrides.append(("draft_on_violation", "True"))
+        if write_strategy.get("bump"):
+            write_context_overrides.append(("bump", repr(str(write_strategy.get("bump")))))
+        product_write_statuses = tuple(write_strategy.get("allowed_data_product_statuses") or ())
+        if product_write_statuses:
+            write_context_overrides.append(
+                ("allowed_data_product_statuses", _format_tuple(product_write_statuses))
+            )
+        if "allow_missing_data_product_status" in write_strategy:
+            write_context_overrides.append(
+                (
+                    "allow_missing_data_product_status",
+                    _format_bool(bool(write_strategy.get("allow_missing_data_product_status"))),
+                )
+            )
+        if "data_product_status_case_insensitive" in write_strategy:
+            write_context_overrides.append(
+                (
+                    "data_product_status_case_insensitive",
+                    _format_bool(bool(write_strategy.get("data_product_status_case_insensitive"))),
+                )
+            )
+        if write_strategy.get("data_product_status_failure_message"):
+            write_context_overrides.append(
+                (
+                    "data_product_status_failure_message",
+                    repr(str(write_strategy.get("data_product_status_failure_message"))),
+                )
+            )
+        if "enforce_data_product_status" in write_strategy:
+            enforce_value = write_strategy.get("enforce_data_product_status")
+            if enforce_value is None:
+                write_context_overrides.append(("enforce_data_product_status", "None"))
+            else:
+                write_context_overrides.append(
+                    (
+                        "enforce_data_product_status",
+                        _format_bool(bool(enforce_value)),
+                    )
+                )
+        for key_name, value in write_context_overrides:
+            write_lines.append(f"            \"{key_name}\": {value},")
+        dataset_id_value = binding.get("dataset_id") or summary.get("datasetId")
+        if dataset_id_value:
+            write_lines.append(f"            \"dataset_id\": {dataset_id_value!r},")
+        if fmt:
+            write_lines.append(f"            \"dataset_format\": {fmt!r},")
+        write_lines.append("        },")
+        table_value = server.get("dataset") or server.get("table")
+        if table_value:
+            write_lines.append(f"        table={table_value!r},")
         if server.get("path"):
             write_lines.append(f"        path={server['path']!r},")
         if fmt:
@@ -6445,7 +7111,12 @@ def _spark_stub_for_selection(
             [
                 "    ),",
                 "    governance_service=governance_client,",
-                "    violation_strategy=write_strategy,",
+            ]
+        )
+        if outputs and write_mode != "noop":
+            write_lines.append("    violation_strategy=write_strategy,")
+        write_lines.extend(
+            [
                 "    return_status=True,",
                 ")",
                 "",
@@ -6460,7 +7131,7 @@ def _spark_stub_for_selection(
 
 
 def _read_strategy_notes(
-    selections: List[Dict[str, str]],
+    selections: List[Dict[str, Any]],
     context_map: Mapping[Tuple[str, str], IntegrationContractContext],
     strategy: Mapping[str, Any],
 ) -> List[Dict[str, str]]:
@@ -6478,6 +7149,57 @@ def _read_strategy_notes(
             "statuses so orchestration can branch on data quality verdicts."
         )
     intro += " Non-active contract statuses raise unless the strategy explicitly allows them."
+
+    contract_statuses = tuple(strategy.get("allowed_contract_statuses") or ())
+    allow_missing_contract_status = strategy.get("allow_missing_contract_status")
+    contract_case_insensitive = strategy.get("contract_status_case_insensitive")
+    contract_failure_message = strategy.get("contract_status_failure_message")
+    product_statuses = tuple(strategy.get("allowed_data_product_statuses") or ())
+    allow_missing_product_status = strategy.get("allow_missing_data_product_status")
+    product_case_insensitive = strategy.get("data_product_status_case_insensitive")
+    product_failure_message = strategy.get("data_product_status_failure_message")
+    draft_on_violation = bool(strategy.get("draft_on_violation"))
+    bump = str(strategy.get("bump") or "").strip()
+    enforce_product_status = strategy.get("enforce_data_product_status")
+
+    status_clauses: List[str] = []
+    if contract_statuses:
+        status_clauses.append(
+            "Allowed contract statuses: " + ", ".join(contract_statuses) + "."
+        )
+    if allow_missing_contract_status:
+        status_clauses.append("Missing contract statuses are tolerated.")
+    if contract_case_insensitive:
+        status_clauses.append("Contract status comparisons are case-insensitive.")
+    if contract_failure_message:
+        status_clauses.append(
+            f"Failure message override: {contract_failure_message!r}."
+        )
+    if product_statuses:
+        status_clauses.append(
+            "Allowed data-product statuses: " + ", ".join(product_statuses) + "."
+        )
+    if allow_missing_product_status:
+        status_clauses.append("Missing data-product statuses are tolerated.")
+    if product_case_insensitive:
+        status_clauses.append("Data-product status comparisons are case-insensitive.")
+    if product_failure_message:
+        status_clauses.append(
+            f"Data-product failure message override: {product_failure_message!r}."
+        )
+    if enforce_product_status is True:
+        status_clauses.append("Data-product statuses are enforced by governance.")
+    elif enforce_product_status is False:
+        status_clauses.append(
+            "Data-product statuses are advisory (enforce_data_product_status=False)."
+        )
+    if draft_on_violation:
+        status_clauses.append("Violations request draft datasets for triage.")
+    if bump:
+        status_clauses.append(f"Version bump mode: {bump}.")
+
+    if status_clauses:
+        intro += " " + " ".join(status_clauses)
     notes: List[Dict[str, str]] = [
         {
             "title": "Contract-aware reads",
@@ -6504,17 +7226,52 @@ def _read_strategy_notes(
         description = " ".join(
             part for part in (location_clause, predicate_clause, action_clause) if part
         )
+        binding = entry.get("data_product") or {}
+        binding_clause = ""
+        if binding:
+            product_id = binding.get("product_name") or binding.get("product_id")
+            port_name = binding.get("port_name")
+            if product_id and port_name:
+                binding_clause = f"Data product binding: {product_id} · {port_name}."
+            elif product_id:
+                binding_clause = f"Data product binding: {product_id}."
+            if binding.get("product_status_label"):
+                binding_clause += (
+                    f" Status: {binding['product_status_label']}."
+                )
+            elif binding.get("product_status"):
+                binding_clause += f" Status: {binding['product_status']}."
+            if binding.get("source_data_product") or binding.get("source_output_port"):
+                source_product = binding.get("source_data_product") or "?"
+                source_port = binding.get("source_output_port") or "?"
+                binding_clause += (
+                    f" Upstream: {source_product} · {source_port}."
+                )
+        version_selector = entry.get("version_selector")
+        version_clause = (
+            f"Version selector: {version_selector}." if version_selector else ""
+        )
         notes.append(
             {
                 "title": f"{summary['id']} {summary['version']} read",
-                "description": description,
+                "description": " ".join(
+                    part
+                    for part in (
+                        location_clause,
+                        predicate_clause,
+                        action_clause,
+                        binding_clause.strip(),
+                        version_clause,
+                    )
+                    if part
+                ),
             }
         )
     return notes
 
 
 def _write_strategy_notes(
-    selections: List[Dict[str, str]],
+    selections: List[Dict[str, Any]],
     context_map: Mapping[Tuple[str, str], IntegrationContractContext],
     strategy: Mapping[str, Any],
 ) -> List[Dict[str, str]]:
@@ -6536,6 +7293,48 @@ def _write_strategy_notes(
             ),
         }
     ]
+
+    product_statuses = tuple(strategy.get("allowed_data_product_statuses") or ())
+    allow_missing_product_status = strategy.get("allow_missing_data_product_status")
+    product_case_insensitive = strategy.get("data_product_status_case_insensitive")
+    product_failure_message = strategy.get("data_product_status_failure_message")
+    draft_on_violation = bool(strategy.get("draft_on_violation"))
+    bump = str(strategy.get("bump") or "").strip()
+    enforce_product_status = strategy.get("enforce_data_product_status")
+
+    write_status_clauses: List[str] = []
+    if product_statuses:
+        write_status_clauses.append(
+            "Allowed data-product statuses: " + ", ".join(product_statuses) + "."
+        )
+    if allow_missing_product_status:
+        write_status_clauses.append("Missing data-product statuses are tolerated.")
+    if product_case_insensitive:
+        write_status_clauses.append(
+            "Data-product status comparisons are case-insensitive."
+        )
+    if product_failure_message:
+        write_status_clauses.append(
+            f"Data-product failure message override: {product_failure_message!r}."
+        )
+    if enforce_product_status is True:
+        write_status_clauses.append("Data-product statuses are enforced by governance.")
+    elif enforce_product_status is False:
+        write_status_clauses.append(
+            "Data-product statuses are advisory (enforce_data_product_status=False)."
+        )
+    if draft_on_violation:
+        write_status_clauses.append("Violations request draft datasets for triage.")
+    if bump:
+        write_status_clauses.append(f"Version bump mode: {bump}.")
+
+    if write_status_clauses:
+        notes.append(
+            {
+                "title": "Status handling",
+                "description": " ".join(write_status_clauses),
+            }
+        )
 
     if mode == "noop":
         notes.append(
@@ -6614,6 +7413,27 @@ def _write_strategy_notes(
                 extra_clause = " Validation errors or warnings raise RuntimeError so the run stops."
             else:
                 extra_clause = " Validation errors raise RuntimeError so the run stops."
+        binding = entry.get("data_product") or {}
+        binding_clause = ""
+        if binding:
+            product_id = binding.get("product_name") or binding.get("product_id")
+            port_name = binding.get("port_name")
+            if product_id and port_name:
+                binding_clause = f"Data product binding: {product_id} · {port_name}."
+            elif product_id:
+                binding_clause = f"Data product binding: {product_id}."
+            if binding.get("product_status_label"):
+                binding_clause += (
+                    f" Status: {binding['product_status_label']}."
+                )
+            elif binding.get("product_status"):
+                binding_clause += f" Status: {binding['product_status']}."
+            if binding.get("stage_contract"):
+                binding_clause += f" Stage contract: {binding['stage_contract']}."
+        version_selector = entry.get("version_selector")
+        version_clause = (
+            f"Version selector: {version_selector}." if version_selector else ""
+        )
         notes.append(
             {
                 "title": f"{summary['id']} {summary['version']} write",
@@ -6624,6 +7444,8 @@ def _write_strategy_notes(
                         predicate_clause,
                         routing_clause,
                         extra_clause.strip(),
+                        binding_clause.strip(),
+                        version_clause,
                     )
                     if part
                 ),
@@ -6786,6 +7608,13 @@ async def api_integration_contracts() -> Dict[str, Any]:
     return {"contracts": _integration_catalog()}
 
 
+@router.get("/api/integration-helper/data-products")
+async def api_integration_data_products() -> Dict[str, Any]:
+    """Return data-product metadata for the integration helper UI."""
+
+    return {"data_products": _integration_data_product_catalog()}
+
+
 @router.get("/api/integration-helper/contracts/{cid}/{ver}")
 async def api_integration_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     """Return contract details enriched for the integration helper."""
@@ -6793,6 +7622,19 @@ async def api_integration_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     context = await _load_integration_contract(cid, ver)
     return {
         "contract": contract_to_dict(context.contract),
+        "summary": jsonable_encoder(context.summary),
+    }
+
+
+@router.get("/api/integration-helper/data-products/{product_id}/{version}")
+async def api_integration_data_product_detail(
+    product_id: str, version: str
+) -> Dict[str, Any]:
+    """Return data-product details enriched for the integration helper."""
+
+    context = await _load_integration_data_product(product_id, version)
+    return {
+        "data_product": jsonable_encoder(context.data_product.to_dict()),
         "summary": jsonable_encoder(context.summary),
     }
 
@@ -7042,6 +7884,7 @@ async def integration_helper(request: Request) -> HTMLResponse:
     context = {
         "request": request,
         "catalog": _integration_catalog(),
+        "data_products": _integration_data_product_catalog(),
         "integration_options": [
             {"value": "spark", "label": "Spark (PySpark / Delta Lake)"},
         ],

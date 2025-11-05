@@ -47,7 +47,10 @@ uvicorn dc43_contracts_app.server:app --host 0.0.0.0 --port 8000
 
 Visit `http://localhost:8000/integration-helper` in your browser. The landing
 page shows your available datasets on the left and the integration helper on the
-right.
+right. Contracts and governed data products now share the sidebar so you can
+bind existing ports into the same lineage you use for raw contract feeds. The
+sidebar scrolls independently, keeping long contract or product lists visible,
+and you can drag either card straight into the canvas to position new nodes.
 
 ### Option B – run from a container
 
@@ -89,12 +92,31 @@ definition through the same backend service used by your governance pipelines.
 Draft suffixes such as ``-draft`` are handled automatically, so promoting a
 provisional definition immediately bumps the base version without manual edits.
 
+### Incorporate data products
+
+The helper lists governed data products beneath the contract catalog. Choose a
+product version and either click **Add to pipeline** or drag the card directly
+onto the canvas using the handle at the top of each result to place a node, then
+grab the header handle on any contract or product card to reposition it as the
+flow evolves. Inspect its inputs and outputs from the selection sidebar. Drag from a product’s
+output port into a transformation input
+to read from the curated dataset, or route transformation outputs into a product
+input port to model writes back into the governed layer. Each data product node
+now exposes **Add output** and **Add input** controls for proposing new ports,
+and the selection panel mirrors those buttons so you can add bindings without
+leaving the sidebar. When you confirm a new port name the helper shows a reminder
+that a new product version must be published, then holds code generation until
+that release is available. Port metadata travels with the node so generated stubs
+include the correct contract IDs, product identifiers, and dataset hints once the
+bindings are published.
+
 ## 4. Generate a Spark stub
 
-1. Select one or more contracts from the catalog tree.
-2. For each transformation, choose the integration strategy (Spark batch, Delta Live Tables, streaming, ...).
-3. Click **Generate stub**. The helper calls `/api/integration-helper/stub` to assemble a tailored Spark snippet.
-4. Copy the highlighted code block and paste it into your notebook or repo. The snippet already imports
+1. Select contracts and/or data products from the catalog tree.
+2. Connect contract or product outputs into transformation inputs, then link transformation outputs back to contracts or product input ports.
+3. For each transformation, choose the integration strategy (Spark batch, Delta Live Tables, streaming, ...).
+4. Click **Generate stub**. The helper calls `/api/integration-helper/stub` to assemble a tailored Spark snippet.
+5. Copy the highlighted code block and paste it into your notebook or repo. The snippet already imports
    the governance-first helpers (``read_with_governance``/``write_with_governance``), sets up the expected contract
    version, and includes TODO markers for business-specific logic.
 

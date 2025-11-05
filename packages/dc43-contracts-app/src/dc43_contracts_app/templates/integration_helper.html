@@ -24,8 +24,17 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
-    max-height: calc(100vh - 6rem);
+    max-height: calc(100vh - 3rem);
     align-self: start;
+    overflow: hidden;
+  }
+  .helper-sidebar .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+    flex: 1 1 auto;
   }
   .helper-panel .card-body {
     display: flex;
@@ -36,10 +45,43 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    flex: 1 1 auto;
   }
   #contractResults {
-    max-height: calc(100vh - 18rem);
-    overflow-y: auto;
+    max-height: none;
+  }
+  #dataProductResults {
+    max-height: none;
+  }
+  .catalog-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .catalog-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .catalog-results .catalog-result-list {
+    flex: 0 0 auto;
+  }
+  .catalog-results[data-role="product-results"] .catalog-result-list {
+    flex: 1 1 auto;
+    min-height: 16rem;
+  }
+  .catalog-results[data-role="product-results"] {
+    flex: 1 1 auto;
+  }
+  .catalog-results [data-role="drag-handle"] {
+    cursor: grab;
+  }
+  .catalog-results [data-role="drag-handle"].is-dragging,
+  .catalog-results [data-role="drag-handle"]:active {
+    cursor: grabbing;
+  }
+  .catalog-results .list-group-item.is-dragging {
+    opacity: 0.85;
   }
   .helper-pipeline .card-body {
     gap: 1rem;
@@ -336,6 +378,76 @@
     overflow-y: auto;
     font-size: 0.85rem;
   }
+  .data-product-node .node-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .product-port-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .product-port-section h4 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+    letter-spacing: 0.04em;
+    margin-bottom: 0;
+  }
+  .product-port-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .product-port {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    background: rgba(var(--bs-primary-rgb), 0.03);
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .product-port .port-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+  }
+  .product-port .port-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+  }
+  .product-port .port-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .product-port .port-meta {
+    color: var(--bs-secondary-color);
+    font-size: 0.75rem;
+  }
+  .product-port .connector-anchor {
+    margin-left: auto;
+    cursor: grab;
+  }
+  .product-port-input .connector-anchor {
+    margin-left: 0;
+    margin-right: auto;
+    background: var(--bs-success);
+    cursor: copy;
+  }
+  .product-port[data-role="drop"] {
+    border-style: dashed;
+  }
+  .product-port .badge {
+    font-size: 0.65rem;
+  }
   .pipeline-connections {
     position: absolute;
     inset: 0;
@@ -501,8 +613,15 @@
       position: static;
       max-height: none;
     }
+    .helper-sidebar .card-body {
+      overflow: visible;
+      padding-right: 0;
+    }
     #contractResults {
       max-height: 20rem;
+    }
+    #dataProductResults {
+      max-height: none;
     }
     .pipeline-workspace {
       grid-template-columns: 1fr;
@@ -519,17 +638,30 @@
     </div>
     <div class="card-body contract-search-body">
       <p class="text-muted small mb-0">
-        Search for contracts, drag them into the canvas, then connect them through transformation
+        Search for contracts and data products, drag them into the canvas, then connect them through transformation
         nodes to build a lineage. Configure integrations per transformation and generate stubs tailored to the selected strategies.
       </p>
       <div>
         <label for="contractSearch" class="form-label">Search contracts</label>
         <input type="search" class="form-control" id="contractSearch" placeholder="Filter by id, name, version"/>
       </div>
-      <div>
-        <h2 class="h6 text-uppercase text-muted mb-2">Results</h2>
-        <div id="contractResults" class="list-group"></div>
-        <p class="text-muted small mt-3 d-none" id="contractResultsEmpty">No matching contracts found.</p>
+      <div class="catalog-section">
+        <h2 class="h6 text-uppercase text-muted mb-2">Contracts</h2>
+        <div class="catalog-results" data-role="contract-results">
+          <div id="contractResults" class="list-group catalog-result-list"></div>
+          <p class="text-muted small mb-0 d-none" id="contractResultsEmpty">No matching contracts found.</p>
+        </div>
+      </div>
+      <div class="pt-3 border-top">
+        <label for="dataProductSearch" class="form-label">Search data products</label>
+        <input type="search" class="form-control" id="dataProductSearch" placeholder="Filter by id, name, port, contract"/>
+      </div>
+      <div class="catalog-section flex-grow-1">
+        <h2 class="h6 text-uppercase text-muted mb-2">Data products</h2>
+        <div class="catalog-results" data-role="product-results">
+          <div id="dataProductResults" class="list-group catalog-result-list"></div>
+          <p class="text-muted small mb-0 d-none" id="dataProductResultsEmpty">No matching data products found.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -569,8 +701,8 @@
                 <svg class="pipeline-connections" id="pipelineConnections"></svg>
                 <div class="pipeline-placeholder" id="pipelinePlaceholder">
                   <div>
-                    <p class="mb-2">Start by adding contracts from the list and at least one transformation node.</p>
-                    <p class="small mb-0">Drag from a contract’s output handle to a transformation input to link them. Drag from a transformation output handle to a contract input to map outputs.</p>
+                    <p class="mb-2">Start by adding contracts or data products from the list and at least one transformation node.</p>
+                    <p class="small mb-0">Drag from a contract or data-product output to a transformation input to link them. Drag from a transformation output handle to a contract or product input to map outputs.</p>
                   </div>
                 </div>
               </div>
@@ -607,6 +739,23 @@
       </div>
       <div class="modal-body">
         <div id="contractPreviewBody" class="d-flex flex-column gap-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="dataProductPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title h5" id="dataProductPreviewTitle">Data product preview</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="dataProductPreviewBody" class="d-flex flex-column gap-3"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -652,6 +801,7 @@
 
 <script>
   const catalogData = {{ catalog | tojson }};
+  const dataProductsData = {{ data_products | tojson }};
   const integrationOptionsData = {{ integration_options | tojson }};
 
   document.body.classList.add("integration-helper-page");
@@ -710,10 +860,14 @@
   const VIEWPORT_PADDING = 96;
 
   const contractCache = new Map();
+  const dataProductCache = new Map();
   const state = {
     catalog: catalogData || [],
-    filter: "",
+    dataProducts: dataProductsData || [],
+    contractFilter: "",
+    productFilter: "",
     contractNodes: [],
+    dataProductNodes: [],
     transformations: [],
     selection: null,
     activePreview: null,
@@ -734,6 +888,9 @@
     contractResults: document.getElementById("contractResults"),
     contractResultsEmpty: document.getElementById("contractResultsEmpty"),
     contractSearch: document.getElementById("contractSearch"),
+    dataProductResults: document.getElementById("dataProductResults"),
+    dataProductResultsEmpty: document.getElementById("dataProductResultsEmpty"),
+    dataProductSearch: document.getElementById("dataProductSearch"),
     pipelineCanvas: document.getElementById("pipelineCanvas"),
     pipelineStage: document.getElementById("pipelineStage"),
     pipelineConnections: document.getElementById("pipelineConnections"),
@@ -752,6 +909,9 @@
     contractPreviewModal: document.getElementById("contractPreviewModal"),
     contractPreviewBody: document.getElementById("contractPreviewBody"),
     contractPreviewTitle: document.getElementById("contractPreviewTitle"),
+    dataProductPreviewModal: document.getElementById("dataProductPreviewModal"),
+    dataProductPreviewBody: document.getElementById("dataProductPreviewBody"),
+    dataProductPreviewTitle: document.getElementById("dataProductPreviewTitle"),
     transformationConfigModal: document.getElementById("transformationConfigModal"),
     transformationIntegration: document.getElementById("transformationIntegration"),
     transformationReadStrategies: document.getElementById("transformationReadStrategies"),
@@ -763,7 +923,13 @@
 
   const bootstrapModal = {
     preview: null,
+    dataProduct: null,
     transformation: null,
+  };
+
+  const NODE_SIZE_HINTS = {
+    contract: { width: 260, height: 200 },
+    "data-product": { width: 280, height: 220 },
   };
 
   function ensureBootstrapModal(key) {
@@ -777,6 +943,12 @@
       }
       return bootstrapModal.preview;
     }
+    if (key === "dataProduct" && dom.dataProductPreviewModal) {
+      if (!bootstrapModal.dataProduct) {
+        bootstrapModal.dataProduct = lib.Modal.getOrCreateInstance(dom.dataProductPreviewModal);
+      }
+      return bootstrapModal.dataProduct;
+    }
     if (key === "transformation" && dom.transformationConfigModal) {
       if (!bootstrapModal.transformation) {
         bootstrapModal.transformation = lib.Modal.getOrCreateInstance(dom.transformationConfigModal);
@@ -788,6 +960,114 @@
 
   function clampZoom(value) {
     return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+  }
+
+  function nodeSizeHint(kind) {
+    return NODE_SIZE_HINTS[kind] || NODE_SIZE_HINTS.contract;
+  }
+
+  function screenPointToStage(clientX, clientY) {
+    if (!dom.pipelineCanvas) {
+      return { x: clientX, y: clientY };
+    }
+    const rect = dom.pipelineCanvas.getBoundingClientRect();
+    const x = (clientX - rect.left - state.pan.x) / state.zoom;
+    const y = (clientY - rect.top - state.pan.y) / state.zoom;
+    return { x, y };
+  }
+
+  function dropPositionFromEvent(event, kind) {
+    const stagePoint = screenPointToStage(event.clientX, event.clientY);
+    const hint = nodeSizeHint(kind);
+    return {
+      x: stagePoint.x - hint.width / 2,
+      y: stagePoint.y - hint.height / 2,
+    };
+  }
+
+  function registerDraggableResult(element, payloadResolver, options = {}) {
+    if (!element) {
+      return;
+    }
+    const dragTarget = options.dragClassTarget || element;
+    element.setAttribute("draggable", "true");
+    element.addEventListener("dragstart", (event) => {
+      if (!event.dataTransfer) {
+        return;
+      }
+      if (event.target && event.target.closest("button, select")) {
+        event.preventDefault();
+        return;
+      }
+      const payload = typeof payloadResolver === "function" ? payloadResolver() : null;
+      if (!payload) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.effectAllowed = "copy";
+      try {
+        event.dataTransfer.setData("application/json", JSON.stringify(payload));
+      } catch (error) {
+        console.warn("Failed to encode drag payload", error);
+        event.preventDefault();
+        return;
+      }
+      if (payload.kind) {
+        event.dataTransfer.setData("text/plain", payload.kind);
+      }
+      element.classList.add("is-dragging");
+      if (dragTarget && dragTarget !== element) {
+        dragTarget.classList.add("is-dragging");
+      }
+    });
+    element.addEventListener("dragend", () => {
+      element.classList.remove("is-dragging");
+      if (dragTarget && dragTarget !== element) {
+        dragTarget.classList.remove("is-dragging");
+      }
+    });
+  }
+
+  function parseDragPayload(event) {
+    if (!event.dataTransfer) {
+      return null;
+    }
+    const raw = event.dataTransfer.getData("application/json");
+    if (!raw) {
+      return null;
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (error) {
+      console.warn("Unable to parse drag payload", error);
+      return null;
+    }
+  }
+
+  function handlePipelineDragOver(event) {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }
+
+  function handlePipelineDrop(event) {
+    event.preventDefault();
+    const payload = parseDragPayload(event);
+    if (!payload) {
+      return;
+    }
+    if (payload.kind === "contract" && payload.contractId) {
+      const version = payload.version || "latest";
+      const position = dropPositionFromEvent(event, "contract");
+      addContractToPipeline(payload.contractId, version, position);
+      return;
+    }
+    if (payload.kind === "data-product" && payload.productId) {
+      const version = payload.version || "latest";
+      const position = dropPositionFromEvent(event, "data-product");
+      addDataProductToPipeline(payload.productId, version, position);
+    }
   }
 
   function updateZoomControls() {
@@ -907,19 +1187,186 @@
     return state.contractNodes.find((node) => node.id === nodeId) || null;
   }
 
+  function findDataProductNode(nodeId) {
+    return state.dataProductNodes.find((node) => node.id === nodeId) || null;
+  }
+
   function findTransformation(transformationId) {
     return state.transformations.find((item) => item.id === transformationId) || null;
   }
 
+  function ensureCustomPortStore(node) {
+    if (!node) {
+      return { outputs: [], inputs: [] };
+    }
+    if (!node.customPorts) {
+      node.customPorts = { outputs: [], inputs: [] };
+    }
+    if (!Array.isArray(node.customPorts.outputs)) {
+      node.customPorts.outputs = [];
+    }
+    if (!Array.isArray(node.customPorts.inputs)) {
+      node.customPorts.inputs = [];
+    }
+    return node.customPorts;
+  }
+
+  function dataProductPorts(node) {
+    if (!node) {
+      return { outputs: [], inputs: [] };
+    }
+    const summary = node.summary || {};
+    const ports = summary.ports || {};
+    const custom = ensureCustomPortStore(node);
+    const outputs = [
+      ...((ports.outputs || []).map((port) => ({ ...port, requiresNewVersion: !!port.requiresNewVersion, isCustom: false }))),
+      ...(custom.outputs || []),
+    ];
+    const inputs = [
+      ...((ports.inputs || []).map((port) => ({ ...port, requiresNewVersion: !!port.requiresNewVersion, isCustom: false }))),
+      ...(custom.inputs || []),
+    ];
+    return { outputs, inputs };
+  }
+
+  function sanitisePortSlug(value, fallback) {
+    const base = String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const clean = base || fallback;
+    return clean.replace(/_{2,}/g, "_");
+  }
+
+  function uniquePortName(node, direction, label) {
+    const fallback = direction === "output" ? "output_port" : "input_port";
+    const base = sanitisePortSlug(label, fallback);
+    const ports = dataProductPorts(node);
+    const list = direction === "output" ? ports.outputs : ports.inputs;
+    const existing = new Set(
+      list.map((port) => (port.portName || port.name || "").toLowerCase())
+    );
+    if (!existing.has(base)) {
+      return base;
+    }
+    let index = 2;
+    let candidate = `${base}_${index}`;
+    while (existing.has(candidate)) {
+      index += 1;
+      candidate = `${base}_${index}`;
+    }
+    return candidate;
+  }
+
+  function dataProductPortRequiresNewVersion(nodeId, direction, portName) {
+    const node = findDataProductNode(nodeId);
+    if (!node) {
+      return false;
+    }
+    const port = findDataProductPort(node, direction, portName);
+    return !!(port && port.requiresNewVersion);
+  }
+
+  function transformationPendingProductVersion(transformation) {
+    if (!transformation) {
+      return false;
+    }
+    const pendingInputs = transformation.inputs.some(
+      (conn) =>
+        conn.kind === "data-product" &&
+        dataProductPortRequiresNewVersion(conn.dataProductNodeId, "output", conn.portName)
+    );
+    const pendingOutputs = transformation.outputs.some(
+      (conn) =>
+        conn.kind === "data-product" &&
+        dataProductPortRequiresNewVersion(conn.dataProductNodeId, "input", conn.portName)
+    );
+    return pendingInputs || pendingOutputs;
+  }
+
   function nodeSummary(node) {
     if (!node || !node.summary) {
-      return { id: node?.contractId || "", version: node?.version || "" };
+      if (!node) {
+        return { id: "", version: "" };
+      }
+      if (node.type === "data-product") {
+        return { id: node.productId || "", version: node.version || "" };
+      }
+      return { id: node.contractId || "", version: node.version || "" };
     }
     return node.summary;
   }
 
+  function findDataProductPort(node, direction, portName) {
+    if (!node) {
+      return null;
+    }
+    const ports = dataProductPorts(node);
+    const list = direction === "output" ? ports.outputs : ports.inputs;
+    return list.find((port) => (port.portName || port.name || "") === portName) || null;
+  }
+
+  function transformationConnectionDetails(conn, role) {
+    if (!conn) {
+      return null;
+    }
+    if (conn.kind === "data-product") {
+      const productNode = findDataProductNode(conn.dataProductNodeId);
+      if (!productNode) {
+        return null;
+      }
+      const summary = nodeSummary(productNode);
+      const portDirection = role === "inputs" ? "output" : "input";
+      const port = findDataProductPort(productNode, portDirection, conn.portName) || {};
+      const portLabel = port.name || port.portName || conn.portName || "";
+      const lines = [`Port: ${portLabel}`];
+      if (port.contractId) {
+        const contractBits = [`${port.contractId}`];
+        if (port.contractVersion) {
+          contractBits.push(`v${port.contractVersion}`);
+        }
+        lines.push(`Contract: ${contractBits.join(" ")}`);
+      }
+      if (role === "inputs" && port.datasetId) {
+        lines.push(`Dataset: ${port.datasetId}`);
+      }
+      if (role === "outputs" && port.sourceDataProduct) {
+        const sourceBits = [port.sourceDataProduct];
+        if (port.sourceOutputPort) {
+          sourceBits.push(`Port ${port.sourceOutputPort}`);
+        }
+        lines.push(`Source: ${sourceBits.join(" · ")}`);
+      }
+      if (role === "inputs" && port.stageContract) {
+        lines.push(`Stage contract: ${port.stageContract}`);
+      }
+      if (port.requiresNewVersion) {
+        lines.push("New data-product version required");
+      }
+      return {
+        type: "data-product",
+        title: summary.name || summary.id || productNode.productId,
+        lines,
+        focus: { kind: "data-product", nodeId: productNode.id },
+      };
+    }
+    const contractNode = findContractNode(conn.contractNodeId);
+    if (!contractNode) {
+      return null;
+    }
+    const summary = nodeSummary(contractNode);
+    const versionLabel = summary.version || contractNode.version;
+    const lines = versionLabel ? [`v${versionLabel}`] : [];
+    return {
+      type: "contract",
+      title: summary.id || contractNode.contractId,
+      lines,
+      focus: { kind: "contract", nodeId: contractNode.id },
+    };
+  }
+
   function renderCatalogList() {
-    const query = state.filter.trim().toLowerCase();
+    const query = state.contractFilter.trim().toLowerCase();
     const items = state.catalog.filter((item) => {
       if (!query) {
         return true;
@@ -946,7 +1393,7 @@
         .join("");
       group.innerHTML = `
         <div class="d-flex flex-column gap-2">
-          <div class="d-flex justify-content-between align-items-start gap-3">
+          <div class="result-drag-handle d-flex justify-content-between align-items-start gap-3" data-role="drag-handle" title="Drag into the pipeline">
             <div>
               <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
               <div class="small text-muted">${escapeHtml(item.id)}</div>
@@ -956,7 +1403,7 @@
               <select class="form-select form-select-sm" data-role="version-picker">${versionOptions}</select>
             </div>
           </div>
-          <div class="d-flex gap-2">
+          <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
             <button type="button" class="btn btn-primary btn-sm" data-action="add">Add to pipeline</button>
           </div>
@@ -965,15 +1412,96 @@
       const versionSelect = group.querySelector('[data-role="version-picker"]');
       const previewButton = group.querySelector('[data-action="preview"]');
       const addButton = group.querySelector('[data-action="add"]');
+      const dragHandle = group.querySelector('[data-role="drag-handle"]');
+      const fallbackVersion = latest || (item.versions || [])[0] || "latest";
+      const resolveVersion = () => (versionSelect ? versionSelect.value || fallbackVersion : fallbackVersion);
       previewButton.addEventListener("click", () => {
-        const ver = versionSelect.value || latest;
-        previewContract(item.id, ver);
+        const ver = resolveVersion();
+        previewContract(item.id, ver || fallbackVersion);
       });
       addButton.addEventListener("click", () => {
-        const ver = versionSelect.value || latest;
-        addContractToPipeline(item.id, ver);
+        const ver = resolveVersion();
+        addContractToPipeline(item.id, ver || fallbackVersion);
       });
+      registerDraggableResult(dragHandle || group, () => ({
+        kind: "contract",
+        contractId: item.id,
+        version: resolveVersion() || fallbackVersion || "latest",
+      }), { dragClassTarget: group });
       dom.contractResults.appendChild(group);
+    });
+  }
+
+  function renderDataProductList() {
+    const query = state.productFilter.trim().toLowerCase();
+    const items = state.dataProducts.filter((item) => {
+      if (!query) {
+        return true;
+      }
+      const haystack = (item.searchText || [item.id, item.name, item.status, item.description]
+        .filter(Boolean)
+        .join(" "))
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+
+    dom.dataProductResults.innerHTML = "";
+    dom.dataProductResultsEmpty.classList.toggle("d-none", items.length > 0);
+
+    items.forEach((item) => {
+      const group = document.createElement("div");
+      group.className = "list-group-item";
+      const versions = Array.isArray(item.versions) && item.versions.length ? item.versions : (item.version ? [item.version] : []);
+      const latest = item.latestVersion || versions[versions.length - 1] || "";
+      const versionOptions = versions
+        .map((ver) => `<option value="${escapeHtml(ver)}" ${ver === latest ? "selected" : ""}>v${escapeHtml(ver)}</option>`)
+        .join("");
+      const statusLabel = item.statusLabel || item.status || "";
+      const statusBadge = statusLabel
+        ? `<span class="badge text-bg-light border">${escapeHtml(statusLabel)}</span>`
+        : "";
+      const counts = `<div class="small text-muted">Inputs: ${item.inputCount ?? 0} · Outputs: ${item.outputCount ?? 0}</div>`;
+      group.innerHTML = `
+        <div class="d-flex flex-column gap-2">
+          <div class="result-drag-handle d-flex justify-content-between align-items-start gap-3" data-role="drag-handle" title="Drag into the pipeline">
+            <div>
+              <div class="fw-semibold">${escapeHtml(item.name || item.id)}</div>
+              <div class="small text-muted d-flex align-items-center gap-2 flex-wrap">${escapeHtml(item.id)}${statusBadge ? `<span>${statusBadge}</span>` : ""}</div>
+              ${item.description ? `<div class="small text-muted">${escapeHtml(item.description)}</div>` : ""}
+              ${counts}
+            </div>
+            <div class="text-end">
+              ${versionOptions
+                ? `<select class="form-select form-select-sm" data-role="version-picker">${versionOptions}</select>`
+                : "<div class=\"small text-muted\">No versions</div>"}
+            </div>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
+            <button type="button" class="btn btn-primary btn-sm" data-action="add">Add to pipeline</button>
+          </div>
+        </div>
+      `;
+      const versionSelect = group.querySelector('[data-role="version-picker"]');
+      const previewButton = group.querySelector('[data-action="preview"]');
+      const addButton = group.querySelector('[data-action="add"]');
+      const dragHandle = group.querySelector('[data-role="drag-handle"]');
+      const fallbackVersion = latest || item.version || "latest";
+      const resolveVersion = () => (versionSelect ? versionSelect.value || fallbackVersion : fallbackVersion);
+      previewButton.addEventListener("click", () => {
+        const ver = resolveVersion();
+        previewDataProduct(item.id, ver);
+      });
+      addButton.addEventListener("click", () => {
+        const ver = resolveVersion();
+        addDataProductToPipeline(item.id, ver);
+      });
+      registerDraggableResult(dragHandle || group, () => ({
+        kind: "data-product",
+        productId: item.id,
+        version: resolveVersion(),
+      }), { dragClassTarget: group });
+      dom.dataProductResults.appendChild(group);
     });
   }
 
@@ -1029,11 +1557,13 @@
     let rendered = false;
     if (selection?.kind === "contract") {
       rendered = renderContractSelection(panel, selection.nodeId);
+    } else if (selection?.kind === "data-product") {
+      rendered = renderDataProductSelection(panel, selection.nodeId);
     } else if (selection?.kind === "transformation") {
       rendered = renderTransformationSelection(panel, selection.nodeId);
     }
     if (!rendered) {
-      panel.innerHTML = '<div class="selection-empty">Select a contract or transformation to see its details.</div>';
+      panel.innerHTML = '<div class="selection-empty">Select a contract, data product, or transformation to see its details.</div>';
     }
     updateSelectionHighlight();
   }
@@ -1045,6 +1575,11 @@
       return;
     }
     if (next.kind === "contract" && !findContractNode(next.nodeId)) {
+      state.selection = null;
+      renderSelectionPanel();
+      return;
+    }
+    if (next.kind === "data-product" && !findDataProductNode(next.nodeId)) {
       state.selection = null;
       renderSelectionPanel();
       return;
@@ -1064,7 +1599,11 @@
       return;
     }
     const { kind, nodeId } = state.selection;
-    if ((kind === "contract" && !findContractNode(nodeId)) || (kind === "transformation" && !findTransformation(nodeId))) {
+    if (
+      (kind === "contract" && !findContractNode(nodeId)) ||
+      (kind === "data-product" && !findDataProductNode(nodeId)) ||
+      (kind === "transformation" && !findTransformation(nodeId))
+    ) {
       state.selection = null;
     }
     renderSelectionPanel();
@@ -1170,6 +1709,188 @@
     return true;
   }
 
+  function renderDataProductSelection(panel, nodeId) {
+    const node = findDataProductNode(nodeId);
+    if (!node) {
+      return false;
+    }
+    const summary = nodeSummary(node);
+    const heading = document.createElement("h3");
+    heading.textContent = summary.name || summary.id || node.productId;
+    panel.appendChild(heading);
+
+    const meta = document.createElement("div");
+    meta.className = "selection-meta";
+    const metaBits = [`${node.productId}`, `v${node.version}`];
+    if (summary.statusLabel || summary.status) {
+      metaBits.push(summary.statusLabel || summary.status);
+    }
+    meta.textContent = metaBits.filter(Boolean).join(" · ");
+    panel.appendChild(meta);
+
+    if (summary.description) {
+      const description = document.createElement("p");
+      description.className = "mb-0";
+      description.textContent = summary.description;
+      panel.appendChild(description);
+    }
+
+    if (Array.isArray(summary.tags) && summary.tags.length) {
+      const tags = document.createElement("div");
+      tags.className = "selection-meta";
+      tags.textContent = `Tags: ${summary.tags.map((tag) => `#${tag}`).join(" ")}`;
+      panel.appendChild(tags);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "selection-actions";
+    const previewButton = document.createElement("button");
+    previewButton.type = "button";
+    previewButton.className = "btn btn-outline-primary btn-sm";
+    previewButton.textContent = "Preview";
+    previewButton.addEventListener("click", () => previewDataProduct(node.productId, node.version));
+    actions.appendChild(previewButton);
+
+    const focusButton = document.createElement("button");
+    focusButton.type = "button";
+    focusButton.className = "btn btn-outline-secondary btn-sm";
+    focusButton.textContent = "Focus";
+    focusButton.addEventListener("click", () => focusNode(node.id));
+    actions.appendChild(focusButton);
+
+    const addOutputButton = document.createElement("button");
+    addOutputButton.type = "button";
+    addOutputButton.className = "btn btn-outline-secondary btn-sm";
+    addOutputButton.textContent = "Add output";
+    addOutputButton.addEventListener("click", () => addCustomDataProductPort(node.id, "output"));
+    actions.appendChild(addOutputButton);
+
+    const addInputButton = document.createElement("button");
+    addInputButton.type = "button";
+    addInputButton.className = "btn btn-outline-secondary btn-sm";
+    addInputButton.textContent = "Add input";
+    addInputButton.addEventListener("click", () => addCustomDataProductPort(node.id, "input"));
+    actions.appendChild(addInputButton);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "btn btn-outline-danger btn-sm";
+    removeButton.textContent = "Remove";
+    removeButton.addEventListener("click", () => removeDataProductNode(node.id));
+    actions.appendChild(removeButton);
+    panel.appendChild(actions);
+
+    const ports = dataProductPorts(node);
+    const outputPorts = ports.outputs || [];
+    const inputPorts = ports.inputs || [];
+    const customCount = (node.customPorts?.outputs?.length || 0) + (node.customPorts?.inputs?.length || 0);
+    if (customCount) {
+      const warning = document.createElement("div");
+      warning.className = "alert alert-warning small";
+      warning.textContent = "Proposed ports require publishing a new data product version.";
+      panel.appendChild(warning);
+    }
+
+    if (outputPorts.length) {
+      const outputsSection = document.createElement("div");
+      outputsSection.className = "pb-3";
+      const title = document.createElement("h4");
+      title.className = "h6";
+      title.textContent = `Outputs (${outputPorts.length})`;
+      outputsSection.appendChild(title);
+      const list = document.createElement("ul");
+      list.className = "small mb-0";
+      outputPorts.forEach((port) => {
+        const item = document.createElement("li");
+        const name = document.createElement("code");
+        name.textContent = port.name || port.portName || "";
+        item.appendChild(name);
+        const metaLine = document.createElement("span");
+        metaLine.className = "text-muted ms-2";
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const datasetBits = [
+          port.datasetId || "",
+          port.stageContract ? `Stage: ${port.stageContract}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const baseDetails = [contractBits, datasetBits].filter(Boolean).join(" · ");
+        const notes = [];
+        if (port.sourceDataProduct) {
+          const sourceLabel = port.sourceOutputPort
+            ? `${port.sourceDataProduct} · Port ${port.sourceOutputPort}`
+            : port.sourceDataProduct;
+          notes.push(`Source: ${sourceLabel}`);
+        }
+        if (port.requiresNewVersion) {
+          notes.push("New version required");
+        }
+        if (port.isCustom) {
+          notes.push("Proposed port");
+        }
+        const textBits = [baseDetails, notes.join(" · ")].filter(Boolean).join(" · ");
+        metaLine.textContent = textBits ? `(${textBits})` : "";
+        item.appendChild(metaLine);
+        list.appendChild(item);
+      });
+      outputsSection.appendChild(list);
+      panel.appendChild(outputsSection);
+    }
+
+    if (inputPorts.length) {
+      const inputsSection = document.createElement("div");
+      inputsSection.className = "pb-3";
+      const title = document.createElement("h4");
+      title.className = "h6";
+      title.textContent = `Inputs (${inputPorts.length})`;
+      inputsSection.appendChild(title);
+      const list = document.createElement("ul");
+      list.className = "small mb-0";
+      inputPorts.forEach((port) => {
+        const item = document.createElement("li");
+        const name = document.createElement("code");
+        name.textContent = port.name || port.portName || "";
+        item.appendChild(name);
+        const metaLine = document.createElement("span");
+        metaLine.className = "text-muted ms-2";
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const notes = [];
+        if (port.sourceDataProduct) {
+          const sourceLabel = port.sourceOutputPort
+            ? `${port.sourceDataProduct} · Port ${port.sourceOutputPort}`
+            : port.sourceDataProduct;
+          notes.push(`Source: ${sourceLabel}`);
+        }
+        if (port.stageContract) {
+          notes.push(`Stage: ${port.stageContract}`);
+        }
+        if (port.requiresNewVersion) {
+          notes.push("New version required");
+        }
+        if (port.isCustom) {
+          notes.push("Proposed port");
+        }
+        const details = [contractBits, notes.join(" · ")].filter(Boolean).join(" · ");
+        metaLine.textContent = details ? `(${details})` : "";
+        item.appendChild(metaLine);
+        list.appendChild(item);
+      });
+      inputsSection.appendChild(list);
+      panel.appendChild(inputsSection);
+    }
+    return true;
+  }
+
   function renderTransformationSelection(panel, transformationId) {
     const transformation = findTransformation(transformationId);
     if (!transformation) {
@@ -1241,15 +1962,27 @@
     inputList.className = "list-unstyled small mb-0";
     if (transformation.inputs.length) {
       transformation.inputs.forEach((conn) => {
-        const contractNode = findContractNode(conn.contractNodeId);
-        if (!contractNode) {
+        const details = transformationConnectionDetails(conn, "inputs");
+        if (!details) {
           return;
         }
-        const summary = nodeSummary(contractNode);
         const item = document.createElement("li");
         item.className = "d-flex justify-content-between align-items-center gap-2 py-1";
         const label = document.createElement("div");
-        label.innerHTML = `<span class="fw-semibold">${escapeHtml(summary.id || contractNode.contractId)}</span> <span class="text-muted">v${escapeHtml(summary.version || contractNode.version)}</span>`;
+        label.className = "d-flex flex-column";
+        const heading = document.createElement("div");
+        heading.className = "fw-semibold";
+        heading.textContent = details.title;
+        label.appendChild(heading);
+        (details.lines || []).forEach((line) => {
+          if (!line) {
+            return;
+          }
+          const meta = document.createElement("div");
+          meta.className = "text-muted small";
+          meta.textContent = line;
+          label.appendChild(meta);
+        });
         item.appendChild(label);
         const buttons = document.createElement("div");
         buttons.className = "btn-group btn-group-sm";
@@ -1258,8 +1991,10 @@
         focusBtn.className = "btn btn-outline-secondary";
         focusBtn.textContent = "Focus";
         focusBtn.addEventListener("click", () => {
-          setSelection({ kind: "contract", nodeId: contractNode.id });
-          focusNode(contractNode.id);
+          if (details.focus) {
+            setSelection(details.focus);
+            focusNode(details.focus.nodeId);
+          }
         });
         buttons.appendChild(focusBtn);
         const removeBtn = document.createElement("button");
@@ -1289,15 +2024,27 @@
     outputList.className = "list-unstyled small mb-0";
     if (transformation.outputs.length) {
       transformation.outputs.forEach((conn) => {
-        const contractNode = findContractNode(conn.contractNodeId);
-        if (!contractNode) {
+        const details = transformationConnectionDetails(conn, "outputs");
+        if (!details) {
           return;
         }
-        const summary = nodeSummary(contractNode);
         const item = document.createElement("li");
         item.className = "d-flex justify-content-between align-items-center gap-2 py-1";
         const label = document.createElement("div");
-        label.innerHTML = `<span class="fw-semibold">${escapeHtml(summary.id || contractNode.contractId)}</span> <span class="text-muted">v${escapeHtml(summary.version || contractNode.version)}</span>`;
+        label.className = "d-flex flex-column";
+        const heading = document.createElement("div");
+        heading.className = "fw-semibold";
+        heading.textContent = details.title;
+        label.appendChild(heading);
+        (details.lines || []).forEach((line) => {
+          if (!line) {
+            return;
+          }
+          const meta = document.createElement("div");
+          meta.className = "text-muted small";
+          meta.textContent = line;
+          label.appendChild(meta);
+        });
         item.appendChild(label);
         const buttons = document.createElement("div");
         buttons.className = "btn-group btn-group-sm";
@@ -1306,8 +2053,10 @@
         focusBtn.className = "btn btn-outline-secondary";
         focusBtn.textContent = "Focus";
         focusBtn.addEventListener("click", () => {
-          setSelection({ kind: "contract", nodeId: contractNode.id });
-          focusNode(contractNode.id);
+          if (details.focus) {
+            setSelection(details.focus);
+            focusNode(details.focus.nodeId);
+          }
         });
         buttons.appendChild(focusBtn);
         const removeBtn = document.createElement("button");
@@ -1346,17 +2095,22 @@
     return true;
   }
 
-  function addContractToPipeline(contractId, version) {
+  function addContractToPipeline(contractId, version, positionOverride = null) {
     const existing = state.contractNodes.find((node) => node.contractId === contractId && node.version === version);
     if (existing) {
       focusNode(existing.id);
       setSelection({ kind: "contract", nodeId: existing.id });
       return;
     }
-    const position = {
-      x: 80 + state.contractNodes.length * 40,
-      y: 80 + state.contractNodes.length * 60,
-    };
+    const position = positionOverride
+      ? {
+          x: Number.isFinite(Number(positionOverride.x)) ? Number(positionOverride.x) : 0,
+          y: Number.isFinite(Number(positionOverride.y)) ? Number(positionOverride.y) : 0,
+        }
+      : {
+          x: 80 + state.contractNodes.length * 40,
+          y: 80 + state.contractNodes.length * 60,
+        };
     loadContractSummary(contractId, version).then((summary) => {
       const node = {
         id: createId("contract"),
@@ -1498,6 +2252,258 @@
     }
   }
 
+  async function loadDataProductSummary(productId, version) {
+    const key = `${productId}@@${version}`;
+    if (dataProductCache.has(key)) {
+      return dataProductCache.get(key);
+    }
+    const response = await fetch(
+      `/api/integration-helper/data-products/${encodeURIComponent(productId)}/${encodeURIComponent(version)}`
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to load data product ${productId} v${version}`);
+    }
+    const data = await response.json();
+    const summary = data.summary || { id: productId, version };
+    dataProductCache.set(key, summary);
+    return summary;
+  }
+
+  function addDataProductToPipeline(productId, version, positionOverride = null) {
+    const existing = state.dataProductNodes.find(
+      (node) => node.productId === productId && node.version === version
+    );
+    if (existing) {
+      focusNode(existing.id);
+      setSelection({ kind: "data-product", nodeId: existing.id });
+      return;
+    }
+    const position = positionOverride
+      ? {
+          x: Number.isFinite(Number(positionOverride.x)) ? Number(positionOverride.x) : 0,
+          y: Number.isFinite(Number(positionOverride.y)) ? Number(positionOverride.y) : 0,
+        }
+      : {
+          x: 80 + state.dataProductNodes.length * 40,
+          y: 220 + state.dataProductNodes.length * 60,
+        };
+    loadDataProductSummary(productId, version).then((summary) => {
+      const node = {
+        id: createId("product"),
+        type: "data-product",
+        productId,
+        version,
+        position,
+        summary,
+        size: { width: 280, height: 220 },
+        customPorts: { outputs: [], inputs: [] },
+      };
+      state.dataProductNodes.push(node);
+      renderPipeline();
+      renderTransformations();
+      setSelection({ kind: "data-product", nodeId: node.id });
+    });
+  }
+
+  function addCustomDataProductPort(nodeId, direction) {
+    const node = findDataProductNode(nodeId);
+    if (!node) {
+      return;
+    }
+    const labelDefault = direction === "output" ? "New output port" : "New input port";
+    const promptLabel = direction === "output" ? "output" : "input";
+    const response = window.prompt(`Name for the new ${promptLabel} port`, labelDefault);
+    if (response === null) {
+      return;
+    }
+    const trimmed = response.trim();
+    if (!trimmed) {
+      return;
+    }
+    window.alert(
+      "Adding a new input or output requires publishing a new version of this data product. The port will be marked as pending until a new version is available."
+    );
+    const store = ensureCustomPortStore(node);
+    const key = direction === "output" ? "outputs" : "inputs";
+    const portName = uniquePortName(node, direction, trimmed);
+    store[key].push({
+      portName,
+      name: trimmed,
+      requiresNewVersion: true,
+      isCustom: true,
+    });
+    renderPipeline();
+    renderTransformations();
+    setSelection({ kind: "data-product", nodeId: node.id });
+    setPipelineStatus(`Added proposed ${promptLabel} port "${trimmed}".`, "success", { duration: 3200 });
+  }
+
+  function removeCustomDataProductPort(nodeId, direction, portName) {
+    const node = findDataProductNode(nodeId);
+    if (!node || !node.customPorts) {
+      return;
+    }
+    const key = direction === "output" ? "outputs" : "inputs";
+    const before = node.customPorts[key]?.length || 0;
+    node.customPorts[key] = (node.customPorts[key] || []).filter(
+      (port) => (port.portName || port.name || "") !== portName
+    );
+    if (node.customPorts[key].length === before) {
+      return;
+    }
+    state.transformations.forEach((transformation) => {
+      if (direction === "output") {
+        const previous = transformation.inputs.length;
+        transformation.inputs = transformation.inputs.filter(
+          (conn) =>
+            !(
+              conn.kind === "data-product" &&
+              conn.dataProductNodeId === nodeId &&
+              conn.portName === portName
+            )
+        );
+        if (transformation.inputs.length !== previous) {
+          markTransformationDirty(transformation.id);
+        }
+      } else {
+        const previous = transformation.outputs.length;
+        transformation.outputs = transformation.outputs.filter(
+          (conn) =>
+            !(
+              conn.kind === "data-product" &&
+              conn.dataProductNodeId === nodeId &&
+              conn.portName === portName
+            )
+        );
+        if (transformation.outputs.length !== previous) {
+          markTransformationDirty(transformation.id);
+        }
+      }
+    });
+    renderPipeline();
+    renderTransformations();
+    setPipelineStatus("Removed proposed data product port.", "muted");
+  }
+
+  function removeDataProductNode(nodeId) {
+    const node = findDataProductNode(nodeId);
+    if (!node) {
+      return;
+    }
+    state.dataProductNodes = state.dataProductNodes.filter((item) => item.id !== nodeId);
+    state.transformations.forEach((tf) => {
+      const beforeInputs = tf.inputs.length;
+      tf.inputs = tf.inputs.filter(
+        (conn) => !(conn.kind === "data-product" && conn.dataProductNodeId === nodeId)
+      );
+      const beforeOutputs = tf.outputs.length;
+      tf.outputs = tf.outputs.filter(
+        (conn) => !(conn.kind === "data-product" && conn.dataProductNodeId === nodeId)
+      );
+      if (tf.inputs.length !== beforeInputs || tf.outputs.length !== beforeOutputs) {
+        markTransformationDirty(tf.id);
+      }
+    });
+    renderPipeline();
+    renderTransformations();
+    ensureSelectionValid();
+  }
+
+  async function previewDataProduct(productId, version) {
+    try {
+      const summary = await loadDataProductSummary(productId, version);
+      dom.dataProductPreviewTitle.textContent = `${summary.name || productId} · v${summary.version || version}`;
+      const body = document.createElement("div");
+      const statusLabel = summary.statusLabel || summary.status || "";
+      body.innerHTML = `
+        <div>
+          <h2 class="h6 mb-1">${escapeHtml(summary.name || summary.id || "")}</h2>
+          <div class="d-flex align-items-center gap-2 flex-wrap text-muted small mb-2">
+            <span>${escapeHtml(summary.id || productId)}</span>
+            ${statusLabel ? `<span class="badge text-bg-light border">${escapeHtml(statusLabel)}</span>` : ""}
+          </div>
+          <p class="text-muted small mb-0">${escapeHtml(summary.description || "No description provided.")}</p>
+        </div>
+      `;
+      if (Array.isArray(summary.tags) && summary.tags.length) {
+        const tags = document.createElement("div");
+        tags.className = "small text-muted mt-2";
+        tags.textContent = `Tags: ${summary.tags.map((tag) => `#${tag}`).join(" ")}`;
+        body.appendChild(tags);
+      }
+      const ports = summary.ports || { inputs: [], outputs: [] };
+      const portSection = document.createElement("div");
+      portSection.innerHTML = `
+        <h3 class="h6 mt-3">Ports</h3>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <h4 class="h6">Inputs (${ports.inputs.length})</h4>
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Contract</th>
+                    <th>Version</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${ports.inputs
+                    .map((port) => `
+                      <tr>
+                        <td>${escapeHtml(port.name || port.portName || "")}</td>
+                        <td>${escapeHtml(port.contractId || "")}</td>
+                        <td>${escapeHtml(port.contractVersion || "")}</td>
+                      </tr>
+                    `)
+                    .join("") || '<tr><td colspan="3" class="text-muted">No input ports.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <h4 class="h6">Outputs (${ports.outputs.length})</h4>
+            <div class="table-responsive">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Contract</th>
+                    <th>Dataset</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${ports.outputs
+                    .map((port) => `
+                      <tr>
+                        <td>${escapeHtml(port.name || port.portName || "")}</td>
+                        <td>${escapeHtml(port.contractId || "")}</td>
+                        <td>${escapeHtml(port.datasetId || "")}</td>
+                      </tr>
+                    `)
+                    .join("") || '<tr><td colspan="3" class="text-muted">No output ports.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+      body.appendChild(portSection);
+      dom.dataProductPreviewBody.innerHTML = "";
+      dom.dataProductPreviewBody.appendChild(body);
+      const modal = ensureBootstrapModal("dataProduct");
+      if (modal) {
+        modal.show();
+      }
+    } catch (error) {
+      dom.dataProductPreviewBody.innerHTML = `<div class="alert alert-danger">${escapeHtml(error.message || String(error))}</div>`;
+      const modal = ensureBootstrapModal("dataProduct");
+      if (modal) {
+        modal.show();
+      }
+    }
+  }
+
   function focusNode(nodeId) {
     const element = dom.pipelineStage?.querySelector(`[data-node-id="${nodeId}"]`);
     if (element) {
@@ -1508,7 +2514,10 @@
   }
 
   function ensurePlaceholder() {
-    const hasNodes = state.contractNodes.length > 0 || state.transformations.length > 0;
+    const hasNodes =
+      state.contractNodes.length > 0 ||
+      state.dataProductNodes.length > 0 ||
+      state.transformations.length > 0;
     dom.pipelinePlaceholder.classList.toggle("d-none", hasNodes);
   }
 
@@ -1550,6 +2559,244 @@
         return;
       }
       setSelection({ kind: "contract", nodeId: node.id });
+    });
+    return element;
+  }
+
+  function buildDataProductNodeElement(node) {
+    const summary = node.summary || {};
+    const element = document.createElement("div");
+    element.className = "pipeline-node data-product-node";
+    element.dataset.nodeId = node.id;
+    element.style.transform = `translate(${node.position.x}px, ${node.position.y}px)`;
+    const statusBadge = summary.statusLabel
+      ? `<span class="badge text-bg-light border">${escapeHtml(summary.statusLabel)}</span>`
+      : "";
+    const description = summary.description
+      ? `<p class="text-muted small mb-0">${escapeHtml(summary.description)}</p>`
+      : "";
+    element.innerHTML = `
+      <div class="node-header" data-role="drag-handle">
+        <div>
+          <div class="fw-semibold">${escapeHtml(summary.name || summary.id || node.productId)}</div>
+          <div class="small text-muted d-flex align-items-center gap-2 flex-wrap">
+            <span>${escapeHtml(node.productId)}</span>
+            <span>v${escapeHtml(node.version)}</span>
+            ${statusBadge ? `<span>${statusBadge}</span>` : ""}
+          </div>
+        </div>
+      </div>
+      <div class="node-body">
+        ${description}
+        <div class="product-port-section">
+          <div class="d-flex justify-content-between align-items-center gap-2">
+            <h4 class="mb-1">Outputs</h4>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-action="add-output-port">Add output</button>
+          </div>
+          <div class="product-port-list" data-role="outputs"></div>
+        </div>
+        <div class="product-port-section">
+          <div class="d-flex justify-content-between align-items-center gap-2">
+            <h4 class="mb-1">Inputs</h4>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-action="add-input-port">Add input</button>
+          </div>
+          <div class="product-port-list" data-role="inputs"></div>
+        </div>
+        <div class="node-actions">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="preview">Preview</button>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
+        </div>
+      </div>
+    `;
+
+    const outputsList = element.querySelector('[data-role="outputs"]');
+    const inputsList = element.querySelector('[data-role="inputs"]');
+    const addOutputButton = element.querySelector('[data-action="add-output-port"]');
+    const addInputButton = element.querySelector('[data-action="add-input-port"]');
+    if (addOutputButton) {
+      addOutputButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        addCustomDataProductPort(node.id, "output");
+      });
+    }
+    if (addInputButton) {
+      addInputButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        addCustomDataProductPort(node.id, "input");
+      });
+    }
+
+    outputsList.innerHTML = "";
+    inputsList.innerHTML = "";
+
+    const ports = dataProductPorts(node);
+    const outputPorts = ports.outputs || [];
+    const inputPorts = ports.inputs || [];
+
+    if (!outputPorts.length) {
+      const empty = document.createElement("div");
+      empty.className = "text-muted small fst-italic";
+      empty.textContent = "No output ports defined.";
+      outputsList.appendChild(empty);
+    } else {
+      outputPorts.forEach((port) => {
+        const item = document.createElement("div");
+        item.className = "product-port product-port-output";
+        item.dataset.portName = port.portName || port.name || "";
+        const handle = document.createElement("span");
+        handle.className = "connector-anchor";
+        handle.dataset.role = "product-output";
+        handle.dataset.portName = item.dataset.portName;
+        handle.textContent = "▶";
+        const body = document.createElement("div");
+        body.className = "port-body";
+        const name = escapeHtml(port.name || port.portName || "");
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const lines = [];
+        if (contractBits) {
+          lines.push(`<div class="port-meta">${escapeHtml(contractBits)}</div>`);
+        }
+        if (port.datasetId) {
+          lines.push(`<div class="port-meta">${escapeHtml(port.datasetId)}</div>`);
+        }
+        if (port.requiresNewVersion) {
+          lines.push('<div class="port-meta text-warning">Pending new version</div>');
+        }
+        if (port.isCustom) {
+          lines.push('<div class="port-meta text-muted">Proposed port</div>');
+        }
+        body.innerHTML = `<div class="port-name">${name}</div>${lines.join("")}`;
+        item.appendChild(body);
+        const actions = document.createElement("div");
+        actions.className = "port-actions ms-auto";
+        if (port.requiresNewVersion) {
+          const badge = document.createElement("span");
+          badge.className = "badge text-bg-warning text-dark";
+          badge.textContent = "New version required";
+          actions.appendChild(badge);
+        }
+        if (port.isCustom) {
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "btn btn-outline-danger btn-sm";
+          removeBtn.textContent = "Remove";
+          removeBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            removeCustomDataProductPort(node.id, "output", item.dataset.portName);
+          });
+          actions.appendChild(removeBtn);
+        }
+        if (actions.childElementCount > 0) {
+          item.appendChild(actions);
+        }
+        item.appendChild(handle);
+        outputsList.appendChild(item);
+        handle.addEventListener("pointerdown", (event) =>
+          beginConnection(event, {
+            kind: "data-product-output",
+            productNodeId: node.id,
+            portName: item.dataset.portName,
+            element: handle,
+          })
+        );
+        handle.addEventListener("pointerenter", () => setHoverHandle(handle));
+        handle.addEventListener("pointerleave", () => clearHoverHandle(handle));
+      });
+    }
+
+    if (!inputPorts.length) {
+      const empty = document.createElement("div");
+      empty.className = "text-muted small fst-italic";
+      empty.textContent = "No input ports defined.";
+      inputsList.appendChild(empty);
+    } else {
+      inputPorts.forEach((port) => {
+        const item = document.createElement("div");
+        item.className = "product-port product-port-input";
+        item.dataset.role = "product-input-container";
+        item.dataset.portName = port.portName || port.name || "";
+        const handle = document.createElement("span");
+        handle.className = "connector-anchor";
+        handle.dataset.role = "product-input";
+        handle.dataset.portName = item.dataset.portName;
+        handle.textContent = "◀";
+        const body = document.createElement("div");
+        body.className = "port-body";
+        const name = escapeHtml(port.name || port.portName || "");
+        const contractBits = [
+          port.contractId || "",
+          port.contractVersion ? `v${port.contractVersion}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        const lines = [];
+        if (contractBits) {
+          lines.push(`<div class="port-meta">${escapeHtml(contractBits)}</div>`);
+        }
+        if (port.sourceDataProduct) {
+          const sourceLabel = port.sourceOutputPort
+            ? `${port.sourceDataProduct} · Port ${port.sourceOutputPort}`
+            : port.sourceDataProduct;
+          lines.push(`<div class="port-meta">Source: ${escapeHtml(sourceLabel)}</div>`);
+        }
+        if (port.stageContract) {
+          lines.push(`<div class="port-meta">Stage: ${escapeHtml(port.stageContract)}</div>`);
+        }
+        if (port.requiresNewVersion) {
+          lines.push('<div class="port-meta text-warning">Pending new version</div>');
+        }
+        if (port.isCustom) {
+          lines.push('<div class="port-meta text-muted">Proposed port</div>');
+        }
+        body.innerHTML = `<div class="port-name">${name}</div>${lines.join("")}`;
+        item.appendChild(handle);
+        item.appendChild(body);
+        const actions = document.createElement("div");
+        actions.className = "port-actions ms-auto";
+        if (port.requiresNewVersion) {
+          const badge = document.createElement("span");
+          badge.className = "badge text-bg-warning text-dark";
+          badge.textContent = "New version required";
+          actions.appendChild(badge);
+        }
+        if (port.isCustom) {
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "btn btn-outline-danger btn-sm";
+          removeBtn.textContent = "Remove";
+          removeBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            removeCustomDataProductPort(node.id, "input", item.dataset.portName);
+          });
+          actions.appendChild(removeBtn);
+        }
+        if (actions.childElementCount > 0) {
+          item.appendChild(actions);
+        }
+        inputsList.appendChild(item);
+        item.addEventListener("pointerenter", () => setHoverHandle(handle));
+        item.addEventListener("pointerleave", () => clearHoverHandle(handle));
+      });
+    }
+
+    const previewButton = element.querySelector('[data-action="preview"]');
+    const removeButton = element.querySelector('[data-action="remove"]');
+    previewButton.addEventListener("click", () => previewDataProduct(node.productId, node.version));
+    removeButton.addEventListener("click", () => removeDataProductNode(node.id));
+    attachNodeDragBehaviour(element, node.id);
+    element.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        return;
+      }
+      if (event.target.closest(".connector-anchor")) {
+        return;
+      }
+      setSelection({ kind: "data-product", nodeId: node.id });
     });
     return element;
   }
@@ -1628,64 +2875,106 @@
     outputList.innerHTML = "";
     inputPlaceholder.classList.toggle("d-none", transformation.inputs.length > 0);
     outputPlaceholder.classList.toggle("d-none", transformation.outputs.length > 0);
+
     transformation.inputs.forEach((conn, index) => {
-      const contractNode = findContractNode(conn.contractNodeId);
-      if (!contractNode) {
+      const details = transformationConnectionDetails(conn, "inputs");
+      if (!details) {
         return;
       }
-      const summary = nodeSummary(contractNode);
       const item = document.createElement("div");
       item.className = "connector-chip";
       item.dataset.connectionId = conn.id;
-      item.innerHTML = `
-        <span class="connector-anchor" title="Linked input">${index + 1}</span>
-        <div>
-          <div class="fw-semibold small">${escapeHtml(summary.id || contractNode.contractId)}</div>
-          <div class="text-muted small">v${escapeHtml(summary.version || contractNode.version)}</div>
-        </div>
-        <div class="connector-actions">
-          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Config</button>
-          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
-        </div>
-      `;
-      const configure = item.querySelector('[data-action="configure"]');
-      const remove = item.querySelector('[data-action="remove"]');
+      const anchor = document.createElement("span");
+      anchor.className = "connector-anchor";
+      anchor.title = "Linked input";
+      anchor.textContent = index + 1;
+      const info = document.createElement("div");
+      const titleEl = document.createElement("div");
+      titleEl.className = "fw-semibold small";
+      titleEl.textContent = details.title;
+      info.appendChild(titleEl);
+      (details.lines || [])
+        .filter((line) => line)
+        .forEach((line) => {
+          const meta = document.createElement("div");
+          meta.className = "text-muted small";
+          meta.textContent = line;
+          info.appendChild(meta);
+        });
+      const actions = document.createElement("div");
+      actions.className = "connector-actions";
+      const configure = document.createElement("button");
+      configure.type = "button";
+      configure.className = "btn btn-outline-primary btn-sm";
+      configure.dataset.action = "configure";
+      configure.textContent = "Config";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn btn-outline-danger btn-sm";
+      remove.dataset.action = "remove";
+      remove.textContent = "Remove";
+      actions.appendChild(configure);
+      actions.appendChild(remove);
+      item.appendChild(anchor);
+      item.appendChild(info);
+      item.appendChild(actions);
       configure.addEventListener("click", () => openTransformationModal(transformation.id));
       remove.addEventListener("click", () => {
         removeTransformationConnection(transformation.id, conn.id, "inputs");
       });
-      item.addEventListener("pointerenter", () => setHoverHandle(item.querySelector(".connector-anchor")));
-      item.addEventListener("pointerleave", () => clearHoverHandle(item.querySelector(".connector-anchor")));
+      item.addEventListener("pointerenter", () => setHoverHandle(anchor));
+      item.addEventListener("pointerleave", () => clearHoverHandle(anchor));
       inputList.appendChild(item);
     });
+
     transformation.outputs.forEach((conn, index) => {
-      const contractNode = findContractNode(conn.contractNodeId);
-      if (!contractNode) {
+      const details = transformationConnectionDetails(conn, "outputs");
+      if (!details) {
         return;
       }
-      const summary = nodeSummary(contractNode);
       const item = document.createElement("div");
       item.className = "connector-chip connector-chip-output";
       item.dataset.connectionId = conn.id;
-      item.innerHTML = `
-        <div>
-          <div class="fw-semibold small">${escapeHtml(summary.id || contractNode.contractId)}</div>
-          <div class="text-muted small">v${escapeHtml(summary.version || contractNode.version)}</div>
-        </div>
-        <div class="connector-actions">
-          <button type="button" class="btn btn-outline-primary btn-sm" data-action="configure">Config</button>
-          <button type="button" class="btn btn-outline-danger btn-sm" data-action="remove">Remove</button>
-        </div>
-        <span class="connector-anchor" title="Linked output">${index + 1}</span>
-      `;
-      const configure = item.querySelector('[data-action="configure"]');
-      const remove = item.querySelector('[data-action="remove"]');
+      const anchor = document.createElement("span");
+      anchor.className = "connector-anchor";
+      anchor.title = "Linked output";
+      anchor.textContent = index + 1;
+      const info = document.createElement("div");
+      const titleEl = document.createElement("div");
+      titleEl.className = "fw-semibold small";
+      titleEl.textContent = details.title;
+      info.appendChild(titleEl);
+      (details.lines || [])
+        .filter((line) => line)
+        .forEach((line) => {
+          const meta = document.createElement("div");
+          meta.className = "text-muted small";
+          meta.textContent = line;
+          info.appendChild(meta);
+        });
+      const actions = document.createElement("div");
+      actions.className = "connector-actions";
+      const configure = document.createElement("button");
+      configure.type = "button";
+      configure.className = "btn btn-outline-primary btn-sm";
+      configure.dataset.action = "configure";
+      configure.textContent = "Config";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn btn-outline-danger btn-sm";
+      remove.dataset.action = "remove";
+      remove.textContent = "Remove";
+      actions.appendChild(configure);
+      actions.appendChild(remove);
+      item.appendChild(info);
+      item.appendChild(actions);
+      item.appendChild(anchor);
       configure.addEventListener("click", () => openTransformationModal(transformation.id));
       remove.addEventListener("click", () => {
         removeTransformationConnection(transformation.id, conn.id, "outputs");
       });
-      item.addEventListener("pointerenter", () => setHoverHandle(item.querySelector(".connector-anchor")));
-      item.addEventListener("pointerleave", () => clearHoverHandle(item.querySelector(".connector-anchor")));
+      item.addEventListener("pointerenter", () => setHoverHandle(anchor));
+      item.addEventListener("pointerleave", () => clearHoverHandle(anchor));
       outputList.appendChild(item);
     });
   }
@@ -1705,7 +2994,8 @@
       if (event.pointerId !== activePointerId) {
         return;
       }
-      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      const node =
+        findContractNode(nodeId) || findDataProductNode(nodeId) || findTransformation(nodeId);
       if (!node) {
         return;
       }
@@ -1738,7 +3028,8 @@
       if (event.button && event.button !== 0) {
         return;
       }
-      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      const node =
+        findContractNode(nodeId) || findDataProductNode(nodeId) || findTransformation(nodeId);
       if (!node) {
         return;
       }
@@ -1849,32 +3140,83 @@
         return;
       }
       addTransformationConnection(transformation.id, contractNode.id, "inputs");
-    } else if (source.kind === "transformation-output") {
-      if (target.dataset.role !== "input") {
+    } else if (source.kind === "data-product-output") {
+      if (target.dataset.role !== "drop") {
         return;
       }
-      const contractNode = findContractNode(targetNodeId);
-      if (!contractNode) {
+      const transformation = findTransformation(targetNodeId);
+      if (!transformation) {
+        return;
+      }
+      const productNode = findDataProductNode(source.productNodeId);
+      if (!productNode) {
+        return;
+      }
+      addTransformationConnection(transformation.id, {
+        kind: "data-product",
+        dataProductNodeId: productNode.id,
+        portName: source.portName,
+      }, "inputs");
+    } else if (source.kind === "transformation-output") {
+      if (target.dataset.role !== "input" && target.dataset.role !== "product-input") {
         return;
       }
       const transformation = findTransformation(source.transformationId);
       if (!transformation) {
         return;
       }
+      if (target.dataset.role === "product-input") {
+        const productNode = findDataProductNode(targetNodeId);
+        if (!productNode) {
+          return;
+        }
+        const portName = target.dataset.portName || "";
+        addTransformationConnection(transformation.id, {
+          kind: "data-product",
+          dataProductNodeId: productNode.id,
+          portName,
+        }, "outputs");
+        return;
+      }
+      const contractNode = findContractNode(targetNodeId);
+      if (!contractNode) {
+        return;
+      }
       addTransformationConnection(transformation.id, contractNode.id, "outputs");
     }
   }
 
-  function addTransformationConnection(transformationId, contractNodeId, kind) {
+  function addTransformationConnection(transformationId, target, kind) {
     const transformation = findTransformation(transformationId);
     if (!transformation) {
       return;
     }
     const list = kind === "inputs" ? transformation.inputs : transformation.outputs;
-    if (list.some((conn) => conn.contractNodeId === contractNodeId)) {
-      return;
+    if (typeof target === "string") {
+      if (list.some((conn) => conn.kind !== "data-product" && conn.contractNodeId === target)) {
+        return;
+      }
+      list.push({ id: createId("link"), kind: "contract", contractNodeId: target });
+    } else {
+      const productNodeId = target.dataProductNodeId;
+      const portName = target.portName || "";
+      if (
+        list.some(
+          (conn) =>
+            conn.kind === "data-product" &&
+            conn.dataProductNodeId === productNodeId &&
+            conn.portName === portName
+        )
+      ) {
+        return;
+      }
+      list.push({
+        id: createId("link"),
+        kind: "data-product",
+        dataProductNodeId: productNodeId,
+        portName,
+      });
     }
-    list.push({ id: createId("link"), contractNodeId });
     renderPipeline();
     markTransformationDirty(transformationId);
   }
@@ -1915,7 +3257,7 @@
     if (!dom.pipelineStage) {
       return;
     }
-    dom.pipelineStage.querySelectorAll(".pipeline-node").forEach((node) => node.remove());
+    dom.pipelineStage.innerHTML = "";
     state.contractNodes.forEach((node) => {
       const element = buildContractNodeElement(node);
       dom.pipelineStage.appendChild(element);
@@ -1940,6 +3282,10 @@
       element.appendChild(inputHandle);
       inputHandle.addEventListener("pointerenter", () => setHoverHandle(inputHandle));
       inputHandle.addEventListener("pointerleave", () => clearHoverHandle(inputHandle));
+    });
+    state.dataProductNodes.forEach((node) => {
+      const element = buildDataProductNodeElement(node);
+      dom.pipelineStage.appendChild(element);
     });
     state.transformations.forEach((transformation) => {
       const element = buildTransformationNodeElement(transformation);
@@ -1972,9 +3318,18 @@
     };
     state.transformations.forEach((transformation) => {
       transformation.inputs.forEach((conn) => {
-        const contractElement = dom.pipelineStage?.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-output`);
+        let startElement = null;
+        if (conn.kind === "data-product") {
+          startElement = dom.pipelineStage?.querySelector(
+            `.data-product-node[data-node-id="${conn.dataProductNodeId}"] [data-role="product-output"][data-port-name="${conn.portName}"]`
+          );
+        } else {
+          startElement = dom.pipelineStage?.querySelector(
+            `.contract-node[data-node-id="${conn.contractNodeId}"] .handle-output`
+          );
+        }
         const targetAnchor = dom.pipelineStage?.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
-        const start = positionFor(contractElement);
+        const start = positionFor(startElement);
         const end = positionFor(targetAnchor);
         if (!start || !end) {
           return;
@@ -1985,8 +3340,19 @@
         svg.appendChild(path);
       });
       transformation.outputs.forEach((conn) => {
-        const sourceAnchor = dom.pipelineStage?.querySelector(`.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`);
-        const targetElement = dom.pipelineStage?.querySelector(`.contract-node[data-node-id="${conn.contractNodeId}"] .handle-input`);
+        const sourceAnchor = dom.pipelineStage?.querySelector(
+          `.transformation-node[data-transformation-id="${transformation.id}"] [data-connection-id="${conn.id}"] .connector-anchor`
+        );
+        let targetElement = null;
+        if (conn.kind === "data-product") {
+          targetElement = dom.pipelineStage?.querySelector(
+            `.data-product-node[data-node-id="${conn.dataProductNodeId}"] [data-role="product-input"][data-port-name="${conn.portName}"]`
+          );
+        } else {
+          targetElement = dom.pipelineStage?.querySelector(
+            `.contract-node[data-node-id="${conn.contractNodeId}"] .handle-input`
+          );
+        }
         const start = positionFor(sourceAnchor);
         const end = positionFor(targetElement);
         if (!start || !end) {
@@ -2010,7 +3376,7 @@
       if (!nodeId) {
         return;
       }
-      const node = findContractNode(nodeId) || findTransformation(nodeId);
+      const node = findContractNode(nodeId) || findDataProductNode(nodeId) || findTransformation(nodeId);
       if (!node) {
         return;
       }
@@ -2036,6 +3402,7 @@
       });
     };
     state.contractNodes.forEach(collect);
+    state.dataProductNodes.forEach(collect);
     state.transformations.forEach(collect);
     if (!segments.length) {
       return null;
@@ -2050,7 +3417,7 @@
   function fitPipeline() {
     const bounds = computePipelineBounds();
     if (!bounds) {
-      setPipelineStatus("Add contracts and transformations to fit the view.");
+      setPipelineStatus("Add contracts, data products, and transformations to fit the view.");
       return;
     }
     if (!dom.pipelineCanvas) {
@@ -2360,17 +3727,45 @@
       summary.className = "transformation-summary";
       const inputs = transformation.inputs
         .map((conn) => {
+          if (conn.kind === "data-product") {
+            const productNode = findDataProductNode(conn.dataProductNodeId);
+            if (!productNode) {
+              return null;
+            }
+            const meta = nodeSummary(productNode);
+            const port = findDataProductPort(productNode, "output", conn.portName) || {};
+            const portLabel = port.name || port.portName || conn.portName || "";
+            return `${meta.name || meta.id || productNode.productId} · ${portLabel}`;
+          }
           const node = findContractNode(conn.contractNodeId);
+          if (!node) {
+            return null;
+          }
           const meta = nodeSummary(node);
           return `${meta.id || node.contractId} v${meta.version || node.version}`;
         })
+        .filter(Boolean)
         .join(", ");
       const outputs = transformation.outputs
         .map((conn) => {
+          if (conn.kind === "data-product") {
+            const productNode = findDataProductNode(conn.dataProductNodeId);
+            if (!productNode) {
+              return null;
+            }
+            const meta = nodeSummary(productNode);
+            const port = findDataProductPort(productNode, "input", conn.portName) || {};
+            const portLabel = port.name || port.portName || conn.portName || "";
+            return `${meta.name || meta.id || productNode.productId} · ${portLabel}`;
+          }
           const node = findContractNode(conn.contractNodeId);
+          if (!node) {
+            return null;
+          }
           const meta = nodeSummary(node);
           return `${meta.id || node.contractId} v${meta.version || node.version}`;
         })
+        .filter(Boolean)
         .join(", ");
       const readLabel = READ_STRATEGY_OPTIONS.find((option) => option.value === transformation.readStrategy)?.label || transformation.readStrategy;
       const writeLabel = WRITE_STRATEGY_OPTIONS.find((option) => option.value === transformation.writeStrategy.mode)?.label || transformation.writeStrategy.mode;
@@ -2520,8 +3915,11 @@
         });
       }
       renderInlineWriteToggles(writeToggleList, writeToggleField, transformation);
+      const pendingNewVersion = transformationPendingProductVersion(transformation);
       if (!transformation.inputs.length || !transformation.outputs.length) {
         statusContainer.innerHTML = '<div class="alert alert-warning small mb-0">Connect at least one input and one output contract to generate code.</div>';
+      } else if (pendingNewVersion) {
+        statusContainer.innerHTML = '<div class="alert alert-info small mb-0">Publish a new data product version to activate proposed ports before generating code.</div>';
       } else if (transformation.error) {
         statusContainer.innerHTML = `<div class="alert alert-danger small mb-0">${escapeHtml(transformation.error)}</div>`;
       } else if (transformation.isGenerating) {
@@ -2544,7 +3942,9 @@
         strategyContainer.innerHTML = "";
       }
       stubContainer.innerHTML = "";
-      if (transformation.stub) {
+      if (pendingNewVersion) {
+        stubContainer.innerHTML = '<div class="alert alert-light border small mb-0">Code will be available after the new data product version is published.</div>';
+      } else if (transformation.stub) {
         if (!transformation.stubLanguage) {
           transformation.stubLanguage = integrationDefaultLanguage(transformation.integration);
         }
@@ -2552,7 +3952,13 @@
         stubContainer.appendChild(section);
       }
       dom.transformationList.appendChild(summary);
-      if (transformation.dirty && transformation.inputs.length && transformation.outputs.length && !transformation.isGenerating) {
+      if (
+        transformation.dirty &&
+        transformation.inputs.length &&
+        transformation.outputs.length &&
+        !transformation.isGenerating &&
+        !pendingNewVersion
+      ) {
         scheduleStubRefresh(transformation.id);
       }
     });
@@ -2756,6 +4162,79 @@
     }, 400);
   }
 
+  function selectionForConnection(conn, role) {
+    if (conn.kind === "data-product") {
+      const productNode = findDataProductNode(conn.dataProductNodeId);
+      if (!productNode) {
+        return null;
+      }
+      const summary = nodeSummary(productNode);
+      const portDirection = role === "input" ? "output" : "input";
+      const port = findDataProductPort(productNode, portDirection, conn.portName) || {};
+      const contractId = port.contractId || "";
+      const contractVersion = port.contractVersion || port.portVersion || summary.version || productNode.version || "";
+      if (!contractId) {
+        return null;
+      }
+      const selection = {
+        contract_id: contractId,
+        version: contractVersion,
+      };
+      const binding = {
+        product_id: summary.id || productNode.productId || "",
+        product_name: summary.name || summary.id || productNode.productId || "",
+        product_version: summary.version || productNode.version || "",
+        product_status: summary.status || "",
+        product_status_label: summary.statusLabel || summary.status || "",
+        direction: portDirection,
+        port_name: port.name || port.portName || conn.portName || "",
+        port_version: port.portVersion || port.port_version || "",
+        dataset_id: port.datasetId || "",
+        stage_contract: port.stageContract || "",
+        source_data_product: port.sourceDataProduct || "",
+        source_output_port: port.sourceOutputPort || "",
+        custom_properties: port.customProperties || {},
+      };
+      const cleaned = {};
+      Object.entries(binding).forEach(([key, value]) => {
+        if (key === "direction" || key === "port_name") {
+          if (value) {
+            cleaned[key] = value;
+          }
+          return;
+        }
+        if (key === "custom_properties") {
+          if (value && Object.keys(value).length) {
+            cleaned[key] = value;
+          }
+          return;
+        }
+        if (value) {
+          cleaned[key] = value;
+        }
+      });
+      if (binding.direction && !cleaned.direction) {
+        cleaned.direction = binding.direction;
+      }
+      if (binding.port_name && !cleaned.port_name) {
+        cleaned.port_name = binding.port_name;
+      }
+      if (Object.keys(cleaned).length) {
+        selection.data_product = cleaned;
+      }
+      return selection;
+    }
+    const node = findContractNode(conn.contractNodeId);
+    if (!node) {
+      return null;
+    }
+    const meta = nodeSummary(node);
+    return {
+      contract_id: node.contractId,
+      version: meta.version || node.version,
+    };
+  }
+
   function applyServerStrategies(transformation, selected) {
     if (!selected) {
       return;
@@ -2790,19 +4269,30 @@
     if (transformation.isGenerating) {
       return;
     }
+    if (transformationPendingProductVersion(transformation)) {
+      transformation.dirty = false;
+      renderTransformations();
+      return;
+    }
     transformation.isGenerating = true;
     transformation.error = null;
     renderTransformations();
+    const inputSelections = transformation.inputs
+      .map((conn) => selectionForConnection(conn, "input"))
+      .filter(Boolean);
+    const outputSelections = transformation.outputs
+      .map((conn) => selectionForConnection(conn, "output"))
+      .filter(Boolean);
+    if (!inputSelections.length || !outputSelections.length) {
+      transformation.isGenerating = false;
+      transformation.dirty = false;
+      renderTransformations();
+      return;
+    }
     const payload = {
       integration: transformation.integration,
-      inputs: transformation.inputs.map((conn) => {
-        const node = findContractNode(conn.contractNodeId);
-        return { contract_id: node?.contractId || "", version: node?.version || "" };
-      }),
-      outputs: transformation.outputs.map((conn) => {
-        const node = findContractNode(conn.contractNodeId);
-        return { contract_id: node?.contractId || "", version: node?.version || "" };
-      }),
+      inputs: inputSelections,
+      outputs: outputSelections,
       read_strategy: { mode: transformation.readStrategy },
       write_strategy: {
         mode: transformation.writeStrategy.mode,
@@ -2842,8 +4332,14 @@
   function registerEventListeners() {
     if (dom.contractSearch) {
       dom.contractSearch.addEventListener("input", () => {
-        state.filter = dom.contractSearch.value || "";
+        state.contractFilter = dom.contractSearch.value || "";
         renderCatalogList();
+      });
+    }
+    if (dom.dataProductSearch) {
+      dom.dataProductSearch.addEventListener("input", () => {
+        state.productFilter = dom.dataProductSearch.value || "";
+        renderDataProductList();
       });
     }
     if (dom.addTransformationBtn) {
@@ -2901,6 +4397,12 @@
         }
         setSelection(null);
       });
+      dom.pipelineCanvas.addEventListener("dragover", handlePipelineDragOver);
+      dom.pipelineCanvas.addEventListener("drop", handlePipelineDrop);
+    }
+    if (dom.pipelineStage) {
+      dom.pipelineStage.addEventListener("dragover", handlePipelineDragOver);
+      dom.pipelineStage.addEventListener("drop", handlePipelineDrop);
     }
     window.addEventListener("resize", () => {
       requestAnimationFrame(() => {
@@ -2917,6 +4419,7 @@
 
   function initialise() {
     renderCatalogList();
+    renderDataProductList();
     renderPipeline();
     renderTransformations();
     renderSelectionPanel();
