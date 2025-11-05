@@ -9,6 +9,7 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
 from dc43_service_clients.governance.models import (
     ContractReference,
+    DatasetContractStatus,
     GovernanceReadContext,
     GovernanceWriteContext,
     PipelineContext,
@@ -92,6 +93,15 @@ class GovernanceServiceClient(Protocol):
         contract_id: Optional[str] = None,
         contract_version: Optional[str] = None,
     ) -> Sequence[Mapping[str, object]]:
+        ...
+
+    def get_status_matrix(
+        self,
+        *,
+        dataset_id: str,
+        contract_ids: Sequence[str] | None = None,
+        dataset_versions: Sequence[str] | None = None,
+    ) -> Sequence[DatasetContractStatus]:
         ...
 
     def list_datasets(self) -> Sequence[str]:

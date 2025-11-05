@@ -74,6 +74,17 @@ class QualityAssessment:
 
 
 @dataclass(slots=True)
+class DatasetContractStatus:
+    """Snapshot of governance status for a dataset/contract pairing."""
+
+    dataset_id: str
+    dataset_version: str
+    contract_id: str
+    contract_version: str
+    status: Optional[ValidationResult] = None
+
+
+@dataclass(slots=True)
 class ContractReference:
     """Describe a contract that should participate in a governance interaction."""
 
@@ -326,6 +337,7 @@ __all__ = [
     "PipelineContextSpec",
     "QualityDraftContext",
     "QualityAssessment",
+    "DatasetContractStatus",
     "build_quality_context",
     "derive_feedback",
     "merge_draft_context",

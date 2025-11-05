@@ -270,3 +270,11 @@ def test_load_records_uses_event_status_when_backend_missing(
     assert call["contract_version"] == "2.0.0"
     assert call["dataset_id"] == "inventory.stock"
     assert call["dataset_version"] == "2024-05-03"
+
+
+def test_next_version_handles_draft_suffix() -> None:
+    assert server._next_version("0.2.0-draft") == "0.2.1"
+
+
+def test_next_version_passthrough_for_unparseable_values() -> None:
+    assert server._next_version("snapshot-20240512") == "snapshot-20240512"

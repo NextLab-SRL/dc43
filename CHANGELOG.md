@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- Added a data product editor to the contracts application with searchable
+  contract and dataset selectors so definitions no longer require manual ID
+  lookups.
+- Added Playwright coverage for the data product editor to exercise contract
+  lookup lists, port configuration, and save flows end to end.
+- Added a governance status matrix endpoint that returns batched contract /
+  dataset validation results to avoid repeated single-status lookups from the
+  UI.
 - Introduced the Spark `draft_contract_from_dataframe` helper to generate ODCS
   draft contracts (plus schema/metric observations) directly from DataFrames
   using the shared builders from the new `dc43-core` package.
@@ -69,6 +77,15 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- The contracts app data product editor now bumps draft-suffixed versions
+  without crashing, so editing ``*-draft`` releases no longer triggers 500
+  errors when calculating the suggested version.
+- Contracts app status history now honours the governance status matrix
+  endpoint, trimming redundant per-pair status requests and avoiding failures
+  when remote backends return pre-encoded validation payloads.
+- Governance status lookups now tolerate legacy SQL activity tables that lack
+  timestamp columns, preventing 500 errors and eliminating the fallback storm
+  of per-version requests from the contracts UI.
 - Updated the Delta-backed governance stores to compare version strings using
   suffix-aware keys so rc/dev builds resolve without Spark casting errors when
   fetching the latest contract or data product entries.

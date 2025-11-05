@@ -1,0 +1,557 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-4">{{ 'Edit Data Product' if editing else 'New Data Product' }}</h1>
+{% if editing and original_version %}
+<div class="alert alert-info">
+  Editing version <strong>{{ original_version }}</strong>. Updates will be saved as version <strong>{{ editor_state.version }}</strong>.
+</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+<form id="data-product-form" method="post" class="mb-5">
+  {% if editing %}
+  <input type="hidden" name="original_version" value="{{ original_version }}"/>
+  {% endif %}
+  <input type="hidden" name="payload" id="data-product-payload"/>
+  <div id="inline-errors" class="alert alert-danger d-none" role="alert"></div>
+  <section class="mb-4">
+    <h2 class="h4">Data product basics</h2>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Data product ID</label>
+        <input class="form-control" data-field="id" {% if editing %}readonly{% endif %} placeholder="sales.orders"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Version</label>
+        <input class="form-control" data-field="version" placeholder="0.1.0"/>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Status</label>
+        <select class="form-select" data-field="status">
+          {% for value, label in status_options %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Name</label>
+        <input class="form-control" data-field="name" placeholder="Orders"/>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Description</label>
+        <textarea class="form-control" data-field="description" rows="3" placeholder="Summarise the product intent"></textarea>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Tags</label>
+        <input class="form-control" data-field="tags" placeholder="gold, critical"/>
+        <div class="form-text">Comma-separated list.</div>
+      </div>
+    </div>
+  </section>
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Input ports</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" id="add-input-port">Add input port</button>
+    </div>
+    <p class="text-muted small">Reference upstream contracts and, optionally, the source data product and port.</p>
+    <div id="input-ports"></div>
+  </section>
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Output ports</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" id="add-output-port">Add output port</button>
+    </div>
+    <p class="text-muted small">Describe published outputs, the contracts they adhere to, and downstream dataset identifiers.</p>
+    <div id="output-ports"></div>
+  </section>
+  <section class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h2 class="h4 mb-0">Data product custom properties</h2>
+      <button class="btn btn-sm btn-outline-secondary" type="button" id="add-product-custom">Add property</button>
+    </div>
+    <div id="product-custom-properties" class="custom-property-list"></div>
+  </section>
+  <div class="d-flex gap-2 mt-4">
+    <button class="btn btn-primary" type="submit">Save data product</button>
+    <a class="btn btn-outline-secondary" href="{{ '/data-products/' ~ editor_state.id if editing else '/data-products' }}">Cancel</a>
+  </div>
+</form>
+
+<datalist id="contract-id-options">
+  {% for cid in editor_meta.contractOptions %}
+  <option value="{{ cid }}">
+  {% endfor %}
+</datalist>
+<datalist id="dataset-id-options">
+  {% for dataset_id in editor_meta.datasetOptions %}
+  <option value="{{ dataset_id }}">
+  {% endfor %}
+</datalist>
+
+<template id="custom-property-template">
+  <div class="row g-2 align-items-end custom-property">
+    <div class="col-md-5">
+      <label class="form-label">Property</label>
+      <input class="form-control" data-field="property" placeholder="dc43.owner"/>
+    </div>
+    <div class="col-md-5">
+      <label class="form-label">Value</label>
+      <input class="form-control" data-field="value" placeholder="platform-team"/>
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button type="button" class="btn btn-outline-danger remove-custom-property">Remove</button>
+    </div>
+  </div>
+</template>
+
+<template id="input-port-template">
+  <div class="card mb-3 input-port">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="h6 mb-0">Input port</h3>
+        <button type="button" class="btn btn-sm btn-outline-danger remove-input-port">Remove</button>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Port name</label>
+          <input class="form-control" data-field="name" placeholder="source_orders"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Contract ID</label>
+          <input class="form-control" data-field="contractId" list="contract-id-options" placeholder="sales.orders"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Contract version</label>
+          <input class="form-control" data-field="contractVersion" placeholder="0.1.0"/>
+          <datalist class="contract-version-options"></datalist>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Source data product</label>
+          <input class="form-control" data-field="sourceDataProduct" placeholder="upstream.product"/>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Source output port</label>
+          <input class="form-control" data-field="sourceOutputPort" placeholder="gold"/>
+        </div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="h6 mb-0">Custom properties</h4>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-custom-property">Add property</button>
+        </div>
+        <div class="custom-property-list"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="output-port-template">
+  <div class="card mb-3 output-port">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="h6 mb-0">Output port</h3>
+        <button type="button" class="btn btn-sm btn-outline-danger remove-output-port">Remove</button>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Port name</label>
+          <input class="form-control" data-field="name" placeholder="analytics"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Contract ID</label>
+          <input class="form-control" data-field="contractId" list="contract-id-options" placeholder="sales.orders"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Contract version</label>
+          <input class="form-control" data-field="contractVersion" placeholder="0.1.0"/>
+          <datalist class="contract-version-options"></datalist>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Dataset ID</label>
+          <input class="form-control" data-field="datasetId" list="dataset-id-options" placeholder="sales.orders"/>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Stage contract</label>
+          <input class="form-control" data-field="stageContract" list="contract-id-options" placeholder="sales.orders.stage"/>
+        </div>
+      </div>
+      <div class="mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h4 class="h6 mb-0">Custom properties</h4>
+          <button type="button" class="btn btn-sm btn-outline-secondary add-custom-property">Add property</button>
+        </div>
+        <div class="custom-property-list"></div>
+      </div>
+    </div>
+  </div>
+</template>
+{% endblock %}
+
+{% block page_scripts %}
+{{ super() }}
+<script>
+  (function () {
+    const initialState = {{ editor_state | tojson }};
+    const editorMeta = {{ editor_meta | tojson }};
+
+    function createFromTemplate(id) {
+      const template = document.getElementById(id);
+      if (!template) {
+        return null;
+      }
+      return template.content.firstElementChild.cloneNode(true);
+    }
+
+    function createCustomProperty(initial) {
+      const node = createFromTemplate('custom-property-template');
+      if (!node) {
+        return null;
+      }
+      const propertyInput = node.querySelector('[data-field="property"]');
+      const valueInput = node.querySelector('[data-field="value"]');
+      if (propertyInput) {
+        propertyInput.value = initial && initial.property ? initial.property : '';
+      }
+      if (valueInput) {
+        valueInput.value = initial && initial.value !== undefined ? String(initial.value) : '';
+      }
+      const removeBtn = node.querySelector('.remove-custom-property');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', () => node.remove());
+      }
+      return node;
+    }
+
+    function attachCustomPropertyHandlers(container, initialList) {
+      if (!container) {
+        return;
+      }
+      container.innerHTML = '';
+      const items = Array.isArray(initialList) && initialList.length ? initialList : [];
+      items.forEach((item) => {
+        const entry = createCustomProperty(item);
+        if (entry) {
+          container.appendChild(entry);
+        }
+      });
+      if (!items.length) {
+        const entry = createCustomProperty({});
+        if (entry) {
+          container.appendChild(entry);
+        }
+      }
+    }
+
+    function setVersionOptions(contractId, datalist) {
+      if (!datalist) {
+        return;
+      }
+      const versions = editorMeta.contractVersions && editorMeta.contractVersions[contractId];
+      const options = Array.isArray(versions) ? versions : [];
+      datalist.innerHTML = '';
+      options.forEach((version) => {
+        const option = document.createElement('option');
+        option.value = version;
+        datalist.appendChild(option);
+      });
+    }
+
+    function createInputPort(initial) {
+      const node = createFromTemplate('input-port-template');
+      if (!node) {
+        return document.createElement('div');
+      }
+      const contractInput = node.querySelector('[data-field="contractId"]');
+      const versionInput = node.querySelector('[data-field="contractVersion"]');
+      const versionList = node.querySelector('.contract-version-options');
+      if (versionInput && versionList) {
+        const listId = `input-version-options-${Math.random().toString(36).slice(2)}`;
+        versionList.id = listId;
+        versionInput.setAttribute('list', listId);
+      }
+      const nameInput = node.querySelector('[data-field="name"]');
+      const sourceProductInput = node.querySelector('[data-field="sourceDataProduct"]');
+      const sourcePortInput = node.querySelector('[data-field="sourceOutputPort"]');
+      if (nameInput) {
+        nameInput.value = initial && initial.name ? initial.name : '';
+      }
+      if (contractInput) {
+        contractInput.value = initial && initial.contractId ? initial.contractId : '';
+      }
+      if (versionInput) {
+        versionInput.value = initial && initial.contractVersion ? initial.contractVersion : '';
+      }
+      if (sourceProductInput) {
+        sourceProductInput.value = initial && initial.sourceDataProduct ? initial.sourceDataProduct : '';
+      }
+      if (sourcePortInput) {
+        sourcePortInput.value = initial && initial.sourceOutputPort ? initial.sourceOutputPort : '';
+      }
+      if (contractInput && versionInput && versionList) {
+        const refresh = () => {
+          setVersionOptions(contractInput.value.trim(), versionList);
+        };
+        contractInput.addEventListener('change', refresh);
+        refresh();
+      }
+      const customContainer = node.querySelector('.custom-property-list');
+      attachCustomPropertyHandlers(customContainer, initial && initial.customProperties);
+      const addCustomBtn = node.querySelector('.add-custom-property');
+      if (addCustomBtn && customContainer) {
+        addCustomBtn.addEventListener('click', () => {
+          const entry = createCustomProperty({});
+          if (entry) {
+            customContainer.appendChild(entry);
+          }
+        });
+      }
+      const removeBtn = node.querySelector('.remove-input-port');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', () => node.remove());
+      }
+      return node;
+    }
+
+    function createOutputPort(initial) {
+      const node = createFromTemplate('output-port-template');
+      if (!node) {
+        return document.createElement('div');
+      }
+      const contractInput = node.querySelector('[data-field="contractId"]');
+      const versionInput = node.querySelector('[data-field="contractVersion"]');
+      const versionList = node.querySelector('.contract-version-options');
+      if (versionInput && versionList) {
+        const listId = `output-version-options-${Math.random().toString(36).slice(2)}`;
+        versionList.id = listId;
+        versionInput.setAttribute('list', listId);
+      }
+      const nameInput = node.querySelector('[data-field="name"]');
+      const datasetInput = node.querySelector('[data-field="datasetId"]');
+      const stageContractInput = node.querySelector('[data-field="stageContract"]');
+      if (nameInput) {
+        nameInput.value = initial && initial.name ? initial.name : '';
+      }
+      if (contractInput) {
+        contractInput.value = initial && initial.contractId ? initial.contractId : '';
+      }
+      if (versionInput) {
+        versionInput.value = initial && initial.contractVersion ? initial.contractVersion : '';
+      }
+      if (datasetInput) {
+        datasetInput.value = initial && initial.datasetId ? initial.datasetId : '';
+      }
+      if (stageContractInput) {
+        stageContractInput.value = initial && initial.stageContract ? initial.stageContract : '';
+      }
+      if (contractInput && versionInput && versionList) {
+        const refresh = () => {
+          setVersionOptions(contractInput.value.trim(), versionList);
+        };
+        contractInput.addEventListener('change', refresh);
+        refresh();
+      }
+      const customContainer = node.querySelector('.custom-property-list');
+      attachCustomPropertyHandlers(customContainer, initial && initial.customProperties);
+      const addCustomBtn = node.querySelector('.add-custom-property');
+      if (addCustomBtn && customContainer) {
+        addCustomBtn.addEventListener('click', () => {
+          const entry = createCustomProperty({});
+          if (entry) {
+            customContainer.appendChild(entry);
+          }
+        });
+      }
+      const removeBtn = node.querySelector('.remove-output-port');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', () => node.remove());
+      }
+      return node;
+    }
+
+    const customContainer = document.getElementById('product-custom-properties');
+    if (customContainer) {
+      attachCustomPropertyHandlers(customContainer, initialState.customProperties);
+      const addProductCustom = document.getElementById('add-product-custom');
+      if (addProductCustom) {
+        addProductCustom.addEventListener('click', () => {
+          const entry = createCustomProperty({});
+          if (entry) {
+            customContainer.appendChild(entry);
+          }
+        });
+      }
+    }
+
+    const inputContainer = document.getElementById('input-ports');
+    if (inputContainer) {
+      const ports = Array.isArray(initialState.inputPorts) && initialState.inputPorts.length ? initialState.inputPorts : [{}];
+      ports.forEach((port) => {
+        const node = createInputPort(port);
+        if (node) {
+          inputContainer.appendChild(node);
+        }
+      });
+      const addInputBtn = document.getElementById('add-input-port');
+      if (addInputBtn) {
+        addInputBtn.addEventListener('click', () => {
+          const node = createInputPort({});
+          if (node) {
+            inputContainer.appendChild(node);
+          }
+        });
+      }
+    }
+
+    const outputContainer = document.getElementById('output-ports');
+    if (outputContainer) {
+      const ports = Array.isArray(initialState.outputPorts) && initialState.outputPorts.length ? initialState.outputPorts : [{}];
+      ports.forEach((port) => {
+        const node = createOutputPort(port);
+        if (node) {
+          outputContainer.appendChild(node);
+        }
+      });
+      const addOutputBtn = document.getElementById('add-output-port');
+      if (addOutputBtn) {
+        addOutputBtn.addEventListener('click', () => {
+          const node = createOutputPort({});
+          if (node) {
+            outputContainer.appendChild(node);
+          }
+        });
+      }
+    }
+
+    const form = document.getElementById('data-product-form');
+    if (!form) {
+      return;
+    }
+    const idField = form.querySelector('[data-field="id"]');
+    const versionField = form.querySelector('[data-field="version"]');
+    const statusField = form.querySelector('[data-field="status"]');
+    const nameField = form.querySelector('[data-field="name"]');
+    const descriptionField = form.querySelector('[data-field="description"]');
+    const tagsField = form.querySelector('[data-field="tags"]');
+    if (idField) {
+      idField.value = initialState.id || '';
+    }
+    if (versionField) {
+      versionField.value = initialState.version || '';
+    }
+    if (statusField && initialState.status !== undefined) {
+      statusField.value = initialState.status || '';
+    }
+    if (nameField) {
+      nameField.value = initialState.name || '';
+    }
+    if (descriptionField) {
+      descriptionField.value = initialState.description || '';
+    }
+    if (tagsField) {
+      if (Array.isArray(initialState.tags)) {
+        tagsField.value = initialState.tags.join(', ');
+      } else {
+        tagsField.value = initialState.tags || '';
+      }
+    }
+
+    function collectCustomProperties(container) {
+      if (!container) {
+        return [];
+      }
+      const rows = Array.from(container.querySelectorAll('.custom-property'));
+      return rows
+        .map((row) => {
+          const propertyInput = row.querySelector('[data-field="property"]');
+          const valueInput = row.querySelector('[data-field="value"]');
+          const property = propertyInput ? propertyInput.value.trim() : '';
+          const value = valueInput ? valueInput.value.trim() : '';
+          if (!property) {
+            return null;
+          }
+          return { property, value };
+        })
+        .filter(Boolean);
+    }
+
+    function collectPorts(selector) {
+      const nodes = Array.from(form.querySelectorAll(selector));
+      return nodes
+        .map((node) => {
+          const result = {};
+          node.querySelectorAll('[data-field]').forEach((input) => {
+            const field = input.getAttribute('data-field');
+            if (!field) {
+              return;
+            }
+            if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+              result[field] = input.value.trim();
+            }
+          });
+          const customList = node.querySelector('.custom-property-list');
+          if (customList) {
+            result.customProperties = collectCustomProperties(customList);
+          }
+          const hasContent = Object.values(result).some((value) => {
+            if (Array.isArray(value)) {
+              return value.length > 0;
+            }
+            return value !== undefined && String(value).trim() !== '';
+          });
+          return hasContent ? result : null;
+        })
+        .filter(Boolean);
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const errors = [];
+      const payload = {};
+      const idValue = idField ? idField.value.trim() : '';
+      const versionValue = versionField ? versionField.value.trim() : '';
+      if (!idValue) {
+        errors.push('Data product ID is required.');
+      }
+      if (!versionValue) {
+        errors.push('Version is required.');
+      }
+      payload.id = idValue;
+      payload.version = versionValue;
+      if (statusField) {
+        payload.status = statusField.value.trim();
+      }
+      if (nameField) {
+        payload.name = nameField.value.trim();
+      }
+      if (descriptionField) {
+        payload.description = descriptionField.value.trim();
+      }
+      if (tagsField) {
+        payload.tags = tagsField.value.trim();
+      }
+      if (customContainer) {
+        payload.customProperties = collectCustomProperties(customContainer);
+      }
+      payload.inputPorts = collectPorts('.input-port');
+      payload.outputPorts = collectPorts('.output-port');
+
+      const errorBox = document.getElementById('inline-errors');
+      if (errors.length && errorBox) {
+        errorBox.innerHTML = errors.map((message) => `<div>${message}</div>`).join('');
+        errorBox.classList.remove('d-none');
+        return;
+      }
+      if (errorBox) {
+        errorBox.classList.add('d-none');
+        errorBox.innerHTML = '';
+      }
+      const payloadField = document.getElementById('data-product-payload');
+      if (payloadField) {
+        payloadField.value = JSON.stringify(payload);
+      }
+      form.submit();
+    });
+  })();
+</script>
+{% endblock %}

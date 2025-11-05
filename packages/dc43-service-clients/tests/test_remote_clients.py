@@ -371,6 +371,9 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.read.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
             )
+            contract_ref = plan.get("contract_id"), plan.get("contract_version")
+            if all(contract_ref):
+                self._dataset_links[(dataset_id, dataset_version)] = f"{contract_ref[0]}:{contract_ref[1]}"
             _record(
                 validation_result,
                 contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
@@ -404,6 +407,9 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.write.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
             )
+            contract_ref = plan.get("contract_id"), plan.get("contract_version")
+            if all(contract_ref):
+                self._dataset_links[(dataset_id, dataset_version)] = f"{contract_ref[0]}:{contract_ref[1]}"
             _record(
                 validation_result,
                 contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
@@ -468,6 +474,9 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.evaluate", "dataset_id": str(dataset_id), "dataset_version": str(dataset_version)}
             )
+            contract_ref = payload.get("contract_id"), payload.get("contract_version")
+            if all(contract_ref):
+                self._dataset_links[key] = f"{contract_ref[0]}:{contract_ref[1]}"
             _record(
                 validation_result,
                 contract_id=str(payload.get("contract_id")) if payload.get("contract_id") else None,
@@ -497,6 +506,42 @@ class _ServiceBackendMock:
             if None in key or key not in self._governance_status:
                 return httpx.Response(status_code=404, json={"detail": "No status recorded"})
             return httpx.Response(status_code=200, json=encode_validation_result(self._governance_status[key]) or {})
+        if path == "/governance/status-matrix" and method == "GET":
+            params = request.url.params
+            dataset_id = params.get("dataset_id")
+            if not dataset_id:
+                return httpx.Response(status_code=400, json={"detail": "dataset_id required"})
+            contract_filters = (
+                params.getlist("contract_id") if hasattr(params, "getlist") else []
+            )
+            dataset_filters = (
+                params.getlist("dataset_version") if hasattr(params, "getlist") else []
+            )
+            entries: list[dict[str, object]] = []
+            for (ds_id, ds_version), status in self._governance_status.items():
+                if ds_id != dataset_id:
+                    continue
+                if dataset_filters and ds_version not in dataset_filters:
+                    continue
+                contract_ref = self._dataset_links.get((ds_id, ds_version))
+                if not contract_ref:
+                    continue
+                contract_id, _, contract_version = contract_ref.partition(":")
+                if contract_filters and contract_id not in contract_filters:
+                    continue
+                entries.append(
+                    {
+                        "dataset_id": ds_id,
+                        "dataset_version": ds_version,
+                        "contract_id": contract_id,
+                        "contract_version": contract_version,
+                        "status": encode_validation_result(status),
+                    }
+                )
+            return httpx.Response(
+                status_code=200,
+                json={"dataset_id": dataset_id, "entries": entries},
+            )
         if path == "/governance/link" and method == "POST":
             payload = self._read_json(request)
             required = {"dataset_id", "dataset_version", "contract_id", "contract_version"}
@@ -763,6 +808,26 @@ def test_remote_governance_client(http_clients):
         dataset_version="2024-01-01",
     )
     assert status is not None
+
+    matrix = governance_client.get_status_matrix(dataset_id="orders")
+    assert matrix
+    matrix_entry = next(
+        (
+            entry
+            for entry in matrix
+            if entry.contract_id == contract.id
+            and entry.contract_version == contract.version
+            and entry.dataset_version == "2024-01-01"
+        ),
+        None,
+    )
+    assert matrix_entry is not None and matrix_entry.status is not None
+
+    filtered = governance_client.get_status_matrix(
+        dataset_id="orders",
+        contract_ids=["does-not-exist"],
+    )
+    assert filtered == ()
 
     metrics = governance_client.get_metrics(
         dataset_id="orders",

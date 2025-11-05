@@ -2,6 +2,11 @@
 {% block content %}
 <h1>{{ product.name }}</h1>
 <p><a href="/data-products">Back to data products</a></p>
+{% if can_manage_products and product.version %}
+<p>
+  <a class="btn btn-primary btn-sm" href="/data-products/{{ product.id }}/{{ product.version }}/edit">Edit data product</a>
+</p>
+{% endif %}
 <div class="row g-3 mb-4">
   <div class="col-md-4">
     <div class="card h-100">

@@ -44,6 +44,7 @@ from dc43_service_clients.governance import (
     LocalGovernanceServiceClient,
     RemoteGovernanceServiceClient,
 )
+from dc43_service_clients.governance.models import DatasetContractStatus
 from open_data_contract_standard.model import OpenDataContractStandard
 
 from dc43_service_clients.odps import OpenDataProductStandard
@@ -299,6 +300,30 @@ def dataset_validation_status(
         return None
 
 
+def dataset_status_matrix(
+    dataset_id: str,
+    *,
+    contract_ids: Sequence[str] | None = None,
+    dataset_versions: Sequence[str] | None = None,
+) -> List[DatasetContractStatus]:
+    service = governance_service_client()
+    if service is None:
+        return []
+    method = getattr(service, "get_status_matrix", None)
+    if not callable(method):
+        return []
+    try:
+        records = method(
+            dataset_id=dataset_id,
+            contract_ids=contract_ids,
+            dataset_versions=dataset_versions,
+        )
+    except Exception:  # pragma: no cover - defensive guard when backend fails
+        logger.exception("Failed to load governance status matrix for %s", dataset_id)
+        return []
+    return list(records)
+
+
 def thread_service_clients() -> Tuple[
     ContractServiceClient,
     DataQualityServiceClient,
@@ -474,6 +499,21 @@ def list_data_product_ids() -> List[str]:
     return []
 
 
+def data_product_versions(data_product_id: str) -> List[str]:
+    service = data_product_service_client()
+    if service is None:
+        return []
+    try:
+        versions = service.list_versions(data_product_id)
+    except HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return []
+        raise
+    except FileNotFoundError:
+        return []
+    return [str(version) for version in versions]
+
+
 def latest_data_product(data_product_id: str) -> Optional[OpenDataProductStandard]:
     service = data_product_service_client()
     if service is None:
@@ -483,6 +523,27 @@ def latest_data_product(data_product_id: str) -> Optional[OpenDataProductStandar
     except Exception as exc:  # pragma: no cover - defensive when lookup fails
         logger.exception("Failed to load data product %s: %s", data_product_id, exc)
         return None
+
+
+def get_data_product(data_product_id: str, version: str) -> OpenDataProductStandard:
+    service = data_product_service_client()
+    if service is None:
+        raise FileNotFoundError("Data product service client is not configured")
+    try:
+        return service.get(data_product_id, version)
+    except HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise FileNotFoundError(
+                f"Data product {data_product_id}@{version} not found"
+            ) from exc
+        raise
+
+
+def put_data_product(product: OpenDataProductStandard) -> None:
+    service = data_product_service_client()
+    if service is None:
+        raise RuntimeError("Data product service client is not configured")
+    service.put(product)
 
 
 __all__ = [
@@ -497,7 +558,11 @@ __all__ = [
     "latest_data_product",
     "list_contract_ids",
     "list_data_product_ids",
+    "data_product_versions",
+    "dataset_status_matrix",
     "put_contract",
+    "put_data_product",
+    "get_data_product",
     "service_backends_config",
     "store",
     "thread_service_clients",

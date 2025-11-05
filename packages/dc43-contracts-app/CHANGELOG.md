@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Added a rich data product editor with searchable contract and dataset
+  selectors, dynamic port controls, and inline custom property management so
+  stewards can publish new versions without leaving the UI.
+- Added Playwright regression coverage for the editor, validating contract
+  search helpers, port wiring, and successful saves through the browser.
+
 ### Changed
 - Bumped the package baseline to ``0.27.0.0`` so Test PyPI validation can
   continue after the ``0.26.0.0`` build was removed upstream.
@@ -40,6 +47,12 @@
   `~/.dc43/docs_chat/index` when no explicit `index_path` is supplied.
 
 ### Fixed
+- Editing data products that were still marked as drafts now bumps the next
+  semantic version automatically, eliminating the 500 error triggered when the
+  editor encountered ``*-draft`` identifiers.
+- Dataset history pages now rely exclusively on the governance status matrix
+  endpoint so the UI avoids spamming per-version validation lookups and skips
+  pointless calls for "latest" aliases when rendering activity tables.
 - Adjusted the documentation assistant to discover repository Markdown when running from
   editable installs so the chat surface no longer reports missing documentation directories.
 - Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured
