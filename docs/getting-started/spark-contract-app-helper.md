@@ -98,17 +98,21 @@ The helper lists governed data products beneath the contract catalog. Choose a
 product version and either click **Add to pipeline** or drag the card directly
 onto the canvas using the handle at the top of each result to place a node, then
 grab the header handle on any contract or product card to reposition it as the
-flow evolves. Inspect its inputs and outputs from the selection sidebar. Drag from a product’s
-output port into a transformation input
-to read from the curated dataset, or route transformation outputs into a product
-input port to model writes back into the governed layer. Each data product node
-now exposes **Add output** and **Add input** controls for proposing new ports,
-and the selection panel mirrors those buttons so you can add bindings without
-leaving the sidebar. When you confirm a new port name the helper shows a reminder
-that a new product version must be published, then holds code generation until
-that release is available. Port metadata travels with the node so generated stubs
-include the correct contract IDs, product identifiers, and dataset hints once the
-bindings are published.
+flow evolves. When a product already exposes governed ports the helper now drops
+the referenced contracts alongside the node and inserts dedicated transformations
+that link each input contract through its product port to the published outputs.
+You can delete or rewire those auto-generated connections as needed, but they
+give you a ready-made context for the product’s lineage. Inspect its inputs and
+outputs from the selection sidebar. Drag from a product’s output port into a
+transformation input to read from the curated dataset, or route transformation
+outputs into a product input port to model writes back into the governed layer.
+Each data product node now exposes **Add output** and **Add input** controls for
+proposing new ports, and the selection panel mirrors those buttons so you can add
+bindings without leaving the sidebar. When you confirm a new port name the
+helper shows a reminder that a new product version must be published, then holds
+code generation until that release is available. Port metadata travels with the
+node so generated stubs include the correct contract IDs, product identifiers,
+and dataset hints once the bindings are published.
 
 ## 4. Generate a Spark stub
 

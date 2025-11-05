@@ -2095,12 +2095,15 @@
     return true;
   }
 
-  function addContractToPipeline(contractId, version, positionOverride = null) {
+  function addContractToPipeline(contractId, version, positionOverride = null, options = {}) {
+    const config = { focus: true, ...options };
     const existing = state.contractNodes.find((node) => node.contractId === contractId && node.version === version);
     if (existing) {
-      focusNode(existing.id);
-      setSelection({ kind: "contract", nodeId: existing.id });
-      return;
+      if (config.focus) {
+        focusNode(existing.id);
+        setSelection({ kind: "contract", nodeId: existing.id });
+      }
+      return Promise.resolve(existing);
     }
     const position = positionOverride
       ? {
@@ -2111,7 +2114,7 @@
           x: 80 + state.contractNodes.length * 40,
           y: 80 + state.contractNodes.length * 60,
         };
-    loadContractSummary(contractId, version).then((summary) => {
+    return loadContractSummary(contractId, version).then((summary) => {
       const node = {
         id: createId("contract"),
         type: "contract",
@@ -2124,7 +2127,10 @@
       state.contractNodes.push(node);
       renderPipeline();
       renderTransformations();
-      setSelection({ kind: "contract", nodeId: node.id });
+      if (config.focus) {
+        setSelection({ kind: "contract", nodeId: node.id });
+      }
+      return node;
     });
   }
 
@@ -2269,14 +2275,17 @@
     return summary;
   }
 
-  function addDataProductToPipeline(productId, version, positionOverride = null) {
+  function addDataProductToPipeline(productId, version, positionOverride = null, options = {}) {
+    const config = { focus: true, autoWire: true, ...options };
     const existing = state.dataProductNodes.find(
       (node) => node.productId === productId && node.version === version
     );
     if (existing) {
-      focusNode(existing.id);
-      setSelection({ kind: "data-product", nodeId: existing.id });
-      return;
+      if (config.focus) {
+        focusNode(existing.id);
+        setSelection({ kind: "data-product", nodeId: existing.id });
+      }
+      return Promise.resolve(existing);
     }
     const position = positionOverride
       ? {
@@ -2287,7 +2296,7 @@
           x: 80 + state.dataProductNodes.length * 40,
           y: 220 + state.dataProductNodes.length * 60,
         };
-    loadDataProductSummary(productId, version).then((summary) => {
+    return loadDataProductSummary(productId, version).then((summary) => {
       const node = {
         id: createId("product"),
         type: "data-product",
@@ -2301,7 +2310,217 @@
       state.dataProductNodes.push(node);
       renderPipeline();
       renderTransformations();
-      setSelection({ kind: "data-product", nodeId: node.id });
+      if (config.focus) {
+        setSelection({ kind: "data-product", nodeId: node.id });
+      }
+      const autoTask = config.autoWire ? autoWireDataProduct(node).catch((error) => {
+        console.error(error);
+        setPipelineStatus(error.message || "Failed to expand data product context.", "danger", { duration: 4800 });
+      }) : Promise.resolve();
+      return autoTask.then(() => {
+        renderPipeline();
+        renderTransformations();
+        if (config.focus) {
+          setSelection({ kind: "data-product", nodeId: node.id });
+        }
+        return node;
+      });
+    });
+  }
+
+  function autoWireDataProduct(node) {
+    if (!node || !node.summary) {
+      return Promise.resolve();
+    }
+    const summary = node.summary || {};
+    const ports = summary.ports || {};
+    const inputPorts = (ports.inputs || []).filter((port) =>
+      (port.contractId || "").trim() && (port.contractVersion || port.portVersion || "").trim()
+    );
+    const outputPorts = (ports.outputs || []).filter((port) =>
+      (port.contractId || "").trim() && (port.contractVersion || port.portVersion || "").trim()
+    );
+    if (!inputPorts.length && !outputPorts.length) {
+      return Promise.resolve();
+    }
+    const productWidth = node.size && Number.isFinite(node.size.width) ? node.size.width : 280;
+    const productHeight = node.size && Number.isFinite(node.size.height) ? node.size.height : 220;
+    const contractWidth = 260;
+    const transformationWidth = 320;
+    const spacing = 220;
+    const gap = 40;
+    const centerY = node.position.y + productHeight / 2;
+    const slotPosition = (index, total, height) => {
+      if (!total) {
+        return node.position.y;
+      }
+      const offset = (index - (total - 1) / 2) * spacing;
+      return centerY + offset - height / 2;
+    };
+    const leftTransformationX = node.position.x - transformationWidth - gap;
+    const leftContractX = leftTransformationX - contractWidth - gap;
+    const rightTransformationX = node.position.x + productWidth + gap;
+    const rightContractX = rightTransformationX + transformationWidth + gap;
+    const contractCache = new Map();
+    const contractKey = (id, version) => `${id}@@${version}`;
+    const ensureContract = (port, index, direction) => {
+      const contractId = (port.contractId || "").trim();
+      const version = ((port.contractVersion || port.portVersion || "") || "").trim();
+      if (!contractId || !version) {
+        return Promise.resolve(null);
+      }
+      const key = contractKey(contractId, version);
+      if (contractCache.has(key)) {
+        const cached = contractCache.get(key);
+        if (cached && typeof cached.then === "function") {
+          return cached;
+        }
+        return Promise.resolve(cached);
+      }
+      const existing = state.contractNodes.find(
+        (item) => item.contractId === contractId && item.version === version
+      );
+      if (existing) {
+        contractCache.set(key, existing);
+        return Promise.resolve(existing);
+      }
+      const total = direction === "input" ? inputPorts.length : outputPorts.length;
+      const y = slotPosition(index, total, 200);
+      const position = {
+        x: direction === "input" ? leftContractX : rightContractX,
+        y,
+      };
+      const promise = addContractToPipeline(contractId, version, position, { focus: false }).then((created) => {
+        contractCache.set(key, created);
+        return created;
+      });
+      contractCache.set(key, promise);
+      return promise;
+    };
+    const tasks = [];
+    inputPorts.forEach((port, index) => tasks.push(ensureContract(port, index, "input")));
+    outputPorts.forEach((port, index) => tasks.push(ensureContract(port, index, "output")));
+    let createdConnections = false;
+    return Promise.all(tasks).then(() => {
+      inputPorts.forEach((port, index) => {
+        const contractId = (port.contractId || "").trim();
+        const version = ((port.contractVersion || port.portVersion || "") || "").trim();
+        const portName = (port.portName || port.name || "").trim();
+        if (!contractId || !version || !portName) {
+          return;
+        }
+        const existingLink = state.transformations.some((tf) =>
+          tf.outputs.some(
+            (conn) =>
+              conn.kind === "data-product" &&
+              conn.dataProductNodeId === node.id &&
+              conn.portName === portName
+          )
+        );
+        if (existingLink) {
+          return;
+        }
+        const cacheEntry = contractCache.get(contractKey(contractId, version));
+        const contractNode = cacheEntry && typeof cacheEntry.then === "function" ? null : cacheEntry;
+        if (!contractNode) {
+          return;
+        }
+        const autoExisting = state.transformations.find(
+          (tf) =>
+            tf.autoProduct &&
+            tf.autoProduct.nodeId === node.id &&
+            tf.autoProduct.direction === "input" &&
+            tf.autoProduct.portName === portName
+        );
+        if (autoExisting) {
+          return;
+        }
+        const position = {
+          x: leftTransformationX,
+          y: slotPosition(index, inputPorts.length, 260),
+        };
+        const inputs = [
+          { id: createId("link"), kind: "contract", contractNodeId: contractNode.id },
+        ];
+        const outputs = [
+          {
+            id: createId("link"),
+            kind: "data-product",
+            dataProductNodeId: node.id,
+            portName,
+          },
+        ];
+        createTransformation({
+          name: `Contribute ${port.name || port.portName || contractId}`,
+          position,
+          inputs,
+          outputs,
+          autoProduct: { nodeId: node.id, direction: "input", portName },
+          dirty: true,
+        });
+        createdConnections = true;
+      });
+      outputPorts.forEach((port, index) => {
+        const contractId = (port.contractId || "").trim();
+        const version = ((port.contractVersion || port.portVersion || "") || "").trim();
+        const portName = (port.portName || port.name || "").trim();
+        if (!contractId || !version || !portName) {
+          return;
+        }
+        const existingLink = state.transformations.some((tf) =>
+          tf.inputs.some(
+            (conn) =>
+              conn.kind === "data-product" &&
+              conn.dataProductNodeId === node.id &&
+              conn.portName === portName
+          )
+        );
+        if (existingLink) {
+          return;
+        }
+        const cacheEntry = contractCache.get(contractKey(contractId, version));
+        const contractNode = cacheEntry && typeof cacheEntry.then === "function" ? null : cacheEntry;
+        if (!contractNode) {
+          return;
+        }
+        const autoExisting = state.transformations.find(
+          (tf) =>
+            tf.autoProduct &&
+            tf.autoProduct.nodeId === node.id &&
+            tf.autoProduct.direction === "output" &&
+            tf.autoProduct.portName === portName
+        );
+        if (autoExisting) {
+          return;
+        }
+        const position = {
+          x: rightTransformationX,
+          y: slotPosition(index, outputPorts.length, 260),
+        };
+        const inputs = [
+          {
+            id: createId("link"),
+            kind: "data-product",
+            dataProductNodeId: node.id,
+            portName,
+          },
+        ];
+        const outputs = [
+          { id: createId("link"), kind: "contract", contractNodeId: contractNode.id },
+        ];
+        createTransformation({
+          name: `${port.name || port.portName || contractId} delivery`,
+          position,
+          inputs,
+          outputs,
+          autoProduct: { nodeId: node.id, direction: "output", portName },
+          dirty: true,
+        });
+        createdConnections = true;
+      });
+      if (createdConnections) {
+        setPipelineStatus("Expanded data product context automatically.", "success", { duration: 3600 });
+      }
     });
   }
 
@@ -2391,6 +2610,18 @@
       return;
     }
     state.dataProductNodes = state.dataProductNodes.filter((item) => item.id !== nodeId);
+    const survivors = [];
+    state.transformations.forEach((tf) => {
+      if (tf.autoProduct && tf.autoProduct.nodeId === nodeId) {
+        if (tf.pendingTimeout) {
+          clearTimeout(tf.pendingTimeout);
+          tf.pendingTimeout = null;
+        }
+        return;
+      }
+      survivors.push(tf);
+    });
+    state.transformations = survivors;
     state.transformations.forEach((tf) => {
       const beforeInputs = tf.inputs.length;
       tf.inputs = tf.inputs.filter(
@@ -3531,37 +3762,50 @@
     }
   }
 
-  function addTransformation() {
+  function createTransformation(options = {}) {
     const initialIntegration = integrationOptionsData.length ? integrationOptionsData[0].value : "spark";
+    const integration = options.integration || initialIntegration;
+    const defaultPosition = {
+      x: 320 + state.transformations.length * 60,
+      y: 120 + state.transformations.length * 80,
+    };
     const transformation = {
       id: createId("transformation"),
-      name: `Transformation ${state.transformations.length + 1}`,
-      position: {
-        x: 320 + state.transformations.length * 60,
-        y: 120 + state.transformations.length * 80,
-      },
-      integration: initialIntegration,
-      readStrategy: "status",
+      name: options.name || `Transformation ${state.transformations.length + 1}`,
+      position: options.position || defaultPosition,
+      integration,
+      readStrategy: options.readStrategy || "status",
       writeStrategy: {
-        mode: "split",
-        includeValid: true,
-        includeReject: true,
-        failOnWarnings: false,
+        mode: options.writeStrategy?.mode || "split",
+        includeValid:
+          typeof options.writeStrategy?.includeValid === "boolean" ? options.writeStrategy.includeValid : true,
+        includeReject:
+          typeof options.writeStrategy?.includeReject === "boolean" ? options.writeStrategy.includeReject : true,
+        failOnWarnings:
+          typeof options.writeStrategy?.failOnWarnings === "boolean" ? options.writeStrategy.failOnWarnings : false,
       },
       size: { width: 320, height: 260 },
-      inputs: [],
-      outputs: [],
-      stub: "",
+      inputs: Array.isArray(options.inputs) ? options.inputs : [],
+      outputs: Array.isArray(options.outputs) ? options.outputs : [],
+      stub: options.stub || "",
       strategies: null,
       selectedStrategies: null,
       isGenerating: false,
       error: null,
-      dirty: true,
+      dirty: typeof options.dirty === "boolean" ? options.dirty : true,
       pendingTimeout: null,
-      stubLanguage: integrationDefaultLanguage(initialIntegration),
-      stubLanguageManual: false,
+      stubLanguage: options.stubLanguage || integrationDefaultLanguage(integration),
+      stubLanguageManual: !!options.stubLanguageManual,
     };
+    if (options.autoProduct) {
+      transformation.autoProduct = options.autoProduct;
+    }
     state.transformations.push(transformation);
+    return transformation;
+  }
+
+  function addTransformation() {
+    const transformation = createTransformation();
     renderPipeline();
     renderTransformations();
     setSelection({ kind: "transformation", nodeId: transformation.id });
