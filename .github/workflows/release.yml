@@ -231,6 +231,7 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e . --no-deps
+          pip install pyspark==3.5.1
           pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
           pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
           pytest packages/dc43-service-backends/tests
