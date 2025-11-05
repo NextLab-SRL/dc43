@@ -6104,6 +6104,160 @@ def _integration_data_product_links() -> Dict[str, List[Dict[str, Any]]]:
     return associations
 
 
+def _data_product_description_text(product: OpenDataProductStandard) -> str:
+    """Return a plain-text description for a data product."""
+
+    description = getattr(product, "description", None)
+    if isinstance(description, Mapping):
+        return str(
+            description.get("usage")
+            or description.get("summary")
+            or description.get("text")
+            or ""
+        )
+    if isinstance(description, str):
+        return description
+    if hasattr(description, "usage"):
+        return str(getattr(description, "usage", "") or "")
+    return ""
+
+
+def _integration_data_product_ports(
+    product: OpenDataProductStandard,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Return normalised port metadata for helper summaries."""
+
+    inputs: List[Dict[str, Any]] = []
+    outputs: List[Dict[str, Any]] = []
+    for port in getattr(product, "input_ports", []) or []:
+        props = _port_custom_map(port)
+        contract_version = props.get("dc43.contract.version") or getattr(port, "version", "")
+        inputs.append(
+            {
+                "name": getattr(port, "name", "") or "",
+                "portName": getattr(port, "name", "") or "",
+                "direction": "input",
+                "contractId": getattr(port, "contract_id", "") or "",
+                "contractVersion": contract_version or "",
+                "portVersion": getattr(port, "version", "") or "",
+                "sourceDataProduct": props.get("dc43.input.source_data_product") or "",
+                "sourceOutputPort": props.get("dc43.input.source_output_port") or "",
+                "customProperties": props,
+            }
+        )
+    for port in getattr(product, "output_ports", []) or []:
+        props = _port_custom_map(port)
+        contract_version = props.get("dc43.contract.version") or getattr(port, "version", "")
+        outputs.append(
+            {
+                "name": getattr(port, "name", "") or "",
+                "portName": getattr(port, "name", "") or "",
+                "direction": "output",
+                "contractId": getattr(port, "contract_id", "") or "",
+                "contractVersion": contract_version or "",
+                "portVersion": getattr(port, "version", "") or "",
+                "datasetId": props.get("dc43.dataset.id") or props.get("dc43.contract.ref") or "",
+                "stageContract": props.get("dc43.stage.contract") or "",
+                "customProperties": props,
+            }
+        )
+    inputs.sort(key=lambda item: (item["contractId"], item["portName"]))
+    outputs.sort(key=lambda item: (item["contractId"], item["portName"]))
+    return {"inputs": inputs, "outputs": outputs}
+
+
+def _integration_data_product_summary(
+    product: OpenDataProductStandard,
+) -> Dict[str, Any]:
+    """Build a serialisable summary for a data product."""
+
+    product_id = str(getattr(product, "id", "") or "")
+    status = str(getattr(product, "status", "") or "")
+    status_label = status.replace("_", " ").title() if status else ""
+    version = str(getattr(product, "version", "") or "")
+    ports = _integration_data_product_ports(product)
+    tags = [str(tag) for tag in getattr(product, "tags", []) if str(tag)]
+    try:
+        versions = _sorted_versions(data_product_versions(product_id))
+    except FileNotFoundError:
+        versions = []
+    except Exception:  # pragma: no cover - defensive guard for backend issues
+        logger.exception("Failed to list versions for data product %s", product_id)
+        versions = []
+    if version and version not in versions:
+        versions = _sorted_versions([*versions, version])
+    latest_version = versions[-1] if versions else version
+    description = _data_product_description_text(product)
+    search_terms = [
+        product_id,
+        getattr(product, "name", "") or "",
+        status,
+        version,
+        description,
+        *tags,
+    ]
+    for entry in ports["inputs"] + ports["outputs"]:
+        search_terms.extend(
+            [
+                entry.get("name", ""),
+                entry.get("contractId", ""),
+                entry.get("contractVersion", ""),
+            ]
+        )
+    summary = {
+        "id": product_id,
+        "name": getattr(product, "name", "") or product_id,
+        "status": status,
+        "statusLabel": status_label,
+        "version": version,
+        "latestVersion": latest_version,
+        "versions": versions,
+        "description": description,
+        "tags": tags,
+        "ports": ports,
+        "inputCount": len(ports["inputs"]),
+        "outputCount": len(ports["outputs"]),
+        "searchText": " ".join(str(term or "") for term in search_terms if term),
+    }
+    return summary
+
+
+def _integration_data_product_catalog() -> List[Dict[str, Any]]:
+    """Return metadata for all stored data products."""
+
+    summaries: List[Dict[str, Any]] = []
+    for product in load_data_products():
+        try:
+            summary = _integration_data_product_summary(product)
+        except Exception:  # pragma: no cover - defensive guard for corrupt payloads
+            logger.exception("Failed to summarise data product %s", getattr(product, "id", "?"))
+            continue
+        summaries.append(summary)
+    summaries.sort(key=lambda item: item["id"])
+    return summaries
+
+
+async def _load_integration_data_product(
+    product_id: str, version: str
+) -> IntegrationDataProductContext:
+    """Return data product details enriched for the integration helper."""
+
+    selector = str(version or "").strip()
+    if not selector or selector.lower() in {"latest", "newest"}:
+        product = latest_data_product(product_id)
+        if product is None:
+            raise HTTPException(
+                status_code=404, detail=f"Data product {product_id} has no versions"
+            )
+    else:
+        try:
+            product = get_data_product(product_id, selector)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+    summary = _integration_data_product_summary(product)
+    return IntegrationDataProductContext(data_product=product, summary=summary)
+
+
 def _integration_catalog() -> List[Dict[str, Any]]:
     """Return basic metadata for all stored contracts."""
 
@@ -6167,6 +6321,14 @@ class IntegrationContractContext:
     """Container storing contract objects alongside serialized metadata."""
 
     contract: OpenDataContractStandard
+    summary: Dict[str, Any]
+
+
+@dataclass
+class IntegrationDataProductContext:
+    """Container storing data products alongside serialized metadata."""
+
+    data_product: OpenDataProductStandard
     summary: Dict[str, Any]
 
 
@@ -7446,6 +7608,13 @@ async def api_integration_contracts() -> Dict[str, Any]:
     return {"contracts": _integration_catalog()}
 
 
+@router.get("/api/integration-helper/data-products")
+async def api_integration_data_products() -> Dict[str, Any]:
+    """Return data-product metadata for the integration helper UI."""
+
+    return {"data_products": _integration_data_product_catalog()}
+
+
 @router.get("/api/integration-helper/contracts/{cid}/{ver}")
 async def api_integration_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     """Return contract details enriched for the integration helper."""
@@ -7453,6 +7622,19 @@ async def api_integration_contract_detail(cid: str, ver: str) -> Dict[str, Any]:
     context = await _load_integration_contract(cid, ver)
     return {
         "contract": contract_to_dict(context.contract),
+        "summary": jsonable_encoder(context.summary),
+    }
+
+
+@router.get("/api/integration-helper/data-products/{product_id}/{version}")
+async def api_integration_data_product_detail(
+    product_id: str, version: str
+) -> Dict[str, Any]:
+    """Return data-product details enriched for the integration helper."""
+
+    context = await _load_integration_data_product(product_id, version)
+    return {
+        "data_product": jsonable_encoder(context.data_product.to_dict()),
         "summary": jsonable_encoder(context.summary),
     }
 
@@ -7702,6 +7884,7 @@ async def integration_helper(request: Request) -> HTMLResponse:
     context = {
         "request": request,
         "catalog": _integration_catalog(),
+        "data_products": _integration_data_product_catalog(),
         "integration_options": [
             {"value": "spark", "label": "Spark (PySpark / Delta Lake)"},
         ],

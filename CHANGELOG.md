@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Integration helper pipeline now surfaces governed data products alongside
+  contracts so you can add product nodes, wire their ports into transformations,
+  and generate stubs with the correct product bindings.
 - Added a data product editor to the contracts application with searchable
   contract and dataset selectors so definitions no longer require manual ID
   lookups.
@@ -77,6 +80,9 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Integration helper transformation details now surface linked data product
+  ports, so the focus/remove actions work for governed product bindings as well
+  as contract connectors.
 - The contracts app data product editor now bumps draft-suffixed versions
   without crashing, so editing ``*-draft`` releases no longer triggers 500
   errors when calculating the suggested version.

@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- The integration helper sidebar now lists governed data products alongside
+  contracts, letting users add product nodes, wire ports into transformations,
+  and emit Spark stubs that include product bindings.
 - Added a rich data product editor with searchable contract and dataset
   selectors, dynamic port controls, and inline custom property management so
   stewards can publish new versions without leaving the UI.
@@ -47,6 +50,9 @@
   `~/.dc43/docs_chat/index` when no explicit `index_path` is supplied.
 
 ### Fixed
+- Integration helper transformation panels now list linked data product ports
+  alongside contracts so you can focus nodes and remove bindings for product
+  connectors directly from the summary view.
 - Editing data products that were still marked as drafts now bumps the next
   semantic version automatically, eliminating the 500 error triggered when the
   editor encountered ``*-draft`` identifiers.
