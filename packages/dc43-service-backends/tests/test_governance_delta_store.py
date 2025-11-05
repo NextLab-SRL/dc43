@@ -22,7 +22,17 @@ def _install_pyspark_stub() -> None:
     sql_module = types.ModuleType("pyspark.sql")
 
     class _StubSparkSession:  # pragma: no cover - attribute container only
-        pass
+        _active_session: "_StubSparkSession | None" = None
+
+        @classmethod
+        def getActiveSession(cls) -> "_StubSparkSession | None":
+            return cls._active_session
+
+        @classmethod
+        def setActiveSession(
+            cls, session: "_StubSparkSession | None"
+        ) -> None:
+            cls._active_session = session
 
     class _StubDataFrame:  # pragma: no cover - attribute container only
         pass
