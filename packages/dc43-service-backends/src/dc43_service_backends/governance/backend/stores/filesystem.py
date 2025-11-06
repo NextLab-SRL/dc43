@@ -211,6 +211,7 @@ class FilesystemGovernanceStore(GovernanceStore):
         dataset_id: str,
         dataset_version: str,
         event: Mapping[str, object],
+        lineage_event: Mapping[str, object] | None = None,
     ) -> None:
         path = self._activity_path(dataset_id)
         payload = self._read_json(path) or {"dataset_id": dataset_id, "versions": {}}
@@ -230,6 +231,8 @@ class FilesystemGovernanceStore(GovernanceStore):
         events = list(record.get("events") or [])
         events.append(dict(event))
         record["events"] = events
+        if lineage_event is not None:
+            record["lineage_event"] = dict(lineage_event)
         record["contract_id"] = contract_id
         record["contract_version"] = contract_version
         versions[version_key] = record

@@ -20,6 +20,10 @@ from dc43_service_clients.data_quality.transport import (
     encode_validation_result,
     decode_validation_result,
 )
+from dc43_service_clients.governance.lineage import (
+    OpenDataLineageEvent,
+    encode_lineage_event,
+)
 from dc43_service_clients.governance.models import (
     DatasetContractStatus,
     GovernanceReadContext,
@@ -604,6 +608,19 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
                     "plan": encode_write_plan(plan),
                     "assessment": encode_quality_assessment(assessment),
                 },
+            )
+        )
+        response.raise_for_status()
+
+    def publish_lineage_event(
+        self,
+        *,
+        event: OpenDataLineageEvent,
+    ) -> None:
+        response = ensure_response(
+            self._client.post(
+                self._request_path("/governance/lineage"),
+                json={"event": encode_lineage_event(event)},
             )
         )
         response.raise_for_status()

@@ -76,6 +76,12 @@
   explicit version constraints for input/output bindings so pipelines can
   block on draft products by default or target specific releases when
   required.
+- Centralised the OpenLineage runtime dependency with the service clients so
+  demo and developer installs inherit the lineage runtime transitively instead
+  of duplicating requirements across packages.
+- Updated the CI workflow to install OpenLineage explicitly for jobs that skip
+  dependency resolution so demo and governance suites no longer fail when
+  optional extras are omitted.
 - Governance backends now honour data product version selectors and source
   contract requirements when resolving read/write contexts, failing fast on
   draft or mismatched products before registration occurs.
@@ -88,6 +94,8 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Declared ``attrs`` as a core dependency so OpenLineage governance helpers
+  import cleanly without manual dependency installs.
 - Integration helper transformation details now surface linked data product
   ports, so the focus/remove actions work for governed product bindings as well
   as contract connectors.

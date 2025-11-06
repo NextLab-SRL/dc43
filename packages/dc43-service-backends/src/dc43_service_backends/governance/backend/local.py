@@ -27,12 +27,15 @@ from dc43_service_clients.data_products import (
     DataProductInputBinding,
     DataProductOutputBinding,
     DataProductServiceClient,
+    normalise_input_binding,
+    normalise_output_binding,
 )
 from dc43_service_clients.odps import DataProductInputPort, DataProductOutputPort
 
 from .interface import GovernanceServiceBackend
 from ..storage import GovernanceStore, InMemoryGovernanceStore
 from ..hooks import DatasetContractLinkHook
+from dc43_service_clients.governance.lineage import OpenDataLineageEvent, encode_lineage_event
 from dc43_service_clients.governance.models import (
     ContractReference,
     GovernanceReadContext,
@@ -649,6 +652,185 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             contract_version=plan.contract_version,
         )
         self._register_output_binding(plan=plan)
+
+    def publish_lineage_event(
+        self,
+        *,
+        event: OpenDataLineageEvent,
+    ) -> None:
+        def _as_mapping(value: object) -> Mapping[str, object]:
+            return value if isinstance(value, Mapping) else {}
+
+        def _as_str(value: object | None) -> str | None:
+            if value is None:
+                return None
+            text = str(value).strip()
+            return text or None
+
+        payload = encode_lineage_event(event)
+        dataset_entries: Sequence[Mapping[str, object]]
+        dataset_entries = list(payload.get("inputs") or []) or list(payload.get("outputs") or [])
+        if not dataset_entries:
+            logger.warning("Ignoring lineage event without dataset entries")
+            return
+
+        dataset_entry = dataset_entries[0]
+        dataset_facets = _as_mapping(dataset_entry.get("facets"))
+        dataset_info = _as_mapping(dataset_facets.get("dc43Dataset"))
+        operation = _as_str(dataset_info.get("operation"))
+        if operation is None:
+            operation = "read" if payload.get("inputs") else "write"
+        operation = operation.lower()
+
+        dataset_id = _as_str(dataset_info.get("datasetId") or dataset_entry.get("name"))
+        version_facet = _as_mapping(dataset_facets.get("version"))
+        dataset_version = _as_str(
+            dataset_info.get("datasetVersion") or version_facet.get("datasetVersion")
+        )
+        format_facet = _as_mapping(dataset_facets.get("dc43Format"))
+        dataset_format = _as_str(format_facet.get("format"))
+
+        contract_facet = _as_mapping(dataset_facets.get("dc43Contract"))
+        contract_id = _as_str(contract_facet.get("contractId"))
+        contract_version = _as_str(contract_facet.get("contractVersion"))
+
+        if not contract_id or not contract_version or not dataset_id:
+            logger.warning(
+                "Lineage event missing identifiers; skipping registration: dataset=%s version=%s contract=%s:%s",
+                dataset_id,
+                dataset_version,
+                contract_id,
+                contract_version,
+            )
+            return
+
+        try:
+            contract = self._contract_client.get(contract_id, contract_version)
+        except Exception:  # pragma: no cover - safety net for misconfigured stores
+            logger.exception(
+                "Failed to load contract %s:%s for lineage event", contract_id, contract_version
+            )
+            return
+
+        resolved_contract_id = contract.id or contract_id
+        resolved_contract_version = contract.version or contract_version
+        dataset_version_value = dataset_version or ""
+
+        binding_spec = dataset_facets.get("dc43DataProduct")
+        binding_mapping = _as_mapping(binding_spec)
+
+        run_payload = _as_mapping(payload.get("run"))
+        run_facets = _as_mapping(run_payload.get("facets"))
+        context_facet = _as_mapping(run_facets.get("dc43PipelineContext"))
+        pipeline_context = merge_pipeline_context(context_facet.get("context"))
+
+        validation_facet = _as_mapping(run_facets.get("dc43Validation"))
+        validation_result: ValidationResult | None = None
+        observations_reused = False
+        if validation_facet:
+            errors_raw = validation_facet.get("errors")
+            warnings_raw = validation_facet.get("warnings")
+            metrics_raw = validation_facet.get("metrics")
+            schema_raw = validation_facet.get("schema")
+            details_raw = validation_facet.get("details")
+            metrics = dict(metrics_raw) if isinstance(metrics_raw, Mapping) else None
+            schema: dict[str, Mapping[str, object]] | None = None
+            if isinstance(schema_raw, Mapping):
+                schema = {
+                    str(key): dict(value) if isinstance(value, Mapping) else {}
+                    for key, value in schema_raw.items()
+                }
+            details = _as_mapping(details_raw)
+            validation_result = ValidationResult(
+                ok=bool(validation_facet.get("ok", True)),
+                errors=[str(item) for item in errors_raw] if isinstance(errors_raw, Sequence) else None,
+                warnings=[str(item) for item in warnings_raw] if isinstance(warnings_raw, Sequence) else None,
+                metrics=metrics,
+                schema=schema,
+                status=str(validation_facet.get("status") or "unknown"),
+                reason=_as_str(validation_facet.get("reason")),
+                details=details,
+            )
+            reused_flag = validation_facet.get("reused")
+            if reused_flag is None:
+                reused_flag = details.get("reused")
+            if isinstance(reused_flag, bool):
+                observations_reused = reused_flag
+            elif reused_flag is not None:
+                observations_reused = bool(reused_flag)
+
+        assessment = QualityAssessment(
+            status=validation_result,
+            validation=validation_result,
+            observations_reused=observations_reused,
+        )
+
+        if dataset_version:
+            try:
+                self.link_dataset_contract(
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    contract_id=resolved_contract_id,
+                    contract_version=resolved_contract_version,
+                )
+            except Exception:  # pragma: no cover - store exceptions should not abort processing
+                logger.exception(
+                    "Failed to link dataset %s@%s to contract %s:%s from lineage event",
+                    dataset_id,
+                    dataset_version,
+                    resolved_contract_id,
+                    resolved_contract_version,
+                )
+
+        if operation == "read":
+            input_binding = normalise_input_binding(binding_mapping) if binding_mapping else None
+            plan = ResolvedReadPlan(
+                contract=contract,
+                contract_id=resolved_contract_id,
+                contract_version=resolved_contract_version,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version_value,
+                dataset_format=dataset_format,
+                input_binding=input_binding,
+                pipeline_context=pipeline_context,
+            )
+            try:
+                self.register_read_activity(plan=plan, assessment=assessment)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "Failed to register read lineage activity for dataset %s", dataset_id
+                )
+        else:
+            output_binding = (
+                normalise_output_binding(binding_mapping) if binding_mapping else None
+            )
+            plan = ResolvedWritePlan(
+                contract=contract,
+                contract_id=resolved_contract_id,
+                contract_version=resolved_contract_version,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version_value,
+                dataset_format=dataset_format,
+                output_binding=output_binding,
+                pipeline_context=pipeline_context,
+            )
+            try:
+                self.register_write_activity(plan=plan, assessment=assessment)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "Failed to register write lineage activity for dataset %s", dataset_id
+                )
+
+        self._record_pipeline_activity(
+            contract=contract,
+            dataset_id=dataset_id,
+            dataset_version=dataset_version_value,
+            operation=operation,
+            pipeline_context=pipeline_context,
+            status=validation_result,
+            observations_reused=observations_reused,
+            lineage_event=payload,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -1421,6 +1603,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         pipeline_context: Optional[Mapping[str, Any]],
         status: Optional[ValidationResult],
         observations_reused: bool,
+        lineage_event: Mapping[str, object] | None = None,
     ) -> None:
         cid, cver = contract_identity(contract)
         entry: Dict[str, Any] = {
@@ -1436,22 +1619,23 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                 entry["dq_reason"] = status.reason
             if status.details:
                 entry["dq_details"] = status.details
-        event = dict(entry)
-        event.setdefault(
+        summary = dict(entry)
+        summary.setdefault(
             "recorded_at",
             datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         )
-        context_payload = event.get("pipeline_context")
+        context_payload = summary.get("pipeline_context")
         if isinstance(context_payload, Mapping):
-            event["pipeline_context"] = dict(context_payload)
+            summary["pipeline_context"] = dict(context_payload)
         elif context_payload is None:
-            event["pipeline_context"] = {}
+            summary["pipeline_context"] = {}
         self._store.record_pipeline_event(
             contract_id=cid,
             contract_version=cver,
             dataset_id=dataset_id,
             dataset_version=dataset_version,
-            event=event,
+            event=summary,
+            lineage_event=lineage_event,
         )
 
 __all__ = ["LocalGovernanceServiceBackend"]

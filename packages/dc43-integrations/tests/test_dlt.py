@@ -18,6 +18,7 @@ from dc43_integrations.spark.dlt import (
     governed_table,
     governed_view,
 )
+from dc43_service_clients.governance import GovernancePublicationMode
 from dc43_service_clients.governance.models import GovernanceReadContext, ResolvedReadPlan
 from open_data_contract_standard.model import Description, OpenDataContractStandard
 
@@ -211,6 +212,7 @@ def test_governed_expectations_registers_dlt_annotations():
     assert binding.contract_version == "1.2.0"
     assert binding.expectations.enforced == {"required": "x IS NOT NULL"}
     assert binding.expectation_plan[0]["key"] == "required"
+    assert binding.publication_mode is GovernancePublicationMode.LEGACY
     resolve_calls = [call for call, *_ in service.calls if call == "resolve_read_context"]
     assert resolve_calls, "resolve_read_context should be invoked"
 
@@ -244,12 +246,15 @@ def test_governed_expectations_supports_minimum_version_selector():
     assert context.contract.version_selector == ">=1.1.0"
 
 
-def test_governed_table_wraps_dlt_table_and_preserves_binding():
+def test_governed_table_wraps_dlt_table_and_preserves_binding(
+    monkeypatch: pytest.MonkeyPatch,
+):
     contract = _make_contract("2.0.0")
     plan = [{"key": "rule", "predicate": "amount > 0"}]
     service = _StubGovernanceService(contract=contract, plan=plan)
     dlt = _SpyDLT()
 
+    monkeypatch.setenv("DC43_GOVERNANCE_PUBLICATION_MODE", "open_data_lineage")
     decorator = governed_table(
         dlt,
         name="orders",
@@ -266,6 +271,7 @@ def test_governed_table_wraps_dlt_table_and_preserves_binding():
     assert getattr(asset, "__dc43_contract__") == (contract.id, contract.version)
     binding = getattr(asset, "__dc43_contract_binding__")
     assert binding.expectations.enforced == {"rule": "amount > 0"}
+    assert binding.publication_mode is GovernancePublicationMode.OPEN_DATA_LINEAGE
 
 
 def test_governed_view_wraps_dlt_view():
@@ -289,3 +295,4 @@ def test_governed_view_wraps_dlt_view():
     assert ("view.apply", "asset") in dlt.calls
     binding = getattr(asset, "__dc43_contract_binding__")
     assert binding.expectations.observed == {"rule": "status IN ('OK')"}
+    assert binding.publication_mode is GovernancePublicationMode.LEGACY

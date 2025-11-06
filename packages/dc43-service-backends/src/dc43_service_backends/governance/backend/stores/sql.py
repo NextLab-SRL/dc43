@@ -424,6 +424,7 @@ class SQLGovernanceStore(GovernanceStore):
         dataset_id: str,
         dataset_version: str,
         event: Mapping[str, object],
+        lineage_event: Mapping[str, object] | None = None,
     ) -> None:
         sort_column = self._activity.c.updated_at if self._activity_has_updated_at else None
         record = self._load_payload(
@@ -443,6 +444,8 @@ class SQLGovernanceStore(GovernanceStore):
         events = list(record.get("events") or [])
         events.append(dict(event))
         record["events"] = events
+        if lineage_event is not None:
+            record["lineage_event"] = dict(lineage_event)
         record["contract_id"] = contract_id
         record["contract_version"] = contract_version
         extra: Mapping[str, object] | None = None

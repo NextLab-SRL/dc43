@@ -8,6 +8,9 @@
   configuration, providing a single entry point for application bootstrap.
 
 ### Changed
+- Declared a direct dependency on ``attrs`` so OpenLineage support works out of
+  the box for applications that import governance clients without installing
+  the full OpenLineage stack separately.
 - ODPS helpers now prefer the shared `dc43-core` package when available so
   clients align with the backend implementation without loading service
   modules.
@@ -37,4 +40,8 @@
 - Deferred importing the bootstrap module at package import time so the
   `dc43-service-clients` distribution no longer requires
   `dc43_service_backends` just to expose its top-level helpers.
+- Governance lineage helpers once again import the OpenLineage client eagerly
+  so interface mismatches surface immediately, and the package now declares a
+  direct ``openlineage-python`` dependency so downstream installs receive the
+  runtime transitively.
 

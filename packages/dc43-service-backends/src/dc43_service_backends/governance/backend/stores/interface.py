@@ -39,6 +39,7 @@ class GovernanceStore(Protocol):
         dataset_id: str,
         dataset_version: str,
         event: Mapping[str, object],
+        lineage_event: Mapping[str, object] | None = None,
     ) -> None:
         """Append ``event`` metadata to the pipeline activity log."""
 
