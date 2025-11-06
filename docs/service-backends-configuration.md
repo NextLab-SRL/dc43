@@ -44,6 +44,13 @@ single field without editing the TOML file:
   * `DC43_CONTRACTS_APP_WORK_DIR` / `DC43_DEMO_WORK_DIR` – legacy workspace
     hints maintained for the demo app and backwards compatibility. The
     standalone UI no longer creates or manages filesystem workspaces.
+* Pipeline integrations:
+  * `DC43_GOVERNANCE_PUBLICATION_MODE` – selects whether governed runs should
+    register activities (`legacy`), emit Open Data Lineage events
+    (`open_data_lineage`), or record OpenTelemetry spans (`open_telemetry`).
+    Spark integrations also consult configuration keys named
+    `dc43.governance.publicationMode`, `dc43.governance.publication_mode`, or
+    `governance.publication.mode`.
 * Additional backend specific overrides exist for the contracts UI (see
   [Contracts app configuration](#contracts-app-configuration)).
 

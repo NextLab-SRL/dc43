@@ -32,6 +32,8 @@ minimum it must be able to:
 ```mermaid
 flowchart LR
     Integration["Runtime integration"] --> Governance["Governance service"]
+    Integration -->|publish| Lineage["Open Data Lineage events"]
+    Integration -->|trace| Telemetry["OpenTelemetry spans"]
     Governance --> Contracts["Contract manager"]
     Governance --> DQMgr["Data quality manager"]
     DQMgr --> Engine["DQ engine"]
@@ -41,6 +43,8 @@ flowchart LR
     Governance --> Catalog["Compatibility matrix"]
     Governance --> LinkHooks["Link hooks"]
     LinkHooks --> Targets["Unity Catalog / metadata"]
+    Lineage --> LineageSinks["Open Data Lineage collectors"]
+    Telemetry --> TelemetrySinks["Observability backends"]
 ```
 
 The compatibility matrix is the source dc43 queries before serving data.
@@ -52,6 +56,23 @@ Link hooks run as part of the same orchestration path. They mirror
 approved dataset↔contract bindings into external catalogs (Unity Catalog,
 bespoke metadata services) so readers discover the active governance
 context without polling the service backend.
+
+## Publication surfaces
+
+Governed runs can now mirror their activity into observability systems. The
+integration layer inspects the governance plans returned by the service to:
+
+- emit [Open Data Lineage](https://openlineage.io/) run events that
+  reconstruct the Spark read/write activity, including resolved bindings and
+  validation outcomes, and
+- record OpenTelemetry spans that capture pipeline context, contract details,
+  dataset identifiers, and expectation metadata.
+
+Both publication modes are opt-in. Pipelines select them via
+`DC43_GOVERNANCE_PUBLICATION_MODE`, runtime configuration keys such as
+`dc43.governance.publicationMode`, or explicit integration overrides. When
+enabled, the integration skips legacy governance activity registration while
+preserving compatibility matrix updates through the governance service.
 
 ## Design considerations
 
