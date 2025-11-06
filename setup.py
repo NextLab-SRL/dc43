@@ -103,6 +103,7 @@ extras_require = {
         "jinja2",
         "python-multipart",
         "httpx",
+        "openlineage-python>=1.39.0",
         _dependency("dc43-contracts-app", extras="spark"),
     ],
     "demo": [
@@ -110,6 +111,7 @@ extras_require = {
         "uvicorn",
         "jinja2",
         "python-multipart",
+        "openlineage-python>=1.39.0",
         _dependency("dc43-contracts-app", extras="spark,docs-chat"),
         _dependency("dc43-integrations", extras="spark"),
         _dependency("dc43-demo-app"),

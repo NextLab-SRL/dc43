@@ -8,8 +8,6 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Mapping, MutableMapping, Optional, Sequence, Union
 from uuid import NAMESPACE_DNS, UUID, uuid4, uuid5
 
-from dc43_service_clients.governance.lineage import ensure_openlineage_dependency
-
 from dc43_service_clients.data_products import (
     DataProductInputBinding,
     DataProductOutputBinding,
@@ -256,7 +254,6 @@ if TYPE_CHECKING:  # pragma: no cover - import used for static analysis only
 
 @lru_cache(maxsize=1)
 def _openlineage_models():
-    ensure_openlineage_dependency()
     from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
     return Dataset, Job, Run, RunEvent, RunState
 

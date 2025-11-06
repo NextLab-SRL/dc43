@@ -76,9 +76,9 @@
   explicit version constraints for input/output bindings so pipelines can
   block on draft products by default or target specific releases when
   required.
-- Governance lineage helpers now lazy-load the OpenLineage dependency and
-  gracefully skip lineage-specific tests when the package is not available,
-  keeping default Spark and demo flows runnable in lean environments.
+- Added explicit OpenLineage dependencies to the demo and developer extras so
+  CI and local installs always include the lineage runtime required by the
+  new governance flow.
 - Governance backends now honour data product version selectors and source
   contract requirements when resolving read/write contexts, failing fast on
   draft or mismatched products before registration occurs.

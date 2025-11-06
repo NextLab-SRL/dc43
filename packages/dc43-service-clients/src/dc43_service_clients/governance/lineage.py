@@ -7,36 +7,14 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-try:  # pragma: no cover - exercised indirectly via import-time failures
-    from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
-except ModuleNotFoundError as exc:  # pragma: no cover - defensive guard
-    Dataset = Job = Run = RunEvent = RunState = None  # type: ignore[assignment]
-    _OPENLINEAGE_IMPORT_ERROR: ModuleNotFoundError | None = exc
-else:  # pragma: no cover - import succeeds in most environments
-    _OPENLINEAGE_IMPORT_ERROR = None
+from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
 
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
     from openlineage.client.run import RunEvent as OpenDataLineageEvent
 else:
-
-    class _MissingOpenLineageEvent:
-        def __init__(self, *_: object, **__: object) -> None:
-            _raise_openlineage_missing()
-
-    OpenDataLineageEvent = RunEvent or _MissingOpenLineageEvent  # type: ignore[assignment]
+    OpenDataLineageEvent = RunEvent
 
 DEFAULT_SCHEMA_URL = "https://openlineage.io/spec/2-0-2/OpenLineage.json#"
-
-
-def _raise_openlineage_missing() -> None:
-    raise ModuleNotFoundError(
-        "The 'openlineage-python' dependency is required for governance lineage support."
-    ) from _OPENLINEAGE_IMPORT_ERROR
-
-
-def ensure_openlineage_dependency() -> None:
-    if RunEvent is None:
-        _raise_openlineage_missing()
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -93,8 +71,6 @@ def _build_datasets(entries: Any) -> list[Dataset]:
 def encode_lineage_event(event: RunEvent) -> Mapping[str, Any]:
     """Serialise ``event`` into a mapping suitable for transport."""
 
-    ensure_openlineage_dependency()
-
     def _convert(value: object) -> object:
         if isinstance(value, Enum):
             return value.value
@@ -142,8 +118,6 @@ def encode_lineage_event(event: RunEvent) -> Mapping[str, Any]:
 
 def decode_lineage_event(raw: Mapping[str, Any] | None) -> RunEvent | None:
     """Convert ``raw`` payloads into :class:`RunEvent` instances."""
-
-    ensure_openlineage_dependency()
 
     if raw is None:
         return None
@@ -198,5 +172,4 @@ __all__ = [
     "OpenDataLineageEvent",
     "decode_lineage_event",
     "encode_lineage_event",
-    "ensure_openlineage_dependency",
 ]
