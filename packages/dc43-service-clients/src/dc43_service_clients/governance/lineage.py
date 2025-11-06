@@ -6,7 +6,15 @@ from enum import Enum
 from typing import Any, Mapping, MutableMapping, Sequence
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-import attr
+try:
+    import attr
+except ModuleNotFoundError:
+    try:  # pragma: no cover - import-time fallback for environments with ``attrs`` only
+        import attrs as attr  # type: ignore[assignment]
+    except ModuleNotFoundError as exc:  # pragma: no cover - defensive guard
+        raise ModuleNotFoundError(
+            "The 'attrs' dependency is required for OpenLineage governance support."
+        ) from exc
 from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
 
 DEFAULT_SCHEMA_URL = "https://openlineage.io/spec/2-0-2/OpenLineage.json#"

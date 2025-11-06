@@ -88,6 +88,8 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Declared ``attrs`` as a core dependency so OpenLineage governance helpers
+  import cleanly without manual dependency installs.
 - Integration helper transformation details now surface linked data product
   ports, so the focus/remove actions work for governed product bindings as well
   as contract connectors.

@@ -84,6 +84,7 @@ install_requires = [
     _dependency(name) for name in _INTERNAL_CORE_DEPENDENCIES
 ]
 install_requires += [
+    "attrs>=20.0",
     "packaging>=21.0",
     "open-data-contract-standard==3.0.2",
 ]
