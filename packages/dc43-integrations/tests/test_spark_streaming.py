@@ -6,6 +6,9 @@ import time
 from typing import Mapping
 
 import pytest
+pytest.importorskip(
+    "openlineage.client.run", reason="openlineage-python is required for lineage streaming tests"
+)
 from pyspark.sql.utils import StreamingQueryException
 
 from open_data_contract_standard.model import (  # type: ignore

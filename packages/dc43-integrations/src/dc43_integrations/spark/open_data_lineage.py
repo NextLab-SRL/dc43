@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping, MutableMapping, Optional, Sequence, Union
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Mapping, MutableMapping, Optional, Sequence, Union
 from uuid import NAMESPACE_DNS, UUID, uuid4, uuid5
 
-from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
+from dc43_service_clients.governance.lineage import ensure_openlineage_dependency
 
 from dc43_service_clients.data_products import (
     DataProductInputBinding,
@@ -249,6 +250,17 @@ def _ensure_uuid(value: str) -> str:
         return str(uuid5(NAMESPACE_DNS, text))
 
 
+if TYPE_CHECKING:  # pragma: no cover - import used for static analysis only
+    from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
+
+
+@lru_cache(maxsize=1)
+def _openlineage_models():
+    ensure_openlineage_dependency()
+    from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
+    return Dataset, Job, Run, RunEvent, RunState
+
+
 def build_lineage_run_event(
     *,
     operation: str,
@@ -268,7 +280,8 @@ def build_lineage_run_event(
     metrics: Optional[Mapping[str, Any]] = None,
     producer: str = DEFAULT_PRODUCER,
     schema_url: str = DEFAULT_SCHEMA_URL,
-) -> RunEvent:
+) -> "RunEvent":
+    Dataset, Job, Run, RunEvent, RunState = _openlineage_models()
     operation = operation.lower()
     context = _merge_contexts(plan, pipeline_context)
     resolved_contract_id = _resolve_contract_id(plan, contract_id)

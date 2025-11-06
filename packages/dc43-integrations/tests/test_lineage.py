@@ -5,6 +5,10 @@ from typing import Mapping
 
 import pytest
 
+pytest.importorskip(
+    "openlineage.client.run", reason="openlineage-python is required for lineage integration tests"
+)
+
 from dc43_integrations.spark.open_data_lineage import build_lineage_run_event
 from .helpers.orders import build_orders_contract, materialise_orders
 from dc43_integrations.spark.io import (

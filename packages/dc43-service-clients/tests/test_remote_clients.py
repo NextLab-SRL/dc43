@@ -977,6 +977,9 @@ def test_http_clients_require_authentication(service_backend):
 
 
 def test_lineage_event_encode_decode_round_trip() -> None:
+    pytest.importorskip(
+        "openlineage.client.run", reason="openlineage-python is required for lineage client tests"
+    )
     payload = {
         "eventType": "COMPLETE",
         "eventTime": "2024-01-01T00:00:00Z",
@@ -1000,6 +1003,9 @@ def test_lineage_event_encode_decode_round_trip() -> None:
 
 
 def test_remote_governance_client_publishes_lineage(http_clients) -> None:
+    pytest.importorskip(
+        "openlineage.client.run", reason="openlineage-python is required for lineage client tests"
+    )
     governance_client: RemoteGovernanceServiceClient = http_clients["governance"]
     backend: _ServiceBackendMock = http_clients["backend"]
 
