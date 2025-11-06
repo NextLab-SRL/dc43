@@ -40,4 +40,7 @@
 - Deferred importing the bootstrap module at package import time so the
   `dc43-service-clients` distribution no longer requires
   `dc43_service_backends` just to expose its top-level helpers.
+- Normalised OpenLineage lineage encoding so governance clients no longer
+  depend on the ``attrs`` package at import time, avoiding missing dependency
+  errors in lean test environments.
 

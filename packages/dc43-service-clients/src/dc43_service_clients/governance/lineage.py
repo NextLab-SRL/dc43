@@ -2,19 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, MutableMapping, Sequence
 from enum import Enum
-from typing import Any, Mapping, MutableMapping, Sequence
+from typing import Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-try:
-    import attr
-except ModuleNotFoundError:
-    try:  # pragma: no cover - import-time fallback for environments with ``attrs`` only
-        import attrs as attr  # type: ignore[assignment]
-    except ModuleNotFoundError as exc:  # pragma: no cover - defensive guard
-        raise ModuleNotFoundError(
-            "The 'attrs' dependency is required for OpenLineage governance support."
-        ) from exc
 from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
 
 DEFAULT_SCHEMA_URL = "https://openlineage.io/spec/2-0-2/OpenLineage.json#"
@@ -74,35 +66,49 @@ def _build_datasets(entries: Any) -> list[Dataset]:
 def encode_lineage_event(event: RunEvent) -> Mapping[str, Any]:
     """Serialise ``event`` into a mapping suitable for transport."""
 
-    def _serialise(instance: object, attribute: attr.Attribute[Any], value: Any) -> Any:  # noqa: ANN001
+    def _convert(value: object) -> object:
         if isinstance(value, Enum):
             return value.value
+        if isinstance(value, (RunEvent, Run, Job, Dataset)):
+            # Attrs-based models expose their data via ``__dict__`` so a shallow
+            # copy is sufficient before recursing into individual fields.
+            return {key: _convert(item) for key, item in value.__dict__.items()}
+        if isinstance(value, Mapping):
+            return {str(key): _convert(item) for key, item in value.items()}
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            return [_convert(item) for item in value]
         return value
 
-    payload = attr.asdict(event, value_serializer=_serialise)
-
-    def _prune(value: Any) -> Any:
-        if isinstance(value, dict):
-            pruned = {k: _prune(v) for k, v in value.items() if _should_keep(v)}
-            return pruned
-        if isinstance(value, list):
-            pruned_list = [_prune(item) for item in value]
-            return [item for item in pruned_list if _should_keep(item)]
-        if isinstance(value, tuple):
-            pruned_items = tuple(_prune(item) for item in value)
-            return tuple(item for item in pruned_items if _should_keep(item))
-        return value
-
-    def _should_keep(value: Any) -> bool:
+    def _prune(value: object) -> object | None:
         if value is None:
-            return False
+            return None
         if isinstance(value, dict):
-            return bool(value)
-        if isinstance(value, (list, tuple, set)):
-            return True
-        return True
+            cleaned: MutableMapping[str, object] = {}
+            for key, item in value.items():
+                normalised = _prune(item)
+                if normalised is None:
+                    continue
+                if isinstance(normalised, dict) and not normalised:
+                    continue
+                cleaned[str(key)] = normalised
+            return dict(cleaned)
+        if isinstance(value, list):
+            cleaned_list = []
+            for item in value:
+                normalised = _prune(item)
+                if normalised is None:
+                    continue
+                if isinstance(normalised, dict) and not normalised:
+                    continue
+                cleaned_list.append(normalised)
+            return cleaned_list
+        return value
 
-    return _prune(payload)
+    payload = _convert(event)
+    if isinstance(payload, dict):
+        payload.setdefault("schemaURL", DEFAULT_SCHEMA_URL)
+    pruned = _prune(payload)
+    return pruned if isinstance(pruned, Mapping) else {}
 
 
 def decode_lineage_event(raw: Mapping[str, Any] | None) -> RunEvent | None:
