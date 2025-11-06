@@ -47,7 +47,6 @@ from dc43_service_clients.governance.client.interface import GovernanceServiceCl
 from dc43_service_clients.governance import (
     PipelineContext,
     QualityAssessment,
-    decode_lineage_event,
     normalise_pipeline_context,
     GovernancePublicationMode,
     resolve_publication_mode,
@@ -2088,7 +2087,7 @@ class BaseReadExecutor:
         dataset_locator: Optional[DatasetLocatorStrategy],
         status_strategy: Optional[ReadStatusStrategy],
         pipeline_context: Optional[PipelineContextLike],
-        publication_mode: GovernancePublicationMode | str | None,
+        publication_mode: GovernancePublicationMode | str | None = None,
         plan: Optional[ResolvedReadPlan] = None,
     ) -> None:
         self.spark = spark
@@ -2678,7 +2677,7 @@ class BaseReadExecutor:
                     dataset_path = resolution.path
                     if dataset_path is None and resolution.load_paths:
                         dataset_path = resolution.load_paths[0]
-                event_payload = build_lineage_run_event(
+                lineage_event = build_lineage_run_event(
                     operation="read",
                     plan=self.plan,
                     pipeline_context=self.pipeline_context,
@@ -2694,9 +2693,6 @@ class BaseReadExecutor:
                     status=status,
                     expectation_plan=expectation_plan,
                 )
-                lineage_event = decode_lineage_event(event_payload)
-                if lineage_event is None:
-                    raise ValueError("lineage event payload is empty")
                 governance_client.publish_lineage_event(event=lineage_event)
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception(
@@ -3542,7 +3538,7 @@ class BaseWriteExecutor:
         violation_strategy: Optional[WriteViolationStrategy],
         streaming_intervention_strategy: Optional[StreamingInterventionStrategy],
         streaming_batch_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
-        publication_mode: GovernancePublicationMode | str | None,
+        publication_mode: GovernancePublicationMode | str | None = None,
         plan: Optional[ResolvedWritePlan] = None,
     ) -> None:
         self.df = df
@@ -4324,7 +4320,7 @@ class BaseWriteExecutor:
                 else:
                     lineage_contract_id = resolved_contract_id
                     lineage_contract_version = resolved_expected_version
-                event_payload = build_lineage_run_event(
+                lineage_event = build_lineage_run_event(
                     operation="write",
                     plan=governance_plan,
                     pipeline_context=self.pipeline_context,
@@ -4340,9 +4336,6 @@ class BaseWriteExecutor:
                     status=primary_status,
                     expectation_plan=expectation_plan,
                 )
-                lineage_event = decode_lineage_event(event_payload)
-                if lineage_event is None:
-                    raise ValueError("lineage event payload is empty")
                 governance_client.publish_lineage_event(event=lineage_event)
             except Exception:  # pragma: no cover - defensive logging
                 logger.exception(

@@ -6,7 +6,7 @@ from typing import Mapping
 import pytest
 
 from dc43_integrations.spark.open_data_lineage import build_lineage_run_event
-from dc43_integrations.tests.helpers.orders import build_orders_contract, materialise_orders
+from .helpers.orders import build_orders_contract, materialise_orders
 from dc43_integrations.spark.io import (
     GovernanceSparkReadRequest,
     GovernanceSparkWriteRequest,
@@ -45,6 +45,10 @@ class _LineageGovernanceStub:
         self.read_activities: list[tuple[ResolvedReadPlan, _Assessment]] = []
         self.write_activities: list[tuple[ResolvedWritePlan, _Assessment]] = []
         self.expectation_plan: list[Mapping[str, object]] = []
+        self.reviewed_outcomes: list[
+            tuple[ValidationResult, object, Mapping[str, object]]
+        ] = []
+        self.links: list[tuple[str, str | None, str, str]] = []
 
     def resolve_read_context(self, *, context: GovernanceReadContext) -> ResolvedReadPlan:  # type: ignore[override]
         assert self._read_plan is not None
@@ -72,7 +76,11 @@ class _LineageGovernanceStub:
         draft_on_violation: bool = False,
     ) -> _Assessment:  # type: ignore[override]
         payload = observations() if callable(observations) else observations
-        assessment = _Assessment(validation or ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={}))
+        if validation is None:
+            validation = ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={}, status="ok")
+        elif validation.status == "unknown":
+            validation.status = "ok"
+        assessment = _Assessment(validation)
         assessment.payload = payload  # type: ignore[attr-defined]
         return assessment
 
@@ -84,7 +92,11 @@ class _LineageGovernanceStub:
         observations,
     ) -> _Assessment:  # type: ignore[override]
         payload = observations() if callable(observations) else observations
-        assessment = _Assessment(validation or ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={}))
+        if validation is None:
+            validation = ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={}, status="ok")
+        elif validation.status == "unknown":
+            validation.status = "ok"
+        assessment = _Assessment(validation)
         assessment.payload = payload  # type: ignore[attr-defined]
         return assessment
 
@@ -96,6 +108,26 @@ class _LineageGovernanceStub:
 
     def publish_lineage_event(self, *, event: OpenDataLineageEvent) -> None:  # type: ignore[override]
         self.lineage_events.append(encode_lineage_event(event))
+
+    def review_validation_outcome(  # type: ignore[override]
+        self,
+        *,
+        validation: ValidationResult,
+        base_contract,
+        **kwargs,
+    ):
+        self.reviewed_outcomes.append((validation, base_contract, dict(kwargs)))
+        return base_contract
+
+    def link_dataset_contract(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str | None,
+        contract_id: str,
+        contract_version: str,
+    ) -> None:
+        self.links.append((dataset_id, dataset_version, contract_id, contract_version))
 
 
 def test_build_lineage_event_includes_facets(tmp_path: Path) -> None:
