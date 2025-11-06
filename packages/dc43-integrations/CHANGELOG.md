@@ -66,4 +66,7 @@
 - Governance write telemetry spans now honour dataset identifiers and versions
   from resolved plans, keeping OpenTelemetry attributes aligned with governance
   metadata even when the Spark locator infers contract-based fallbacks.
+- Governance write requests now retain locator-derived dataset identifiers when
+  linking contracts, so upgrading a contract no longer drops the existing
+  dataset association in local governance tests.
 
