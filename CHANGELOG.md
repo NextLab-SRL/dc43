@@ -79,6 +79,9 @@
 - Centralised the OpenLineage runtime dependency with the service clients so
   demo and developer installs inherit the lineage runtime transitively instead
   of duplicating requirements across packages.
+- Updated the CI workflow to install OpenLineage explicitly for jobs that skip
+  dependency resolution so demo and governance suites no longer fail when
+  optional extras are omitted.
 - Governance backends now honour data product version selectors and source
   contract requirements when resolving read/write contexts, failing fast on
   draft or mismatched products before registration occurs.

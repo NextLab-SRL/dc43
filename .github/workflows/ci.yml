@@ -49,6 +49,7 @@ jobs:
             install: |
               pip install -e . --no-deps
               pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+              pip install attrs openlineage-python
               pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
               pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
             test_command: "pytest packages/dc43-service-backends/tests -q"
@@ -56,6 +57,7 @@ jobs:
             install: |
               pip install -e . --no-deps
               pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+              pip install attrs openlineage-python
               pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
               pip install "dc43-service-backends[sql] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
               pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
@@ -64,6 +66,7 @@ jobs:
             install: |
               pip install -e . --no-deps
               pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+              pip install attrs openlineage-python
               pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
               pip install fastapi jinja2 python-multipart pyspark
               pip install "sqlalchemy>=2.0"
@@ -75,6 +78,7 @@ jobs:
             install: |
               pip install -e . --no-deps
               pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+              pip install attrs openlineage-python
               pip install fastapi jinja2 python-multipart uvicorn pyspark httpx "sqlalchemy>=2.0"
               pip install "open-data-contract-standard==3.0.2"
               pip install --no-deps "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
