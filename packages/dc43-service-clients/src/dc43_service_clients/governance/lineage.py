@@ -59,7 +59,7 @@ def _build_datasets(entries: Any) -> list[Dataset]:
         if not namespace or not name:
             continue
         facets = dict(_as_mapping(entry.get("facets")))
-        datasets.append(Dataset(namespace=namespace, name=name, facets=facets))
+        datasets.append(Dataset(namespace=namespace, name=name, facets=facets or None))
     return datasets
 
 
@@ -72,7 +72,29 @@ def encode_lineage_event(event: RunEvent) -> Mapping[str, Any]:
         return value
 
     payload = attr.asdict(event, value_serializer=_serialise)
-    return payload
+
+    def _prune(value: Any) -> Any:
+        if isinstance(value, dict):
+            pruned = {k: _prune(v) for k, v in value.items() if _should_keep(v)}
+            return pruned
+        if isinstance(value, list):
+            pruned_list = [_prune(item) for item in value]
+            return [item for item in pruned_list if _should_keep(item)]
+        if isinstance(value, tuple):
+            pruned_items = tuple(_prune(item) for item in value)
+            return tuple(item for item in pruned_items if _should_keep(item))
+        return value
+
+    def _should_keep(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, dict):
+            return bool(value)
+        if isinstance(value, (list, tuple, set)):
+            return True
+        return True
+
+    return _prune(payload)
 
 
 def decode_lineage_event(raw: Mapping[str, Any] | None) -> RunEvent | None:
@@ -91,7 +113,7 @@ def decode_lineage_event(raw: Mapping[str, Any] | None) -> RunEvent | None:
     run_payload = dict(_as_mapping(raw.get("run")))
     run_id = str(run_payload.get("runId") or run_payload.get("run_id") or "").strip()
     run_facets = dict(_as_mapping(run_payload.get("facets")))
-    run = Run(runId=_ensure_uuid(run_id), facets=run_facets)
+    run = Run(runId=_ensure_uuid(run_id), facets=run_facets or None)
 
     job_payload = dict(_as_mapping(raw.get("job")))
     namespace = str(
@@ -104,7 +126,7 @@ def decode_lineage_event(raw: Mapping[str, Any] | None) -> RunEvent | None:
     if not namespace or not name:
         raise ValueError("lineage event requires job namespace and name")
     job_facets = dict(_as_mapping(job_payload.get("facets")))
-    job = Job(namespace=namespace, name=name, facets=job_facets)
+    job = Job(namespace=namespace, name=name, facets=job_facets or None)
 
     inputs = _build_datasets(raw.get("inputs"))
     outputs = _build_datasets(raw.get("outputs"))

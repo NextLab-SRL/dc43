@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from enum import Enum
-from typing import Mapping, MutableMapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 
 class GovernancePublicationMode(str, Enum):
@@ -82,16 +82,16 @@ def resolve_publication_mode(
         return GovernancePublicationMode.from_value(explicit, default=default)
 
     resolved_env = env or os.environ
-    candidates: MutableMapping[str, str] = {}
+    candidates: list[str] = []
+    env_value = resolved_env.get(_ENVIRONMENT_KEY)
+    if env_value:
+        candidates.append(env_value)
     if config:
         value = _lookup_configuration(config)
         if value:
-            candidates["config"] = value
-    env_value = resolved_env.get(_ENVIRONMENT_KEY)
-    if env_value:
-        candidates[_ENVIRONMENT_KEY] = env_value
+            candidates.append(value)
 
-    for value in candidates.values():
+    for value in candidates:
         try:
             return GovernancePublicationMode.from_value(value, default=default)
         except ValueError:
