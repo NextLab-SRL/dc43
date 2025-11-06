@@ -6903,7 +6903,11 @@ def _spark_stub_for_selection(
         summary = ctx.summary
         server_raw = summary.get("server") or {}
         server = dict(server_raw) if isinstance(server_raw, Mapping) else {}
-        location = server.get("path") or server.get("dataset")
+        location = (
+            server.get("dataset")
+            or server.get("table")
+            or server.get("path")
+        )
         fmt = server.get("format")
         binding = entry.get("data_product") or {}
         base_name = _sanitise_identifier(summary["id"], f"input{index}")
@@ -6987,10 +6991,11 @@ def _spark_stub_for_selection(
 
         lines.append("        },")
         table_value = server.get("dataset") or server.get("table")
+        path_value = server.get("path") if not table_value else None
         if table_value:
             lines.append(f"        table={table_value!r},")
-        if server.get("path"):
-            lines.append(f"        path={server['path']!r},")
+        if path_value:
+            lines.append(f"        path={path_value!r},")
         if fmt:
             lines.append(f"        format={fmt!r},")
         lines.append("    ),")
@@ -7049,7 +7054,11 @@ def _spark_stub_for_selection(
         base_name = _sanitise_identifier(summary["id"], f"output{index}")
         validation_var = f"{base_name}_validation"
         status_var = f"{base_name}_status"
-        location = server.get("path") or server.get("dataset")
+        location = (
+            server.get("dataset")
+            or server.get("table")
+            or server.get("path")
+        )
 
         lines.extend(
             [
@@ -7157,10 +7166,11 @@ def _spark_stub_for_selection(
             write_lines.append(f"            \"dataset_format\": {fmt!r},")
         write_lines.append("        },")
         table_value = server.get("dataset") or server.get("table")
+        path_value = server.get("path") if not table_value else None
         if table_value:
             write_lines.append(f"        table={table_value!r},")
-        if server.get("path"):
-            write_lines.append(f"        path={server['path']!r},")
+        if path_value:
+            write_lines.append(f"        path={path_value!r},")
         if fmt:
             write_lines.append(f"        format={fmt!r},")
         write_lines.extend(
