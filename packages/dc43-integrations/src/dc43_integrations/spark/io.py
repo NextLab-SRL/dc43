@@ -3835,11 +3835,11 @@ class BaseWriteExecutor:
         dataset_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
         dataset_version = resolution.dataset_version
         if governance_plan is not None:
-            if governance_plan.dataset_id and not dataset_id:
+            if governance_plan.dataset_id:
                 dataset_id = governance_plan.dataset_id
-            if governance_plan.dataset_version and not dataset_version:
+            if governance_plan.dataset_version:
                 dataset_version = governance_plan.dataset_version
-            if governance_plan.dataset_format and format is None:
+            if governance_plan.dataset_format:
                 format = governance_plan.dataset_format
 
         pre_validation_warnings: list[str] = []

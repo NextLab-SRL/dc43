@@ -62,3 +62,8 @@
   `DefaultReadStatusStrategy(allowed_data_product_statuses=("active", "draft"))`)
   behaves consistently with the contract-only helpers.
 
+### Fixed
+- Governance write telemetry spans now honour dataset identifiers and versions
+  from resolved plans, keeping OpenTelemetry attributes aligned with governance
+  metadata even when the Spark locator infers contract-based fallbacks.
+

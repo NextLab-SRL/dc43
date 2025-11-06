@@ -96,6 +96,9 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Governance write telemetry spans now prefer dataset identifiers and versions
+  from resolved governance plans, keeping OpenTelemetry attributes aligned with
+  pipeline metadata and avoiding contract-id fallbacks in tests.
 - Declared ``attrs`` as a core dependency so OpenLineage governance helpers
   import cleanly without manual dependency installs.
 - Integration helper transformation details now surface linked data product

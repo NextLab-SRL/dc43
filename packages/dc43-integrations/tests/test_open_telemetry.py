@@ -207,7 +207,7 @@ def test_open_telemetry_read_emits_span(
         contract_version=contract.version,
         dataset_id="otel.orders",
         dataset_version="2024-01-01",
-        dataset_format="delta",
+        dataset_format="parquet",
         input_binding=binding,
         pipeline_context={"job_name": "orders-read-otel"},
         bump="minor",
@@ -218,7 +218,7 @@ def test_open_telemetry_read_emits_span(
     monkeypatch.setenv("DC43_GOVERNANCE_PUBLICATION_MODE", "open_telemetry")
     request = GovernanceSparkReadRequest(
         context=GovernanceReadContext(contract={"contract_id": contract.id, "contract_version": contract.version}),
-        format="delta",
+        format="parquet",
         path=str(dataset_path),
     )
     request.context.pipeline_context = normalise_pipeline_context({"run_id": "otel-read"})
