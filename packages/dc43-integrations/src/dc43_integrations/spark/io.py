@@ -62,6 +62,7 @@ from .data_quality import (
     collect_observations,
 )
 from .open_data_lineage import build_lineage_run_event
+from .open_telemetry import record_telemetry_span
 from .validation import apply_contract
 from dc43_service_backends.core.odcs import contract_identity, custom_properties_dict, ensure_version
 from dc43_service_backends.core.versioning import SemVer, version_key
@@ -2137,6 +2138,10 @@ class BaseReadExecutor:
         self.open_data_lineage_only = (
             self.publication_mode is GovernancePublicationMode.OPEN_DATA_LINEAGE
         )
+        self.open_telemetry_only = (
+            self.publication_mode is GovernancePublicationMode.OPEN_TELEMETRY
+        )
+        self._skip_governance_activity = self.open_data_lineage_only or self.open_telemetry_only
         self._last_read_resolution: Optional[DatasetResolution] = None
 
     @staticmethod
@@ -2648,7 +2653,7 @@ class BaseReadExecutor:
         status = assessment.status
         if status is None and assessment.validation is not None:
             status = assessment.validation
-        if self.plan is not None and not self.open_data_lineage_only:
+        if self.plan is not None and not self._skip_governance_activity:
             try:
                 governance_client.register_read_activity(
                     plan=self.plan,
@@ -2699,6 +2704,40 @@ class BaseReadExecutor:
                     "Failed to publish lineage run for %s:%s",
                     cid,
                     cver,
+                )
+        if self.open_telemetry_only:
+            try:
+                resolution = self._last_read_resolution
+                dataset_format = None
+                dataset_path = None
+                dataset_table = None
+                if resolution is not None:
+                    dataset_format = resolution.format
+                    dataset_table = resolution.table
+                    dataset_path = resolution.path
+                    if dataset_path is None and resolution.load_paths:
+                        dataset_path = resolution.load_paths[0]
+                record_telemetry_span(
+                    operation="read",
+                    plan=self.plan,
+                    pipeline_context=self.pipeline_context,
+                    contract_id=cid,
+                    contract_version=cver,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    dataset_format=dataset_format or self.user_format,
+                    table=dataset_table or self.user_table,
+                    path=dataset_path or self.user_path,
+                    binding=self.dp_binding,
+                    validation=validation,
+                    status=status,
+                    expectation_plan=expectation_plan,
+                )
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to record telemetry span for %s:%s",
+                    cid,
+                    dataset_id,
                 )
         if status:
             logger.info("DQ status for %s@%s: %s", dataset_id, dataset_version, status.status)
@@ -3584,6 +3623,10 @@ class BaseWriteExecutor:
         self.open_data_lineage_only = (
             self.publication_mode is GovernancePublicationMode.OPEN_DATA_LINEAGE
         )
+        self.open_telemetry_only = (
+            self.publication_mode is GovernancePublicationMode.OPEN_TELEMETRY
+        )
+        self._skip_governance_activity = self.open_data_lineage_only or self.open_telemetry_only
         self._last_write_resolution: Optional[DatasetResolution] = None
         strategy = violation_strategy or NoOpWriteViolationStrategy()
         self.data_product_status_enforce = enforce
@@ -4282,7 +4325,7 @@ class BaseWriteExecutor:
             governance_plan is not None
             and governance_client is not None
             and assessment is not None
-            and not self.open_data_lineage_only
+            and not self._skip_governance_activity
         ):
             try:
                 governance_client.register_write_activity(
@@ -4341,6 +4384,44 @@ class BaseWriteExecutor:
                 logger.exception(
                     "Failed to publish lineage run for %s",
                     lineage_contract_id,
+                )
+        if self.open_telemetry_only:
+            try:
+                resolution = self._last_write_resolution
+                dataset_format = format
+                dataset_table = table
+                dataset_path = path
+                if resolution is not None:
+                    if resolution.format:
+                        dataset_format = resolution.format
+                    if resolution.table:
+                        dataset_table = resolution.table
+                    if resolution.path:
+                        dataset_path = resolution.path
+                telemetry_contract_id = contract.id if contract is not None else resolved_contract_id
+                telemetry_contract_version = (
+                    contract.version if contract is not None else resolved_expected_version
+                )
+                record_telemetry_span(
+                    operation="write",
+                    plan=governance_plan,
+                    pipeline_context=self.pipeline_context,
+                    contract_id=telemetry_contract_id,
+                    contract_version=telemetry_contract_version,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    dataset_format=dataset_format,
+                    table=dataset_table,
+                    path=dataset_path,
+                    binding=self.dp_output_binding,
+                    validation=result,
+                    status=primary_status,
+                    expectation_plan=expectation_plan,
+                )
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to record telemetry span for %s",
+                    resolved_contract_id,
                 )
 
         if streaming_queries:

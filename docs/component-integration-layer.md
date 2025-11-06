@@ -24,6 +24,9 @@ continuing or blocking the pipeline.
    persist draft proposals alongside the dataset version.
 6. **Expose ergonomic APIs** for orchestrators—wrapping multiple
    component calls behind a simple read/write interface.
+7. **Publish observability signals** by emitting Open Data Lineage
+   events or OpenTelemetry spans when the configured publication mode
+   requests them.
 
 ```mermaid
 flowchart TD
@@ -38,6 +41,10 @@ flowchart TD
     Governance --> Steward["Compatibility matrix / steward tooling"]
     Governance --> LinkHooks["Dataset↔contract link hooks"]
     LinkHooks --> Targets["Unity Catalog / metadata targets"]
+    Adapter -->|publish| Lineage["Open Data Lineage events"]
+    Adapter -->|trace| Telemetry["OpenTelemetry spans"]
+    Lineage --> LineageSinks["Lineage collectors"]
+    Telemetry --> TelemetrySinks["Observability backends"]
     Steward -->|verdict| Adapter
 ```
 
@@ -90,6 +97,30 @@ to Collibra without code changes.
 > Run `pytest packages/dc43-integrations/tests/test_integration.py -k
 > data_product_pipeline_roundtrip -q` to exercise the full
 > “data product → intermediate contract → data product” hand-off.
+
+## Publication modes
+
+Integrations honour the governance publication mode so teams can plug dc43 into
+their lineage or observability stacks without forking the orchestration code.
+The mode can be set via:
+
+- the `publication_mode` field on governance requests and helper functions,
+- the `DC43_GOVERNANCE_PUBLICATION_MODE` environment variable, or
+- runtime configuration keys such as `dc43.governance.publicationMode`,
+  `dc43.governance.publication_mode`, or `governance.publication.mode`.
+
+When `open_data_lineage` is active the adapter serialises governance plans into
+Open Data Lineage run events instead of registering governance activities. The
+events capture dataset identifiers, ODPS bindings, pipeline context, and
+validation results so downstream tooling can rebuild the full read/write graph.
+
+Selecting `open_telemetry` produces OpenTelemetry spans with the same
+information. This mode also skips governance activity registration; instead, the
+spans contain attributes for contracts, datasets, bindings, pipeline context,
+and validation outcomes, plus events detailing expectation plans. Both modes
+continue to call the governance service for compatibility decisions so the
+integration layer retains enforcement semantics while streaming richer signals
+to external systems.
 
 ## Implementation catalog
 
