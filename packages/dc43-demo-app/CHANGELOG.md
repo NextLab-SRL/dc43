@@ -18,6 +18,6 @@
 - Demo DLT walkthroughs now import the renamed
   ``governed_expectations``/``governed_table`` helpers so notebook snippets and
   generated copy match the governance-first annotations.
-- Declared an explicit dependency on ``openlineage-python`` so lineage-powered
-  demos install the required client library without manual setup.
+- Rely on the service-client dependency graph to pull in ``openlineage-python``
+  so the demo no longer duplicates the lineage runtime requirement.
 

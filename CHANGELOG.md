@@ -76,9 +76,9 @@
   explicit version constraints for input/output bindings so pipelines can
   block on draft products by default or target specific releases when
   required.
-- Added explicit OpenLineage dependencies to the demo and developer extras so
-  CI and local installs always include the lineage runtime required by the
-  new governance flow.
+- Centralised the OpenLineage runtime dependency with the service clients so
+  demo and developer installs inherit the lineage runtime transitively instead
+  of duplicating requirements across packages.
 - Governance backends now honour data product version selectors and source
   contract requirements when resolving read/write contexts, failing fast on
   draft or mismatched products before registration occurs.

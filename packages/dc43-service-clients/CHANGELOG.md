@@ -41,6 +41,7 @@
   `dc43-service-clients` distribution no longer requires
   `dc43_service_backends` just to expose its top-level helpers.
 - Governance lineage helpers once again import the OpenLineage client eagerly
-  so interface mismatches surface immediately, relying on the demo packaging to
-  provide the dependency in development environments.
+  so interface mismatches surface immediately, and the package now declares a
+  direct ``openlineage-python`` dependency so downstream installs receive the
+  runtime transitively.
 
