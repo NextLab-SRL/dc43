@@ -7,6 +7,7 @@ from typing import Callable, Mapping, Optional, Sequence, TYPE_CHECKING
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
+from dc43_service_clients.governance.lineage import OpenDataLineageEvent
 from dc43_service_clients.governance.models import (
     DatasetContractStatus,
     GovernanceCredentials,
@@ -303,6 +304,13 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
         assessment: QualityAssessment,
     ) -> None:
         self._backend.register_write_activity(plan=plan, assessment=assessment)
+
+    def publish_lineage_event(
+        self,
+        *,
+        event: OpenDataLineageEvent,
+    ) -> None:
+        self._backend.publish_lineage_event(event=event)
 
 
 def build_local_governance_service(

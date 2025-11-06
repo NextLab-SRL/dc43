@@ -24,6 +24,7 @@ from dc43_service_clients.governance.models import (
     GovernanceReadContext,
     GovernanceWriteContext,
 )
+from dc43_service_clients.governance.lineage import decode_lineage_event
 from dc43_service_clients.odps import (
     DataProductInputPort,
     DataProductOutputPort,
@@ -333,6 +334,69 @@ def test_resolve_read_context_allows_draft_when_permitted(governance_fixture):
     backend.register_read_activity(plan=plan, assessment=assessment)
 
 
+def test_publish_lineage_event_registers_links(governance_fixture):
+    backend, data_product_backend, contract = governance_fixture
+
+    dataset_id = "analytics.orders"
+    dataset_version = "2024-01-01"
+    run_id = "44695653-fc1a-4ec6-8c2a-6c6a44ec5ad9"
+    lineage_payload = {
+        "eventType": "COMPLETE",
+        "eventTime": "2024-01-01T00:00:00Z",
+        "producer": "https://dc43.example/tests",
+        "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#",
+        "run": {
+            "runId": run_id,
+            "facets": {
+                "dc43PipelineContext": {"context": {"job": "orders.read"}},
+                "dc43Validation": {"status": "ok", "ok": True},
+            },
+        },
+        "job": {"namespace": "dc43", "name": "orders-job"},
+        "inputs": [
+            {
+                "namespace": "dc43",
+                "name": dataset_id,
+                "facets": {
+                    "dc43Dataset": {
+                        "datasetId": dataset_id,
+                        "datasetVersion": dataset_version,
+                        "operation": "read",
+                    },
+                    "dc43Contract": {
+                        "contractId": contract.id,
+                        "contractVersion": contract.version,
+                    },
+                    "dc43DataProduct": {
+                        "dataProduct": "dp.analytics",
+                        "portName": "orders",
+                    },
+                    "version": {"datasetVersion": dataset_version},
+                },
+            }
+        ],
+        "outputs": [],
+    }
+
+    event = decode_lineage_event(lineage_payload)
+    assert event is not None
+
+    backend.publish_lineage_event(event=event)
+
+    assert data_product_backend.last_input_call is not None
+    assert backend.get_linked_contract_version(
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+    ) == f"{contract.id}:{contract.version}"
+
+    activity = backend.get_pipeline_activity(
+        dataset_id=dataset_id,
+        dataset_version=dataset_version,
+    )
+    assert activity, "pipeline activity should include lineage event"
+    lineage_entry = activity[0].get("lineage_event")
+    assert isinstance(lineage_entry, Mapping)
+    assert lineage_entry.get("run", {}).get("runId") == run_id
 def test_resolve_read_context_enforces_source_contract_version(governance_fixture):
     backend, _, _ = governance_fixture
 

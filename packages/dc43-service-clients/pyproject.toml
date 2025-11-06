@@ -18,6 +18,7 @@ classifiers = [
 ]
 dependencies = [
   "open-data-contract-standard==3.0.2",
+  "openlineage-python>=1.39.0",
   # Ensure "pytest" is always available so CI jobs that install the package
   # without extras can still execute the bundled test suite.
   "pytest>=7.0",

@@ -28,6 +28,7 @@ from dc43_service_clients.data_quality.transport import (
     decode_validation_result,
     encode_validation_result,
 )
+from dc43_service_clients.governance.lineage import decode_lineage_event
 from dc43_service_clients.governance.transport import (
     decode_contract,
     decode_credentials,
@@ -139,6 +140,10 @@ class _GovernancePlanEvaluatePayload(BaseModel):
 class _GovernanceRegisterPayload(BaseModel):
     plan: Mapping[str, Any]
     assessment: Mapping[str, Any]
+
+
+class _GovernanceLineagePayload(BaseModel):
+    event: Mapping[str, Any]
 
 
 def _encode_assessment(assessment: QualityAssessment) -> Mapping[str, Any]:
@@ -444,6 +449,16 @@ def build_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         assessment = decode_quality_assessment(payload.assessment)
         governance_backend.register_write_activity(plan=plan, assessment=assessment)
+
+    @router.post("/governance/lineage", status_code=204)
+    def publish_lineage(payload: _GovernanceLineagePayload) -> None:
+        try:
+            event = decode_lineage_event(payload.event)
+        except ValueError as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if event is None:
+            raise HTTPException(status_code=400, detail="lineage event payload is required")
+        governance_backend.publish_lineage_event(event=event)
 
     @router.post("/governance/evaluate")
     def evaluate_dataset(payload: _GovernanceEvaluatePayload) -> Mapping[str, Any]:

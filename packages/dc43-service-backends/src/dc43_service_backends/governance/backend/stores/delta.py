@@ -126,6 +126,7 @@ class DeltaGovernanceStore(GovernanceStore):
             StructField("contract_version", StringType(), True),
             StructField("recorded_at", StringType(), False),
             StructField("payload", StringType(), False),
+            StructField("lineage_event", StringType(), True),
         ]
     )
 
@@ -429,6 +430,7 @@ class DeltaGovernanceStore(GovernanceStore):
         dataset_id: str,
         dataset_version: str,
         event: Mapping[str, object],
+        lineage_event: Mapping[str, object] | None = None,
     ) -> None:
         payload = {
             "dataset_id": dataset_id,
@@ -437,6 +439,7 @@ class DeltaGovernanceStore(GovernanceStore):
             "contract_version": contract_version,
             "recorded_at": self._now(),
             "payload": json.dumps(dict(event)),
+            "lineage_event": json.dumps(dict(lineage_event)) if lineage_event is not None else None,
         }
         df = self._spark.createDataFrame([payload])
         folder = self._table_path("activity") if self._base_path else None
@@ -484,6 +487,14 @@ class DeltaGovernanceStore(GovernanceStore):
                 event_payload = {}
             if isinstance(event_payload, dict):
                 record.setdefault("events", []).append(event_payload)
+            lineage_raw = getattr(row, "lineage_event", None)
+            if lineage_raw:
+                try:
+                    lineage_payload = json.loads(lineage_raw)
+                except json.JSONDecodeError:
+                    lineage_payload = None
+                if isinstance(lineage_payload, dict):
+                    record["lineage_event"] = lineage_payload
         ordered = sorted(aggregated.values(), key=lambda item: str(item.get("dataset_version", "")))
         if dataset_version is not None:
             return [ordered[0]] if ordered else []

@@ -19,6 +19,7 @@ from open_data_contract_standard.model import (  # type: ignore
 from dc43_service_backends.contracts.backend.stores import FSContractStore
 from dc43_service_clients.contracts import LocalContractServiceClient
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
+from dc43_service_clients.governance.lineage import OpenDataLineageEvent, encode_lineage_event
 from dc43_integrations.spark.io import (
     StaticDatasetLocator,
     StreamingInterventionContext,
@@ -91,6 +92,7 @@ class RecordingGovernanceService:
         self.evaluate_calls: list[dict[str, object]] = []
         self.review_calls: list[dict[str, object]] = []
         self.link_calls: list[dict[str, object]] = []
+        self.lineage_calls: list[Mapping[str, object]] = []
         self._contracts: dict[tuple[str, str], OpenDataContractStandard] = {}
         if contracts:
             self._contracts.update(contracts)
@@ -171,6 +173,9 @@ class RecordingGovernanceService:
         if self._contract_service is not None:
             return list(self._contract_service.list_versions(contract_id))
         return []
+
+    def publish_lineage_event(self, *, event: OpenDataLineageEvent) -> None:  # type: ignore[override]
+        self.lineage_calls.append(encode_lineage_event(event))
 
 
 def _stream_contract(tmp_path: Path) -> tuple[OpenDataContractStandard, LocalContractServiceClient]:

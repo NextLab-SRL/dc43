@@ -35,6 +35,10 @@ from dc43_service_clients.data_quality.client.remote import RemoteDataQualitySer
 from dc43_service_clients.data_quality.models import ValidationResult
 from dc43_service_clients.data_quality.transport import encode_validation_result
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
+from dc43_service_clients.governance.lineage import (
+    decode_lineage_event,
+    encode_lineage_event,
+)
 from dc43_service_clients.governance import (
     ContractReference,
     GovernanceReadContext,
@@ -99,6 +103,7 @@ class _ServiceBackendMock:
         self._governance_status: dict[tuple[str, str], ValidationResult] = {}
         self._pipeline_activity: list[dict[str, object]] = []
         self._metrics: list[dict[str, object]] = []
+        self._lineage_events: list[Mapping[str, object]] = []
         self._data_products = LocalDataProductServiceBackend()
         self._data_products.register_output_port(
             data_product_id="dp.analytics",
@@ -460,6 +465,13 @@ class _ServiceBackendMock:
                         "dataset_version": key[1],
                     }
                 )
+            return httpx.Response(status_code=204)
+        if path == "/governance/lineage" and method == "POST":
+            payload = self._read_json(request)
+            event_payload = payload.get("event") if isinstance(payload, Mapping) else None
+            if not isinstance(event_payload, Mapping):
+                return httpx.Response(status_code=400, json={"detail": "Missing lineage event"})
+            self._lineage_events.append(dict(event_payload))
             return httpx.Response(status_code=204)
         if path == "/governance/evaluate" and method == "POST":
             payload = self._read_json(request)
@@ -962,3 +974,64 @@ def test_http_clients_require_authentication(service_backend):
             client.list_versions(contract.id)
     finally:
         client.close()
+
+
+def test_lineage_event_encode_decode_round_trip() -> None:
+    payload = {
+        "eventType": "COMPLETE",
+        "eventTime": "2024-01-01T00:00:00Z",
+        "producer": "https://dc43.example/producer",
+        "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#",
+        "run": {"runId": "44695653-fc1a-4ec6-8c2a-6c6a44ec5ad9", "facets": {"custom": {"value": "x"}}},
+        "job": {"namespace": "dc43", "name": "orders"},
+        "inputs": [
+            {
+                "namespace": "dc43",
+                "name": "orders",
+                "facets": {"dc43Dataset": {"datasetId": "orders", "datasetVersion": "v1"}},
+            }
+        ],
+        "outputs": [],
+    }
+    event = decode_lineage_event(payload)
+    assert event is not None
+    encoded = encode_lineage_event(event)
+    assert encoded == payload
+
+
+def test_remote_governance_client_publishes_lineage(http_clients) -> None:
+    governance_client: RemoteGovernanceServiceClient = http_clients["governance"]
+    backend: _ServiceBackendMock = http_clients["backend"]
+
+    run_id = "44695653-fc1a-4ec6-8c2a-6c6a44ec5ad9"
+    lineage_payload = {
+        "eventType": "COMPLETE",
+        "eventTime": "2024-01-02T12:00:00Z",
+        "producer": "https://dc43.example/integrations",
+        "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#",
+        "run": {"runId": run_id, "facets": {"dc43PipelineContext": {"context": {"job": "orders"}}}},
+        "job": {"namespace": "dc43", "name": "orders-job"},
+        "inputs": [
+            {
+                "namespace": "dc43",
+                "name": "orders-dataset",
+                "facets": {
+                    "dc43Dataset": {
+                        "datasetId": "orders",
+                        "datasetVersion": "2024-01-02",
+                        "operation": "read",
+                    }
+                },
+            }
+        ],
+        "outputs": [],
+    }
+
+    event = decode_lineage_event(lineage_payload)
+    assert event is not None
+
+    governance_client.publish_lineage_event(event=event)
+
+    assert backend._lineage_events, "lineage event should be forwarded to backend"
+    stored = backend._lineage_events[-1]
+    assert stored.get("run", {}).get("runId") == run_id

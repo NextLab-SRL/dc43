@@ -174,6 +174,7 @@ class InMemoryGovernanceStore(GovernanceStore):
         dataset_id: str,
         dataset_version: str,
         event: Mapping[str, object],
+        lineage_event: Mapping[str, object] | None = None,
     ) -> None:
         recorded_at = str(
             event.get("recorded_at")
@@ -195,6 +196,8 @@ class InMemoryGovernanceStore(GovernanceStore):
         payload.setdefault("recorded_at", recorded_at)
         events.append(payload)
         entry["events"] = events
+        if lineage_event is not None:
+            entry["lineage_event"] = dict(lineage_event)
         entry["contract_id"] = contract_id
         entry["contract_version"] = contract_version
         entry["dataset_id"] = dataset_id
@@ -231,6 +234,9 @@ class InMemoryGovernanceStore(GovernanceStore):
                     for event in events
                     if isinstance(event, Mapping)
                 ]
+            lineage_payload = record.get("lineage_event")
+            if isinstance(lineage_payload, Mapping):
+                entry["lineage_event"] = dict(lineage_payload)
             return entry
 
         if dataset_version is not None:

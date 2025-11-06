@@ -18,6 +18,7 @@ from typing import (
 )
 
 from dc43_service_clients.governance.client.interface import GovernanceServiceClient
+from dc43_service_clients.governance import GovernancePublicationMode, resolve_publication_mode
 from dc43_service_clients.governance.models import GovernanceReadContext
 if TYPE_CHECKING:  # pragma: no cover - typing-only imports
     from typing_extensions import TypeAlias
@@ -123,6 +124,7 @@ class DLTContractBinding:
     contract_version: str
     expectation_plan: Tuple[Mapping[str, Any], ...]
     expectations: DLTExpectations
+    publication_mode: GovernancePublicationMode
 
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -211,6 +213,7 @@ def _prepare_contract_binding(
     governance_service: GovernanceServiceClient,
     context: GovernanceReadContext,
     expectation_predicates: Mapping[str, str] | None,
+    publication_mode: GovernancePublicationMode | str | None = None,
 ) -> DLTContractBinding:
     plan = governance_service.resolve_read_context(context=context)
     expectation_plan = _freeze_expectation_plan(
@@ -223,11 +226,13 @@ def _prepare_contract_binding(
         expectation_plan,
         fallback_predicates=expectation_predicates,
     )
+    resolved_mode = resolve_publication_mode(explicit=publication_mode)
     return DLTContractBinding(
         contract_id=plan.contract_id,
         contract_version=plan.contract_version,
         expectation_plan=expectation_plan,
         expectations=expectations,
+        publication_mode=resolved_mode,
     )
 
 
