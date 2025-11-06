@@ -8,6 +8,9 @@
   configuration, providing a single entry point for application bootstrap.
 
 ### Changed
+- Declared a direct dependency on ``attrs`` so OpenLineage support works out of
+  the box for applications that import governance clients without installing
+  the full OpenLineage stack separately.
 - ODPS helpers now prefer the shared `dc43-core` package when available so
   clients align with the backend implementation without loading service
   modules.
