@@ -3832,15 +3832,19 @@ class BaseWriteExecutor:
         path = resolution.path
         table = resolution.table
         format = resolution.format
-        dataset_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
-        dataset_version = resolution.dataset_version
+        plan_dataset_id: Optional[str] = None
+        plan_dataset_version: Optional[str] = None
+        plan_dataset_format: Optional[str] = None
         if governance_plan is not None:
-            if governance_plan.dataset_id and not dataset_id:
-                dataset_id = governance_plan.dataset_id
-            if governance_plan.dataset_version and not dataset_version:
-                dataset_version = governance_plan.dataset_version
-            if governance_plan.dataset_format and format is None:
-                format = governance_plan.dataset_format
+            plan_dataset_id = governance_plan.dataset_id or None
+            plan_dataset_version = governance_plan.dataset_version or None
+            plan_dataset_format = governance_plan.dataset_format or None
+        dataset_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
+        if dataset_id is None:
+            dataset_id = plan_dataset_id
+        dataset_version = resolution.dataset_version or plan_dataset_version
+        if plan_dataset_format:
+            format = plan_dataset_format
 
         pre_validation_warnings: list[str] = []
         if contract:
@@ -4402,15 +4406,18 @@ class BaseWriteExecutor:
                 telemetry_contract_version = (
                     contract.version if contract is not None else resolved_expected_version
                 )
+                telemetry_dataset_id = plan_dataset_id or dataset_id
+                telemetry_dataset_version = plan_dataset_version or dataset_version
+                telemetry_dataset_format = plan_dataset_format or dataset_format
                 record_telemetry_span(
                     operation="write",
                     plan=governance_plan,
                     pipeline_context=self.pipeline_context,
                     contract_id=telemetry_contract_id,
                     contract_version=telemetry_contract_version,
-                    dataset_id=dataset_id,
-                    dataset_version=dataset_version,
-                    dataset_format=dataset_format,
+                    dataset_id=telemetry_dataset_id,
+                    dataset_version=telemetry_dataset_version,
+                    dataset_format=telemetry_dataset_format,
                     table=dataset_table,
                     path=dataset_path,
                     binding=self.dp_output_binding,

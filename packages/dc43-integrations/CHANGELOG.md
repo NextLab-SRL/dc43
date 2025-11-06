@@ -8,6 +8,8 @@
   the shared builders from the new `dc43-core` package.
 
 ### Changed
+- Aligned the test extra to require `databricks-dlt` `<0.3` so the demo and
+  integration suites install a compatible PySpark stack during CI runs.
 - `generate_contract_dataset` now returns only an in-memory DataFrame so tests
   can persist via the regular governance write helpers when needed, and it
   inspects contract schemas directly instead of calling backend helpers.
@@ -59,4 +61,12 @@
   flags to the governance service so opting into draft products (for example via
   `DefaultReadStatusStrategy(allowed_data_product_statuses=("active", "draft"))`)
   behaves consistently with the contract-only helpers.
+
+### Fixed
+- Governance write telemetry spans now honour dataset identifiers and versions
+  from resolved plans, keeping OpenTelemetry attributes aligned with governance
+  metadata even when the Spark locator infers contract-based fallbacks.
+- Governance write requests now retain locator-derived dataset identifiers when
+  linking contracts, so upgrading a contract no longer drops the existing
+  dataset association in local governance tests.
 

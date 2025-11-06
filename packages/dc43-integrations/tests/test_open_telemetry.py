@@ -88,6 +88,7 @@ class _TelemetryGovernanceStub:
         self.read_activities: list[tuple[ResolvedReadPlan, _Assessment]] = []
         self.write_activities: list[tuple[ResolvedWritePlan, _Assessment]] = []
         self.expectation_plan: list[Mapping[str, object]] = []
+        self.linked_contracts: list[Mapping[str, str]] = []
 
     def resolve_read_context(self, *, context: GovernanceReadContext) -> ResolvedReadPlan:  # type: ignore[override]
         assert self._read_plan is not None
@@ -159,6 +160,23 @@ class _TelemetryGovernanceStub:
     def register_write_activity(self, *, plan: ResolvedWritePlan, assessment: _Assessment) -> None:  # type: ignore[override]
         self.write_activities.append((plan, assessment))
 
+    def link_dataset_contract(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        contract_id: str,
+        contract_version: str,
+    ) -> None:  # type: ignore[override]
+        self.linked_contracts.append(
+            {
+                "dataset_id": dataset_id,
+                "dataset_version": dataset_version,
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+            }
+        )
+
 
 @pytest.fixture
 def _patched_tracer(monkeypatch: pytest.MonkeyPatch) -> _RecordingTracer:
@@ -189,7 +207,7 @@ def test_open_telemetry_read_emits_span(
         contract_version=contract.version,
         dataset_id="otel.orders",
         dataset_version="2024-01-01",
-        dataset_format="delta",
+        dataset_format="parquet",
         input_binding=binding,
         pipeline_context={"job_name": "orders-read-otel"},
         bump="minor",
@@ -200,7 +218,7 @@ def test_open_telemetry_read_emits_span(
     monkeypatch.setenv("DC43_GOVERNANCE_PUBLICATION_MODE", "open_telemetry")
     request = GovernanceSparkReadRequest(
         context=GovernanceReadContext(contract={"contract_id": contract.id, "contract_version": contract.version}),
-        format="delta",
+        format="parquet",
         path=str(dataset_path),
     )
     request.context.pipeline_context = normalise_pipeline_context({"run_id": "otel-read"})

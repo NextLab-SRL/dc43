@@ -28,7 +28,13 @@ dependencies = [
 
 [project.optional-dependencies]
 spark = ["dc43-integrations[spark]>=0.28.0.0"]
-test = []
+test = [
+  "dc43-service-clients[test]>=0.28.0.0",
+  "dc43-service-backends[test]>=0.28.0.0",
+  "dc43-integrations[spark]>=0.28.0.0",
+  "pyspark>=3.4",
+  "httpx>=0.24",
+]
 docs-chat = [
   "gradio>=4.33.0",
   "langchain>=0.1.17",

@@ -27,6 +27,8 @@
   same implementation without private shims.
 
 ### Changed
+- Updated the integrations test extra to stay on `databricks-dlt` `<0.3` so CI
+  installs the same PySpark toolchain as the demo application.
 - The integration helper now auto-adds referenced contracts and transformation
   scaffolding when you drop a governed data product that already exposes ports,
   so the canvas immediately reflects the product’s input/output lineage.
@@ -94,6 +96,12 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Governance write telemetry spans now prefer dataset identifiers and versions
+  from resolved governance plans, keeping OpenTelemetry attributes aligned with
+  pipeline metadata and avoiding contract-id fallbacks in tests.
+- Governance write helpers once again preserve dataset links derived from
+  dataset locators, so upgrading a contract keeps previously registered dataset
+  references intact while telemetry continues to use governance plan metadata.
 - Declared ``attrs`` as a core dependency so OpenLineage governance helpers
   import cleanly without manual dependency installs.
 - Integration helper transformation details now surface linked data product
