@@ -8,6 +8,8 @@
   the shared builders from the new `dc43-core` package.
 
 ### Changed
+- Aligned the test extra to require `databricks-dlt` `<0.3` so the demo and
+  integration suites install a compatible PySpark stack during CI runs.
 - `generate_contract_dataset` now returns only an in-memory DataFrame so tests
   can persist via the regular governance write helpers when needed, and it
   inspects contract schemas directly instead of calling backend helpers.

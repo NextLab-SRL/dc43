@@ -27,6 +27,8 @@
   same implementation without private shims.
 
 ### Changed
+- Updated the integrations test extra to stay on `databricks-dlt` `<0.3` so CI
+  installs the same PySpark toolchain as the demo application.
 - The integration helper now auto-adds referenced contracts and transformation
   scaffolding when you drop a governed data product that already exposes ports,
   so the canvas immediately reflects the product’s input/output lineage.
