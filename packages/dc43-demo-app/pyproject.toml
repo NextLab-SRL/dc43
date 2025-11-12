@@ -17,10 +17,10 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-service-clients>=0.28.0.0",
-  "dc43-service-backends>=0.28.0.0",
-  "dc43-integrations[spark]>=0.28.0.0",
-  "dc43-contracts-app[spark]>=0.28.0.0",
+  "dc43-service-clients>=0.29.0.0",
+  "dc43-service-backends>=0.29.0.0",
+  "dc43-integrations[spark]>=0.29.0.0",
+  "dc43-contracts-app[spark]>=0.29.0.0",
   "fastapi>=0.118.0",
   "uvicorn>=0.30.0",
   "jinja2>=3.1.0",

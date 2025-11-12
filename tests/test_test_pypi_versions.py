@@ -17,12 +17,12 @@ spec.loader.exec_module(module)
 
 def test_build_test_version_uses_release_segment():
     assert (
-        module.build_test_version("0.28.0.0", stage="rc", identifier="42")
-        == "0.28.0.0rc42"
+        module.build_test_version("0.29.0.0", stage="rc", identifier="42")
+        == "0.29.0.0rc42"
     )
     assert (
-        module.build_test_version("0.28.0.0rc1", stage="rc", identifier="007")
-        == "0.28.0.0rc007"
+        module.build_test_version("0.29.0.0rc1", stage="rc", identifier="007")
+        == "0.29.0.0rc007"
     )
 
 
@@ -101,20 +101,20 @@ def test_apply_for_packages_returns_summary(tmp_path, monkeypatch):
 
 def test_apply_test_version_rewrites_internal_dependencies(tmp_path, monkeypatch):
     version_file = tmp_path / "VERSION"
-    version_file.write_text("0.28.0.0\n", encoding="utf-8")
+    version_file.write_text("0.29.0.0\n", encoding="utf-8")
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         """
 [project]
 dependencies = [
-  "dc43-core>=0.28.0.0",
-  "dc43-service-backends>=0.28.0.0",
+  "dc43-core>=0.29.0.0",
+  "dc43-service-backends>=0.29.0.0",
   "something-else>=1.0",
 ]
 
 [project.optional-dependencies]
 spark = [
-  "dc43-service-backends[spark]>=0.28.0.0",
+  "dc43-service-backends[spark]>=0.29.0.0",
 ]
 """.strip()
         + "\n",
@@ -130,9 +130,9 @@ spark = [
         info = module.apply_test_version("example", stage="rc", identifier="5")
 
     content = pyproject.read_text(encoding="utf-8")
-    assert "dc43-core>=0.28.0.0rc0" in content
-    assert "dc43-service-backends>=0.28.0.0rc0" in content
-    assert "dc43-service-backends[spark]>=0.28.0.0rc0" in content
+    assert "dc43-core>=0.29.0.0rc0" in content
+    assert "dc43-service-backends>=0.29.0.0rc0" in content
+    assert "dc43-service-backends[spark]>=0.29.0.0rc0" in content
     assert len(info.dependency_rewrites) == 3
     assert all(rewrite.path == pyproject for rewrite in info.dependency_rewrites)
 
@@ -155,14 +155,14 @@ def test_format_summary_rows(tmp_path, monkeypatch):
 
 
 def test_rc_versions_sort_before_release():
-    rc_version = module.build_test_version("0.28.0.0", stage="rc", identifier="1")
-    assert Version(rc_version) < Version("0.28.0.0")
+    rc_version = module.build_test_version("0.29.0.0", stage="rc", identifier="1")
+    assert Version(rc_version) < Version("0.29.0.0")
 
 
 def test_dev_versions_sort_before_rc_and_release():
-    dev_version = module.build_test_version("0.28.0.0", stage="dev", identifier="2")
-    rc_version = module.build_test_version("0.28.0.0", stage="rc", identifier="1")
-    assert Version(dev_version) < Version(rc_version) < Version("0.28.0.0")
+    dev_version = module.build_test_version("0.29.0.0", stage="dev", identifier="2")
+    rc_version = module.build_test_version("0.29.0.0", stage="rc", identifier="1")
+    assert Version(dev_version) < Version(rc_version) < Version("0.29.0.0")
 
 
 if __name__ == "__main__":  # pragma: no cover
