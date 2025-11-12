@@ -332,6 +332,7 @@ jobs:
             --commit "$GITHUB_SHA" \
             --packages $packages \
             --apply --push \
+            --skip-pypi \
             --allow-missing-release-marker
 
       - name: Generate dc43 release notes
