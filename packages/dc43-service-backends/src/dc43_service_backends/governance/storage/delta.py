@@ -5,16 +5,18 @@ from __future__ import annotations
 from ..backend.stores import delta as _delta  # type: ignore
 from ..backend.stores.delta import *  # type: ignore[F401,F403]
 
-__all__ = list(getattr(_delta, "__all__", []))
+try:
+    __all__ = list(_delta.__all__)
+except AttributeError:
+    __all__ = []
 
 
 def __getattr__(name: str) -> object:
     """Delegate attribute access to the relocated module."""
 
-    try:
-        return getattr(_delta, name)
-    except AttributeError as exc:  # pragma: no cover - mirrors default behaviour
-        raise AttributeError(name) from exc
+    if name in _delta.__dict__:
+        return _delta.__dict__[name]
+    raise AttributeError(name)
 
 
 def __dir__() -> list[str]:  # pragma: no cover - trivial passthrough

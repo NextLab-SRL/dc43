@@ -16,12 +16,20 @@ spec.loader.exec_module(module)
 
 
 def test_build_test_version_uses_release_segment():
-    assert module.build_test_version("0.28.0.0", stage="rc", identifier="42") == "0.28.0.0rc42"
-    assert module.build_test_version("0.28.0.0rc1", stage="rc", identifier="007") == "0.28.0.0rc007"
+    assert (
+        module.build_test_version("0.28.0.0", stage="rc", identifier="42")
+        == "0.28.0.0rc42"
+    )
+    assert (
+        module.build_test_version("0.28.0.0rc1", stage="rc", identifier="007")
+        == "0.28.0.0rc007"
+    )
 
 
 def test_build_test_version_dev_stage():
-    assert module.build_test_version("1.2.3", stage="dev", identifier="5") == "1.2.3.dev5"
+    assert (
+        module.build_test_version("1.2.3", stage="dev", identifier="5") == "1.2.3.dev5"
+    )
 
 
 def test_determine_identifier_prefers_explicit(monkeypatch):
@@ -36,12 +44,18 @@ def test_determine_identifier_rejects_non_numeric(value):
 
 def test_determine_identifier_falls_back_to_timestamp(monkeypatch):
     monkeypatch.setattr(module, "_timestamp", lambda: "20240101010101")
-    assert module.determine_identifier(explicit=None, run_identifier=None) == "20240101010101"
+    assert (
+        module.determine_identifier(explicit=None, run_identifier=None)
+        == "20240101010101"
+    )
 
 
 def test_determine_identifier_ignores_blank_inputs(monkeypatch):
     monkeypatch.setattr(module, "_timestamp", lambda: "20240102020202")
-    assert module.determine_identifier(explicit="  \t  ", run_identifier=None) == "20240102020202"
+    assert (
+        module.determine_identifier(explicit="  \t  ", run_identifier=None)
+        == "20240102020202"
+    )
 
 
 def test_apply_test_version_rewrites_version_file(tmp_path, monkeypatch):
@@ -76,7 +90,9 @@ def test_apply_for_packages_returns_summary(tmp_path, monkeypatch):
             "pkg-two",
             {"version_file": version_two},
         )
-        results = module.apply_for_packages(["pkg-one", "pkg-two"], stage="rc", identifier="5")
+        results = module.apply_for_packages(
+            ["pkg-one", "pkg-two"], stage="rc", identifier="5"
+        )
 
     assert [result.package for result in results] == ["pkg-one", "pkg-two"]
     assert version_one.read_text(encoding="utf-8") == "0.1.0rc5\n"
@@ -85,20 +101,20 @@ def test_apply_for_packages_returns_summary(tmp_path, monkeypatch):
 
 def test_apply_test_version_rewrites_internal_dependencies(tmp_path, monkeypatch):
     version_file = tmp_path / "VERSION"
-    version_file.write_text("0.27.0.0\n", encoding="utf-8")
+    version_file.write_text("0.28.0.0\n", encoding="utf-8")
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         """
 [project]
 dependencies = [
-  "dc43-core>=0.27.0.0",
-  "dc43-service-backends>=0.27.0.0",
+  "dc43-core>=0.28.0.0",
+  "dc43-service-backends>=0.28.0.0",
   "something-else>=1.0",
 ]
 
 [project.optional-dependencies]
 spark = [
-  "dc43-service-backends[spark]>=0.27.0.0",
+  "dc43-service-backends[spark]>=0.28.0.0",
 ]
 """.strip()
         + "\n",
@@ -114,9 +130,9 @@ spark = [
         info = module.apply_test_version("example", stage="rc", identifier="5")
 
     content = pyproject.read_text(encoding="utf-8")
-    assert "dc43-core>=0.27.0.0rc0" in content
-    assert "dc43-service-backends>=0.27.0.0rc0" in content
-    assert "dc43-service-backends[spark]>=0.27.0.0rc0" in content
+    assert "dc43-core>=0.28.0.0rc0" in content
+    assert "dc43-service-backends>=0.28.0.0rc0" in content
+    assert "dc43-service-backends[spark]>=0.28.0.0rc0" in content
     assert len(info.dependency_rewrites) == 3
     assert all(rewrite.path == pyproject for rewrite in info.dependency_rewrites)
 

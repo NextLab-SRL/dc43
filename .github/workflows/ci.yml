@@ -33,55 +33,46 @@ jobs:
         include:
           - display: meta
             install: |
-              pip install -e . --no-deps
-              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+              pip install -e ".[test]"
             test_command: "pytest tests -q"
           - display: core
             install: |
-              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+              pip install -e packages/dc43-core
             test_command: "pytest packages/dc43-core/tests -q"
           - display: service-clients
             install: |
-              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
-              pip install -e packages/dc43-service-clients[test]
+              pip install -e packages/dc43-core
+              pip install -e "packages/dc43-service-clients[test]"
             test_command: "pytest packages/dc43-service-clients/tests -q"
           - display: service-backends
             install: |
-              pip install -e . --no-deps
-              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
-              pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-              pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
+              pip install -e packages/dc43-core
+              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-backends[test]"
             test_command: "pytest packages/dc43-service-backends/tests -q"
           - display: integrations
             install: |
-              pip install -e . --no-deps
-              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
-              pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-              pip install "dc43-service-backends[sql] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
-              pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
+              pip install -e packages/dc43-core
+              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-backends[sql,test]"
+              pip install -e "packages/dc43-integrations[test]"
             test_command: "pytest packages/dc43-integrations/tests -q"
           - display: contracts-app
             install: |
-              pip install -e . --no-deps
-              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
-              pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-              pip install fastapi jinja2 python-multipart pyspark
-              pip install "sqlalchemy>=2.0"
-              pip install --no-deps "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
-              pip install --no-deps "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
-              pip install --no-deps "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
+              pip install -e packages/dc43-core
+              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-backends[sql,test]"
+              pip install -e "packages/dc43-integrations[test]"
+              pip install -e "packages/dc43-contracts-app[spark,test]"
             test_command: "pytest packages/dc43-contracts-app/tests -q"
           - display: demo-app
             install: |
-              pip install -e . --no-deps
-              pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
-              pip install fastapi jinja2 python-multipart uvicorn pyspark httpx "sqlalchemy>=2.0"
-              pip install "open-data-contract-standard==3.0.2"
-              pip install --no-deps "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-              pip install --no-deps "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
-              pip install --no-deps "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
-              pip install --no-deps "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
-              pip install --no-deps "dc43-demo-app @ file://${GITHUB_WORKSPACE}/packages/dc43-demo-app"
+              pip install -e packages/dc43-core
+              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-backends[sql,test]"
+              pip install -e "packages/dc43-integrations[test]"
+              pip install -e "packages/dc43-contracts-app[spark,test]"
+              pip install -e packages/dc43-demo-app
             test_command: "pytest packages/dc43-demo-app/tests -q"
     steps:
       - uses: actions/checkout@v4

@@ -5,16 +5,18 @@ from __future__ import annotations
 from ..backend.stores import filesystem as _filesystem  # type: ignore
 from ..backend.stores.filesystem import *  # type: ignore[F401,F403]
 
-__all__ = list(getattr(_filesystem, "__all__", []))
+try:
+    __all__ = list(_filesystem.__all__)
+except AttributeError:
+    __all__ = []
 
 
 def __getattr__(name: str) -> object:
     """Delegate attribute access to the relocated module."""
 
-    try:
-        return getattr(_filesystem, name)
-    except AttributeError as exc:  # pragma: no cover - mirrors default behaviour
-        raise AttributeError(name) from exc
+    if name in _filesystem.__dict__:
+        return _filesystem.__dict__[name]
+    raise AttributeError(name)
 
 
 def __dir__() -> list[str]:  # pragma: no cover - trivial passthrough

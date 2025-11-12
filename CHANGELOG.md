@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Added
+- Integration helper pipeline now surfaces governed data products alongside
+  contracts so you can add product nodes, wire their ports into transformations,
+  and generate stubs with the correct product bindings.
+- The integration helper sidebar now scrolls independently with taller catalog
+  sections, adds explicit drag handles so contracts or data products drop into
+  the canvas reliably, and mirrors the product **Add input/output** controls in
+  the selection panel while flagging that a fresh product version is required
+  before code generation resumes.
+- Added a data product editor to the contracts application with searchable
+  contract and dataset selectors so definitions no longer require manual ID
+  lookups.
+- Added Playwright coverage for the data product editor to exercise contract
+  lookup lists, port configuration, and save flows end to end.
+- Added a governance status matrix endpoint that returns batched contract /
+  dataset validation results to avoid repeated single-status lookups from the
+  UI.
 - Introduced the Spark `draft_contract_from_dataframe` helper to generate ODCS
   draft contracts (plus schema/metric observations) directly from DataFrames
   using the shared builders from the new `dc43-core` package.
@@ -11,6 +27,11 @@
   same implementation without private shims.
 
 ### Changed
+- Updated the integrations test extra to stay on `databricks-dlt` `<0.3` so CI
+  installs the same PySpark toolchain as the demo application.
+- The integration helper now auto-adds referenced contracts and transformation
+  scaffolding when you drop a governed data product that already exposes ports,
+  so the canvas immediately reflects the product’s input/output lineage.
 - The `generate_contract_dataset` testing helper now returns only an in-memory
   DataFrame, leaving persistence to the governance write wrappers.
 - Spark integrations now depend on the shared `dc43-core` package instead of
@@ -57,6 +78,12 @@
   explicit version constraints for input/output bindings so pipelines can
   block on draft products by default or target specific releases when
   required.
+- Centralised the OpenLineage runtime dependency with the service clients so
+  demo and developer installs inherit the lineage runtime transitively instead
+  of duplicating requirements across packages.
+- Updated the CI workflow to install OpenLineage explicitly for jobs that skip
+  dependency resolution so demo and governance suites no longer fail when
+  optional extras are omitted.
 - Governance backends now honour data product version selectors and source
   contract requirements when resolving read/write contexts, failing fast on
   draft or mismatched products before registration occurs.
@@ -69,6 +96,29 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Governance write telemetry spans now prefer dataset identifiers and versions
+  from resolved governance plans, keeping OpenTelemetry attributes aligned with
+  pipeline metadata and avoiding contract-id fallbacks in tests.
+- Governance write helpers once again preserve dataset links derived from
+  dataset locators, so upgrading a contract keeps previously registered dataset
+  references intact while telemetry continues to use governance plan metadata.
+- Declared ``attrs`` as a core dependency so OpenLineage governance helpers
+  import cleanly without manual dependency installs.
+- Integration helper transformation details now surface linked data product
+  ports, so the focus/remove actions work for governed product bindings as well
+  as contract connectors.
+- Data product nodes dropped onto the integration helper canvas now drag just
+  like contract cards, so you can rearrange layouts without refreshing the
+  page.
+- The contracts app data product editor now bumps draft-suffixed versions
+  without crashing, so editing ``*-draft`` releases no longer triggers 500
+  errors when calculating the suggested version.
+- Contracts app status history now honours the governance status matrix
+  endpoint, trimming redundant per-pair status requests and avoiding failures
+  when remote backends return pre-encoded validation payloads.
+- Governance status lookups now tolerate legacy SQL activity tables that lack
+  timestamp columns, preventing 500 errors and eliminating the fallback storm
+  of per-version requests from the contracts UI.
 - Updated the Delta-backed governance stores to compare version strings using
   suffix-aware keys so rc/dev builds resolve without Spark casting errors when
   fetching the latest contract or data product entries.

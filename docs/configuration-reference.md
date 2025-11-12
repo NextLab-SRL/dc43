@@ -158,12 +158,22 @@ No additional fields are captured.
 
 ### Pipeline integration (`pipeline_integration`)
 
+Set the governance publication mode with the `publication_mode` field, the
+`DC43_GOVERNANCE_PUBLICATION_MODE` environment variable, or Spark configuration
+keys (`dc43.governance.publicationMode`, `dc43.governance.publication_mode`, or
+`governance.publication.mode`). Supported values are `legacy`,
+`open_data_lineage`, and `open_telemetry`; the legacy behaviour remains the
+default when no hint is provided.
+
 #### Apache Spark (`spark`)
 *Optional*
 - `runtime` – Free-form runtime hint (for example `databricks job`).
 - `workspace_url` – Databricks workspace URL used by the pipeline.
 - `workspace_profile` – Databricks CLI profile tied to the runtime.
 - `cluster_reference` – Cluster identifier, job name, or pool reference consumed by the bootstrap script.
+- `publication_mode` – Overrides the governance publication mode for Spark
+  helpers when present. Accepts `legacy`, `open_data_lineage`, or
+  `open_telemetry`.
 
 #### Databricks Delta Live Tables (`dlt`)
 *Required*
@@ -174,6 +184,9 @@ No additional fields are captured.
 - `workspace_profile` – Databricks CLI profile used for authentication.
 - `notebook_path` – Workspace notebook path for pipeline code.
 - `target_schema` – Target schema/database for published tables.
+- `publication_mode` – Optional override mirroring the Spark integration and
+  accepting the same `legacy`, `open_data_lineage`, or `open_telemetry`
+  values.
 
 ### Governance interface (`governance_service`)
 

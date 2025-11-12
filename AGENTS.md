@@ -4,9 +4,14 @@
 - Use `rg` for searching instead of `grep -R`.
 - Install dependencies for tests and demo with:
   ```bash
-  pip install -q pyspark==3.5.1 fastapi httpx uvicorn jinja2 python-multipart
-  pip install -e . -q
+  pip install -e ".[test]"
+  pip install -e "packages/dc43-contracts-app[spark,test]"
+  pip install -e packages/dc43-demo-app
   ```
+- Keep GitHub Actions and release automation aligned with the dependency
+  metadata declared in `pyproject.toml`. Prefer installing extras from the
+  relevant package instead of duplicating individual library names in workflow
+  steps.
 - Run tests with `pytest -q` after making changes.
 - Keep code small, readable, and documented.
 - The demo application now lives under `packages/dc43-demo-app/src/dc43_demo_app`.

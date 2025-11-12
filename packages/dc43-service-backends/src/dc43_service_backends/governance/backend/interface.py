@@ -7,6 +7,7 @@ from typing import Callable, Mapping, Optional, Protocol, Sequence
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
+from dc43_service_clients.governance.lineage import OpenDataLineageEvent
 from dc43_service_clients.governance.models import (
     GovernanceReadContext,
     GovernanceWriteContext,
@@ -138,6 +139,15 @@ class GovernanceServiceBackend(Protocol):
     ) -> Sequence[Mapping[str, object]]:
         ...
 
+    def get_status_matrix(
+        self,
+        *,
+        dataset_id: str,
+        contract_ids: Sequence[str] | None = None,
+        dataset_versions: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        ...
+
     def list_datasets(self) -> Sequence[str]:
         ...
 
@@ -194,6 +204,13 @@ class GovernanceServiceBackend(Protocol):
         *,
         plan: ResolvedWritePlan,
         assessment: QualityAssessment,
+    ) -> None:
+        ...
+
+    def publish_lineage_event(
+        self,
+        *,
+        event: OpenDataLineageEvent,
     ) -> None:
         ...
 

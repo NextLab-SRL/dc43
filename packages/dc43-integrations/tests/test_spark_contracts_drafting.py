@@ -1,5 +1,9 @@
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+import pytest
+
+pytest.importorskip("faker", reason="faker is required for contract drafting dataset tests")
+
 from dc43_integrations.spark.contracts import (
     DraftContractResult,
     draft_contract_from_dataframe,

@@ -178,7 +178,7 @@ jobs:
           VERSION_FILE: packages/dc43-core/VERSION
         run: |
           set -euo pipefail
-          pip install "dc43-core @ file://${GITHUB_WORKSPACE}/packages/dc43-core"
+          pip install -e packages/dc43-core
           pip install pytest
           pytest packages/dc43-core/tests
           python scripts/check_tag_version.py \
@@ -213,7 +213,7 @@ jobs:
           VERSION_FILE: packages/dc43-service-clients/VERSION
         run: |
           set -euo pipefail
-          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
+          pip install -e "packages/dc43-service-clients[test]"
           pytest packages/dc43-service-clients/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -230,10 +230,9 @@ jobs:
           VERSION_FILE: packages/dc43-service-backends/VERSION
         run: |
           set -euo pipefail
-          pip install -e . --no-deps
-          pip install pyspark==3.5.1
-          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-          pip install "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
+          pip install -e packages/dc43-core
+          pip install -e "packages/dc43-service-clients[test]"
+          pip install -e "packages/dc43-service-backends[sql,test]"
           pytest packages/dc43-service-backends/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -250,9 +249,10 @@ jobs:
           VERSION_FILE: packages/dc43-integrations/VERSION
         run: |
           set -euo pipefail
-          pip install -e . --no-deps
-          pip install "dc43-service-clients[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-          pip install "dc43-integrations[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
+          pip install -e packages/dc43-core
+          pip install -e "packages/dc43-service-clients[test]"
+          pip install -e "packages/dc43-service-backends[sql,test]"
+          pip install -e "packages/dc43-integrations[test]"
           pytest packages/dc43-integrations/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -269,12 +269,11 @@ jobs:
           VERSION_FILE: packages/dc43-contracts-app/VERSION
         run: |
           set -euo pipefail
-          pip install -e . --no-deps
-          pip install "dc43-service-clients[http] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-clients"
-          pip install fastapi jinja2 python-multipart pyspark
-          pip install --no-deps "dc43-service-backends[test] @ file://${GITHUB_WORKSPACE}/packages/dc43-service-backends"
-          pip install --no-deps "dc43-integrations[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-integrations"
-          pip install --no-deps "dc43-contracts-app[spark] @ file://${GITHUB_WORKSPACE}/packages/dc43-contracts-app"
+          pip install -e packages/dc43-core
+          pip install -e "packages/dc43-service-clients[test]"
+          pip install -e "packages/dc43-service-backends[sql,test]"
+          pip install -e "packages/dc43-integrations[test]"
+          pip install -e "packages/dc43-contracts-app[spark,test]"
           pytest packages/dc43-contracts-app/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -335,13 +334,85 @@ jobs:
             --apply --push \
             --allow-missing-release-marker
 
+      - name: Generate dc43 release notes
+        if: needs.determine.outputs.core_tag != ''
+        id: release_notes_dc43
+        run: |
+          set -euo pipefail
+          tag="${{ needs.determine.outputs.core_tag }}"
+          python scripts/generate_release_notes.py \
+            --tag "$tag" \
+            --pattern "dc43-v*" \
+            --output "release-notes/${tag}.md"
+          echo "body_path=release-notes/${tag}.md" >> "$GITHUB_OUTPUT"
+
+      - name: Generate dc43-core release notes
+        if: needs.determine.outputs.dc43_core_tag != ''
+        id: release_notes_dc43_core
+        run: |
+          set -euo pipefail
+          tag="${{ needs.determine.outputs.dc43_core_tag }}"
+          python scripts/generate_release_notes.py \
+            --tag "$tag" \
+            --pattern "dc43-core-v*" \
+            --output "release-notes/${tag}.md"
+          echo "body_path=release-notes/${tag}.md" >> "$GITHUB_OUTPUT"
+
+      - name: Generate dc43-service-clients release notes
+        if: needs.determine.outputs.service_clients_tag != ''
+        id: release_notes_service_clients
+        run: |
+          set -euo pipefail
+          tag="${{ needs.determine.outputs.service_clients_tag }}"
+          python scripts/generate_release_notes.py \
+            --tag "$tag" \
+            --pattern "dc43-service-clients-v*" \
+            --output "release-notes/${tag}.md"
+          echo "body_path=release-notes/${tag}.md" >> "$GITHUB_OUTPUT"
+
+      - name: Generate dc43-service-backends release notes
+        if: needs.determine.outputs.service_backends_tag != ''
+        id: release_notes_service_backends
+        run: |
+          set -euo pipefail
+          tag="${{ needs.determine.outputs.service_backends_tag }}"
+          python scripts/generate_release_notes.py \
+            --tag "$tag" \
+            --pattern "dc43-service-backends-v*" \
+            --output "release-notes/${tag}.md"
+          echo "body_path=release-notes/${tag}.md" >> "$GITHUB_OUTPUT"
+
+      - name: Generate dc43-integrations release notes
+        if: needs.determine.outputs.integrations_tag != ''
+        id: release_notes_integrations
+        run: |
+          set -euo pipefail
+          tag="${{ needs.determine.outputs.integrations_tag }}"
+          python scripts/generate_release_notes.py \
+            --tag "$tag" \
+            --pattern "dc43-integrations-v*" \
+            --output "release-notes/${tag}.md"
+          echo "body_path=release-notes/${tag}.md" >> "$GITHUB_OUTPUT"
+
+      - name: Generate dc43-contracts-app release notes
+        if: needs.determine.outputs.contracts_app_tag != ''
+        id: release_notes_contracts_app
+        run: |
+          set -euo pipefail
+          tag="${{ needs.determine.outputs.contracts_app_tag }}"
+          python scripts/generate_release_notes.py \
+            --tag "$tag" \
+            --pattern "dc43-contracts-app-v*" \
+            --output "release-notes/${tag}.md"
+          echo "body_path=release-notes/${tag}.md" >> "$GITHUB_OUTPUT"
+
       - name: Publish dc43 GitHub release
         if: needs.determine.outputs.core_tag != ''
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.determine.outputs.core_tag }}
           files: release-artifacts/dc43/*
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes_dc43.outputs.body_path }}
 
       - name: Publish dc43-core GitHub release
         if: needs.determine.outputs.dc43_core_tag != ''
@@ -349,7 +420,7 @@ jobs:
         with:
           tag_name: ${{ needs.determine.outputs.dc43_core_tag }}
           files: release-artifacts/dc43-core/*
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes_dc43_core.outputs.body_path }}
 
       - name: Publish dc43-service-clients GitHub release
         if: needs.determine.outputs.service_clients_tag != ''
@@ -357,7 +428,7 @@ jobs:
         with:
           tag_name: ${{ needs.determine.outputs.service_clients_tag }}
           files: release-artifacts/dc43-service-clients/*
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes_service_clients.outputs.body_path }}
 
       - name: Publish dc43-service-backends GitHub release
         if: needs.determine.outputs.service_backends_tag != ''
@@ -365,7 +436,7 @@ jobs:
         with:
           tag_name: ${{ needs.determine.outputs.service_backends_tag }}
           files: release-artifacts/dc43-service-backends/*
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes_service_backends.outputs.body_path }}
 
       - name: Publish dc43-integrations GitHub release
         if: needs.determine.outputs.integrations_tag != ''
@@ -373,7 +444,7 @@ jobs:
         with:
           tag_name: ${{ needs.determine.outputs.integrations_tag }}
           files: release-artifacts/dc43-integrations/*
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes_integrations.outputs.body_path }}
 
       - name: Publish dc43-contracts-app GitHub release
         if: needs.determine.outputs.contracts_app_tag != ''
@@ -381,7 +452,7 @@ jobs:
         with:
           tag_name: ${{ needs.determine.outputs.contracts_app_tag }}
           files: release-artifacts/dc43-contracts-app/*
-          generate_release_notes: true
+          body_path: ${{ steps.release_notes_contracts_app.outputs.body_path }}
 
   docker-images:
     name: Build and publish Docker images

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 try:  # pragma: no cover - import guard exercised in packaging contexts
     from fastapi import APIRouter, FastAPI, HTTPException, Query, Response
@@ -22,11 +22,13 @@ from dc43_service_clients.odps import (
     as_odps_dict as as_odps_product_dict,
     to_model as to_data_product_model,
 )
+from dc43_service_clients.data_quality import ValidationResult
 from dc43_service_clients.data_quality.transport import (
     decode_observation_payload,
     decode_validation_result,
     encode_validation_result,
 )
+from dc43_service_clients.governance.lineage import decode_lineage_event
 from dc43_service_clients.governance.transport import (
     decode_contract,
     decode_credentials,
@@ -140,6 +142,10 @@ class _GovernanceRegisterPayload(BaseModel):
     assessment: Mapping[str, Any]
 
 
+class _GovernanceLineagePayload(BaseModel):
+    event: Mapping[str, Any]
+
+
 def _encode_assessment(assessment: QualityAssessment) -> Mapping[str, Any]:
     return encode_quality_assessment(assessment)
 
@@ -178,11 +184,11 @@ def build_app(
         except Exception as exc:  # pragma: no cover - invalid payload handling
             raise HTTPException(status_code=400, detail=f"invalid contract payload: {exc}") from exc
 
-        payload_id = str(contract.id) if getattr(contract, "id", None) else None
+        payload_id = str(contract.id) if contract.id else None
         if payload_id and payload_id != contract_id:
             raise HTTPException(status_code=400, detail="contract.id does not match request path")
 
-        payload_version = str(contract.version) if getattr(contract, "version", None) else None
+        payload_version = str(contract.version) if contract.version else None
         if payload_version and payload_version != contract_version:
             raise HTTPException(status_code=400, detail="contract.version does not match request path")
 
@@ -252,11 +258,11 @@ def build_app(
         except Exception as exc:  # pragma: no cover - invalid payload handling
             raise HTTPException(status_code=400, detail=f"invalid data product payload: {exc}") from exc
 
-        payload_id = str(product.id) if getattr(product, "id", None) else None
+        payload_id = str(product.id) if product.id else None
         if payload_id and payload_id != data_product_id:
             raise HTTPException(status_code=400, detail="data_product.id does not match request path")
 
-        payload_version = str(product.version) if getattr(product, "version", None) else None
+        payload_version = str(product.version) if product.version else None
         if payload_version and payload_version != version:
             raise HTTPException(status_code=400, detail="data_product.version does not match request path")
 
@@ -444,6 +450,16 @@ def build_app(
         assessment = decode_quality_assessment(payload.assessment)
         governance_backend.register_write_activity(plan=plan, assessment=assessment)
 
+    @router.post("/governance/lineage", status_code=204)
+    def publish_lineage(payload: _GovernanceLineagePayload) -> None:
+        try:
+            event = decode_lineage_event(payload.event)
+        except ValueError as exc:  # pragma: no cover - invalid payload handling
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if event is None:
+            raise HTTPException(status_code=400, detail="lineage event payload is required")
+        governance_backend.publish_lineage_event(event=event)
+
     @router.post("/governance/evaluate")
     def evaluate_dataset(payload: _GovernanceEvaluatePayload) -> Mapping[str, Any]:
         validation = decode_validation_result(payload.validation)
@@ -516,6 +532,61 @@ def build_app(
         if status is None:
             raise HTTPException(status_code=404, detail="status unavailable")
         return encode_validation_result(status) or {}
+
+    @router.get("/governance/status-matrix")
+    def get_status_matrix(
+        dataset_id: str,
+        contract_id: List[str] | None = None,
+        dataset_version: List[str] | None = None,
+    ) -> Mapping[str, Any]:
+        contract_ids: Sequence[str] | None
+        if contract_id is None:
+            contract_ids = None
+        elif isinstance(contract_id, (list, tuple, set)):
+            contract_ids = [str(item) for item in contract_id if str(item)]
+        else:
+            value = str(contract_id)
+            contract_ids = [value] if value else None
+
+        dataset_versions: Sequence[str] | None
+        if dataset_version is None:
+            dataset_versions = None
+        elif isinstance(dataset_version, (list, tuple, set)):
+            dataset_versions = [str(item) for item in dataset_version if str(item)]
+        else:
+            value = str(dataset_version)
+            dataset_versions = [value] if value else None
+
+        records = governance_backend.get_status_matrix(
+            dataset_id=dataset_id,
+            contract_ids=contract_ids,
+            dataset_versions=dataset_versions,
+        )
+        entries: List[Mapping[str, Any]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                continue
+            status_payload = record.get("status")
+            encoded = None
+            if isinstance(status_payload, ValidationResult):
+                encoded = encode_validation_result(status_payload)
+            elif isinstance(status_payload, Mapping):
+                encoded = dict(status_payload)
+            elif status_payload is not None:
+                try:
+                    encoded = encode_validation_result(status_payload)  # type: ignore[arg-type]
+                except Exception:  # pragma: no cover - defensive guard for unexpected payloads
+                    encoded = None
+            entries.append(
+                {
+                    "dataset_id": record.get("dataset_id"),
+                    "dataset_version": record.get("dataset_version"),
+                    "contract_id": record.get("contract_id"),
+                    "contract_version": record.get("contract_version"),
+                    "status": encoded,
+                }
+            )
+        return {"dataset_id": dataset_id, "entries": entries}
 
     @router.post("/governance/link", status_code=204)
     def link_dataset(payload: _LinkDatasetPayload) -> None:

@@ -7,9 +7,10 @@ validation, perform transformations (omitted) and write the result while
 recording the dataset version in the demo app's registry.
 """
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Sequence
+from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Protocol, Sequence, runtime_checkable
 
 from . import contracts_api as contracts_server
 from .contracts_records import DatasetRecord, _version_sort_key, record_dataset_run
@@ -42,6 +43,80 @@ from dc43_integrations.spark.violation_strategy import (
 from open_data_contract_standard.model import OpenDataContractStandard
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, lit, when
+
+
+@runtime_checkable
+class _SupportsServerPath(Protocol):
+    path: Any
+
+
+@runtime_checkable
+class _SupportsServerAddress(Protocol):
+    address: Any
+
+
+@runtime_checkable
+class _SupportsServerFormat(Protocol):
+    format: Any
+
+
+@runtime_checkable
+class _SupportsContractStatusPolicy(Protocol):
+    allowed_contract_statuses: Sequence[str]
+    allow_missing_contract_status: bool
+    contract_status_case_insensitive: bool
+    contract_status_failure_message: str | None
+
+
+@runtime_checkable
+class _SupportsNestedStrategy(Protocol):
+    base: WriteViolationStrategy
+
+
+@runtime_checkable
+class _SupportsLocatorBase(Protocol):
+    base: ReadStatusStrategy | ContractFirstDatasetLocator
+
+
+@runtime_checkable
+class _SupportsPlan(Protocol):
+    def plan(self, context: Any) -> Any:
+        ...
+
+
+@runtime_checkable
+class _SupportsApply(Protocol):
+    def apply(self, *args: Any, **kwargs: Any) -> Any:
+        ...
+
+
+@runtime_checkable
+class _SupportsLocatorFactory(Protocol):
+    def for_read(self) -> ContractFirstDatasetLocator:
+        ...
+
+
+@runtime_checkable
+class _SupportsDatasetIdentity(Protocol):
+    dataset_id: str | None
+    dataset_version: str | None
+
+
+@runtime_checkable
+class _SupportsContractIdentity(Protocol):
+    id: str | None
+    version: str | None
+
+
+DATASETS_FILE = contracts_server.DATASETS_FILE
+DATA_DIR = contracts_server.DATA_DIR
+load_records = contracts_server.load_records
+register_dataset_version = contracts_server.register_dataset_version
+set_active_version = contracts_server.set_active_version
+store = contracts_server.store
+contract_service = contracts_server.contract_service
+dq_service = contracts_server.dq_service
+governance_service = contracts_server.governance_service
 
 
 def _timestamp_slug(moment: datetime) -> str:
@@ -79,6 +154,24 @@ def _write_version_marker(directory: Path, version: str) -> None:
         pass
 
 
+def _server_path_from(server: Any | None, fallback: Path) -> Path:
+    """Return the configured server path when available."""
+
+    if server is None:
+        return fallback
+
+    raw_path: Any = ""
+    if isinstance(server, Mapping):
+        raw_path = server.get("path", "")
+    elif isinstance(server, _SupportsServerPath):
+        raw_path = server.path
+
+    text = str(raw_path or "").strip()
+    if not text:
+        return fallback
+    return Path(text)
+
+
 def _resolve_output_path(
     contract: OpenDataContractStandard | None,
     dataset_name: str,
@@ -89,7 +182,7 @@ def _resolve_output_path(
     """Return output path for dataset relative to contract servers."""
     server = (contract.servers or [None])[0] if contract else None
     data_root = Path(contracts_server.DATA_DIR).parent
-    server_path = Path(getattr(server, "path", "")) if server else data_root
+    server_path = _server_path_from(server, data_root)
     if server_path.suffix:
         base_path = server_path.parent / server_path.stem
     else:
@@ -230,20 +323,14 @@ def _canonical_contract_status_config(spec: ContractStatusSpec) -> dict[str, Any
 def _normalise_contract_status_config(
     config: Mapping[str, Any] | None,
     *,
-    defaults: Any,
+    defaults: ContractStatusPolicy,
 ) -> dict[str, Any]:
     """Return normalised contract-status kwargs merged with ``defaults``."""
 
-    allowed_default = tuple(
-        getattr(defaults, "allowed_contract_statuses", ("active",))
-    )
-    allow_missing_default = bool(
-        getattr(defaults, "allow_missing_contract_status", True)
-    )
-    case_insensitive_default = bool(
-        getattr(defaults, "contract_status_case_insensitive", True)
-    )
-    failure_default = getattr(defaults, "contract_status_failure_message", None)
+    allowed_default = tuple(str(status) for status in defaults.allowed_contract_statuses)
+    allow_missing_default = bool(defaults.allow_missing_contract_status)
+    case_insensitive_default = bool(defaults.contract_status_case_insensitive)
+    failure_default = defaults.contract_status_failure_message
 
     allowed_source: Any = None
     if config:
@@ -360,8 +447,8 @@ def _apply_contract_status_to_read_strategy(
     if not config:
         return strategy
 
-    defaults = DefaultReadStatusStrategy()
-    options = _normalise_contract_status_config(config, defaults=defaults)
+    default_policy = ContractStatusPolicy.from_source(DefaultReadStatusStrategy())
+    options = _normalise_contract_status_config(config, defaults=default_policy)
 
     if strategy is None:
         return DefaultReadStatusStrategy(**options)
@@ -389,13 +476,16 @@ def _apply_contract_status_to_write_strategy(
     if strategy is None or not config:
         return strategy
 
-    defaults = strategy
-    if not hasattr(strategy, "allowed_contract_statuses"):
-        defaults = NoOpWriteViolationStrategy()
+    defaults_source: object
+    if isinstance(strategy, _SupportsContractStatusPolicy):
+        defaults_source = strategy
+    else:
+        defaults_source = NoOpWriteViolationStrategy()
 
-    options = _normalise_contract_status_config(config, defaults=defaults)
+    default_policy = ContractStatusPolicy.from_source(defaults_source)
+    options = _normalise_contract_status_config(config, defaults=default_policy)
 
-    if hasattr(strategy, "allowed_contract_statuses"):
+    if isinstance(strategy, _SupportsContractStatusPolicy):
         strategy.allowed_contract_statuses = options["allowed_contract_statuses"]  # type: ignore[attr-defined]
         strategy.allow_missing_contract_status = options["allow_missing_contract_status"]  # type: ignore[attr-defined]
         strategy.contract_status_case_insensitive = options[
@@ -405,13 +495,13 @@ def _apply_contract_status_to_write_strategy(
             "contract_status_failure_message"
         ]  # type: ignore[attr-defined]
 
-    base = getattr(strategy, "base", None)
-    if base is not None:
-        setattr(
-            strategy,
-            "base",
-            _apply_contract_status_to_write_strategy(base, config),
-        )
+    if isinstance(strategy, _SupportsNestedStrategy):
+        base_strategy = strategy.base  # type: ignore[attr-defined]
+        if base_strategy is not None:
+            strategy.base = _apply_contract_status_to_write_strategy(  # type: ignore[attr-defined]
+                base_strategy,
+                config,
+            )
 
     return strategy
 
@@ -419,12 +509,13 @@ def _apply_contract_status_to_write_strategy(
 def _describe_contract_status_policy(handler: object) -> dict[str, Any] | None:
     """Return a serialisable summary of a contract-status policy."""
 
-    allowed = getattr(handler, "allowed_contract_statuses", None)
-    allow_missing = getattr(handler, "allow_missing_contract_status", None)
-    case_insensitive = getattr(handler, "contract_status_case_insensitive", None)
-    failure_message = getattr(handler, "contract_status_failure_message", None)
-    if allowed is None or allow_missing is None or case_insensitive is None:
+    if not isinstance(handler, _SupportsContractStatusPolicy):
         return None
+    policy = ContractStatusPolicy.from_source(handler)
+    allowed = policy.allowed_contract_statuses
+    allow_missing = policy.allow_missing_contract_status
+    case_insensitive = policy.contract_status_case_insensitive
+    failure_message = policy.contract_status_failure_message
     return {
         "allowed": list(allowed),
         "allow_missing": bool(allow_missing),
@@ -450,7 +541,7 @@ def _resolve_violation_strategy(
             )
         return None
 
-    if hasattr(spec, "plan"):
+    if isinstance(spec, _SupportsPlan):
         return _apply_contract_status_to_write_strategy(
             spec,  # type: ignore[arg-type]
             status_config,
@@ -584,7 +675,7 @@ def _resolve_read_status_strategy(
     if spec is None:
         return _apply_contract_status_to_read_strategy(None, status_config)
 
-    if hasattr(spec, "apply"):
+    if isinstance(spec, _SupportsApply):
         return _apply_contract_status_to_read_strategy(
             spec,  # type: ignore[arg-type]
             status_config,
@@ -662,17 +753,19 @@ def _apply_locator_overrides(
         return default
 
     locator_candidate = overrides.get("dataset_locator") if isinstance(overrides, Mapping) else None
-    if locator_candidate is not None and hasattr(locator_candidate, "for_read"):
+    if isinstance(locator_candidate, _SupportsLocatorFactory):
         return locator_candidate  # type: ignore[return-value]
 
     dataset_id = overrides.get("dataset_id") if isinstance(overrides, Mapping) else None
     dataset_version = overrides.get("dataset_version") if isinstance(overrides, Mapping) else None
     subpath = overrides.get("subpath") if isinstance(overrides, Mapping) else None
 
-    base_strategy = getattr(default, "base", ContractFirstDatasetLocator())  # type: ignore[arg-type]
+    base_strategy: ReadStatusStrategy | ContractFirstDatasetLocator = ContractFirstDatasetLocator()
+    if isinstance(default, _SupportsLocatorBase):
+        base_strategy = default.base
     if isinstance(overrides, Mapping) and overrides.get("base") is not None:
         candidate = overrides["base"]
-        if hasattr(candidate, "for_read"):
+        if isinstance(candidate, _SupportsLocatorFactory):
             base_strategy = candidate  # type: ignore[assignment]
         else:  # pragma: no cover - defensive guard for unexpected inputs
             raise TypeError(f"Unsupported base locator: {candidate!r}")
@@ -827,7 +920,7 @@ def _resolve_dataset_name_hint(
             contract = contracts_server.contract_service.get(contract_id, contract_version)
         except FileNotFoundError:
             return contract_id
-        dataset_id = getattr(contract, "id", None)
+        dataset_id = contract.id if isinstance(contract, _SupportsContractIdentity) else None
         if dataset_id:
             return dataset_id
         return contract_id
@@ -959,7 +1052,7 @@ def _data_product_input_locator(
     )
 
     locator_spec = config.get("dataset_locator") if isinstance(config, Mapping) else None
-    if locator_spec is not None and hasattr(locator_spec, "for_read"):
+    if isinstance(locator_spec, _SupportsLocatorFactory):
         return locator_spec  # type: ignore[return-value]
 
     overrides: Mapping[str, Any] | None = None
@@ -1011,8 +1104,12 @@ def _run_data_product_flow(
         raise ValueError("data_product_flow requires an input binding")
 
     input_locator = _data_product_input_locator(input_cfg, records=records)
-    input_dataset_id = getattr(input_locator, "dataset_id", None)
-    input_dataset_version = getattr(input_locator, "dataset_version", None)
+    if isinstance(input_locator, _SupportsDatasetIdentity):
+        input_dataset_id = input_locator.dataset_id
+        input_dataset_version = input_locator.dataset_version
+    else:
+        input_dataset_id = None
+        input_dataset_version = None
     input_expected_version = (
         input_cfg.get("expected_contract_version")
         if isinstance(input_cfg, Mapping)
@@ -1412,7 +1509,7 @@ def _run_data_product_flow(
             )
 
     for status in (orders_status, customers_status, stage_status, final_status):
-        severity = max(severity, _status_level(getattr(status, "status", None)))
+        severity = max(severity, _status_level(status.status if status else None))
 
     dq_summary = final_output_details.get("dq_status")
     if isinstance(dq_summary, Mapping):
@@ -1638,12 +1735,12 @@ def run_pipeline(
         message = f"DQ status is blocking: {detail_text}"
         payload: dict[str, Any] = {
             "dataset_role": "orders",
-            "status": getattr(orders_status, "status", "block"),
+            "status": orders_status.status or "block",
             "reason": message,
         }
         status_details = (
             dict(orders_status.details)
-            if isinstance(getattr(orders_status, "details", None), Mapping)
+            if isinstance(orders_status.details, Mapping)
             else None
         )
         if status_details:
@@ -1733,12 +1830,12 @@ def run_pipeline(
         message = f"DQ status is blocking: {detail_text}"
         payload = {
             "dataset_role": "customers",
-            "status": getattr(customers_status, "status", "block"),
+            "status": customers_status.status or "block",
             "reason": message,
         }
         status_details = (
             dict(customers_status.details)
-            if isinstance(getattr(customers_status, "details", None), Mapping)
+            if isinstance(customers_status.details, Mapping)
             else None
         )
         if status_details:
@@ -1761,7 +1858,7 @@ def run_pipeline(
         if contract_id and contract_version
         else None
     )
-    if output_contract and getattr(output_contract, "id", None):
+    if isinstance(output_contract, _SupportsContractIdentity) and output_contract.id:
         # Align dataset naming with the contract so recorded runs and filesystem
         # layout remain consistent with the declared server definition.
         dataset_name = output_contract.id
@@ -1814,7 +1911,7 @@ def run_pipeline(
             dataset_version=dataset_version,
             path=str(output_path),
         )
-    contract_id_ref = getattr(output_contract, "id", None)
+    contract_id_ref = output_contract.id if isinstance(output_contract, _SupportsContractIdentity) else None
     expected_version = f"=={output_contract.version}" if output_contract else None
     write_context_extra: dict[str, Any] = {
         "dataset": dataset_name,
@@ -1850,9 +1947,8 @@ def run_pipeline(
     if read_error is None and contract_id_ref:
         contract_spec: dict[str, Any] = {"contract_id": contract_id_ref}
         resolved_version = (
-            getattr(output_contract, "version", None)
-            or contract_version
-        )
+            output_contract.version if isinstance(output_contract, _SupportsContractIdentity) else None
+        ) or contract_version
         if resolved_version:
             contract_spec["contract_version"] = resolved_version
         if expected_version:
@@ -2098,7 +2194,16 @@ def run_pipeline(
             if dataset_name:
                 base_id = dataset_name
                 base_path = Path(str(output_path))
-                server_path_hint = Path(getattr(server, "path", "")) if server else None
+                server_path_hint: Path | None = None
+                if server is not None:
+                    if isinstance(server, Mapping):
+                        raw_hint = str(server.get("path", "") or "").strip()
+                    elif isinstance(server, _SupportsServerPath):
+                        raw_hint = str(server.path or "").strip()
+                    else:
+                        raw_hint = ""
+                    if raw_hint:
+                        server_path_hint = Path(raw_hint)
                 server_filename = (
                     server_path_hint.name
                     if server_path_hint and server_path_hint.suffix
@@ -2277,9 +2382,9 @@ def run_pipeline(
             warnings_present = True
 
     severity = 0
-    severity = max(severity, _status_level(getattr(orders_status, "status", None)))
-    severity = max(severity, _status_level(getattr(customers_status, "status", None)))
-    severity = max(severity, _status_level(getattr(output_status, "status", None)))
+    severity = max(severity, _status_level(orders_status.status if orders_status else None))
+    severity = max(severity, _status_level(customers_status.status if customers_status else None))
+    severity = max(severity, _status_level(output_status.status if output_status else None))
 
     dq_status_summary = output_details.get("dq_status")
     if isinstance(dq_status_summary, Mapping):
@@ -2362,21 +2467,55 @@ def run_pipeline(
     if error:
         raise error
     return dataset_name, dataset_version
+@dataclass(frozen=True)
+class ContractStatusPolicy:
+    """Snapshot of contract-status configuration values."""
 
+    allowed_contract_statuses: tuple[str, ...] = ("active",)
+    allow_missing_contract_status: bool = True
+    contract_status_case_insensitive: bool = True
+    contract_status_failure_message: str | None = None
 
-def __getattr__(name: str) -> Any:
-    delegated = {
-        "DATASETS_FILE",
-        "DATA_DIR",
-        "DatasetRecord",
-        "load_records",
-        "register_dataset_version",
-        "set_active_version",
-        "store",
-        "contract_service",
-        "dq_service",
-        "governance_service",
-    }
-    if name in delegated:
-        return getattr(contracts_server, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    @classmethod
+    def from_source(cls, source: Any | None) -> "ContractStatusPolicy":
+        """Build a policy from ``source`` attributes or mapping keys."""
+
+        if isinstance(source, cls):
+            return source
+
+        allowed: Sequence[str] = ("active",)
+        allow_missing = True
+        case_insensitive = True
+        failure_message: str | None = None
+
+        if isinstance(source, Mapping):
+            allowed = tuple(str(item) for item in source.get("allowed_contract_statuses", allowed))
+            allow_missing = bool(source.get("allow_missing_contract_status", allow_missing))
+            case_insensitive = bool(
+                source.get("contract_status_case_insensitive", case_insensitive)
+            )
+            raw_failure = source.get("contract_status_failure_message")
+            failure_message = str(raw_failure) if raw_failure is not None else None
+            return cls(
+                tuple(allowed),
+                allow_missing,
+                case_insensitive,
+                failure_message,
+            )
+
+        if isinstance(source, _SupportsContractStatusPolicy):
+            allowed_attr = source.allowed_contract_statuses
+            if isinstance(allowed_attr, Sequence) and not isinstance(allowed_attr, (str, bytes)):
+                allowed = tuple(str(item) for item in allowed_attr)
+            allow_missing = bool(source.allow_missing_contract_status)
+            case_insensitive = bool(source.contract_status_case_insensitive)
+            raw_failure = source.contract_status_failure_message
+            failure_message = str(raw_failure) if raw_failure is not None else None
+
+        return cls(
+            tuple(allowed),
+            allow_missing,
+            case_insensitive,
+            failure_message,
+        )
+

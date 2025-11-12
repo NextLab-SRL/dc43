@@ -49,7 +49,9 @@ class _FakeSpark:
 
     @staticmethod
     def _extract(statement: str, marker: str, *, after: str | None = None) -> str:
-        start = statement.find(marker if after is None else marker, statement.find(after) if after else 0)
+        start = statement.find(
+            marker if after is None else marker, statement.find(after) if after else 0
+        )
         if start == -1:
             return ""
         start += len(marker)
@@ -69,7 +71,9 @@ def _contract(version: str) -> OpenDataContractStandard:
             SchemaObject(
                 name="orders",
                 properties=[
-                    SchemaProperty(name="order_id", physicalType="bigint", required=True),
+                    SchemaProperty(
+                        name="order_id", physicalType="bigint", required=True
+                    ),
                 ],
             )
         ],
@@ -85,16 +89,20 @@ def test_delta_contract_store_prefers_release_over_rc(tmp_path: Path) -> None:
     spark = _FakeSpark()
     store = DeltaContractStore(spark, path=str(tmp_path / "contracts"))
 
-    rc_contract = _contract("0.27.0.0rc2")
-    release_contract = _contract("0.27.0.0")
+    rc_contract = _contract("0.28.0.0rc2")
+    release_contract = _contract("0.28.0.0")
 
-    spark.storage[(rc_contract.id, rc_contract.version)] = {"json": _encode(rc_contract)}
-    spark.storage[(release_contract.id, release_contract.version)] = {"json": _encode(release_contract)}
+    spark.storage[(rc_contract.id, rc_contract.version)] = {
+        "json": _encode(rc_contract)
+    }
+    spark.storage[(release_contract.id, release_contract.version)] = {
+        "json": _encode(release_contract)
+    }
 
     latest = store.latest("sales.orders")
 
     assert latest is not None
-    assert latest.version == "0.27.0.0"
+    assert latest.version == "0.28.0.0"
 
 
 def test_delta_contract_store_ignores_blank_versions(tmp_path: Path) -> None:

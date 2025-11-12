@@ -201,10 +201,13 @@ class HttpGovernanceStore(GovernanceStore):
         dataset_id: str,
         dataset_version: str,
         event: Mapping[str, object],
+        lineage_event: Mapping[str, object] | None = None,
     ) -> None:
         payload = dict(event)
         payload.setdefault("contract_id", contract_id)
         payload.setdefault("contract_version", contract_version)
+        if lineage_event is not None:
+            payload["lineage_event"] = dict(lineage_event)
         response = self._client.post(self._activity_url(dataset_id, dataset_version), json=payload)
         response.raise_for_status()
 

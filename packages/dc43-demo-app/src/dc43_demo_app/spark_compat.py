@@ -44,14 +44,23 @@ def _ensure_spark_binaries_executable() -> None:
 def _patch_cached_arrow_call() -> None:
     """Ensure missing Arrow cache servers are treated as disabled."""
 
-    original_call = getattr(JavaPackage, "__call__", None)
-    if original_call is None:
+    try:
+        original_call = JavaPackage.__call__  # type: ignore[attr-defined]
+    except AttributeError:
         return
-    if getattr(original_call, "__dc43_cached_arrow_patch__", False):
+    try:
+        already_patched = bool(original_call.__dc43_cached_arrow_patch__)  # type: ignore[attr-defined]
+    except AttributeError:
+        already_patched = False
+    if already_patched:
         return
 
     def _patched_call(self: JavaPackage, *args, **kwargs):
-        if getattr(self, "_fqn", "") == "org.apache.spark.api.python.CachedArrowBatchServer.isEnabled":
+        try:
+            fqn = self._fqn  # type: ignore[attr-defined]
+        except AttributeError:
+            fqn = ""
+        if fqn == "org.apache.spark.api.python.CachedArrowBatchServer.isEnabled":
             return False
         return original_call(self, *args, **kwargs)
 
@@ -77,7 +86,11 @@ def ensure_local_spark_builder() -> None:
         pass
 
     builder = spark_session.SparkSession.Builder
-    if getattr(builder.getOrCreate, "__dc43_local_patch__", False):
+    try:
+        already_patched = bool(builder.getOrCreate.__dc43_local_patch__)  # type: ignore[attr-defined]
+    except AttributeError:
+        already_patched = False
+    if already_patched:
         return
 
     try:
@@ -91,15 +104,26 @@ def ensure_local_spark_builder() -> None:
     except Exception:  # pragma: no cover - module absent
         instrumentation_utils = None  # type: ignore[assignment]
 
-    hooks = getattr(SparkContext, "_after_init_hooks", None)
+    try:
+        hooks = SparkContext._after_init_hooks  # type: ignore[attr-defined]
+    except AttributeError:
+        hooks = None
     if isinstance(hooks, list):
         patched_hooks = []
         for hook in hooks:
+            try:
+                module_name = hook.__module__  # type: ignore[attr-defined]
+            except AttributeError:
+                module_name = None
+            try:
+                safe_flag = bool(hook.__dc43_safe__)  # type: ignore[attr-defined]
+            except AttributeError:
+                safe_flag = False
             if (
                 callable(hook)
-                and getattr(hook, "__module__", "") == "pyspark.instrumentation_utils"
+                and module_name == "pyspark.instrumentation_utils"
                 and hook.__name__ == "instrument_hook"
-                and not getattr(hook, "__dc43_safe__", False)
+                and not safe_flag
             ):
 
                 def _safe_hook(original_hook=hook) -> None:
@@ -117,7 +141,19 @@ def ensure_local_spark_builder() -> None:
     def _local_get_or_create(self: "spark_session.SparkSession.Builder") -> "spark_session.SparkSession":
         with self._lock:
             session = spark_session.SparkSession._instantiatedSession
-            if session is None or getattr(session._sc, "_jsc", None) is None:
+            spark_context = None
+            if session is not None:
+                try:
+                    spark_context = session._sc  # type: ignore[attr-defined]
+                except AttributeError:
+                    spark_context = None
+            jsc_ready = False
+            if spark_context is not None:
+                try:
+                    jsc_ready = bool(spark_context._jsc)  # type: ignore[attr-defined]
+                except AttributeError:
+                    jsc_ready = False
+            if session is None or not jsc_ready:
                 conf = SparkConf()
                 for key, value in self._options.items():
                     conf.set(key, value)
@@ -125,9 +161,16 @@ def ensure_local_spark_builder() -> None:
                 session = spark_session.SparkSession(sc, options=self._options)
                 spark_session.SparkSession._instantiatedSession = session
             else:
-                getattr(
-                    getattr(session._jvm, "SparkSession$"), "MODULE$"
-                ).applyModifiableSettings(session._jsparkSession, self._options)
+                try:
+                    jvm = session._jvm  # type: ignore[attr-defined]
+                except AttributeError:
+                    jvm = None
+                spark_module = getattr(jvm, "SparkSession$", None) if jvm is not None else None
+                if spark_module is not None:
+                    getattr(spark_module, "MODULE$").applyModifiableSettings(  # type: ignore[attr-defined]
+                        session._jsparkSession,  # type: ignore[attr-defined]
+                        self._options,
+                    )
             return session
 
     _local_get_or_create.__dc43_local_patch__ = True  # type: ignore[attr-defined]

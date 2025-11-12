@@ -47,15 +47,29 @@ class DataQualityManager:
         self._default_engine = (default_engine or "native").lower()
 
     def _resolve_engine_name(self, contract: OpenDataContractStandard) -> str:
-        metadata = getattr(contract, "metadata", None)
+        try:
+            metadata = contract.metadata  # type: ignore[attr-defined]
+        except AttributeError:
+            metadata = None
         if isinstance(metadata, Mapping):
             for key in ("quality_engine", "qualityEngine", "dq_engine", "dqEngine"):
                 value = metadata.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip().lower()
-        for obj in getattr(contract, "schema_", []) or []:
-            for dq in getattr(obj, "quality", []) or []:
-                engine_name = getattr(dq, "engine", None)
+        try:
+            schema_objects = contract.schema_  # type: ignore[attr-defined]
+        except AttributeError:
+            schema_objects = None
+        for obj in schema_objects or []:
+            try:
+                qualities = obj.quality  # type: ignore[attr-defined]
+            except AttributeError:
+                qualities = None
+            for dq in qualities or []:
+                try:
+                    engine_name = dq.engine  # type: ignore[attr-defined]
+                except AttributeError:
+                    engine_name = None
                 if isinstance(engine_name, str) and engine_name.strip():
                     return engine_name.strip().lower()
         return self._default_engine or "native"

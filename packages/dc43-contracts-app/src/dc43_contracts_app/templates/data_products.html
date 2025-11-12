@@ -2,6 +2,9 @@
 {% block content %}
 <h1>Data products</h1>
 <p class="text-muted">Browse data products alongside the contracts and datasets recorded by recent demo runs.</p>
+{% if can_manage_products %}
+<a class="btn btn-primary mb-3" href="/data-products/new">Add data product</a>
+{% endif %}
 <table class="table table-striped align-middle">
   <thead>
     <tr>

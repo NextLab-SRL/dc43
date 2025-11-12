@@ -1,5 +1,7 @@
 import pytest
 
+pytest.importorskip("faker", reason="faker is required for dataset testing helpers")
+
 from open_data_contract_standard.model import (  # type: ignore
     Description,
     OpenDataContractStandard,

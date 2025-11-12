@@ -21,6 +21,7 @@ from typing import (
     Type,
     Union,
     overload,
+    runtime_checkable,
 )
 import copy
 import logging
@@ -47,6 +48,8 @@ from dc43_service_clients.governance import (
     PipelineContext,
     QualityAssessment,
     normalise_pipeline_context,
+    GovernancePublicationMode,
+    resolve_publication_mode,
 )
 from dc43_service_clients.governance.models import (
     GovernanceReadContext,
@@ -58,6 +61,8 @@ from .data_quality import (
     build_metrics_payload,
     collect_observations,
 )
+from .open_data_lineage import build_lineage_run_event
+from .open_telemetry import record_telemetry_span
 from .validation import apply_contract
 from dc43_service_backends.core.odcs import contract_identity, custom_properties_dict, ensure_version
 from dc43_service_backends.core.versioning import SemVer, version_key
@@ -80,6 +85,44 @@ PipelineContextLike = Union[
 ]
 
 
+@runtime_checkable
+class SupportsContractStatusValidation(Protocol):
+    """Expose a contract-status validation hook."""
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        ...
+
+
+@runtime_checkable
+class SupportsDataProductStatusValidation(Protocol):
+    """Expose a data-product status validation hook."""
+
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        ...
+
+
+@runtime_checkable
+class SupportsDataProductStatusPolicy(Protocol):
+    """Expose data product status policy attributes."""
+
+    allowed_data_product_statuses: Sequence[str]
+    allow_missing_data_product_status: bool
+    data_product_status_case_insensitive: bool
+    data_product_status_failure_message: str | None
+
+
 @dataclass(slots=True)
 class GovernanceSparkReadRequest:
     """Wrapper aggregating governance context and Spark-specific overrides."""
@@ -92,6 +135,7 @@ class GovernanceSparkReadRequest:
     dataset_locator: Optional["DatasetLocatorStrategy"] = None
     status_strategy: Optional["ReadStatusStrategy"] = None
     pipeline_context: Optional[PipelineContextLike] = None
+    publication_mode: GovernancePublicationMode | str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceReadContext):
@@ -101,6 +145,8 @@ class GovernanceSparkReadRequest:
                 raise TypeError("context must be a GovernanceReadContext or mapping")
         if self.options is not None and not isinstance(self.options, dict):
             self.options = dict(self.options)
+        if isinstance(self.publication_mode, str):
+            self.publication_mode = GovernancePublicationMode.from_value(self.publication_mode)
         if self.pipeline_context is not None:
             self.context.pipeline_context = self.pipeline_context
 
@@ -117,6 +163,7 @@ class GovernanceSparkWriteRequest:
     mode: str = "append"
     dataset_locator: Optional["DatasetLocatorStrategy"] = None
     pipeline_context: Optional[PipelineContextLike] = None
+    publication_mode: GovernancePublicationMode | str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceWriteContext):
@@ -126,6 +173,8 @@ class GovernanceSparkWriteRequest:
                 raise TypeError("context must be a GovernanceWriteContext or mapping")
         if self.options is not None and not isinstance(self.options, dict):
             self.options = dict(self.options)
+        if isinstance(self.publication_mode, str):
+            self.publication_mode = GovernancePublicationMode.from_value(self.publication_mode)
         if self.pipeline_context is not None:
             self.context.pipeline_context = self.pipeline_context
 
@@ -262,7 +311,10 @@ def _promote_delta_path_to_table(
         return None, path
 
     if spark is not None:
-        catalog = getattr(spark, "catalog", None)
+        try:
+            catalog = spark.catalog
+        except AttributeError:
+            catalog = None
         if catalog is not None:
             try:
                 if catalog.tableExists(path):
@@ -467,7 +519,10 @@ class StreamingObservationWriter:
     def _stop_sink_queries(self) -> None:
         for query in list(self._sink_queries):
             try:
-                stop = getattr(query, "stop", None)
+                stop = query.stop  # type: ignore[attr-defined]
+            except AttributeError:
+                stop = None
+            try:
                 if callable(stop):
                     stop()
             except Exception:  # pragma: no cover - best effort cleanup
@@ -622,11 +677,19 @@ class StreamingObservationWriter:
         if self.query_name:
             writer = writer.queryName(self.query_name)
         query = writer.start()
+        try:
+            query_name = query.name  # type: ignore[attr-defined]
+        except AttributeError:
+            query_name = self.query_name
+        try:
+            query_id = query.id  # type: ignore[attr-defined]
+        except AttributeError:
+            query_id = ""
         self._notify_progress(
             {
                 "type": "observer-started",
-                "query_name": getattr(query, "name", self.query_name),
-                "id": getattr(query, "id", ""),
+                "query_name": query_name,
+                "id": query_id,
             }
         )
         return query
@@ -768,7 +831,13 @@ class ContractFirstDatasetLocator:
         if contract and contract.servers:
             c_path, c_table = _ref_from_contract(contract)
             server = contract.servers[0]
-            c_format = getattr(server, "format", None)
+            if server is not None:
+                try:
+                    c_format = server.format  # type: ignore[attr-defined]
+                except AttributeError:
+                    c_format = None
+            else:
+                c_format = None
             if c_path is not None:
                 path = c_path
             if c_table is not None:
@@ -1391,16 +1460,12 @@ def _ref_from_contract(contract: OpenDataContractStandard) -> tuple[Optional[str
     if not contract.servers:
         return None, None
     server: Server = contract.servers[0]
-    path = getattr(server, "path", None)
+    path = server.path
     if path:
         return path, None
     # Build table name from catalog/schema/database/dataset parts when present
-    last = getattr(server, "dataset", None) or getattr(server, "database", None)
-    parts = [
-        getattr(server, "catalog", None),
-        getattr(server, "schema_", None),
-        last,
-    ]
+    last = server.dataset or server.database
+    parts = [server.catalog, server.schema_, last]
     table = ".".join([p for p in parts if p]) if any(parts) else None
     return None, table
 
@@ -1515,16 +1580,19 @@ def _enforce_contract_status(
 ) -> None:
     """Apply a contract status policy defined by ``handler``."""
 
-    validator = getattr(handler, "validate_contract_status", None)
-    if validator is None:
-        _validate_contract_status(
+    if isinstance(handler, SupportsContractStatusValidation):
+        handler.validate_contract_status(
             contract=contract,
             enforce=enforce,
             operation=operation,
         )
         return
 
-    validator(contract=contract, enforce=enforce, operation=operation)
+    _validate_contract_status(
+        contract=contract,
+        enforce=enforce,
+        operation=operation,
+    )
 
 
 def _validate_contract_status(
@@ -1539,7 +1607,7 @@ def _validate_contract_status(
 ) -> None:
     """Check the contract status against an allowed set."""
 
-    raw_status = getattr(contract, "status", None)
+    raw_status = contract.status
     if raw_status is None:
         if allow_missing:
             return
@@ -1555,8 +1623,8 @@ def _validate_contract_status(
             or "Contract {contract_id}:{contract_version} status {status!r} "
             "is not allowed for {operation} operations"
         ).format(
-            contract_id=str(getattr(contract, "id", "")),
-            contract_version=str(getattr(contract, "version", "")),
+            contract_id=str(contract.id or ""),
+            contract_version=str(contract.version or ""),
             status=status_value,
             operation=operation,
         )
@@ -1576,8 +1644,8 @@ def _validate_contract_status(
         or "Contract {contract_id}:{contract_version} status {status!r} "
         "is not allowed for {operation} operations"
     ).format(
-        contract_id=str(getattr(contract, "id", "")),
-        contract_version=str(getattr(contract, "version", "")),
+        contract_id=str(contract.id or ""),
+        contract_version=str(contract.version or ""),
         status=status_value,
         operation=operation,
     )
@@ -1677,9 +1745,9 @@ def _validate_data_product_status(
 ) -> None:
     """Check the data product status against an allowed set."""
 
-    raw_status = getattr(data_product, "status", None)
-    product_id = str(getattr(data_product, "id", ""))
-    product_version = str(getattr(data_product, "version", ""))
+    raw_status = data_product.status
+    product_id = str(data_product.id or "")
+    product_version = str(data_product.version or "")
     if raw_status is None:
         if allow_missing:
             return
@@ -1741,8 +1809,11 @@ def _clone_status_handler(handler: object, overrides: Mapping[str, Any]) -> obje
     except Exception:  # pragma: no cover - fallback when cloning fails
         clone = handler
     for key, value in overrides.items():
-        if hasattr(clone, key):
-            setattr(clone, key, value)
+        try:
+            object.__getattribute__(clone, key)
+        except AttributeError:
+            continue
+        setattr(clone, key, value)
     return clone
 
 
@@ -1758,25 +1829,52 @@ def _apply_plan_data_product_policy(
         return handler, default_enforce
 
     overrides: Dict[str, Any] = {}
-    allowed_statuses = getattr(plan, "allowed_data_product_statuses", None)
-    if allowed_statuses is not None and hasattr(handler, "allowed_data_product_statuses"):
+    try:
+        allowed_statuses = plan.allowed_data_product_statuses  # type: ignore[attr-defined]
+    except AttributeError:
+        allowed_statuses = None
+    if (
+        allowed_statuses is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["allowed_data_product_statuses"] = tuple(allowed_statuses)
 
-    allow_missing = getattr(plan, "allow_missing_data_product_status", None)
-    if allow_missing is not None and hasattr(handler, "allow_missing_data_product_status"):
+    try:
+        allow_missing = plan.allow_missing_data_product_status  # type: ignore[attr-defined]
+    except AttributeError:
+        allow_missing = None
+    if (
+        allow_missing is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["allow_missing_data_product_status"] = bool(allow_missing)
 
-    case_insensitive = getattr(plan, "data_product_status_case_insensitive", None)
-    if case_insensitive is not None and hasattr(handler, "data_product_status_case_insensitive"):
+    try:
+        case_insensitive = plan.data_product_status_case_insensitive  # type: ignore[attr-defined]
+    except AttributeError:
+        case_insensitive = None
+    if (
+        case_insensitive is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["data_product_status_case_insensitive"] = bool(case_insensitive)
 
-    failure_message = getattr(plan, "data_product_status_failure_message", None)
-    if failure_message is not None and hasattr(handler, "data_product_status_failure_message"):
+    try:
+        failure_message = plan.data_product_status_failure_message  # type: ignore[attr-defined]
+    except AttributeError:
+        failure_message = None
+    if (
+        failure_message is not None
+        and isinstance(handler, SupportsDataProductStatusPolicy)
+    ):
         overrides["data_product_status_failure_message"] = failure_message
 
     handler = _clone_status_handler(handler, overrides)
 
-    enforce_override = getattr(plan, "enforce_data_product_status", None)
+    try:
+        enforce_override = plan.enforce_data_product_status  # type: ignore[attr-defined]
+    except AttributeError:
+        enforce_override = None
     if enforce_override is None:
         return handler, default_enforce
     return handler, bool(enforce_override)
@@ -1791,16 +1889,19 @@ def _enforce_data_product_status(
 ) -> None:
     """Apply a data product status policy defined by ``handler``."""
 
-    validator = getattr(handler, "validate_data_product_status", None)
-    if validator is None:
-        _validate_data_product_status(
+    if isinstance(handler, SupportsDataProductStatusValidation):
+        handler.validate_data_product_status(
             data_product=data_product,
             enforce=enforce,
             operation=operation,
         )
         return
 
-    validator(data_product=data_product, enforce=enforce, operation=operation)
+    _validate_data_product_status(
+        data_product=data_product,
+        enforce=enforce,
+        operation=operation,
+    )
 
 
 def _select_data_product(
@@ -1987,6 +2088,7 @@ class BaseReadExecutor:
         dataset_locator: Optional[DatasetLocatorStrategy],
         status_strategy: Optional[ReadStatusStrategy],
         pipeline_context: Optional[PipelineContextLike],
+        publication_mode: GovernancePublicationMode | str | None = None,
         plan: Optional[ResolvedReadPlan] = None,
     ) -> None:
         self.spark = spark
@@ -2029,6 +2131,44 @@ class BaseReadExecutor:
             self.pipeline_context = plan.pipeline_context
         else:
             self.pipeline_context = None
+        self.publication_mode = self._resolve_publication_mode(
+            spark=spark,
+            override=publication_mode,
+        )
+        self.open_data_lineage_only = (
+            self.publication_mode is GovernancePublicationMode.OPEN_DATA_LINEAGE
+        )
+        self.open_telemetry_only = (
+            self.publication_mode is GovernancePublicationMode.OPEN_TELEMETRY
+        )
+        self._skip_governance_activity = self.open_data_lineage_only or self.open_telemetry_only
+        self._last_read_resolution: Optional[DatasetResolution] = None
+
+    @staticmethod
+    def _resolve_publication_mode(
+        *,
+        spark: SparkSession,
+        override: GovernancePublicationMode | str | None,
+    ) -> GovernancePublicationMode:
+        config: Dict[str, str] | None = None
+        try:
+            spark_conf = spark.conf  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - Spark may be absent in unit tests
+            spark_conf = None
+        if spark_conf is not None:
+            for key in (
+                "dc43.governance.publicationMode",
+                "dc43.governance.publication_mode",
+                "governance.publication.mode",
+            ):
+                try:
+                    value = spark_conf.get(key)
+                except Exception:  # pragma: no cover - SparkConf guards may throw
+                    value = None
+                if value:
+                    config = {key: value}
+                    break
+        return resolve_publication_mode(explicit=override, config=config)
 
     def execute(self) -> tuple[DataFrame, Optional[ValidationResult]]:
         """Execute the read pipeline and return the dataframe/status pair."""
@@ -2215,6 +2355,8 @@ class BaseReadExecutor:
             table=self.user_table,
         )
 
+        self._last_read_resolution = resolution
+
         original_path = self.user_path
         original_table = self.user_table
         original_format = self.user_format
@@ -2279,7 +2421,11 @@ class BaseReadExecutor:
         return self.spark.readStream if self.streaming else self.spark.read
 
     def _detect_streaming(self, dataframe: DataFrame) -> bool:
-        streaming_active = self.streaming or bool(getattr(dataframe, "isStreaming", False))
+        try:
+            is_streaming = bool(dataframe.isStreaming)  # type: ignore[attr-defined]
+        except AttributeError:
+            is_streaming = False
+        streaming_active = self.streaming or is_streaming
         if streaming_active and not self.streaming:
             logger.info("Detected streaming dataframe; enabling streaming mode")
         return streaming_active
@@ -2507,7 +2653,7 @@ class BaseReadExecutor:
         status = assessment.status
         if status is None and assessment.validation is not None:
             status = assessment.validation
-        if self.plan is not None:
+        if self.plan is not None and not self._skip_governance_activity:
             try:
                 governance_client.register_read_activity(
                     plan=self.plan,
@@ -2523,6 +2669,75 @@ class BaseReadExecutor:
                 logger.exception(
                     "Failed to register governance read activity for %s",
                     self.plan.contract_id,
+                )
+        if self.open_data_lineage_only and governance_client is not None:
+            try:
+                resolution = self._last_read_resolution
+                dataset_format = None
+                dataset_path = None
+                dataset_table = None
+                if resolution is not None:
+                    dataset_format = resolution.format
+                    dataset_table = resolution.table
+                    dataset_path = resolution.path
+                    if dataset_path is None and resolution.load_paths:
+                        dataset_path = resolution.load_paths[0]
+                lineage_event = build_lineage_run_event(
+                    operation="read",
+                    plan=self.plan,
+                    pipeline_context=self.pipeline_context,
+                    contract_id=cid,
+                    contract_version=cver,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    dataset_format=dataset_format or self.user_format,
+                    table=dataset_table or self.user_table,
+                    path=dataset_path or self.user_path,
+                    binding=self.dp_binding,
+                    validation=validation,
+                    status=status,
+                    expectation_plan=expectation_plan,
+                )
+                governance_client.publish_lineage_event(event=lineage_event)
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to publish lineage run for %s:%s",
+                    cid,
+                    cver,
+                )
+        if self.open_telemetry_only:
+            try:
+                resolution = self._last_read_resolution
+                dataset_format = None
+                dataset_path = None
+                dataset_table = None
+                if resolution is not None:
+                    dataset_format = resolution.format
+                    dataset_table = resolution.table
+                    dataset_path = resolution.path
+                    if dataset_path is None and resolution.load_paths:
+                        dataset_path = resolution.load_paths[0]
+                record_telemetry_span(
+                    operation="read",
+                    plan=self.plan,
+                    pipeline_context=self.pipeline_context,
+                    contract_id=cid,
+                    contract_version=cver,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    dataset_format=dataset_format or self.user_format,
+                    table=dataset_table or self.user_table,
+                    path=dataset_path or self.user_path,
+                    binding=self.dp_binding,
+                    validation=validation,
+                    status=status,
+                    expectation_plan=expectation_plan,
+                )
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to record telemetry span for %s:%s",
+                    cid,
+                    dataset_id,
                 )
         if status:
             logger.info("DQ status for %s@%s: %s", dataset_id, dataset_version, status.status)
@@ -2644,6 +2859,7 @@ def _execute_read(
     dataset_locator: Optional[DatasetLocatorStrategy],
     status_strategy: Optional[ReadStatusStrategy],
     pipeline_context: Optional[PipelineContextLike],
+    publication_mode: GovernancePublicationMode | str | None,
     return_status: bool,
     plan: Optional[ResolvedReadPlan] = None,
 ) -> DataFrame | tuple[DataFrame, Optional[ValidationResult]]:
@@ -2665,6 +2881,7 @@ def _execute_read(
         dataset_locator=dataset_locator,
         status_strategy=status_strategy,
         pipeline_context=pipeline_context,
+        publication_mode=publication_mode,
         plan=plan,
     )
     dataframe, status = executor.execute()
@@ -2795,6 +3012,7 @@ def read_with_contract(
         dataset_locator=dataset_locator,
         status_strategy=status_strategy,
         pipeline_context=pipeline_context,
+        publication_mode=None,
         return_status=return_status,
     )
 
@@ -2857,26 +3075,37 @@ def read_with_governance(
 
     strategy = request.status_strategy or DefaultReadStatusStrategy()
     context = request.context
-    if getattr(context, "allowed_data_product_statuses", None) is None:
-        allowed = getattr(strategy, "allowed_data_product_statuses", None)
-        if allowed is not None:
-            if isinstance(allowed, str):
-                context.allowed_data_product_statuses = (allowed,)
-            else:
-                context.allowed_data_product_statuses = tuple(allowed)
-    if getattr(context, "allow_missing_data_product_status", None) is None:
-        allow_missing = getattr(strategy, "allow_missing_data_product_status", None)
-        if allow_missing is not None:
-            context.allow_missing_data_product_status = bool(allow_missing)
-    if getattr(context, "data_product_status_case_insensitive", None) is None:
-        case_insensitive = getattr(strategy, "data_product_status_case_insensitive", None)
-        if case_insensitive is not None:
-            context.data_product_status_case_insensitive = bool(case_insensitive)
-    if getattr(context, "data_product_status_failure_message", None) is None:
-        failure_message = getattr(strategy, "data_product_status_failure_message", None)
+    if (
+        context.allowed_data_product_statuses is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        allowed = strategy.allowed_data_product_statuses
+        if isinstance(allowed, str):
+            context.allowed_data_product_statuses = (allowed,)
+        else:
+            context.allowed_data_product_statuses = tuple(allowed)
+    if (
+        context.allow_missing_data_product_status is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        context.allow_missing_data_product_status = bool(
+            strategy.allow_missing_data_product_status
+        )
+    if (
+        context.data_product_status_case_insensitive is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        context.data_product_status_case_insensitive = bool(
+            strategy.data_product_status_case_insensitive
+        )
+    if (
+        context.data_product_status_failure_message is None
+        and isinstance(strategy, SupportsDataProductStatusPolicy)
+    ):
+        failure_message = strategy.data_product_status_failure_message
         if failure_message is not None:
             context.data_product_status_failure_message = str(failure_message)
-    if getattr(context, "enforce_data_product_status", None) is None:
+    if context.enforce_data_product_status is None:
         context.enforce_data_product_status = bool(enforce)
 
     plan = governance_service.resolve_read_context(context=context)
@@ -2901,6 +3130,7 @@ def read_with_governance(
         dataset_locator=request.dataset_locator,
         status_strategy=strategy,
         pipeline_context=pipeline_ctx,
+        publication_mode=request.publication_mode,
         return_status=return_status,
         plan=plan,
     )
@@ -3029,6 +3259,7 @@ def read_stream_with_contract(
         dataset_locator=dataset_locator,
         status_strategy=status_strategy,
         pipeline_context=pipeline_context,
+        publication_mode=None,
         return_status=return_status,
     )
 
@@ -3111,6 +3342,7 @@ def read_stream_with_governance(
         dataset_locator=request.dataset_locator,
         status_strategy=request.status_strategy,
         pipeline_context=pipeline_ctx,
+        publication_mode=request.publication_mode,
         return_status=return_status,
         plan=plan,
     )
@@ -3345,6 +3577,7 @@ class BaseWriteExecutor:
         violation_strategy: Optional[WriteViolationStrategy],
         streaming_intervention_strategy: Optional[StreamingInterventionStrategy],
         streaming_batch_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
+        publication_mode: GovernancePublicationMode | str | None = None,
         plan: Optional[ResolvedWritePlan] = None,
     ) -> None:
         self.df = df
@@ -3383,6 +3616,18 @@ class BaseWriteExecutor:
             self.pipeline_context = plan.pipeline_context
         else:
             self.pipeline_context = None
+        self.publication_mode = self._resolve_publication_mode(
+            spark=df.sparkSession,
+            override=publication_mode,
+        )
+        self.open_data_lineage_only = (
+            self.publication_mode is GovernancePublicationMode.OPEN_DATA_LINEAGE
+        )
+        self.open_telemetry_only = (
+            self.publication_mode is GovernancePublicationMode.OPEN_TELEMETRY
+        )
+        self._skip_governance_activity = self.open_data_lineage_only or self.open_telemetry_only
+        self._last_write_resolution: Optional[DatasetResolution] = None
         strategy = violation_strategy or NoOpWriteViolationStrategy()
         self.data_product_status_enforce = enforce
         if plan is not None:
@@ -3395,6 +3640,32 @@ class BaseWriteExecutor:
         self.strategy = strategy
         self.streaming_intervention_strategy = streaming_intervention_strategy
         self.streaming_batch_callback = streaming_batch_callback
+
+    @staticmethod
+    def _resolve_publication_mode(
+        *,
+        spark: SparkSession,
+        override: GovernancePublicationMode | str | None,
+    ) -> GovernancePublicationMode:
+        config: Dict[str, str] | None = None
+        try:
+            spark_conf = spark.conf  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - Spark may be absent in unit tests
+            spark_conf = None
+        if spark_conf is not None:
+            for key in (
+                "dc43.governance.publicationMode",
+                "dc43.governance.publication_mode",
+                "governance.publication.mode",
+            ):
+                try:
+                    value = spark_conf.get(key)
+                except Exception:  # pragma: no cover - SparkConf guards may throw
+                    value = None
+                if value:
+                    config = {key: value}
+                    break
+        return resolve_publication_mode(explicit=override, config=config)
 
     def execute(self) -> WriteExecutionResult:
         df = self.df
@@ -3557,18 +3828,23 @@ class BaseWriteExecutor:
             path=path,
             table=table,
         )
+        self._last_write_resolution = resolution
         path = resolution.path
         table = resolution.table
         format = resolution.format
-        dataset_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
-        dataset_version = resolution.dataset_version
+        plan_dataset_id: Optional[str] = None
+        plan_dataset_version: Optional[str] = None
+        plan_dataset_format: Optional[str] = None
         if governance_plan is not None:
-            if governance_plan.dataset_id and not dataset_id:
-                dataset_id = governance_plan.dataset_id
-            if governance_plan.dataset_version and not dataset_version:
-                dataset_version = governance_plan.dataset_version
-            if governance_plan.dataset_format and format is None:
-                format = governance_plan.dataset_format
+            plan_dataset_id = governance_plan.dataset_id or None
+            plan_dataset_version = governance_plan.dataset_version or None
+            plan_dataset_format = governance_plan.dataset_format or None
+        dataset_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path)
+        if dataset_id is None:
+            dataset_id = plan_dataset_id
+        dataset_version = resolution.dataset_version or plan_dataset_version
+        if plan_dataset_format:
+            format = plan_dataset_format
 
         pre_validation_warnings: list[str] = []
         if contract:
@@ -3592,7 +3868,11 @@ class BaseWriteExecutor:
                 format = c_fmt
 
         out_df = df
-        streaming_active = self.streaming or bool(getattr(df, "isStreaming", False))
+        try:
+            is_streaming = bool(df.isStreaming)  # type: ignore[attr-defined]
+        except AttributeError:
+            is_streaming = False
+        streaming_active = self.streaming or is_streaming
         if streaming_active and not self.streaming:
             logger.info("Detected streaming dataframe; enabling streaming mode")
         if streaming_active and not dataset_version:
@@ -4049,6 +4329,7 @@ class BaseWriteExecutor:
             governance_plan is not None
             and governance_client is not None
             and assessment is not None
+            and not self._skip_governance_activity
         ):
             try:
                 governance_client.register_write_activity(
@@ -4064,6 +4345,90 @@ class BaseWriteExecutor:
                 logger.exception(
                     "Failed to register governance write activity for %s",
                     governance_plan.contract_id,
+                )
+        if self.open_data_lineage_only and governance_client is not None:
+            try:
+                resolution = self._last_write_resolution
+                dataset_format = format
+                dataset_table = table
+                dataset_path = path
+                if resolution is not None:
+                    if resolution.format:
+                        dataset_format = resolution.format
+                    if resolution.table:
+                        dataset_table = resolution.table
+                    if resolution.path:
+                        dataset_path = resolution.path
+                lineage_contract_id = None
+                lineage_contract_version = None
+                if contract is not None:
+                    lineage_contract_id = contract.id
+                    lineage_contract_version = contract.version
+                else:
+                    lineage_contract_id = resolved_contract_id
+                    lineage_contract_version = resolved_expected_version
+                lineage_event = build_lineage_run_event(
+                    operation="write",
+                    plan=governance_plan,
+                    pipeline_context=self.pipeline_context,
+                    contract_id=lineage_contract_id,
+                    contract_version=lineage_contract_version,
+                    dataset_id=dataset_id,
+                    dataset_version=dataset_version,
+                    dataset_format=dataset_format,
+                    table=dataset_table,
+                    path=dataset_path,
+                    binding=self.dp_output_binding,
+                    validation=result,
+                    status=primary_status,
+                    expectation_plan=expectation_plan,
+                )
+                governance_client.publish_lineage_event(event=lineage_event)
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to publish lineage run for %s",
+                    lineage_contract_id,
+                )
+        if self.open_telemetry_only:
+            try:
+                resolution = self._last_write_resolution
+                dataset_format = format
+                dataset_table = table
+                dataset_path = path
+                if resolution is not None:
+                    if resolution.format:
+                        dataset_format = resolution.format
+                    if resolution.table:
+                        dataset_table = resolution.table
+                    if resolution.path:
+                        dataset_path = resolution.path
+                telemetry_contract_id = contract.id if contract is not None else resolved_contract_id
+                telemetry_contract_version = (
+                    contract.version if contract is not None else resolved_expected_version
+                )
+                telemetry_dataset_id = plan_dataset_id or dataset_id
+                telemetry_dataset_version = plan_dataset_version or dataset_version
+                telemetry_dataset_format = plan_dataset_format or dataset_format
+                record_telemetry_span(
+                    operation="write",
+                    plan=governance_plan,
+                    pipeline_context=self.pipeline_context,
+                    contract_id=telemetry_contract_id,
+                    contract_version=telemetry_contract_version,
+                    dataset_id=telemetry_dataset_id,
+                    dataset_version=telemetry_dataset_version,
+                    dataset_format=telemetry_dataset_format,
+                    table=dataset_table,
+                    path=dataset_path,
+                    binding=self.dp_output_binding,
+                    validation=result,
+                    status=primary_status,
+                    expectation_plan=expectation_plan,
+                )
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to record telemetry span for %s",
+                    resolved_contract_id,
                 )
 
         if streaming_queries:
@@ -4104,6 +4469,7 @@ def _execute_write(
     data_product_output: Optional[DataProductOutputBinding | Mapping[str, object]],
     dataset_locator: Optional[DatasetLocatorStrategy],
     pipeline_context: Optional[PipelineContextLike],
+    publication_mode: GovernancePublicationMode | str | None,
     return_status: bool,
     violation_strategy: Optional[WriteViolationStrategy],
     streaming_intervention_strategy: Optional[StreamingInterventionStrategy],
@@ -4131,6 +4497,7 @@ def _execute_write(
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=streaming_intervention_strategy,
         streaming_batch_callback=streaming_batch_callback,
+        publication_mode=publication_mode,
         plan=plan,
     )
     execution = executor.execute()
@@ -4268,6 +4635,7 @@ def write_with_contract(
         data_product_output=data_product_output,
         dataset_locator=dataset_locator,
         pipeline_context=pipeline_context,
+        publication_mode=None,
         return_status=return_status,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=None,
@@ -4335,7 +4703,7 @@ def write_with_governance(
             raise TypeError("request must be a GovernanceSparkWriteRequest or mapping")
 
     context = request.context
-    if getattr(context, "enforce_data_product_status", None) is None:
+    if context.enforce_data_product_status is None:
         context.enforce_data_product_status = bool(enforce)
 
     plan = governance_service.resolve_write_context(context=context)
@@ -4360,6 +4728,7 @@ def write_with_governance(
         data_product_output=None,
         dataset_locator=request.dataset_locator,
         pipeline_context=pipeline_ctx,
+        publication_mode=request.publication_mode,
         return_status=return_status,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=None,
@@ -4502,6 +4871,7 @@ def write_stream_with_contract(
         data_product_output=data_product_output,
         dataset_locator=dataset_locator,
         pipeline_context=pipeline_context,
+        publication_mode=None,
         return_status=return_status,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=streaming_intervention_strategy,
@@ -4599,6 +4969,7 @@ def write_stream_with_governance(
         data_product_output=None,
         dataset_locator=request.dataset_locator,
         pipeline_context=pipeline_ctx,
+        publication_mode=request.publication_mode,
         return_status=return_status,
         violation_strategy=violation_strategy,
         streaming_intervention_strategy=streaming_intervention_strategy,

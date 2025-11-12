@@ -224,9 +224,18 @@ if contracts_server is not None:
     contracts_services.dataset_pipeline_activity = _demo_pipeline_activity  # type: ignore[assignment]
     contracts_services.dataset_validation_status = _demo_validation_status  # type: ignore[assignment]
 
-    if not hasattr(contracts_server, "_normalise_record_status"):
+    try:
+        existing_normaliser = contracts_server._normalise_record_status  # type: ignore[attr-defined]
+    except AttributeError:
+        existing_normaliser = None
+    if existing_normaliser is None:
         contracts_server._normalise_record_status = _demo_normalise_record_status  # type: ignore[attr-defined]
-    if not hasattr(contracts_server, "_extract_violation_count"):
+
+    try:
+        existing_counter = contracts_server._extract_violation_count  # type: ignore[attr-defined]
+    except AttributeError:
+        existing_counter = None
+    if existing_counter is None:
         contracts_server._extract_violation_count = _demo_extract_violation_count  # type: ignore[attr-defined]
 
     def _serialise_contract(contract) -> Mapping[str, object]:

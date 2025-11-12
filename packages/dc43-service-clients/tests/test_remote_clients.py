@@ -35,6 +35,10 @@ from dc43_service_clients.data_quality.client.remote import RemoteDataQualitySer
 from dc43_service_clients.data_quality.models import ValidationResult
 from dc43_service_clients.data_quality.transport import encode_validation_result
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
+from dc43_service_clients.governance.lineage import (
+    decode_lineage_event,
+    encode_lineage_event,
+)
 from dc43_service_clients.governance import (
     ContractReference,
     GovernanceReadContext,
@@ -99,6 +103,7 @@ class _ServiceBackendMock:
         self._governance_status: dict[tuple[str, str], ValidationResult] = {}
         self._pipeline_activity: list[dict[str, object]] = []
         self._metrics: list[dict[str, object]] = []
+        self._lineage_events: list[Mapping[str, object]] = []
         self._data_products = LocalDataProductServiceBackend()
         self._data_products.register_output_port(
             data_product_id="dp.analytics",
@@ -371,6 +376,9 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.read.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
             )
+            contract_ref = plan.get("contract_id"), plan.get("contract_version")
+            if all(contract_ref):
+                self._dataset_links[(dataset_id, dataset_version)] = f"{contract_ref[0]}:{contract_ref[1]}"
             _record(
                 validation_result,
                 contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
@@ -404,6 +412,9 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.write.evaluate", "dataset_id": dataset_id, "dataset_version": dataset_version}
             )
+            contract_ref = plan.get("contract_id"), plan.get("contract_version")
+            if all(contract_ref):
+                self._dataset_links[(dataset_id, dataset_version)] = f"{contract_ref[0]}:{contract_ref[1]}"
             _record(
                 validation_result,
                 contract_id=str(plan.get("contract_id")) if plan.get("contract_id") else None,
@@ -455,6 +466,13 @@ class _ServiceBackendMock:
                     }
                 )
             return httpx.Response(status_code=204)
+        if path == "/governance/lineage" and method == "POST":
+            payload = self._read_json(request)
+            event_payload = payload.get("event") if isinstance(payload, Mapping) else None
+            if not isinstance(event_payload, Mapping):
+                return httpx.Response(status_code=400, json={"detail": "Missing lineage event"})
+            self._lineage_events.append(dict(event_payload))
+            return httpx.Response(status_code=204)
         if path == "/governance/evaluate" and method == "POST":
             payload = self._read_json(request)
             dataset_id = payload.get("dataset_id")
@@ -468,6 +486,9 @@ class _ServiceBackendMock:
             self._pipeline_activity.append(
                 {"event": "governance.evaluate", "dataset_id": str(dataset_id), "dataset_version": str(dataset_version)}
             )
+            contract_ref = payload.get("contract_id"), payload.get("contract_version")
+            if all(contract_ref):
+                self._dataset_links[key] = f"{contract_ref[0]}:{contract_ref[1]}"
             _record(
                 validation_result,
                 contract_id=str(payload.get("contract_id")) if payload.get("contract_id") else None,
@@ -497,6 +518,42 @@ class _ServiceBackendMock:
             if None in key or key not in self._governance_status:
                 return httpx.Response(status_code=404, json={"detail": "No status recorded"})
             return httpx.Response(status_code=200, json=encode_validation_result(self._governance_status[key]) or {})
+        if path == "/governance/status-matrix" and method == "GET":
+            params = request.url.params
+            dataset_id = params.get("dataset_id")
+            if not dataset_id:
+                return httpx.Response(status_code=400, json={"detail": "dataset_id required"})
+            contract_filters = (
+                params.getlist("contract_id") if hasattr(params, "getlist") else []
+            )
+            dataset_filters = (
+                params.getlist("dataset_version") if hasattr(params, "getlist") else []
+            )
+            entries: list[dict[str, object]] = []
+            for (ds_id, ds_version), status in self._governance_status.items():
+                if ds_id != dataset_id:
+                    continue
+                if dataset_filters and ds_version not in dataset_filters:
+                    continue
+                contract_ref = self._dataset_links.get((ds_id, ds_version))
+                if not contract_ref:
+                    continue
+                contract_id, _, contract_version = contract_ref.partition(":")
+                if contract_filters and contract_id not in contract_filters:
+                    continue
+                entries.append(
+                    {
+                        "dataset_id": ds_id,
+                        "dataset_version": ds_version,
+                        "contract_id": contract_id,
+                        "contract_version": contract_version,
+                        "status": encode_validation_result(status),
+                    }
+                )
+            return httpx.Response(
+                status_code=200,
+                json={"dataset_id": dataset_id, "entries": entries},
+            )
         if path == "/governance/link" and method == "POST":
             payload = self._read_json(request)
             required = {"dataset_id", "dataset_version", "contract_id", "contract_version"}
@@ -764,6 +821,26 @@ def test_remote_governance_client(http_clients):
     )
     assert status is not None
 
+    matrix = governance_client.get_status_matrix(dataset_id="orders")
+    assert matrix
+    matrix_entry = next(
+        (
+            entry
+            for entry in matrix
+            if entry.contract_id == contract.id
+            and entry.contract_version == contract.version
+            and entry.dataset_version == "2024-01-01"
+        ),
+        None,
+    )
+    assert matrix_entry is not None and matrix_entry.status is not None
+
+    filtered = governance_client.get_status_matrix(
+        dataset_id="orders",
+        contract_ids=["does-not-exist"],
+    )
+    assert filtered == ()
+
     metrics = governance_client.get_metrics(
         dataset_id="orders",
         dataset_version="2024-01-01",
@@ -897,3 +974,70 @@ def test_http_clients_require_authentication(service_backend):
             client.list_versions(contract.id)
     finally:
         client.close()
+
+
+def test_lineage_event_encode_decode_round_trip() -> None:
+    pytest.importorskip(
+        "openlineage.client.run", reason="openlineage-python is required for lineage client tests"
+    )
+    payload = {
+        "eventType": "COMPLETE",
+        "eventTime": "2024-01-01T00:00:00Z",
+        "producer": "https://dc43.example/producer",
+        "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#",
+        "run": {"runId": "44695653-fc1a-4ec6-8c2a-6c6a44ec5ad9", "facets": {"custom": {"value": "x"}}},
+        "job": {"namespace": "dc43", "name": "orders"},
+        "inputs": [
+            {
+                "namespace": "dc43",
+                "name": "orders",
+                "facets": {"dc43Dataset": {"datasetId": "orders", "datasetVersion": "v1"}},
+            }
+        ],
+        "outputs": [],
+    }
+    event = decode_lineage_event(payload)
+    assert event is not None
+    encoded = encode_lineage_event(event)
+    assert encoded == payload
+
+
+def test_remote_governance_client_publishes_lineage(http_clients) -> None:
+    pytest.importorskip(
+        "openlineage.client.run", reason="openlineage-python is required for lineage client tests"
+    )
+    governance_client: RemoteGovernanceServiceClient = http_clients["governance"]
+    backend: _ServiceBackendMock = http_clients["backend"]
+
+    run_id = "44695653-fc1a-4ec6-8c2a-6c6a44ec5ad9"
+    lineage_payload = {
+        "eventType": "COMPLETE",
+        "eventTime": "2024-01-02T12:00:00Z",
+        "producer": "https://dc43.example/integrations",
+        "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#",
+        "run": {"runId": run_id, "facets": {"dc43PipelineContext": {"context": {"job": "orders"}}}},
+        "job": {"namespace": "dc43", "name": "orders-job"},
+        "inputs": [
+            {
+                "namespace": "dc43",
+                "name": "orders-dataset",
+                "facets": {
+                    "dc43Dataset": {
+                        "datasetId": "orders",
+                        "datasetVersion": "2024-01-02",
+                        "operation": "read",
+                    }
+                },
+            }
+        ],
+        "outputs": [],
+    }
+
+    event = decode_lineage_event(lineage_payload)
+    assert event is not None
+
+    governance_client.publish_lineage_event(event=event)
+
+    assert backend._lineage_events, "lineage event should be forwarded to backend"
+    stored = backend._lineage_events[-1]
+    assert stored.get("run", {}).get("runId") == run_id

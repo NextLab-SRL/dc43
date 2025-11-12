@@ -446,10 +446,18 @@ def load_contract_meta() -> List[Dict[str, Any]]:
             path = ""
             if server:
                 parts: List[str] = []
-                if getattr(server, "address", None):
-                    parts.append(str(server.address))
-                if getattr(server, "path", None):
-                    parts.append(str(server.path))
+                try:
+                    address = server.address  # type: ignore[attr-defined]
+                except AttributeError:
+                    address = None
+                if address:
+                    parts.append(str(address))
+                try:
+                    path_attr = server.path  # type: ignore[attr-defined]
+                except AttributeError:
+                    path_attr = None
+                if path_attr:
+                    parts.append(str(path_attr))
                 path = "/".join(parts)
             meta.append(
                 {
@@ -544,7 +552,11 @@ def dq_version_records(
     skip_fs_check = False
     if contract and contract.servers:
         server = contract.servers[0]
-        fmt = (getattr(server, "format", "") or "").lower()
+        try:
+            fmt_attr = server.format  # type: ignore[attr-defined]
+        except AttributeError:
+            fmt_attr = None
+        fmt = (fmt_attr or "").lower()
         if fmt == "delta":
             skip_fs_check = True
 

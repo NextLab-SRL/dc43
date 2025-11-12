@@ -106,8 +106,15 @@ def _dlt_output_transform(
     """Route the final dataframe through a local DLT harness."""
 
     databricks_dlt = ensure_dlt_module(allow_stub=True)
-    context["dlt_module_name"] = getattr(databricks_dlt, "__name__", "dlt")
-    context["dlt_module_stub"] = bool(getattr(databricks_dlt, "__dc43_is_stub__", False))
+    try:
+        context["dlt_module_name"] = databricks_dlt.__name__  # type: ignore[attr-defined]
+    except AttributeError:
+        context["dlt_module_name"] = "dlt"
+    try:
+        module_stub_flag = bool(databricks_dlt.__dc43_is_stub__)  # type: ignore[attr-defined]
+    except AttributeError:
+        module_stub_flag = False
+    context["dlt_module_stub"] = module_stub_flag
 
     spark = context.get("spark")
     if spark is None:
@@ -187,8 +194,14 @@ def run_dlt_pipeline(
 
     ensure_local_spark_builder()
     module = ensure_dlt_module(allow_stub=True)
-    module_name = getattr(module, "__name__", "dlt")
-    module_stub = bool(getattr(module, "__dc43_is_stub__", False))
+    try:
+        module_name = module.__name__  # type: ignore[attr-defined]
+    except AttributeError:
+        module_name = "dlt"
+    try:
+        module_stub = bool(module.__dc43_is_stub__)  # type: ignore[attr-defined]
+    except AttributeError:
+        module_stub = False
 
     try:
         result = pipeline.run_pipeline(
