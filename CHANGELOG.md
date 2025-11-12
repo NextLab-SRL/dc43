@@ -25,6 +25,15 @@
 - Extracted the ODCS/ODPS helpers and SemVer utilities into the standalone
   `dc43-core` distribution so services, clients, and integrations share the
   same implementation without private shims.
+- Added a Databricks Delta versioning notebook to `packages/dc43-integrations`
+  that automates contract evolution, governed writes, and compatibility matrix
+  reporting for quick validation in notebooks or jobs.
+- Added a Databricks Delta streaming notebook to `packages/dc43-integrations`
+  that runs successive Structured Streaming writes under evolving contracts and
+  prints the resulting governance compatibility matrix for inspection.
+- Added Delta Live Tables batch and streaming notebooks so Databricks pipelines
+  can reproduce the governed versioning scenario without converting the Python
+  scripts manually.
 
 ### Changed
 - Updated the integrations test extra to stay on `databricks-dlt` `<0.3` so CI
