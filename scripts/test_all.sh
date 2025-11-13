@@ -16,9 +16,9 @@ for arg in "$@"; do
 done
 
 if [[ "$install_deps" == true ]]; then
-    python -m pip install -e "packages/dc43-service-clients[http]"
+    python -m pip install -e "packages/dc43-service-clients[http,lineage]"
     python -m pip install -e "packages/dc43-service-backends[http]"
-    python -m pip install -e "packages/dc43-integrations"
+    python -m pip install -e "packages/dc43-integrations[spark,lineage,telemetry]"
     python -m pip install -e "packages/dc43-contracts-app[spark]"
     python -m pip install -e ".[test]"
 fi

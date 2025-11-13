@@ -310,13 +310,13 @@ def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
         OpenDataProductStandard(
             id="dp.sales",
             status="draft",
-            version="0.30.0.0rc3",
+            version="0.31.0.0rc3",
             name="Sales",
             description={"purpose": "Provide Sales Information"},
             output_ports=[
                 DataProductOutputPort(
                     name="orders",
-                    version="0.30.0.0rc3",
+                    version="0.31.0.0rc3",
                     contract_id="sales",
                 )
             ],
@@ -326,13 +326,13 @@ def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
         OpenDataProductStandard(
             id="dp.sales",
             status="active",
-            version="0.30.0.0",
+            version="0.31.0.0",
             name="Sales",
             description={"purpose": "Provide Sales Information"},
             output_ports=[
                 DataProductOutputPort(
                     name="orders",
-                    version="0.30.0.0",
+                    version="0.31.0.0",
                     contract_id="sales",
                 )
             ],
@@ -342,15 +342,15 @@ def test_delta_backend_prefers_release_over_rc(tmp_path: Path) -> None:
     latest = backend.latest("dp.sales")
 
     assert latest is not None
-    assert latest.version == "0.30.0.0"
+    assert latest.version == "0.31.0.0"
 
 
 def test_version_key_orders_pre_releases() -> None:
-    assert version_key("0.30.0.0dev1") < version_key("0.30.0.0rc1")
-    assert version_key("0.30.0.0rc1") < version_key("0.30.0.0")
-    assert version_key("0.30.0.0rc2") < version_key("0.30.0.0rc10")
-    assert version_key("0.30.0.0draft2") < version_key("0.30.0.0draft10")
-    assert version_key("0.30.0.0draft1") < version_key("0.30.0.0rc1")
+    assert version_key("0.31.0.0dev1") < version_key("0.31.0.0rc1")
+    assert version_key("0.31.0.0rc1") < version_key("0.31.0.0")
+    assert version_key("0.31.0.0rc2") < version_key("0.31.0.0rc10")
+    assert version_key("0.31.0.0draft2") < version_key("0.31.0.0draft10")
+    assert version_key("0.31.0.0draft1") < version_key("0.31.0.0rc1")
 
 
 def test_delta_backend_uses_spark_sql(tmp_path: Path) -> None:

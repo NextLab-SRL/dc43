@@ -213,7 +213,7 @@ jobs:
           VERSION_FILE: packages/dc43-service-clients/VERSION
         run: |
           set -euo pipefail
-          pip install -e "packages/dc43-service-clients[test]"
+          pip install -e "packages/dc43-service-clients[lineage,test]"
           pytest packages/dc43-service-clients/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -231,7 +231,7 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e packages/dc43-core
-          pip install -e "packages/dc43-service-clients[test]"
+          pip install -e "packages/dc43-service-clients[lineage,test]"
           pip install -e "packages/dc43-service-backends[sql,test]"
           pytest packages/dc43-service-backends/tests
           python scripts/check_tag_version.py \
@@ -250,9 +250,9 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e packages/dc43-core
-          pip install -e "packages/dc43-service-clients[test]"
+          pip install -e "packages/dc43-service-clients[lineage,test]"
           pip install -e "packages/dc43-service-backends[sql,test]"
-          pip install -e "packages/dc43-integrations[test]"
+          pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
           pytest packages/dc43-integrations/tests
           python scripts/check_tag_version.py \
             --tag "$TAG_NAME" \
@@ -270,9 +270,9 @@ jobs:
         run: |
           set -euo pipefail
           pip install -e packages/dc43-core
-          pip install -e "packages/dc43-service-clients[test]"
+          pip install -e "packages/dc43-service-clients[lineage,test]"
           pip install -e "packages/dc43-service-backends[sql,test]"
-          pip install -e "packages/dc43-integrations[test]"
+          pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
           pip install -e "packages/dc43-contracts-app[spark,test]"
           pytest packages/dc43-contracts-app/tests
           python scripts/check_tag_version.py \
