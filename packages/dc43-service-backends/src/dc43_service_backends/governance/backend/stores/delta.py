@@ -293,7 +293,7 @@ class DeltaGovernanceStore(GovernanceStore):
                 }
             ),
         }
-        df = self._spark.createDataFrame([payload])
+        df = self._spark.createDataFrame([payload], schema=self._STATUS_SCHEMA)
         folder = self._table_path("status") if self._base_path else None
         self._write(df, table=self._status_table, folder=folder)
 
@@ -392,7 +392,7 @@ class DeltaGovernanceStore(GovernanceStore):
             "contract_version": contract_version,
             "linked_at": self._now(),
         }
-        df = self._spark.createDataFrame([payload])
+        df = self._spark.createDataFrame([payload], schema=self._LINK_SCHEMA)
         folder = self._table_path("links") if self._base_path else None
         self._write(df, table=self._link_table, folder=folder)
 
@@ -441,7 +441,7 @@ class DeltaGovernanceStore(GovernanceStore):
             "payload": json.dumps(dict(event)),
             "lineage_event": json.dumps(dict(lineage_event)) if lineage_event is not None else None,
         }
-        df = self._spark.createDataFrame([payload])
+        df = self._spark.createDataFrame([payload], schema=self._ACTIVITY_SCHEMA)
         folder = self._table_path("activity") if self._base_path else None
         self._write(df, table=self._activity_table, folder=folder)
 

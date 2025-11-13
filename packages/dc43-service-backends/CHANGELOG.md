@@ -34,6 +34,9 @@
   registration.
 
 ### Fixed
+- Delta governance stores now supply explicit schemas when persisting status,
+  link, and activity records so Spark no longer fails to infer field types when
+  optional values (such as lineage payloads) are null.
 - Hardened the governance status matrix endpoint so mixed payload types (for
   example, pre-encoded validation dictionaries) no longer trigger 500 errors
   when UI clients request batched status snapshots.
