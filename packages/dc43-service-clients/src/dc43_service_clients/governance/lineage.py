@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, MutableMapping, Sequence
 from enum import Enum
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 from uuid import NAMESPACE_DNS, UUID, uuid5
 
-from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
-
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
+    from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
     from openlineage.client.run import RunEvent as OpenDataLineageEvent
-else:
-    OpenDataLineageEvent = RunEvent
+else:  # pragma: no cover - runtime typing fallback only
+    try:
+        from openlineage.client.run import RunEvent as OpenDataLineageEvent
+    except ImportError:  # Optional dependency is not installed
+        OpenDataLineageEvent = object
 
 DEFAULT_SCHEMA_URL = "https://openlineage.io/spec/2-0-2/OpenLineage.json#"
 
@@ -33,7 +36,20 @@ def _as_sequence(value: Any) -> tuple[Mapping[str, Any], ...]:
     return tuple(payload)
 
 
-def _ensure_run_state(value: str) -> RunState:
+@lru_cache(maxsize=1)
+def _openlineage_models():
+    try:
+        from openlineage.client.run import Dataset, Job, Run, RunEvent, RunState
+    except ImportError as exc:  # pragma: no cover - optional dependency guard
+        raise ModuleNotFoundError(
+            "OpenLineage support requires the optional 'lineage' extra; install "
+            "dc43-service-clients[lineage] to use governance lineage helpers."
+        ) from exc
+    return Dataset, Job, Run, RunEvent, RunState
+
+
+def _ensure_run_state(value: str) -> "RunState":
+    RunState = _openlineage_models()[-1]
     text = value.strip()
     if not text:
         raise ValueError("lineage event requires an eventType field")
@@ -56,7 +72,8 @@ def _ensure_uuid(value: str) -> str:
         return str(uuid5(NAMESPACE_DNS, text))
 
 
-def _build_datasets(entries: Any) -> list[Dataset]:
+def _build_datasets(entries: Any) -> list["Dataset"]:
+    Dataset, *_ = _openlineage_models()
     datasets: list[Dataset] = []
     for entry in _as_sequence(entries):
         namespace = str(entry.get("namespace") or "").strip()
@@ -68,8 +85,10 @@ def _build_datasets(entries: Any) -> list[Dataset]:
     return datasets
 
 
-def encode_lineage_event(event: RunEvent) -> Mapping[str, Any]:
+def encode_lineage_event(event: "RunEvent") -> Mapping[str, Any]:
     """Serialise ``event`` into a mapping suitable for transport."""
+
+    Dataset, Job, Run, RunEvent, _ = _openlineage_models()
 
     def _convert(value: object) -> object:
         if isinstance(value, Enum):
@@ -116,8 +135,10 @@ def encode_lineage_event(event: RunEvent) -> Mapping[str, Any]:
     return pruned if isinstance(pruned, Mapping) else {}
 
 
-def decode_lineage_event(raw: Mapping[str, Any] | None) -> RunEvent | None:
+def decode_lineage_event(raw: Mapping[str, Any] | None) -> "RunEvent" | None:
     """Convert ``raw`` payloads into :class:`RunEvent` instances."""
+
+    Dataset, Job, Run, RunEvent, _ = _openlineage_models()
 
     if raw is None:
         return None

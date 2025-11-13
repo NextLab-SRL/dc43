@@ -17,7 +17,7 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-core>=0.30.0.0",
+  "dc43-core>=0.31.0.0",
   "dc43-service-clients>=0.0.3",
   "open-data-contract-standard==3.0.2",
   "sqlalchemy>=2.0",
@@ -34,7 +34,7 @@ test = [
   "fastapi>=0.118.0",
   "httpx>=0.24",
   "pyspark>=3.4",
-  "dc43-service-clients[test]>=0.30.0.0",
+  "dc43-service-clients[lineage,test]>=0.31.0.0",
 ]
 
 [tool.setuptools.dynamic]
