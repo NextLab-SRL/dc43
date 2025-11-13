@@ -289,6 +289,13 @@ jobs:
           password: ${{ secrets.PYPI_TOKEN }}
           packages-dir: release-artifacts/dc43
 
+      - name: Publish dc43-core to PyPI
+        if: needs.determine.outputs.dc43_core_tag != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+          packages-dir: release-artifacts/dc43-core
+
       - name: Publish dc43-service-clients to PyPI
         if: needs.determine.outputs.service_clients_tag != ''
         uses: pypa/gh-action-pypi-publish@release/v1
