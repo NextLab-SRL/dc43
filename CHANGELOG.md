@@ -36,6 +36,18 @@
   scripts manually.
 
 ### Changed
+- `dc43-integrations` now treats Spark as an optional dependency, so
+  environments that already provide PySpark can install the integrations
+  without pulling in a duplicate runtime; opt into the `spark` extra to
+  provision PySpark alongside the helpers when needed.
+- OpenLineage and OpenTelemetry runtimes now live behind the new
+  `lineage`/`telemetry` extras on the integrations and service-client
+  packages so deployments opt into those SDKs only when emitting lineage or
+  telemetry events.
+- CI, release automation, and the local `scripts/test_all.sh` helper now
+  install the integrations/service-client extras for Spark, OpenLineage, and
+  OpenTelemetry explicitly so governance suites keep the optional runtimes
+  available during automated tests.
 - Updated the integrations test extra to stay on `databricks-dlt` `<0.3` so CI
   installs the same PySpark toolchain as the demo application.
 - The integration helper now auto-adds referenced contracts and transformation

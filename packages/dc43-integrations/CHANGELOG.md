@@ -16,6 +16,13 @@
   governed versioning walkthrough without adapting the Spark jobs manually.
 
 ### Changed
+- Made the Spark runtime optional by moving `pyspark` into the `spark` extra so
+  runtimes that already ship PySpark are not forced to reinstall it when
+  installing the integration helpers.
+- Split the OpenLineage and OpenTelemetry dependencies into dedicated
+  `lineage` and `telemetry` extras (with documentation updates) so installs
+  only pull in those SDKs when the corresponding governance integrations are
+  enabled, while CI and release workflows request the extras explicitly.
 - Aligned the test extra to require `databricks-dlt` `<0.3` so the demo and
   integration suites install a compatible PySpark stack during CI runs.
 - `generate_contract_dataset` now returns only an in-memory DataFrame so tests

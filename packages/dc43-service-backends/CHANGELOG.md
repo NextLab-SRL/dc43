@@ -32,6 +32,9 @@
   allowing draft versions to resolve when the context explicitly permits them
   while continuing to block unexpected states by default during resolution and
   registration.
+- The test extra now depends on `dc43-service-clients[lineage]` so lineage
+  helpers continue to run during backend tests even though OpenLineage is an
+  optional dependency.
 
 ### Fixed
 - Delta governance stores now supply explicit schemas when persisting status,
