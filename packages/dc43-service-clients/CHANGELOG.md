@@ -44,4 +44,8 @@
   so interface mismatches surface immediately, and the package now declares a
   direct ``openlineage-python`` dependency so downstream installs receive the
   runtime transitively.
+- OpenLineage is now exposed via a dedicated `lineage` extra and the lineage
+  helpers lazily import the client, allowing minimal installs to skip the
+  dependency while still surfacing a descriptive error when the extra is not
+  installed.
 

@@ -40,6 +40,10 @@
   `read_with_governance`/`write_with_governance`, emitting governance request
   payloads in generated snippets and surfacing deprecation messaging for the
   legacy contract-based helpers.
+- Spark-related extras now pull in the integrations `spark`, `lineage`, and
+  `telemetry` dependencies so contracts-app installs only opt into the
+  governance runtimes they need while CI/test helpers keep the optional
+  packages available.
 - Removed direct filesystem access from the contracts UI; dataset previews and
   history now surface only when the demo pipelines populate them, while remote
   deployments continue to focus on contract and data product metadata served by

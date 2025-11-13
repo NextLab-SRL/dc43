@@ -20,12 +20,17 @@ dependencies = [
   "dc43-core>=0.30.0.0",
   "dc43-service-clients>=0.0.3",
   "dc43-service-backends>=0.30.0.0",
-  "pyspark>=3.4",
 ]
 
 [project.optional-dependencies]
 spark = [
   "pyspark>=3.4",
+]
+lineage = [
+  "openlineage-python>=1.39.0",
+]
+telemetry = [
+  "opentelemetry-sdk>=1.24.0",
 ]
 test = [
   "dc43-service-backends[sql]>=0.30.0.0",

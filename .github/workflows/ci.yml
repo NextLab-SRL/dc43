@@ -42,35 +42,35 @@ jobs:
           - display: service-clients
             install: |
               pip install -e packages/dc43-core
-              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-clients[lineage,test]"
             test_command: "pytest packages/dc43-service-clients/tests -q"
           - display: service-backends
             install: |
               pip install -e packages/dc43-core
-              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-clients[lineage,test]"
               pip install -e "packages/dc43-service-backends[test]"
             test_command: "pytest packages/dc43-service-backends/tests -q"
           - display: integrations
             install: |
               pip install -e packages/dc43-core
-              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-clients[lineage,test]"
               pip install -e "packages/dc43-service-backends[sql,test]"
-              pip install -e "packages/dc43-integrations[test]"
+              pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
             test_command: "pytest packages/dc43-integrations/tests -q"
           - display: contracts-app
             install: |
               pip install -e packages/dc43-core
-              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-clients[lineage,test]"
               pip install -e "packages/dc43-service-backends[sql,test]"
-              pip install -e "packages/dc43-integrations[test]"
+              pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
               pip install -e "packages/dc43-contracts-app[spark,test]"
             test_command: "pytest packages/dc43-contracts-app/tests -q"
           - display: demo-app
             install: |
               pip install -e packages/dc43-core
-              pip install -e "packages/dc43-service-clients[test]"
+              pip install -e "packages/dc43-service-clients[lineage,test]"
               pip install -e "packages/dc43-service-backends[sql,test]"
-              pip install -e "packages/dc43-integrations[test]"
+              pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
               pip install -e "packages/dc43-contracts-app[spark,test]"
               pip install -e packages/dc43-demo-app
             test_command: "pytest packages/dc43-demo-app/tests -q"
