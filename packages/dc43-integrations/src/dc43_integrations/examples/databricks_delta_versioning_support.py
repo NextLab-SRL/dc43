@@ -9,7 +9,7 @@ instance when testing locally).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 from pyspark.sql import DataFrame, SparkSession, functions as F
 
@@ -23,6 +23,7 @@ from open_data_contract_standard.model import (
 )
 
 from dc43_integrations.spark.io import (
+    ContractFirstDatasetLocator,
     ContractVersionLocator,
     GovernanceSparkWriteRequest,
     write_stream_with_governance,
@@ -39,8 +40,21 @@ class VersionedWriteSpec:
     """Describe the data that accompanies a specific contract revision."""
 
     contract: OpenDataContractStandard
-    dataset_version: str
     rows: Iterable[Mapping[str, object]]
+    dataset_version: str | None = None
+
+
+def _ensure_dataset_version(
+    spec: VersionedWriteSpec,
+    clock: Callable[[], str] | None = None,
+) -> str:
+    """Return the dataset version for ``spec``, generating one when missing."""
+
+    if spec.dataset_version:
+        return spec.dataset_version
+    generator = clock or ContractFirstDatasetLocator().clock
+    spec.dataset_version = generator()
+    return spec.dataset_version
 
 
 def build_contract(
@@ -213,6 +227,8 @@ def write_dataset_version(
         spec,
         has_discount=contract_has_discount(spec.contract),
     )
+    dataset_version = _ensure_dataset_version(spec)
+
     binding = {
         "data_product": data_product_id,
         "port_name": output_port,
@@ -230,7 +246,7 @@ def write_dataset_version(
                 },
                 "output_binding": binding,
                 "dataset_id": dataset_id,
-                "dataset_version": spec.dataset_version,
+                "dataset_version": dataset_version,
             },
             table=table_name,
             format="delta",
@@ -238,7 +254,7 @@ def write_dataset_version(
             options={"mergeSchema": "true"},
             dataset_locator=ContractVersionLocator(
                 dataset_id=dataset_id,
-                dataset_version=spec.dataset_version,
+                dataset_version=dataset_version,
             ),
         ),
         governance_service=governance_service,
@@ -441,7 +457,8 @@ def write_streaming_dataset_version(
         has_discount=contract_has_discount(spec.contract),
     )
 
-    checkpoint_path = f"{checkpoint_root.rstrip('/')}/{spec.dataset_version}"
+    dataset_version = _ensure_dataset_version(spec)
+    checkpoint_path = f"{checkpoint_root.rstrip('/')}/{dataset_version}"
     binding = {
         "data_product": data_product_id,
         "port_name": output_port,
@@ -459,7 +476,7 @@ def write_streaming_dataset_version(
                 },
                 "output_binding": binding,
                 "dataset_id": dataset_id,
-                "dataset_version": spec.dataset_version,
+                "dataset_version": dataset_version,
             },
             table=table_name,
             format="delta",
@@ -467,7 +484,7 @@ def write_streaming_dataset_version(
             options={"checkpointLocation": checkpoint_path},
             dataset_locator=ContractVersionLocator(
                 dataset_id=dataset_id,
-                dataset_version=spec.dataset_version,
+                dataset_version=dataset_version,
             ),
         ),
         governance_service=governance_service,

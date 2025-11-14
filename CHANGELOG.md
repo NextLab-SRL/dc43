@@ -57,6 +57,10 @@
   DataFrame, leaving persistence to the governance write wrappers.
 - Spark integrations now depend on the shared `dc43-core` package instead of
   embedding fallback builders.
+- Databricks Delta batch and streaming demos now ship an `auto_dataset_version`
+  toggle and updated helpers so dataset identifiers fall back to the timestamped
+  versions that production pipelines use instead of forcing manual increments in
+  the walkthrough notebooks.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.
