@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Callable, Iterable, List, Mapping, Sequence, Tuple
 
@@ -112,12 +113,19 @@ def _boolean_generator(fake: Faker, _: SchemaProperty) -> bool:
     return bool(fake.pybool())
 
 
+_REFERENCE_DATETIME = datetime(2025, 1, 1, 0, 0, 0)
+
+
 def _date_generator(fake: Faker, _: SchemaProperty):
-    return fake.date_between(start_date="-30d", end_date="today")
+    start = (_REFERENCE_DATETIME - timedelta(days=30)).date()
+    end = _REFERENCE_DATETIME.date()
+    return fake.date_between(start_date=start, end_date=end)
 
 
 def _timestamp_generator(fake: Faker, _: SchemaProperty):
-    return fake.date_time_between(start_date="-30d", end_date="now")
+    start = _REFERENCE_DATETIME - timedelta(days=30)
+    end = _REFERENCE_DATETIME
+    return fake.date_time_between_dates(datetime_start=start, datetime_end=end)
 
 
 def _binary_generator(fake: Faker, _: SchemaProperty) -> bytes:
