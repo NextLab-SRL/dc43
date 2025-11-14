@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,9 @@ from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
 from .interface import GovernanceStore
+
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static typing
     from pyspark.sql import DataFrame, SparkSession
@@ -141,6 +145,56 @@ class DeltaGovernanceStore(GovernanceStore):
         path = self._base_path / name
         path.mkdir(parents=True, exist_ok=True)
         return str(path)
+
+    @staticmethod
+    def _escape_identifier(value: str) -> str:
+        return value.replace("`", "``")
+
+    @staticmethod
+    def _escape_literal(value: str) -> str:
+        return value.replace("'", "''")
+
+    @staticmethod
+    def _column_condition(column: str, value: Optional[str]) -> str:
+        if value is None:
+            return f"{column} IS NULL"
+        escaped = DeltaGovernanceStore._escape_literal(str(value))
+        return f"{column} = '{escaped}'"
+
+    @staticmethod
+    def _sql_target_identifier(table: str | None, folder: str | None) -> str | None:
+        if table:
+            return table
+        if folder:
+            return f"delta.`{DeltaGovernanceStore._escape_identifier(str(folder))}`"
+        return None
+
+    def _purge_status_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        table: str | None,
+        folder: str | None,
+    ) -> None:
+        target = self._sql_target_identifier(table, folder)
+        if not target:
+            return
+        condition = " AND ".join(
+            (
+                self._column_condition("dataset_id", dataset_id),
+                self._column_condition("dataset_version", dataset_version),
+            )
+        )
+        statement = f"DELETE FROM {target} WHERE {condition}"
+        try:
+            self._spark.sql(statement)
+        except Exception:  # pragma: no cover - delta deletes may fail on legacy runtimes
+            logger.exception(
+                "Failed to purge existing status rows for %s@%s",
+                dataset_id,
+                dataset_version,
+            )
 
     def _delta_folder_exists(self, folder: str | None) -> bool:
         if not folder:
@@ -273,6 +327,13 @@ class DeltaGovernanceStore(GovernanceStore):
         status: ValidationResult | None,
     ) -> None:
         recorded_at = self._now()
+        folder = self._table_path("status") if self._base_path else None
+        self._purge_status_entries(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            table=self._status_table,
+            folder=folder,
+        )
         payload = {
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
@@ -294,7 +355,6 @@ class DeltaGovernanceStore(GovernanceStore):
             ),
         }
         df = self._spark.createDataFrame([payload], schema=self._STATUS_SCHEMA)
-        folder = self._table_path("status") if self._base_path else None
         self._write(df, table=self._status_table, folder=folder)
 
         if status is None:

@@ -155,6 +155,9 @@
 - Hardened the Delta-backed stores to ignore empty version markers and treat
   ``draft`` suffixes as ordered pre-releases so historical placeholder rows no
   longer prevent ``latest`` resolution.
+- Delta governance stores now purge previous status rows before appending the
+  latest result so Databricks tables (and the contracts UI) no longer show the
+  same dataset version multiple times in the compatibility matrix.
 - Introduced governance-first Spark IO wrappers and updated documentation/tests
   so pipelines can rely on a single governance client instead of wiring
   contract/data-quality services manually.

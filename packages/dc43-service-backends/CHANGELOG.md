@@ -71,4 +71,7 @@
 - Governance read registration now mirrors that behaviour for pinned inputs so
   consumers that attach lineage metadata or source references don't create new
   drafts when they intentionally target an existing release.
+- Delta governance stores now delete existing status rows for a dataset/version
+  before recording a new verdict, preventing duplicate compatibility entries in
+  Databricks tables and in the contracts application history views.
 
