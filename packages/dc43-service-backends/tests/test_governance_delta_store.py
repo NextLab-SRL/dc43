@@ -520,6 +520,57 @@ def test_save_status_appends_metrics_to_table_target() -> None:
     assert all(entry["type"] == "table" for entry in metric_writes)
 
 
+def test_save_status_deletes_existing_rows_for_table_target() -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(
+        spark,
+        status_table="analytics.status",
+        activity_table="analytics.activity",
+        link_table="analytics.links",
+        metrics_table="analytics.metrics",
+    )
+
+    status = ValidationResult(status="ok")
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    delete_queries = [
+        query for query in spark.sql_queries if query.startswith("DELETE FROM analytics.status")
+    ]
+    assert delete_queries
+    latest = delete_queries[-1]
+    assert "dataset_id = 'orders'" in latest
+    assert "dataset_version = '2024-04-01'" in latest
+
+
+def test_save_status_deletes_existing_rows_for_path_target(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark, base_path=tmp_path)
+
+    status = ValidationResult(status="ok")
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    delete_queries = [
+        query for query in spark.sql_queries if query.startswith("DELETE FROM delta.`")
+    ]
+    assert delete_queries
+    expected = str(tmp_path / "status")
+    assert DeltaGovernanceStore._escape_identifier(expected) in delete_queries[-1]
+
+
 def test_save_status_appends_metrics_to_derived_table_target() -> None:
     spark = _StubSpark()
     store = DeltaGovernanceStore(
