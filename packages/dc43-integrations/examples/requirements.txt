@@ -1,0 +1,10 @@
+--index-url https://pypi.org/simple
+--extra-index-url https://test.pypi.org/simple
+dc43-core==0.32.0.0rc489
+dc43-service-clients==0.32.0.0rc489
+dc43-service-backends[http]==0.32.0.0rc489
+dc43-integrations==0.32.0.0rc489
+httpx
+faker
+fastapi==0.121.0
+pydantic==2.12.3

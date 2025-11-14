@@ -1036,35 +1036,42 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             return
         port_name = binding.port_name or binding.source_output_port or "default"
         options = self._status_options_from_plan(plan)
-        try:
-            register = client.register_input_port
-        except AttributeError:
-            return
-        port = DataProductInputPort(
-            name=port_name,
-            version=plan.contract_version,
-            contract_id=plan.contract_id,
-        )
-        try:
-            registration: Optional[DataProductRegistrationResult] = register(
-                data_product_id=binding.data_product,
-                port=port,
-                bump=binding.bump,
-                custom_properties=binding.custom_properties,
-                source_data_product=binding.source_data_product,
-                source_output_port=binding.source_output_port,
-            )
-        except TypeError:
-            registration = register(
-                data_product_id=binding.data_product,
-                port_name=port_name,
+        requirement = self._normalise_version_spec(binding.data_product_version)
+        pinned_version = requirement is not None and not requirement.startswith(">=")
+
+        registration: Optional[DataProductRegistrationResult]
+        if pinned_version:
+            registration = None
+        else:
+            try:
+                register = client.register_input_port
+            except AttributeError:
+                return
+            port = DataProductInputPort(
+                name=port_name,
+                version=plan.contract_version,
                 contract_id=plan.contract_id,
-                contract_version=plan.contract_version,
-                bump=binding.bump,
-                custom_properties=binding.custom_properties,
-                source_data_product=binding.source_data_product,
-                source_output_port=binding.source_output_port,
             )
+            try:
+                registration = register(
+                    data_product_id=binding.data_product,
+                    port=port,
+                    bump=binding.bump,
+                    custom_properties=binding.custom_properties,
+                    source_data_product=binding.source_data_product,
+                    source_output_port=binding.source_output_port,
+                )
+            except TypeError:
+                registration = register(
+                    data_product_id=binding.data_product,
+                    port_name=port_name,
+                    contract_id=plan.contract_id,
+                    contract_version=plan.contract_version,
+                    bump=binding.bump,
+                    custom_properties=binding.custom_properties,
+                    source_data_product=binding.source_data_product,
+                    source_output_port=binding.source_output_port,
+                )
         self._raise_if_registration_requires_review(
             registration,
             data_product=binding.data_product,
@@ -1090,31 +1097,38 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             return
         port_name = binding.port_name or "default"
         options = self._status_options_from_plan(plan)
-        try:
-            register = client.register_output_port
-        except AttributeError:
-            return
-        port = DataProductOutputPort(
-            name=port_name,
-            version=plan.contract_version,
-            contract_id=plan.contract_id,
-        )
-        try:
-            registration: Optional[DataProductRegistrationResult] = register(
-                data_product_id=binding.data_product,
-                port=port,
-                bump=binding.bump,
-                custom_properties=binding.custom_properties,
-            )
-        except TypeError:
-            registration = register(
-                data_product_id=binding.data_product,
-                port_name=port_name,
+        requirement = self._normalise_version_spec(binding.data_product_version)
+        pinned_version = requirement is not None and not requirement.startswith(">=")
+
+        registration: Optional[DataProductRegistrationResult]
+        if pinned_version:
+            registration = None
+        else:
+            try:
+                register = client.register_output_port
+            except AttributeError:
+                return
+            port = DataProductOutputPort(
+                name=port_name,
+                version=plan.contract_version,
                 contract_id=plan.contract_id,
-                contract_version=plan.contract_version,
-                bump=binding.bump,
-                custom_properties=binding.custom_properties,
             )
+            try:
+                registration = register(
+                    data_product_id=binding.data_product,
+                    port=port,
+                    bump=binding.bump,
+                    custom_properties=binding.custom_properties,
+                )
+            except TypeError:
+                registration = register(
+                    data_product_id=binding.data_product,
+                    port_name=port_name,
+                    contract_id=plan.contract_id,
+                    contract_version=plan.contract_version,
+                    bump=binding.bump,
+                    custom_properties=binding.custom_properties,
+                )
         self._raise_if_registration_requires_review(
             registration,
             data_product=binding.data_product,

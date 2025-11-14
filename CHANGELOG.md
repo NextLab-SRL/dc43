@@ -25,6 +25,15 @@
 - Extracted the ODCS/ODPS helpers and SemVer utilities into the standalone
   `dc43-core` distribution so services, clients, and integrations share the
   same implementation without private shims.
+- Added a Databricks Delta versioning notebook to `packages/dc43-integrations`
+  that automates contract evolution, governed writes, and compatibility matrix
+  reporting for quick validation in notebooks or jobs.
+- Added a Databricks Delta streaming notebook to `packages/dc43-integrations`
+  that runs successive Structured Streaming writes under evolving contracts and
+  prints the resulting governance compatibility matrix for inspection.
+- Added Delta Live Tables batch and streaming notebooks so Databricks pipelines
+  can reproduce the governed versioning scenario without converting the Python
+  scripts manually.
 
 ### Changed
 - `dc43-integrations` now treats Spark as an optional dependency, so
@@ -48,6 +57,10 @@
   DataFrame, leaving persistence to the governance write wrappers.
 - Spark integrations now depend on the shared `dc43-core` package instead of
   embedding fallback builders.
+- Databricks Delta batch and streaming demos now ship an `auto_dataset_version`
+  toggle and updated helpers so dataset identifiers fall back to the timestamped
+  versions that production pipelines use instead of forcing manual increments in
+  the walkthrough notebooks.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.
@@ -69,6 +82,11 @@
 - Fixed the Test PyPI publish workflow so labeled pull requests query the
   current labels before deciding whether to run, ensuring tagged branches
   actually build and upload packages for validation.
+- The Databricks Delta demos and guide dropped the redundant
+  `physical_location` output binding entry because the table location already
+  comes from the Spark write request.
+- Databricks Delta versioning demos now pin governed writes to the released
+  data product version so notebook runs no longer pause on draft output ports.
 - Removed the demo/contract helpers that manually persisted dataset records so
   the UI and pipelines rely solely on governance service APIs for run history,
   adding fixtures and helpers to tests to generate sample data on demand.
@@ -137,6 +155,9 @@
 - Hardened the Delta-backed stores to ignore empty version markers and treat
   ``draft`` suffixes as ordered pre-releases so historical placeholder rows no
   longer prevent ``latest`` resolution.
+- Delta governance stores now purge previous status rows before appending the
+  latest result so Databricks tables (and the contracts UI) no longer show the
+  same dataset version multiple times in the compatibility matrix.
 - Introduced governance-first Spark IO wrappers and updated documentation/tests
   so pipelines can rely on a single governance client instead of wiring
   contract/data-quality services manually.

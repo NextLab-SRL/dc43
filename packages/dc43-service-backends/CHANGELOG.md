@@ -37,6 +37,9 @@
   optional dependency.
 
 ### Fixed
+- Delta governance stores now supply explicit schemas when persisting status,
+  link, and activity records so Spark no longer fails to infer field types when
+  optional values (such as lineage payloads) are null.
 - Hardened the governance status matrix endpoint so mixed payload types (for
   example, pre-encoded validation dictionaries) no longer trigger 500 errors
   when UI clients request batched status snapshots.
@@ -61,4 +64,14 @@
 - Data product registration during read/write activity reloads explicit binding
   versions before enforcement so requested drafts or historical releases are
   validated rather than the latest product returned by the registration helper.
+- Governance write registration skips automatic data product evolution when the
+  binding pins an explicit version, preventing Databricks demos (and other
+  pipelines that manage releases manually) from tripping review-required errors
+  after they attach custom port metadata such as physical locations.
+- Governance read registration now mirrors that behaviour for pinned inputs so
+  consumers that attach lineage metadata or source references don't create new
+  drafts when they intentionally target an existing release.
+- Delta governance stores now delete existing status rows for a dataset/version
+  before recording a new verdict, preventing duplicate compatibility entries in
+  Databricks tables and in the contracts application history views.
 

@@ -6,6 +6,14 @@
 - Added `draft_contract_from_dataframe` to capture schema/metric observations
   from Spark DataFrames and return ready-to-review ODCS draft contracts using
   the shared builders from the new `dc43-core` package.
+- Added a Databricks Delta versioning notebook that generates evolving
+  contracts, writes governed tables, and prints the compatibility matrix for
+  quick validation of governance behaviour.
+- Added a Databricks Delta streaming notebook that executes Structured Streaming
+  runs under evolving contracts and prints the governance compatibility matrix
+  after each append.
+- Added Delta Live Tables notebook variants so pipelines can exercise the same
+  governed versioning walkthrough without adapting the Spark jobs manually.
 
 ### Changed
 - Made the Spark runtime optional by moving `pyspark` into the `spark` extra so
@@ -68,12 +76,25 @@
   flags to the governance service so opting into draft products (for example via
   `DefaultReadStatusStrategy(allowed_data_product_statuses=("active", "draft"))`)
   behaves consistently with the contract-only helpers.
+- Removed the redundant `physical_location` output binding requirement from the
+  Databricks Delta demos because the Spark write request already supplies the
+  Unity Catalog table path.
+- `VersionedWriteSpec` now treats the dataset version as optional and the
+  Databricks Delta batch/streaming notebooks expose an `auto_dataset_version`
+  toggle so governed runs can rely on timestamped identifiers without manually
+  incrementing semantic versions in the walkthroughs.
 
 ### Fixed
+- Databricks Delta batch and streaming demos now supply the registered data
+  product version when issuing governed writes so notebook runs no longer
+  create draft-only output ports that block enforcement.
 - Governance write telemetry spans now honour dataset identifiers and versions
   from resolved plans, keeping OpenTelemetry attributes aligned with governance
   metadata even when the Spark locator infers contract-based fallbacks.
 - Governance write requests now retain locator-derived dataset identifiers when
   linking contracts, so upgrading a contract no longer drops the existing
   dataset association in local governance tests.
+- `generate_contract_dataset` now uses a deterministic timestamp range instead
+  of depending on the current clock so repeated calls with the same seed produce
+  identical rows.
 
