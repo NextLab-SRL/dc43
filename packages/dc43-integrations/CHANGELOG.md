@@ -6,6 +6,14 @@
 - Added `draft_contract_from_dataframe` to capture schema/metric observations
   from Spark DataFrames and return ready-to-review ODCS draft contracts using
   the shared builders from the new `dc43-core` package.
+- Added a Databricks Delta versioning notebook that generates evolving
+  contracts, writes governed tables, and prints the compatibility matrix for
+  quick validation of governance behaviour.
+- Added a Databricks Delta streaming notebook that executes Structured Streaming
+  runs under evolving contracts and prints the governance compatibility matrix
+  after each append.
+- Added Delta Live Tables notebook variants so pipelines can exercise the same
+  governed versioning walkthrough without adapting the Spark jobs manually.
 
 ### Changed
 - Aligned the test extra to require `databricks-dlt` `<0.3` so the demo and
@@ -63,6 +71,9 @@
   behaves consistently with the contract-only helpers.
 
 ### Fixed
+- Databricks versioning notebooks now finalise their helper data product output
+  ports after registration so governance writes run without review-required
+  drafts during the demo.
 - Governance write telemetry spans now honour dataset identifiers and versions
   from resolved plans, keeping OpenTelemetry attributes aligned with governance
   metadata even when the Spark locator infers contract-based fallbacks.
