@@ -90,4 +90,7 @@
 - Governance write requests now retain locator-derived dataset identifiers when
   linking contracts, so upgrading a contract no longer drops the existing
   dataset association in local governance tests.
+- `generate_contract_dataset` now uses a deterministic timestamp range instead
+  of depending on the current clock so repeated calls with the same seed produce
+  identical rows.
 
