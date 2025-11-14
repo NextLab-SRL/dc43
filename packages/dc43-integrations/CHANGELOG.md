@@ -76,8 +76,14 @@
   flags to the governance service so opting into draft products (for example via
   `DefaultReadStatusStrategy(allowed_data_product_statuses=("active", "draft"))`)
   behaves consistently with the contract-only helpers.
+- Removed the redundant `physical_location` output binding requirement from the
+  Databricks Delta demos because the Spark write request already supplies the
+  Unity Catalog table path.
 
 ### Fixed
+- Databricks Delta batch and streaming demos now supply the registered data
+  product version when issuing governed writes so notebook runs no longer
+  create draft-only output ports that block enforcement.
 - Governance write telemetry spans now honour dataset identifiers and versions
   from resolved plans, keeping OpenTelemetry attributes aligned with governance
   metadata even when the Spark locator infers contract-based fallbacks.
