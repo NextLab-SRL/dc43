@@ -78,6 +78,11 @@
 - Fixed the Test PyPI publish workflow so labeled pull requests query the
   current labels before deciding whether to run, ensuring tagged branches
   actually build and upload packages for validation.
+- The Databricks Delta demos and guide dropped the redundant
+  `physical_location` output binding entry because the table location already
+  comes from the Spark write request.
+- Databricks Delta versioning demos now pin governed writes to the released
+  data product version so notebook runs no longer pause on draft output ports.
 - Removed the demo/contract helpers that manually persisted dataset records so
   the UI and pipelines rely solely on governance service APIs for run history,
   adding fixtures and helpers to tests to generate sample data on demand.

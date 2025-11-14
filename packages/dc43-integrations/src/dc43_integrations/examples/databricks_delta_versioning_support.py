@@ -201,6 +201,7 @@ def write_dataset_version(
     dataset_id: str,
     data_product_id: str,
     output_port: str,
+    data_product_version: str | None = None,
     table_name: str,
     governance_service: GovernanceServiceClient,
     enforce: bool,
@@ -212,6 +213,13 @@ def write_dataset_version(
         spec,
         has_discount=contract_has_discount(spec.contract),
     )
+    binding = {
+        "data_product": data_product_id,
+        "port_name": output_port,
+    }
+    if data_product_version:
+        binding["data_product_version"] = data_product_version
+
     validation, status = write_with_governance(
         df=df,
         request=GovernanceSparkWriteRequest(
@@ -220,11 +228,7 @@ def write_dataset_version(
                     "contract_id": spec.contract.id,
                     "contract_version": spec.contract.version,
                 },
-                "output_binding": {
-                    "data_product": data_product_id,
-                    "port_name": output_port,
-                    "physical_location": table_name,
-                },
+                "output_binding": binding,
                 "dataset_id": dataset_id,
                 "dataset_version": spec.dataset_version,
             },
@@ -423,6 +427,7 @@ def write_streaming_dataset_version(
     dataset_id: str,
     data_product_id: str,
     output_port: str,
+    data_product_version: str | None = None,
     table_name: str,
     governance_service: GovernanceServiceClient,
     enforce: bool,
@@ -437,6 +442,13 @@ def write_streaming_dataset_version(
     )
 
     checkpoint_path = f"{checkpoint_root.rstrip('/')}/{spec.dataset_version}"
+    binding = {
+        "data_product": data_product_id,
+        "port_name": output_port,
+    }
+    if data_product_version:
+        binding["data_product_version"] = data_product_version
+
     validation, status = write_stream_with_governance(
         df=df,
         request=GovernanceSparkWriteRequest(
@@ -445,11 +457,7 @@ def write_streaming_dataset_version(
                     "contract_id": spec.contract.id,
                     "contract_version": spec.contract.version,
                 },
-                "output_binding": {
-                    "data_product": data_product_id,
-                    "port_name": output_port,
-                    "physical_location": table_name,
-                },
+                "output_binding": binding,
                 "dataset_id": dataset_id,
                 "dataset_version": spec.dataset_version,
             },
