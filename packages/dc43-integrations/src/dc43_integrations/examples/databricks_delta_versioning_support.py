@@ -156,6 +156,10 @@ def ensure_active_data_product(
     product.status = "active"
     if not product.version:
         product.version = "1.0.0"
+    elif "-draft" in product.version:
+        # Draft registrations are not usable for governed writes, so normalise the
+        # auto-evolved identifier back to the release version immediately.
+        product.version = product.version.split("-draft", 1)[0]
     if not product.name:
         product.name = "Orders analytics"
     if not product.description:
@@ -171,10 +175,11 @@ def ensure_active_data_product(
             custom_props.append(location_prop)
         port.custom_properties = custom_props  # type: ignore[attr-defined]
     data_product_service.put(product)
+    return product
 
 
 def contract_has_discount(contract: OpenDataContractStandard) -> bool:
-    for obj in contract.schema or []:
+    for obj in contract.schema_ or []:
         for prop in obj.properties or []:
             if prop.name == "discount_rate":
                 return True
@@ -278,9 +283,11 @@ def render_markdown_matrix(entries: Iterable[DatasetContractStatus]) -> str:
     if not dataset_versions or not contract_versions:
         return "No compatibility records recorded yet."
 
-    header = "| Dataset version | " + " | ".join(
-        f"Contract {version}" for version in contract_versions
-    ) + " |"
+    header = (
+        "| Dataset version | "
+        + " | ".join(f"Contract {version}" for version in contract_versions)
+        + " |"
+    )
     separator = "|" + " --- |" * (len(contract_versions) + 1)
     rows = [header, separator]
     for dataset_version in dataset_versions:
@@ -300,7 +307,9 @@ def render_markdown_matrix(entries: Iterable[DatasetContractStatus]) -> str:
     return "\n".join(rows)
 
 
-def describe_delta_history(spark: SparkSession, table: str) -> list[Mapping[str, object]]:
+def describe_delta_history(
+    spark: SparkSession, table: str
+) -> list[Mapping[str, object]]:
     """Return a list of DESCRIBE HISTORY records for ``table``."""
 
     try:
