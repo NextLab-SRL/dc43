@@ -288,6 +288,83 @@ def test_resolve_write_context_from_existing_output(governance_fixture):
     backend.register_write_activity(plan=plan, assessment=assessment)
 
 
+def test_register_write_skips_registration_for_pinned_version(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    version = product.version
+    assert version
+    port = product.find_output_port("primary")
+    assert port is not None
+    port.custom_properties = [
+        {"property": "dc43.output.physical_location", "value": "table"}
+    ]
+    data_product_backend.put(product)
+
+    data_product_backend.last_output_call = None
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+            data_product_version=version,
+        ),
+        dataset_id="analytics.orders.out",
+    )
+
+    plan = backend.resolve_write_context(context=context)
+    assessment = backend.evaluate_write_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    backend.register_write_activity(plan=plan, assessment=assessment)
+
+    assert data_product_backend.last_output_call is None
+
+
+def test_register_read_skips_registration_for_pinned_version(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    version = product.version
+    assert version
+    port = product.find_input_port("orders")
+    assert port is not None
+    port.custom_properties = [
+        {"property": "dc43.input.refresh_mode", "value": "batch"}
+    ]
+    data_product_backend.put(product)
+
+    data_product_backend.last_input_call = None
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="dp.analytics",
+            port_name="orders",
+            data_product_version=version,
+        )
+    )
+
+    plan = backend.resolve_read_context(context=context)
+    assessment = backend.evaluate_read_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    with pytest.raises(ValueError, match="status"):
+        backend.register_read_activity(plan=plan, assessment=assessment)
+
+    assert data_product_backend.last_input_call is None
+
+
 def test_resolve_read_context_rejects_draft_product(governance_fixture):
     backend, data_product_backend, _ = governance_fixture
 

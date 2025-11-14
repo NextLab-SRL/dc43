@@ -64,4 +64,11 @@
 - Data product registration during read/write activity reloads explicit binding
   versions before enforcement so requested drafts or historical releases are
   validated rather than the latest product returned by the registration helper.
+- Governance write registration skips automatic data product evolution when the
+  binding pins an explicit version, preventing Databricks demos (and other
+  pipelines that manage releases manually) from tripping review-required errors
+  after they attach custom port metadata such as physical locations.
+- Governance read registration now mirrors that behaviour for pinned inputs so
+  consumers that attach lineage metadata or source references don't create new
+  drafts when they intentionally target an existing release.
 

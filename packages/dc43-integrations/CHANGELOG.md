@@ -79,6 +79,10 @@
 - Removed the redundant `physical_location` output binding requirement from the
   Databricks Delta demos because the Spark write request already supplies the
   Unity Catalog table path.
+- `VersionedWriteSpec` now treats the dataset version as optional and the
+  Databricks Delta batch/streaming notebooks expose an `auto_dataset_version`
+  toggle so governed runs can rely on timestamped identifiers without manually
+  incrementing semantic versions in the walkthroughs.
 
 ### Fixed
 - Databricks Delta batch and streaming demos now supply the registered data
