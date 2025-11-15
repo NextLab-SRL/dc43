@@ -77,7 +77,12 @@ earlier runs, while the contract overview highlights the same metrics filtered t
 the active version. Numeric metrics now render as interactive charts, letting you
 hover across the timeline to reveal dataset versions, contract revisions, and the
 recorded values. This makes it easy to validate row counts, violation totals, and
-other KPIs without querying the backend directly.
+other KPIs without querying the backend directly. Each dataset record now lists an
+observation scope (for example, “Pre-write dataframe snapshot” or “Governed read
+snapshot”) so you can tell whether the metrics reflect the dataframe evaluated
+before a write, a streaming micro-batch, or a governed read. Use the scope badge
+to separate slice-level validations from full dataset verdicts when investigating
+unexpected counts.
 
 ### Create or edit data products visually
 

@@ -5401,6 +5401,9 @@ class DatasetRecord:
     data_product_id: str = ""
     data_product_port: str = ""
     data_product_role: str = ""
+    observation_operation: str = ""
+    observation_scope: str = ""
+    observation_label: str = ""
 
 
 _STATUS_BADGES: Dict[str, str] = {
@@ -5806,6 +5809,7 @@ def load_records() -> List[DatasetRecord]:
     """Return recorded dataset runs provided by the governance services."""
 
     records: List[DatasetRecord] = []
+    record_indices: Dict[Tuple[str, str, str, str], int] = {}
     for dataset_id in list_dataset_ids():
         activity = dataset_pipeline_activity(dataset_id)
         status_lookup: Dict[Tuple[str, str, str], Any] = {}
@@ -5872,6 +5876,9 @@ def load_records() -> List[DatasetRecord]:
             details: Dict[str, Any] = {}
             reason = ""
             status_value = "unknown"
+            observation_operation = ""
+            observation_scope = ""
+            observation_label = ""
             if validation is not None:
                 try:
                     status_value = _normalise_record_status(validation.status)
@@ -5889,6 +5896,13 @@ def load_records() -> List[DatasetRecord]:
                 status_value = _normalise_record_status(raw_status)
                 details = dict(latest_event.get("dq_details") or {})
                 reason = str(latest_event.get("dq_reason") or "")
+
+            if details:
+                observation_operation = str(details.get("observation_operation") or "")
+                observation_scope = str(details.get("observation_scope") or "")
+                observation_label = str(details.get("observation_label") or "")
+                if observation_scope and not observation_label:
+                    observation_label = observation_scope.replace("_", " ").title()
 
             pipeline_context = latest_event.get("pipeline_context")
             run_type = "infer"
@@ -5940,9 +5954,25 @@ def load_records() -> List[DatasetRecord]:
                 data_product_id=data_product_id,
                 data_product_port=data_product_port,
                 data_product_role=data_product_role,
+                observation_operation=observation_operation,
+                observation_scope=observation_scope,
+                observation_label=observation_label,
             )
             record.reason = reason
-            records.append(record)
+
+            dedup_key: Tuple[str, str, str, str] | None = None
+            if dataset_id and dataset_version and contract_id and contract_version:
+                dedup_key = (dataset_id, dataset_version, contract_id, contract_version)
+
+            if dedup_key is None:
+                records.append(record)
+            else:
+                existing_index = record_indices.get(dedup_key)
+                if existing_index is None:
+                    record_indices[dedup_key] = len(records)
+                    records.append(record)
+                else:
+                    records[existing_index] = record
 
     return records
 
@@ -9766,6 +9796,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
     """Summarise known datasets and associated contract information."""
 
     grouped: Dict[str, Dict[str, Any]] = {}
+    contract_datasets: Dict[str, set[str]] = {}
     for record in records:
         if not record.dataset_name:
             continue
@@ -9774,33 +9805,45 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
             {"dataset_name": record.dataset_name, "records": []},
         )
         bucket["records"].append(record)
+        if record.contract_id:
+            contract_datasets.setdefault(record.contract_id, set()).add(
+                record.dataset_name
+            )
 
     for contract_id in list_contract_ids():
+        observed_dataset_names = sorted(
+            name for name in contract_datasets.get(contract_id, set()) if name
+        )
         for version in contract_versions(contract_id):
             try:
                 contract = get_contract(contract_id, version)
             except FileNotFoundError:
                 continue
             server_info = _server_details(contract) or {}
-            dataset_id = (
-                server_info.get("dataset_id")
-                or server_info.get("dataset")
-                or contract.id
-                or contract_id
-            )
-            bucket = grouped.setdefault(
-                dataset_id,
-                {"dataset_name": dataset_id, "records": []},
-            )
-            contracts_map = bucket.setdefault("contracts_by_id", {})
-            contracts = contracts_map.setdefault(contract_id, [])
-            contracts.append(
-                {
-                    "version": version,
-                    "status": contract.status or "",
-                    "server": server_info,
-                }
-            )
+            dataset_targets = list(observed_dataset_names)
+            if not dataset_targets:
+                dataset_id = (
+                    server_info.get("dataset_id")
+                    or server_info.get("dataset")
+                    or contract.id
+                    or contract_id
+                )
+                if dataset_id:
+                    dataset_targets = [dataset_id]
+            for dataset_id in dataset_targets:
+                bucket = grouped.setdefault(
+                    dataset_id,
+                    {"dataset_name": dataset_id, "records": []},
+                )
+                contracts_map = bucket.setdefault("contracts_by_id", {})
+                contracts = contracts_map.setdefault(contract_id, [])
+                contracts.append(
+                    {
+                        "version": version,
+                        "status": contract.status or "",
+                        "server": server_info,
+                    }
+                )
 
     catalog: List[Dict[str, Any]] = []
     for dataset_name, payload in grouped.items():
@@ -9838,12 +9881,18 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
         latest_status_label: str = ""
         latest_status_badge: str = ""
         latest_reason: Optional[str] = None
+        latest_observation_label: str = ""
+        latest_observation_scope: str = ""
+        latest_observation_operation: str = ""
         if latest_record:
             status_raw = str(latest_record.status or "unknown")
             latest_status_value = status_raw.lower()
             latest_status_label = status_raw.replace("_", " ").title()
             latest_status_badge = _DQ_STATUS_BADGES.get(latest_status_value, "bg-secondary")
             latest_reason = latest_record.reason or None
+            latest_observation_label = latest_record.observation_label or ""
+            latest_observation_scope = latest_record.observation_scope or ""
+            latest_observation_operation = latest_record.observation_operation or ""
 
         run_drafts = sorted(
             {rec.draft_contract_version for rec in dataset_records if rec.draft_contract_version},
@@ -9884,6 +9933,9 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
                 "latest_status_label": latest_status_label,
                 "latest_status_badge": latest_status_badge,
                 "latest_record_reason": latest_reason,
+                "latest_observation_label": latest_observation_label,
+                "latest_observation_scope": latest_observation_scope,
+                "latest_observation_operation": latest_observation_operation,
                 "contract_summaries": contracts_summary,
                 "data_products": product_summaries,
                 "run_drafts_count": len(run_drafts),

@@ -40,6 +40,9 @@
   environments that already provide PySpark can install the integrations
   without pulling in a duplicate runtime; opt into the `spark` extra to
   provision PySpark alongside the helpers when needed.
+- Spark governance reads now always recompute validations through the
+  governance service instead of reusing cached statuses so every run reflects
+  the freshest recorded metrics, even when historical snapshots exist.
 - OpenLineage and OpenTelemetry runtimes now live behind the new
   `lineage`/`telemetry` extras on the integrations and service-client
   packages so deployments opt into those SDKs only when emitting lineage or
@@ -79,6 +82,11 @@
 - Documented the Test PyPI helper's reliance on PEP 440 ordering and added
   coverage that proves generated `dev`/`rc` artefacts remain sortable by
   `pip`.
+- Spark governance helpers now tag validation results with an observation scope
+  (pre-write dataframe, streaming micro-batch, governed read, …) and the
+  contracts UI surfaces that scope beside each dataset record so you can
+  distinguish slice-level snapshots from full dataset verdicts when comparing
+  metrics.
 - Fixed the Test PyPI publish workflow so labeled pull requests query the
   current labels before deciding whether to run, ensuring tagged branches
   actually build and upload packages for validation.
@@ -146,6 +154,12 @@
 - Contracts app status history now honours the governance status matrix
   endpoint, trimming redundant per-pair status requests and avoiding failures
   when remote backends return pre-encoded validation payloads.
+- Contracts app dataset history pages now deduplicate repeated pipeline
+  activity entries so each dataset/contract version appears only once even when
+  the backing governance store emits redundant rows.
+- Contracts app dataset listings now attach contracts to the dataset IDs that
+  governance runs recorded, preventing phantom dataset rows that only differ by
+  contract ID when server metadata omits explicit dataset identifiers.
 - Governance status lookups now tolerate legacy SQL activity tables that lack
   timestamp columns, preventing 500 errors and eliminating the fallback storm
   of per-version requests from the contracts UI.

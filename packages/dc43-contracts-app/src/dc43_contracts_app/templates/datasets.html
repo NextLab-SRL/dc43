@@ -32,6 +32,12 @@
           {% if entry.latest_record_reason %}
             <div class="small text-muted">{{ entry.latest_record_reason }}</div>
           {% endif %}
+          {% if entry.latest_observation_label or entry.latest_observation_scope %}
+            <div class="small text-muted">
+              Observation:
+              {{ entry.latest_observation_label or entry.latest_observation_scope.replace('_', ' ').title() }}
+            </div>
+          {% endif %}
         {% else %}
           <span class="text-muted">No runs</span>
         {% endif %}

@@ -126,7 +126,10 @@ def test_governance_wrappers_require_only_governance_client(
     )
 
     assert validation.ok
+    assert validation.details.get("observation_scope") == "pre_write_dataframe"
     assert status is not None and status.ok
+    assert status.details.get("observation_scope") == "pre_write_dataframe"
+    assert status.details.get("observation_operation") == "write"
 
     read_df, read_status = read_with_governance(
         spark,
@@ -145,6 +148,8 @@ def test_governance_wrappers_require_only_governance_client(
     )
 
     assert read_status is not None and read_status.ok
+    assert read_status.details.get("observation_scope") == "input_slice"
+    assert read_status.details.get("observation_operation") == "read"
     assert read_df.count() == df.count()
 
 
