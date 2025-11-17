@@ -51,6 +51,10 @@
 - Dropped the ``server.store`` export from the contracts app; downstream demos
   should import the shared ``dc43_contracts_app.services.store`` adapter or call
   ``contract_service`` directly.
+- Dataset catalog, versions, and detail pages now display the observation scope
+  recorded alongside each governance status (pre-write dataframe snapshot,
+  governed read, streaming batch, …) so analysts can tell whether a metric comes
+  from a slice or the full dataset version.
 - Removed the legacy `workspace` module from the contracts UI; filesystem
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under
@@ -75,6 +79,15 @@
 - Dataset history pages now rely exclusively on the governance status matrix
   endpoint so the UI avoids spamming per-version validation lookups and skips
   pointless calls for "latest" aliases when rendering activity tables.
+- Dataset history views now deduplicate repeated pipeline activity rows so each
+  dataset/contract version shows up once even if the backing governance store
+  returns redundant entries for the same write.
+- Dataset listings now attach contracts to the dataset identifiers that
+  governance runs recorded, preventing phantom rows that only contain contract
+  IDs when server metadata omits explicit dataset references.
+- Dataset catalog and dataset views now tolerate missing observation-scope
+  metadata so historical runs recorded before the new annotations still load and
+  simply display a neutral badge when the governance store lacks scope fields.
 - Adjusted the documentation assistant to discover repository Markdown when running from
   editable installs so the chat surface no longer reports missing documentation directories.
 - Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured

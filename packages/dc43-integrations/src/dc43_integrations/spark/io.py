@@ -215,6 +215,33 @@ def _merge_pipeline_context(
     return combined or None
 
 
+_OBSERVATION_SCOPE_LABELS: Dict[str, str] = {
+    "input_slice": "Governed read snapshot",
+    "pre_write_dataframe": "Pre-write dataframe snapshot",
+    "streaming_batch": "Streaming micro-batch snapshot",
+}
+
+
+def _annotate_observation_scope(
+    result: Optional[ValidationResult],
+    *,
+    operation: str,
+    scope: str,
+) -> None:
+    """Attach observation metadata to ``result`` for downstream consumers."""
+
+    if result is None:
+        return
+    payload: Dict[str, Any] = {
+        "observation_operation": operation,
+        "observation_scope": scope,
+    }
+    label = _OBSERVATION_SCOPE_LABELS.get(scope)
+    if label:
+        payload["observation_label"] = label
+    result.merge_details(payload)
+
+
 def get_delta_version(
     spark: SparkSession,
     *,
@@ -2510,6 +2537,9 @@ class BaseReadExecutor:
         cid, cver = contract_identity(contract)
         logger.info("Reading with contract %s:%s", cid, cver)
         expectation_plan: list[Mapping[str, Any]] = []
+
+        assessment: Optional[QualityAssessment] = None
+        validation: Optional[ValidationResult]
         if dq_service is not None:
             expectation_plan = list(dq_service.describe_expectations(contract=contract))
         elif governance_client is not None:
@@ -2533,8 +2563,6 @@ class BaseReadExecutor:
                 cver,
             )
 
-        assessment: Optional[QualityAssessment] = None
-        validation: Optional[ValidationResult]
         if dq_service is not None:
             validation = _evaluate_with_service(
                 contract=contract,
@@ -2566,15 +2594,25 @@ class BaseReadExecutor:
             )
             validation = assessment.validation or assessment.status
             if validation is None:
-                validation = ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={})
+                validation = ValidationResult(
+                    ok=True, errors=[], warnings=[], metrics={}, schema={}
+                )
 
-        self._normalise_streaming_validation(validation, streaming_active=streaming_active)
-        validation.merge_details({
-            "dataset_id": dataset_id,
-            "dataset_version": dataset_version,
-        })
-        if expectation_plan and "expectation_plan" not in validation.details:
-            validation.merge_details({"expectation_plan": expectation_plan})
+            self._normalise_streaming_validation(validation, streaming_active=streaming_active)
+            if expectation_plan and "expectation_plan" not in validation.details:
+                validation.merge_details({"expectation_plan": expectation_plan})
+        if "dataset_version" not in validation.details or validation.details.get("dataset_id") is None:
+            validation.merge_details(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                }
+            )
+        _annotate_observation_scope(
+            validation,
+            operation="read",
+            scope="input_slice",
+        )
         logger.info(
             "Read validation: ok=%s errors=%s warnings=%s",
             validation.ok,
@@ -2745,6 +2783,11 @@ class BaseReadExecutor:
                 "dataset_id": dataset_id,
                 "dataset_version": dataset_version,
             })
+            _annotate_observation_scope(
+                status,
+                operation="read",
+                scope="input_slice",
+            )
         return status
 
     def _register_data_product_input(
@@ -5230,6 +5273,12 @@ def _execute_write_request(
             checkpointed = True
 
     validation = request.validation_factory() if request.validation_factory else None
+    observation_scope = "streaming_batch" if request.streaming else "pre_write_dataframe"
+    _annotate_observation_scope(
+        validation,
+        operation="write",
+        scope=observation_scope,
+    )
     observation_writer = request.streaming_observation_writer
     if observation_writer is not None and validation is not None:
         observation_writer.attach_validation(validation)
@@ -5382,6 +5431,11 @@ def _execute_write_request(
                 status.status,
             )
             status.merge_details(dataset_details)
+            _annotate_observation_scope(
+                status,
+                operation="write",
+                scope=observation_scope,
+            )
             if enforce and status.status == "block":
                 details_snapshot: Dict[str, Any] = dict(status.details or {})
                 if status.reason:

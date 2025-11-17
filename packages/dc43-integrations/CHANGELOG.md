@@ -19,6 +19,13 @@
 - Made the Spark runtime optional by moving `pyspark` into the `spark` extra so
   runtimes that already ship PySpark are not forced to reinstall it when
   installing the integration helpers.
+- `read_with_governance` once again computes fresh validations for every call
+  instead of reusing cached statuses, ensuring governed reads always obtain the
+  latest metrics from the service even when earlier snapshots exist.
+- Streaming reads now propagate dataset identifiers into validation payloads
+  when metrics originate from the data quality service so governance
+  integrations receive consistent dataset metadata regardless of which backend
+  generated the validation.
 - Split the OpenLineage and OpenTelemetry dependencies into dedicated
   `lineage` and `telemetry` extras (with documentation updates) so installs
   only pull in those SDKs when the corresponding governance integrations are
@@ -79,6 +86,10 @@
 - Removed the redundant `physical_location` output binding requirement from the
   Databricks Delta demos because the Spark write request already supplies the
   Unity Catalog table path.
+- `read_with_governance`/`write_with_governance` now annotate validation
+  results with an observation scope (governed read slice, pre-write dataframe,
+  streaming micro-batch, …) so downstream tooling can distinguish slice-level
+  evaluations from full dataset verdicts.
 - `VersionedWriteSpec` now treats the dataset version as optional and the
   Databricks Delta batch/streaming notebooks expose an `auto_dataset_version`
   toggle so governed runs can rely on timestamped identifiers without manually

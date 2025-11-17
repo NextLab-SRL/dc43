@@ -63,6 +63,15 @@
 {% endif %}
 {% set output_details = record.dq_details.get('output', {}) %}
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>
+{% if record.observation_label or record.observation_scope %}
+<p class="text-muted">
+  Observation scope:
+  {{ record.observation_label or record.observation_scope.replace('_', ' ').title() }}
+  {% if record.observation_operation %}
+    <span class="text-lowercase">({{ record.observation_operation }} run)</span>
+  {% endif %}
+</p>
+{% endif %}
 {% if output_details.get('violation_strategy') %}
 <p><strong>Violation strategy:</strong> {{ output_details.get('violation_strategy') }}</p>
 {% endif %}

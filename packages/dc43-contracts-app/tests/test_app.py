@@ -83,6 +83,29 @@ def test_dataset_detail_returns_not_found(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+def test_dataset_detail_displays_observation_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+) -> None:
+    record = server.DatasetRecord(
+        contract_id="",
+        contract_version="",
+        dataset_name="demo.dataset",
+        dataset_version="2024-01-01",
+        status="ok",
+    )
+    record.observation_label = "Pre-write dataframe snapshot"
+
+    monkeypatch.setattr(server, "load_records", lambda: [record])
+    monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
+    monkeypatch.setattr(server, "_dataset_preview", lambda *_, **__: None)
+
+    resp = client.get("/datasets/demo.dataset/2024-01-01")
+
+    assert resp.status_code == 200
+    assert "Pre-write dataframe snapshot" in resp.text
+
+
 def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) -> None:
     contract_id = "demo_contract"
     contract_version = "1.0.0"
@@ -270,6 +293,143 @@ def test_load_records_uses_event_status_when_backend_missing(
     assert call["contract_version"] == "2.0.0"
     assert call["dataset_id"] == "inventory.stock"
     assert call["dataset_version"] == "2024-05-03"
+
+
+def test_load_records_deduplicates_dataset_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "list_dataset_ids", lambda: ["sales.orders"])
+
+    first_recorded_at = "2025-11-14T20:04:16.238229Z"
+    second_recorded_at = "2025-11-14T20:05:00.000000Z"
+
+    def fake_activity(_: str) -> list[dict[str, object]]:
+        return [
+            {
+                "dataset_version": "2025-11-14T20:04:16.238229Z",
+                "contract_id": "sales.contract",
+                "contract_version": "0.2.0",
+                "events": [
+                    {
+                        "dq_status": "warn",
+                        "dq_details": {"recorded_at": first_recorded_at},
+                        "recorded_at": first_recorded_at,
+                    }
+                ],
+            },
+            {
+                "dataset_version": "2025-11-14T20:04:16.238229Z",
+                "contract_id": "sales.contract",
+                "contract_version": "0.2.0",
+                "events": [
+                    {
+                        "dq_status": "ok",
+                        "dq_details": {"recorded_at": second_recorded_at},
+                        "recorded_at": second_recorded_at,
+                    }
+                ],
+            },
+        ]
+
+    monkeypatch.setattr(server, "dataset_pipeline_activity", fake_activity)
+    monkeypatch.setattr(server, "dataset_validation_status", lambda **_: None)
+
+    records = server.load_records()
+
+    assert len(records) == 1
+    record = records[0]
+
+    assert record.dataset_version == "2025-11-14T20:04:16.238229Z"
+    assert record.contract_version == "0.2.0"
+    assert record.status == "ok"
+
+
+def test_dataset_catalog_prefers_dataset_names_from_records(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_name = "dev.catalog.schema.table_ds"
+    contract_id = "dev.catalog.schema.table"
+    contract_version = "0.3.0"
+    record = server.DatasetRecord(
+        contract_id=contract_id,
+        contract_version=contract_version,
+        dataset_name=dataset_name,
+        dataset_version="2025-11-14T20:04:41.633019Z",
+        status="ok",
+    )
+
+    monkeypatch.setattr(server, "list_contract_ids", lambda: [contract_id])
+    monkeypatch.setattr(server, "contract_versions", lambda cid: [contract_version])
+
+    def fake_get_contract(cid: str, ver: str) -> SimpleNamespace:
+        assert cid == contract_id
+        assert ver == contract_version
+        return SimpleNamespace(id=cid, version=ver, status="active", servers=[])
+
+    monkeypatch.setattr(server, "get_contract", fake_get_contract)
+    monkeypatch.setattr(server, "_server_details", lambda _: {})
+    monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
+
+    catalog = server.dataset_catalog([record])
+
+    assert len(catalog) == 1
+    entry = catalog[0]
+    assert entry["dataset_name"] == dataset_name
+    assert entry["contract_summaries"]
+    assert any(item["id"] == contract_id for item in entry["contract_summaries"])
+    assert all(item["dataset_name"] != contract_id for item in catalog)
+
+
+def test_dataset_catalog_falls_back_to_contract_id_when_unknown_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contract_id = "dev.catalog.schema.table"
+
+    monkeypatch.setattr(server, "list_contract_ids", lambda: [contract_id])
+    monkeypatch.setattr(server, "contract_versions", lambda cid: ["0.1.0"])
+    monkeypatch.setattr(
+        server,
+        "get_contract",
+        lambda cid, ver: SimpleNamespace(id=cid, version=ver, status="active", servers=[]),
+    )
+    monkeypatch.setattr(server, "_server_details", lambda _: {})
+    monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
+
+    catalog = server.dataset_catalog([])
+
+    assert len(catalog) == 1
+    entry = catalog[0]
+    assert entry["dataset_name"] == contract_id
+    assert entry["contract_summaries"]
+    assert entry["contract_summaries"][0]["id"] == contract_id
+
+
+def test_dataset_catalog_handles_records_missing_scope_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = server.DatasetRecord(
+        contract_id="demo.contract",
+        contract_version="1.0.0",
+        dataset_name="demo.contract_ds",
+        dataset_version="2025-11-17T05:08:00Z",
+        status="ok",
+    )
+
+    delattr(record, "observation_label")
+    delattr(record, "observation_scope")
+    delattr(record, "observation_operation")
+
+    monkeypatch.setattr(server, "list_contract_ids", lambda: [])
+    monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
+
+    catalog = server.dataset_catalog([record])
+
+    assert len(catalog) == 1
+    entry = catalog[0]
+    assert entry["dataset_name"] == "demo.contract_ds"
+    assert entry["latest_observation_label"] == ""
+    assert entry["latest_observation_scope"] == ""
+    assert entry["latest_observation_operation"] == ""
 
 
 def test_next_version_handles_draft_suffix() -> None:

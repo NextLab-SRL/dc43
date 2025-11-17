@@ -33,7 +33,14 @@
         <span class="text-muted">None</span>
       {% endif %}
     </td>
-    <td>{{ r.status }}</td>
+    <td>
+      {{ r.status }}
+      {% if r.observation_label or r.observation_scope %}
+        <div class="small text-muted">
+          {{ r.observation_label or r.observation_scope.replace('_', ' ').title() }}
+        </div>
+      {% endif %}
+    </td>
   </tr>
   {% endfor %}
   </tbody>
