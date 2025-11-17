@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._metrics import extract_metrics
 from .interface import GovernanceStore
 
 
@@ -227,6 +228,7 @@ class SQLGovernanceStore(GovernanceStore):
             return
 
         recorded_at = self._now()
+        details_payload = status.details
         payload = {
             "contract_id": contract_id,
             "contract_version": contract_version,
@@ -234,7 +236,7 @@ class SQLGovernanceStore(GovernanceStore):
             "dataset_version": dataset_version,
             "status": status.status,
             "reason": status.reason,
-            "details": status.details,
+            "details": details_payload,
         }
         self._write_payload(
             self._status,
@@ -248,8 +250,9 @@ class SQLGovernanceStore(GovernanceStore):
             },
         )
 
+        metrics_map = extract_metrics(status)
         metrics_entries = []
-        for key, value in (status.metrics or {}).items():
+        for key, value in metrics_map.items():
             numeric_value: float | None = None
             if isinstance(value, Number):
                 numeric_value = float(value)

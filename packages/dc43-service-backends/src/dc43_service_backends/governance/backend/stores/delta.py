@@ -12,6 +12,7 @@ from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._metrics import extract_metrics
 from .interface import GovernanceStore
 
 
@@ -242,13 +243,33 @@ class DeltaGovernanceStore(GovernanceStore):
         return bool(self._spark.catalog.tableExists(table))
 
     @staticmethod
+    @staticmethod
     def _derive_related_table_name(table: str, suffix: str) -> str:
         """Create a deterministic companion table name sharing ``table``'s scope."""
 
+        prefix: str | None = None
+        name = table
         if "." in table:
             prefix, name = table.rsplit(".", 1)
-            return f"{prefix}.{name}_{suffix}"
-        return f"{table}_{suffix}"
+
+        derived = DeltaGovernanceStore._derive_related_table_basename(name, suffix)
+        if prefix:
+            return f"{prefix}.{derived}"
+        return derived
+
+    @staticmethod
+    def _derive_related_table_basename(name: str, suffix: str) -> str:
+        """Return the derived table name without catalog/schema prefixes."""
+
+        if suffix == "metrics":
+            lowered = name.lower()
+            suffix_mappings = {
+                "_status": "_metrics",
+            }
+            for status_suffix, metrics_suffix in suffix_mappings.items():
+                if lowered.endswith(status_suffix):
+                    return name[: -len(status_suffix)] + metrics_suffix
+        return f"{name}_{suffix}"
 
     def _ensure_delta_target(
         self,
@@ -334,6 +355,7 @@ class DeltaGovernanceStore(GovernanceStore):
             table=self._status_table,
             folder=folder,
         )
+        details_payload = status.details if status else {}
         payload = {
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
@@ -345,7 +367,7 @@ class DeltaGovernanceStore(GovernanceStore):
                 {
                     "status": status.status if status else "unknown",
                     "reason": status.reason if status else None,
-                    "details": status.details if status else {},
+                    "details": details_payload,
                     "contract_id": contract_id,
                     "contract_version": contract_version,
                     "dataset_id": dataset_id,
@@ -360,8 +382,9 @@ class DeltaGovernanceStore(GovernanceStore):
         if status is None:
             return
 
+        metrics_map = extract_metrics(status)
         metrics_records = []
-        for key, value in (status.metrics or {}).items():
+        for key, value in metrics_map.items():
             numeric_value: float | None = None
             if isinstance(value, Number):
                 numeric_value = float(value)

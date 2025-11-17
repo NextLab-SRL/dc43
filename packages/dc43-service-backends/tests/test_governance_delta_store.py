@@ -377,6 +377,28 @@ def test_bootstrap_derives_metrics_table_name() -> None:
         assert entry["options"].get("overwriteSchema") == "true"
 
 
+def test_bootstrap_derives_metrics_table_name_from_status_suffix() -> None:
+    spark = _StubSpark()
+    DeltaGovernanceStore(
+        spark,
+        status_table="analytics.governance.dq_status",
+        activity_table="analytics.governance.activity",
+        link_table="analytics.governance.links",
+    )
+
+    tables = _tables(spark.records)
+    assert {entry["target"] for entry in tables} == {
+        "analytics.governance.dq_status",
+        "analytics.governance.activity",
+        "analytics.governance.links",
+        "analytics.governance.dq_metrics",
+    }
+    for entry in tables:
+        assert entry["format"] == "delta"
+        assert entry["mode"] == "overwrite"
+        assert entry["options"].get("overwriteSchema") == "true"
+
+
 def test_bootstrap_skips_existing_tables() -> None:
     spark = _StubSpark(existing_tables={"analytics.governance.status"})
     DeltaGovernanceStore(
@@ -492,6 +514,33 @@ def test_save_status_records_metrics_entries(tmp_path: Path) -> None:
     summary_row = next(row for row in rows if row["metric_key"] == "summary")
     assert json.loads(summary_row["metric_value"] or "{}") == {"passed": 10}
     assert summary_row["metric_numeric_value"] is None
+
+
+def test_save_status_records_metrics_from_details_payload(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark, base_path=tmp_path)
+    store._now = lambda: "2024-05-01T00:00:00Z"  # type: ignore[assignment]
+
+    status = ValidationResult(status="ok")
+    status.details = {"metrics": {"row_count": 3}}
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="1.0.0",
+        dataset_id="orders",
+        dataset_version="2024-05-01",
+        status=status,
+    )
+
+    metrics_frames = [
+        frame
+        for frame in spark.dataframes
+        if frame["schema"] is DeltaGovernanceStore._METRIC_SCHEMA and frame["data"]
+    ]
+    assert len(metrics_frames) == 1
+    rows = metrics_frames[0]["data"]
+    assert rows[0]["metric_key"] == "row_count"
+    assert rows[0]["metric_numeric_value"] == 3.0
 
 
 def test_save_status_appends_metrics_to_table_target() -> None:

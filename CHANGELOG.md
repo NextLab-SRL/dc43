@@ -140,6 +140,14 @@
 - Governance write telemetry spans now prefer dataset identifiers and versions
   from resolved governance plans, keeping OpenTelemetry attributes aligned with
   pipeline metadata and avoiding contract-id fallbacks in tests.
+- Governance stores now extract metric observations from validation payload
+  details when the ``metrics`` attribute is empty, ensuring `dq_metrics`
+  tables (and the contracts UI) show dataset measurements recorded by remote
+  backends.
+- Delta governance stores now derive `*_dq_status` metric tables as
+  `*_dq_metrics` when `metrics_table` is omitted so Databricks demo configs
+  continue writing into the expected governance schema without extra
+  configuration.
 - Governance write helpers once again preserve dataset links derived from
   dataset locators, so upgrading a contract keeps previously registered dataset
   references intact while telemetry continues to use governance plan metadata.
