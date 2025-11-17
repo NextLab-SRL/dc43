@@ -22,6 +22,10 @@
 - `read_with_governance` once again computes fresh validations for every call
   instead of reusing cached statuses, ensuring governed reads always obtain the
   latest metrics from the service even when earlier snapshots exist.
+- Streaming reads now propagate dataset identifiers into validation payloads
+  when metrics originate from the data quality service so governance
+  integrations receive consistent dataset metadata regardless of which backend
+  generated the validation.
 - Split the OpenLineage and OpenTelemetry dependencies into dedicated
   `lineage` and `telemetry` extras (with documentation updates) so installs
   only pull in those SDKs when the corresponding governance integrations are

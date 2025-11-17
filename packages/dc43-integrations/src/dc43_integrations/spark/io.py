@@ -2599,17 +2599,20 @@ class BaseReadExecutor:
                 )
 
             self._normalise_streaming_validation(validation, streaming_active=streaming_active)
-            validation.merge_details({
-                "dataset_id": dataset_id,
-                "dataset_version": dataset_version,
-            })
-            _annotate_observation_scope(
-                validation,
-                operation="read",
-                scope="input_slice",
-            )
             if expectation_plan and "expectation_plan" not in validation.details:
                 validation.merge_details({"expectation_plan": expectation_plan})
+        if "dataset_version" not in validation.details or validation.details.get("dataset_id") is None:
+            validation.merge_details(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                }
+            )
+        _annotate_observation_scope(
+            validation,
+            operation="read",
+            scope="input_slice",
+        )
         logger.info(
             "Read validation: ok=%s errors=%s warnings=%s",
             validation.ok,

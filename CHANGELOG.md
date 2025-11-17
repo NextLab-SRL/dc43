@@ -43,6 +43,9 @@
 - Spark governance reads now always recompute validations through the
   governance service instead of reusing cached statuses so every run reflects
   the freshest recorded metrics, even when historical snapshots exist.
+- Streaming reads now copy dataset identifiers into validation payloads even
+  when the data quality service provided the metrics so governance clients see
+  consistent metadata when correlating validation results with history.
 - OpenLineage and OpenTelemetry runtimes now live behind the new
   `lineage`/`telemetry` extras on the integrations and service-client
   packages so deployments opt into those SDKs only when emitting lineage or
