@@ -404,6 +404,34 @@ def test_dataset_catalog_falls_back_to_contract_id_when_unknown_dataset(
     assert entry["contract_summaries"][0]["id"] == contract_id
 
 
+def test_dataset_catalog_handles_records_missing_scope_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    record = server.DatasetRecord(
+        contract_id="demo.contract",
+        contract_version="1.0.0",
+        dataset_name="demo.contract_ds",
+        dataset_version="2025-11-17T05:08:00Z",
+        status="ok",
+    )
+
+    delattr(record, "observation_label")
+    delattr(record, "observation_scope")
+    delattr(record, "observation_operation")
+
+    monkeypatch.setattr(server, "list_contract_ids", lambda: [])
+    monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
+
+    catalog = server.dataset_catalog([record])
+
+    assert len(catalog) == 1
+    entry = catalog[0]
+    assert entry["dataset_name"] == "demo.contract_ds"
+    assert entry["latest_observation_label"] == ""
+    assert entry["latest_observation_scope"] == ""
+    assert entry["latest_observation_operation"] == ""
+
+
 def test_next_version_handles_draft_suffix() -> None:
     assert server._next_version("0.2.0-draft") == "0.2.1"
 

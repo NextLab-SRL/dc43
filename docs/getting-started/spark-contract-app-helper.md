@@ -82,7 +82,9 @@ observation scope (for example, “Pre-write dataframe snapshot” or “Governe
 snapshot”) so you can tell whether the metrics reflect the dataframe evaluated
 before a write, a streaming micro-batch, or a governed read. Use the scope badge
 to separate slice-level validations from full dataset verdicts when investigating
-unexpected counts.
+unexpected counts. Older runs that predate the metadata emit a neutral “Snapshot”
+badge so the catalog still renders even when governance stores have not populated
+the scope fields yet.
 
 ### Create or edit data products visually
 

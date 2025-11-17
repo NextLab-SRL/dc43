@@ -9890,9 +9890,11 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
             latest_status_label = status_raw.replace("_", " ").title()
             latest_status_badge = _DQ_STATUS_BADGES.get(latest_status_value, "bg-secondary")
             latest_reason = latest_record.reason or None
-            latest_observation_label = latest_record.observation_label or ""
-            latest_observation_scope = latest_record.observation_scope or ""
-            latest_observation_operation = latest_record.observation_operation or ""
+            latest_observation_label = getattr(latest_record, "observation_label", "") or ""
+            latest_observation_scope = getattr(latest_record, "observation_scope", "") or ""
+            latest_observation_operation = (
+                getattr(latest_record, "observation_operation", "") or ""
+            )
 
         run_drafts = sorted(
             {rec.draft_contract_version for rec in dataset_records if rec.draft_contract_version},

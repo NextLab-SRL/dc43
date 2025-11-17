@@ -85,6 +85,9 @@
 - Dataset listings now attach contracts to the dataset identifiers that
   governance runs recorded, preventing phantom rows that only contain contract
   IDs when server metadata omits explicit dataset references.
+- Dataset catalog and dataset views now tolerate missing observation-scope
+  metadata so historical runs recorded before the new annotations still load and
+  simply display a neutral badge when the governance store lacks scope fields.
 - Adjusted the documentation assistant to discover repository Markdown when running from
   editable installs so the chat surface no longer reports missing documentation directories.
 - Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured

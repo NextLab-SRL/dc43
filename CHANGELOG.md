@@ -163,6 +163,10 @@
 - Contracts app dataset listings now attach contracts to the dataset IDs that
   governance runs recorded, preventing phantom dataset rows that only differ by
   contract ID when server metadata omits explicit dataset identifiers.
+- Contracts app dataset listings now tolerate records captured before
+  observation-scope metadata shipped, falling back to a neutral badge so the
+  catalog keeps loading even when governance stores have not populated the new
+  fields.
 - Governance status lookups now tolerate legacy SQL activity tables that lack
   timestamp columns, preventing 500 errors and eliminating the fallback storm
   of per-version requests from the contracts UI.
