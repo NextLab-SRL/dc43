@@ -163,3 +163,21 @@ def test_sql_store_extracts_metrics_from_details(sql_engine) -> None:
         ).fetchall()
 
     assert rows == [("row_count", 3.0)]
+
+
+def test_sql_store_respects_explicit_metrics_table(sql_engine) -> None:
+    store = SQLGovernanceStore(sql_engine, metrics_table="dq_status_metrics")
+
+    assert store._metrics.name == "dq_status_metrics"  # type: ignore[attr-defined]
+
+
+def test_sql_store_derives_metrics_table_from_status(sql_engine) -> None:
+    store = SQLGovernanceStore(sql_engine, status_table="orders_dq_status")
+
+    assert store._metrics.name == "orders_dq_metrics"  # type: ignore[attr-defined]
+
+
+def test_sql_store_defaults_to_legacy_metrics_table(sql_engine) -> None:
+    store = SQLGovernanceStore(sql_engine)
+
+    assert store._metrics.name == "dq_metrics"  # type: ignore[attr-defined]

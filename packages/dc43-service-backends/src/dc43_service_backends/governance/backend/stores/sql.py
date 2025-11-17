@@ -25,6 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
 from ._metrics import extract_metrics
+from ._table_names import derive_related_table_name
 from .interface import GovernanceStore
 
 
@@ -42,10 +43,14 @@ class SQLGovernanceStore(GovernanceStore):
         status_table: str = "dq_status",
         activity_table: str = "dq_activity",
         link_table: str = "dq_dataset_contract_links",
-        metrics_table: str = "dq_metrics",
+        metrics_table: str | None = None,
     ) -> None:
         self._engine = engine
         metadata = MetaData(schema=schema)
+        resolved_metrics_table = metrics_table
+        if not resolved_metrics_table and status_table:
+            resolved_metrics_table = derive_related_table_name(status_table, "metrics")
+        metrics_table_name = resolved_metrics_table or "dq_metrics"
         self._status = Table(
             status_table,
             metadata,
@@ -74,7 +79,7 @@ class SQLGovernanceStore(GovernanceStore):
             Column("linked_at", String, nullable=False),
         )
         self._metrics = Table(
-            metrics_table,
+            metrics_table_name,
             metadata,
             Column("dataset_id", String, nullable=False),
             Column("dataset_version", String, nullable=True),

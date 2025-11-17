@@ -60,6 +60,10 @@
 - SQL governance status lookups now tolerate duplicate historical rows by
   selecting the most recent payload, preventing `MultipleResultsFound` errors
   when legacy tables contain redundant entries.
+- SQL governance stores now honour explicit `metrics_table` values (and derive
+  `_dq_metrics` from `_dq_status` identifiers just like the Delta store), so the
+  contracts app and remote deployments read metrics from the populated table
+  even when the configuration omits a dedicated metrics entry.
 - ODPS serialisation raises a descriptive error when non data-product objects
   (for example, Open Data Contracts) are passed to the helper, steering callers
   towards the correct client API instead of surfacing an attribute error.

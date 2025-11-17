@@ -13,6 +13,10 @@ from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
 from ._metrics import extract_metrics
+from ._table_names import (
+    derive_related_table_basename,
+    derive_related_table_name,
+)
 from .interface import GovernanceStore
 
 
@@ -90,6 +94,9 @@ class DeltaGovernanceStore(GovernanceStore):
 
         if bootstrap_tables:
             self.bootstrap()
+
+    _derive_related_table_name = staticmethod(derive_related_table_name)
+    _derive_related_table_basename = staticmethod(derive_related_table_basename)
 
     _STATUS_SCHEMA = StructType(
         [
@@ -242,34 +249,6 @@ class DeltaGovernanceStore(GovernanceStore):
 
         return bool(self._spark.catalog.tableExists(table))
 
-    @staticmethod
-    @staticmethod
-    def _derive_related_table_name(table: str, suffix: str) -> str:
-        """Create a deterministic companion table name sharing ``table``'s scope."""
-
-        prefix: str | None = None
-        name = table
-        if "." in table:
-            prefix, name = table.rsplit(".", 1)
-
-        derived = DeltaGovernanceStore._derive_related_table_basename(name, suffix)
-        if prefix:
-            return f"{prefix}.{derived}"
-        return derived
-
-    @staticmethod
-    def _derive_related_table_basename(name: str, suffix: str) -> str:
-        """Return the derived table name without catalog/schema prefixes."""
-
-        if suffix == "metrics":
-            lowered = name.lower()
-            suffix_mappings = {
-                "_status": "_metrics",
-            }
-            for status_suffix, metrics_suffix in suffix_mappings.items():
-                if lowered.endswith(status_suffix):
-                    return name[: -len(status_suffix)] + metrics_suffix
-        return f"{name}_{suffix}"
 
     def _ensure_delta_target(
         self,

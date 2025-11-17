@@ -51,6 +51,7 @@ from .governance.backend.stores import (
     InMemoryGovernanceStore,
     SQLGovernanceStore,
 )
+from .governance.backend.stores._table_names import derive_related_table_name
 from .governance.backend.stores.filesystem import FilesystemGovernanceStore
 
 try:  # pragma: no cover - optional dependencies
@@ -415,12 +416,16 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
         status_table = config.status_table or "dq_status"
         activity_table = config.activity_table or "dq_activity"
         link_table = config.link_table or "dq_dataset_contract_links"
+        metrics_table = config.metrics_table
+        if not metrics_table and status_table:
+            metrics_table = derive_related_table_name(status_table, "metrics")
         return SQLGovernanceStore(
             engine,
             schema=config.schema,
             status_table=status_table,
             activity_table=activity_table,
             link_table=link_table,
+            metrics_table=metrics_table,
         )
 
     if store_type == "delta":
