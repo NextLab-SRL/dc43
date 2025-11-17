@@ -44,6 +44,10 @@
   payloads when the explicit ``metrics`` attribute is empty so SQL/Delta/HTTP
   backends continue populating `dq_metrics` tables even when upstream
   validations serialise observations only inside `dq_status` rows.
+- Delta governance stores now detect `*_dq_status` table names and reuse the
+  shared prefix when deriving the metrics table, keeping Databricks demo
+  deployments writing into `...dq_metrics` even when `metrics_table` is not set
+  explicitly.
 - Hardened the governance status matrix endpoint so mixed payload types (for
   example, pre-encoded validation dictionaries) no longer trigger 500 errors
   when UI clients request batched status snapshots.
@@ -56,6 +60,10 @@
 - SQL governance status lookups now tolerate duplicate historical rows by
   selecting the most recent payload, preventing `MultipleResultsFound` errors
   when legacy tables contain redundant entries.
+- SQL governance stores now honour explicit `metrics_table` values (and derive
+  `_dq_metrics` from `_dq_status` identifiers just like the Delta store), so the
+  contracts app and remote deployments read metrics from the populated table
+  even when the configuration omits a dedicated metrics entry.
 - ODPS serialisation raises a descriptive error when non data-product objects
   (for example, Open Data Contracts) are passed to the helper, steering callers
   towards the correct client API instead of surfacing an attribute error.

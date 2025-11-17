@@ -98,6 +98,9 @@
   comes from the Spark write request.
 - Databricks Delta versioning demos now pin governed writes to the released
   data product version so notebook runs no longer pause on draft output ports.
+- Governance configuration docs now explain how SQL and Delta stores derive
+  `metrics_table` defaults from `_dq_status` identifiers so operators know when
+  to override the value explicitly.
 - Removed the demo/contract helpers that manually persisted dataset records so
   the UI and pipelines rely solely on governance service APIs for run history,
   adding fixtures and helpers to tests to generate sample data on demand.
@@ -144,6 +147,10 @@
   details when the ``metrics`` attribute is empty, ensuring `dq_metrics`
   tables (and the contracts UI) show dataset measurements recorded by remote
   backends.
+- Delta governance stores now derive `*_dq_status` metric tables as
+  `*_dq_metrics` when `metrics_table` is omitted so Databricks demo configs
+  continue writing into the expected governance schema without extra
+  configuration.
 - Governance write helpers once again preserve dataset links derived from
   dataset locators, so upgrading a contract keeps previously registered dataset
   references intact while telemetry continues to use governance plan metadata.

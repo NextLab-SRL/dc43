@@ -276,6 +276,14 @@ pattern `DC43_GOVERNANCE_STORE_*`, for example
 `DC43_GOVERNANCE_STORE_TYPE`, `DC43_GOVERNANCE_STORE`,
 `DC43_GOVERNANCE_STORE_URL`, and `DC43_GOVERNANCE_STORE_TOKEN`.
 
+When `metrics_table` is omitted, SQL and Delta stores derive a companion name
+from the configured status table. Identifiers ending with `_dq_status` swap that
+suffix for `_dq_metrics`; other names fall back to appending `_metrics` (for
+example, `status` → `status_metrics`). Override `metrics_table` explicitly when
+your deployment already exposes a populated metrics table or uses a different
+schema layout—the services will honour the configured name without attempting to
+derive one.
+
 > When the service uses Delta-backed contract or data product stores, the
 > process must run in an environment that can authenticate against the target
 > Unity Catalog or Delta Lake deployment. The data-quality backend—local or

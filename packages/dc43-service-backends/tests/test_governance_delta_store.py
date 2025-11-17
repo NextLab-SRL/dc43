@@ -377,6 +377,28 @@ def test_bootstrap_derives_metrics_table_name() -> None:
         assert entry["options"].get("overwriteSchema") == "true"
 
 
+def test_bootstrap_derives_metrics_table_name_from_status_suffix() -> None:
+    spark = _StubSpark()
+    DeltaGovernanceStore(
+        spark,
+        status_table="analytics.governance.dq_status",
+        activity_table="analytics.governance.activity",
+        link_table="analytics.governance.links",
+    )
+
+    tables = _tables(spark.records)
+    assert {entry["target"] for entry in tables} == {
+        "analytics.governance.dq_status",
+        "analytics.governance.activity",
+        "analytics.governance.links",
+        "analytics.governance.dq_metrics",
+    }
+    for entry in tables:
+        assert entry["format"] == "delta"
+        assert entry["mode"] == "overwrite"
+        assert entry["options"].get("overwriteSchema") == "true"
+
+
 def test_bootstrap_skips_existing_tables() -> None:
     spark = _StubSpark(existing_tables={"analytics.governance.status"})
     DeltaGovernanceStore(
