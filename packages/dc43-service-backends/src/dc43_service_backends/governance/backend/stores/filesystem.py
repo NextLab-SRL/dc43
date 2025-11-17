@@ -12,6 +12,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._metrics import extract_metrics
 from .interface import GovernanceStore
 
 
@@ -112,14 +113,15 @@ class FilesystemGovernanceStore(GovernanceStore):
         )
         self._write_json(path, asdict(record))
 
-        if status.metrics:
+        metrics_map = extract_metrics(status)
+        if metrics_map:
             self._append_metrics(
                 contract_id=contract_id,
                 contract_version=contract_version,
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
                 recorded_at=record.recorded_at,
-                metrics=status.metrics,
+                metrics=metrics_map,
             )
 
     def load_status(

@@ -7,6 +7,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
+from dc43_service_clients.data_quality import ValidationResult
 from dc43_service_backends.governance.storage.sql import SQLGovernanceStore
 
 
@@ -140,3 +141,25 @@ def test_load_status_handles_duplicate_rows(sql_engine) -> None:
     assert result is not None
     assert result.status == "ok"
     assert result.reason == "latest run"
+
+
+def test_sql_store_extracts_metrics_from_details(sql_engine) -> None:
+    store = SQLGovernanceStore(sql_engine)
+
+    status = ValidationResult(status="ok")
+    status.details = {"metrics": {"row_count": 3}}
+
+    store.save_status(
+        contract_id="sales.orders",
+        contract_version="1.0.0",
+        dataset_id="sales.orders",
+        dataset_version="2024-06-01",
+        status=status,
+    )
+
+    with sql_engine.begin() as conn:
+        rows = conn.exec_driver_sql(
+            "SELECT metric_key, metric_numeric_value FROM dq_metrics"
+        ).fetchall()
+
+    assert rows == [("row_count", 3.0)]
