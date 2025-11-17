@@ -40,6 +40,10 @@
 - Delta governance stores now supply explicit schemas when persisting status,
   link, and activity records so Spark no longer fails to infer field types when
   optional values (such as lineage payloads) are null.
+- Governance stores now pull metric observations from validation detail
+  payloads when the explicit ``metrics`` attribute is empty so SQL/Delta/HTTP
+  backends continue populating `dq_metrics` tables even when upstream
+  validations serialise observations only inside `dq_status` rows.
 - Hardened the governance status matrix endpoint so mixed payload types (for
   example, pre-encoded validation dictionaries) no longer trigger 500 errors
   when UI clients request batched status snapshots.
