@@ -74,6 +74,10 @@
   `_dq_metrics` from `_dq_status` identifiers just like the Delta store), so the
   contracts app and remote deployments read metrics from the populated table
   even when the configuration omits a dedicated metrics entry.
+- `load_config` now preserves `governance_store.metrics_table` entries (and the
+  `DC43_GOVERNANCE_METRICS_TABLE` override), ensuring the bootstrapper wires the
+  configured table into SQL stores instead of falling back to the legacy
+  `dq_metrics` default.
 - ODPS serialisation raises a descriptive error when non data-product objects
   (for example, Open Data Contracts) are passed to the helper, steering callers
   towards the correct client API instead of surfacing an attribute error.

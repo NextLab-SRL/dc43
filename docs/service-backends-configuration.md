@@ -281,7 +281,11 @@ Common keys include `root`/`base_path` (filesystem and Delta), `dsn` and
 and `base_url`/`token`/`headers` (HTTP). Environment overrides follow the
 pattern `DC43_GOVERNANCE_STORE_*`, for example
 `DC43_GOVERNANCE_STORE_TYPE`, `DC43_GOVERNANCE_STORE`,
-`DC43_GOVERNANCE_STORE_URL`, and `DC43_GOVERNANCE_STORE_TOKEN`.
+`DC43_GOVERNANCE_STORE_URL`, and `DC43_GOVERNANCE_STORE_TOKEN`. Individual
+table names also expose dedicated overrides such as
+`DC43_GOVERNANCE_STATUS_TABLE`, `DC43_GOVERNANCE_ACTIVITY_TABLE`,
+`DC43_GOVERNANCE_LINK_TABLE`, and the new
+`DC43_GOVERNANCE_METRICS_TABLE` flag.
 
 Set `log_sql = true` (or `DC43_GOVERNANCE_STORE_LOG_SQL=1`) to log every
 statement executed by the SQL/Delta governance stores. This makes it easier to

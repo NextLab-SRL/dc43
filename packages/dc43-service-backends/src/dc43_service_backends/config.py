@@ -547,6 +547,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     gov_timeout_value = 10.0
     gov_headers_value: dict[str, str] = {}
     gov_log_sql = False
+    gov_metrics_table_value = None
     if isinstance(governance_store_section, MutableMapping):
         raw_type = governance_store_section.get("type")
         if isinstance(raw_type, str) and raw_type.strip():
@@ -565,6 +566,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         link_table_raw = governance_store_section.get("link_table")
         if isinstance(link_table_raw, str) and link_table_raw.strip():
             gov_link_table_value = link_table_raw.strip()
+        metrics_table_raw = governance_store_section.get("metrics_table")
+        if isinstance(metrics_table_raw, str) and metrics_table_raw.strip():
+            gov_metrics_table_value = metrics_table_raw.strip()
         dsn_raw = governance_store_section.get("dsn")
         if dsn_raw is not None:
             gov_dsn_value = str(dsn_raw).strip() or None
@@ -715,6 +719,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_gov_link_table:
         gov_link_table_value = env_gov_link_table.strip() or gov_link_table_value
 
+    env_gov_metrics_table = os.getenv("DC43_GOVERNANCE_METRICS_TABLE")
+    if env_gov_metrics_table:
+        gov_metrics_table_value = env_gov_metrics_table.strip() or gov_metrics_table_value
+
     env_gov_dsn = os.getenv("DC43_GOVERNANCE_STORE_DSN")
     if env_gov_dsn:
         gov_dsn_value = env_gov_dsn.strip() or gov_dsn_value
@@ -815,6 +823,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             status_table=gov_status_table_value,
             activity_table=gov_activity_table_value,
             link_table=gov_link_table_value,
+            metrics_table=gov_metrics_table_value,
             dsn=gov_dsn_value,
             schema=gov_schema_value,
             base_url=gov_base_url_value,
@@ -970,6 +979,8 @@ def _governance_store_mapping(config: GovernanceStoreConfig) -> dict[str, Any]:
         mapping["activity_table"] = config.activity_table
     if config.link_table:
         mapping["link_table"] = config.link_table
+    if config.metrics_table:
+        mapping["metrics_table"] = config.metrics_table
     if config.dsn:
         mapping["dsn"] = config.dsn
     if config.schema:

@@ -73,6 +73,9 @@
   toggle and updated helpers so dataset identifiers fall back to the timestamped
   versions that production pipelines use instead of forcing manual increments in
   the walkthrough notebooks.
+- Service backend configuration now honours explicit `governance_store.metrics_table`
+  entries (and the `DC43_GOVERNANCE_METRICS_TABLE` override) so governance SQL
+  stores stop deriving table names when the operator already provided one.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.
