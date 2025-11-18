@@ -71,26 +71,25 @@ you need the container to spawn the backend locally.
 ### Inspect governance metrics
 
 Once the UI is running, open any dataset or contract entry from the catalog to
-review the metrics recorded by the governance service. The dataset view groups
-observations by the status timestamp so you can see the latest snapshot alongside
-earlier runs, while the contract overview highlights the same metrics filtered to
-the active version. Numeric metrics now render as interactive charts, letting you
-hover across the timeline to reveal dataset versions, contract revisions, and the
-recorded values. This makes it easy to validate row counts, violation totals, and
-other KPIs without querying the backend directly. Each dataset record now lists an
-observation scope (for example, “Pre-write dataframe snapshot” or “Governed read
-snapshot”) so you can tell whether the metrics reflect the dataframe evaluated
-before a write, a streaming micro-batch, or a governed read. Use the scope badge
-to separate slice-level validations from full dataset verdicts when investigating
-unexpected counts. Older runs that predate the metadata emit a neutral “Snapshot”
-badge so the catalog still renders even when governance stores have not populated
-the scope fields yet.
+review the metrics recorded by the governance service. The dataset overview page
+now renders the metric trend chart at the dataset level, plotting every recorded
+version while keeping the history table sorted (and re-sortable) by dataset
+version, contract, and contract version. Numeric metrics render as interactive
+charts, letting you hover across the timeline to reveal dataset versions,
+contract revisions, and the recorded values without querying the backend
+directly. Each dataset record lists an observation scope (for example, “Pre-write
+dataframe snapshot” or “Governed read snapshot”) so you can tell whether the
+metrics reflect the dataframe evaluated before a write, a streaming micro-batch,
+or a governed read. Use the scope badge to separate slice-level validations from
+full dataset verdicts when investigating unexpected counts. Older runs that
+predate the metadata emit a neutral “Snapshot” badge so the catalog still renders
+even when governance stores have not populated the scope fields yet.
 
-Dataset version pages now request only the selected run, leaning on the
-governance service’s batched status lookups instead of rebuilding the full
+Individual dataset version pages now focus on the selected run only, leaning on
+the governance service’s batched status lookups instead of rebuilding the full
 compatibility matrix. Opening a single dataset version therefore issues one
-targeted activity request plus a compact metrics query, which keeps the UI
-snappy even when governance stores track hundreds of historical versions.
+targeted activity request plus a compact metrics query, keeping the UI snappy
+even when governance stores track hundreds of historical versions.
 
 ### Create or edit data products visually
 

@@ -446,6 +446,23 @@ def test_load_records_deduplicates_dataset_versions(
     assert record.status == "ok"
 
 
+def test_dataset_history_sorting_orders_by_version_then_contract() -> None:
+    rows = [
+        {"dataset_version": "2024-01-01T00:00:00Z", "contract_id": "b", "contract_version": "1.0.0"},
+        {"dataset_version": "2024-01-01T00:00:00Z", "contract_id": "a", "contract_version": "2.0.0"},
+        {"dataset_version": "2024-02-01T00:00:00Z", "contract_id": "a", "contract_version": "0.1.0"},
+    ]
+
+    sorted_rows = server._sort_dataset_history_rows(rows)
+
+    assert [row["dataset_version"] for row in sorted_rows] == [
+        "2024-02-01T00:00:00Z",
+        "2024-01-01T00:00:00Z",
+        "2024-01-01T00:00:00Z",
+    ]
+    assert [row["contract_id"] for row in sorted_rows[1:]] == ["b", "a"]
+
+
 def test_dataset_catalog_prefers_dataset_names_from_records(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

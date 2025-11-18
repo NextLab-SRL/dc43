@@ -79,6 +79,10 @@
 - Governance stores now expose batch status lookups so matrix endpoints and
   pipeline activity enrichment reuse a single SQL query instead of issuing one
   lookup per dataset/contract combination.
+- Dataset overview pages now render dataset-wide metric charts and sortable
+  history tables while individual dataset version views limit governance calls
+  to the selected run, reducing redundant backend work when inspecting a single
+  version.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.

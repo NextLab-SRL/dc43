@@ -61,6 +61,9 @@
 - Dataset version pages now filter governance calls to the selected dataset
   version, preventing a single view from walking the entire history just to
   render one record.
+- Dataset overview pages now surface dataset-wide metric trend charts and a
+  sortable history table (sorted by dataset version, then contract and version)
+  while the per-version detail view focuses on the selected run’s snapshot.
 - Removed the legacy `workspace` module from the contracts UI; filesystem
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under

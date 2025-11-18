@@ -9461,10 +9461,51 @@ async def list_datasets(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("datasets.html", context)
 
 
+def _dataset_history_sort_key(record: Mapping[str, Any]) -> Tuple[str, str, str]:
+    return (
+        str(record.get("dataset_version") or ""),
+        str(record.get("contract_id") or ""),
+        str(record.get("contract_version") or ""),
+    )
+
+
+def _sort_dataset_history_rows(records: Iterable[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    return sorted((dict(item) for item in records), key=_dataset_history_sort_key, reverse=True)
+
+
 @router.get("/datasets/{dataset_name}", response_class=HTMLResponse)
 async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
-    records = [r.__dict__.copy() for r in load_records(dataset_id=dataset_name)]
-    context = {"request": request, "dataset_name": dataset_name, "records": records}
+    records = _sort_dataset_history_rows(
+        [r.__dict__.copy() for r in load_records(dataset_id=dataset_name)]
+    )
+    metrics_summary = _empty_metrics_summary()
+    metrics_error: str | None = None
+
+    if dataset_name:
+
+        def _load_metrics() -> Sequence[Mapping[str, object]]:
+            _, _, governance_client = _thread_service_clients()
+            return governance_client.get_metrics(dataset_id=dataset_name)
+
+        try:
+            metrics_records = await run_in_threadpool(_load_metrics)
+        except Exception as exc:  # pragma: no cover - defensive
+            metrics_error = str(exc)
+            logger.exception("Failed to load dataset metrics for %s", dataset_name)
+        else:
+            metrics_summary = _summarise_metrics(metrics_records)
+
+    context = {
+        "request": request,
+        "dataset_name": dataset_name,
+        "records": records,
+        "metrics_summary": metrics_summary,
+        "metrics_error": metrics_error,
+        "show_metrics_history": True,
+        "metrics_panel_title": "Dataset metrics",
+        "metrics_panel_scope_label": f"Dataset {dataset_name}",
+        "metrics_empty_message": "No metrics recorded for this dataset yet.",
+    }
     return templates.TemplateResponse("dataset_versions.html", context)
 
 
@@ -10056,6 +10097,12 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 "data_products": associations,
                 "metrics_summary": metrics_summary,
                 "metrics_error": metrics_error,
+                "show_metrics_history": False,
+                "metrics_panel_title": "Dataset metrics",
+                "metrics_panel_scope_label": (
+                    f"Dataset {dataset_name} {dataset_version}".strip()
+                ),
+                "metrics_empty_message": "No metrics recorded for this dataset version.",
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")
