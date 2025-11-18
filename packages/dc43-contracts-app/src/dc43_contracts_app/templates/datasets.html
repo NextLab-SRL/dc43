@@ -8,7 +8,6 @@
       <th scope="col">Latest Version</th>
       <th scope="col">Status</th>
       <th scope="col">Contract</th>
-      <th scope="col">Data products</th>
       <th scope="col">Drafts</th>
       <th scope="col" class="text-end">Actions</th>
     </tr>
@@ -59,33 +58,6 @@
           {% endfor %}
         {% else %}
           <span class="text-muted">No contract</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if entry.data_products %}
-          {% for product in entry.data_products %}
-            <div>
-              {% if product.product_id %}
-                <a href="/data-products/{{ product.product_id }}">{{ product.product_id }}</a>
-              {% else %}
-                <span class="text-muted">Unknown</span>
-              {% endif %}
-              {% if product.port_name %}
-                <span class="text-muted">/</span>
-                <code>{{ product.port_name }}</code>
-              {% endif %}
-              {% if product.role %}
-                <span class="badge bg-secondary text-uppercase ms-1">{{ product.role }}</span>
-              {% endif %}
-              {% if product.latest_dataset_version %}
-                <div class="small text-muted">
-                  {{ product.latest_dataset_version }} → {{ product.latest_status or 'unknown' }}
-                </div>
-              {% endif %}
-            </div>
-          {% endfor %}
-        {% else %}
-          <span class="text-muted">None</span>
         {% endif %}
       </td>
       <td>

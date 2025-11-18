@@ -7,6 +7,10 @@
   plus matching `DC43_*_LOG_SQL` environment overrides so Delta and SQL
   implementations can emit the statements they execute when debugging backend
   traffic.
+- Governance backends now expose a `/governance/dataset-records` endpoint that
+  returns deduplicated dataset run metadata (contract, product port, latest
+  status) so portals and automation no longer replay pipeline activity to build
+  dataset histories.
 
 ### Changed
 - Core ODCS/ODPS helpers now live in the shared `dc43-core` package and this

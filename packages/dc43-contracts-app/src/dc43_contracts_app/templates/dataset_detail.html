@@ -20,46 +20,58 @@
 {% endif %}
 {% if data_products %}
 <h2>Data product associations</h2>
-<table class="table table-sm align-middle">
-  <thead>
-    <tr>
-      <th scope="col">Data product</th>
-      <th scope="col">Port</th>
-      <th scope="col">Role</th>
-      <th scope="col">Status</th>
-      <th scope="col">Version</th>
-    </tr>
-  </thead>
-  <tbody>
+<div class="row g-3">
   {% for entry in data_products %}
-    <tr>
-      <td>
-        {% if entry.product_id %}
-          <a href="/data-products/{{ entry.product_id }}">{{ entry.product_id }}</a>
-        {% else %}
-          <span class="text-muted">Unknown</span>
+  <div class="col-12">
+    <div class="card h-100">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+        <div>
+          {% if entry.product_id %}
+            <a href="/data-products/{{ entry.product_id }}">{{ entry.product_name or entry.product_id }}</a>
+          {% else %}
+            <span class="text-muted">Unknown product</span>
+          {% endif %}
+          {% if entry.direction %}
+            <span class="badge bg-secondary text-uppercase ms-2">{{ entry.direction }}</span>
+          {% endif %}
+        </div>
+        {% if entry.latest_status_label %}
+          <span class="badge {{ entry.latest_status_badge }}">{{ entry.latest_status_label }}</span>
         {% endif %}
-      </td>
-      <td>
-        {% if entry.port_name %}
-          <code>{{ entry.port_name }}</code>
-        {% else %}
-          <span class="text-muted">n/a</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if entry.role %}
-          <span class="badge bg-secondary text-uppercase">{{ entry.role }}</span>
-        {% else %}
-          <span class="text-muted">—</span>
-        {% endif %}
-      </td>
-      <td>{{ entry.status or 'unknown' }}</td>
-      <td>{{ entry.dataset_version or '—' }}</td>
-    </tr>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-3">Port</dt>
+          <dd class="col-sm-9">
+            {% if entry.port_name %}<code>{{ entry.port_name }}</code>{% else %}<span class="text-muted">n/a</span>{% endif %}
+            {% if entry.port_version %}<span class="text-muted ms-2">{{ entry.port_version }}</span>{% endif %}
+          </dd>
+          <dt class="col-sm-3">Contract</dt>
+          <dd class="col-sm-9">
+            {% if entry.contract_id %}
+              <a href="/contracts/{{ entry.contract_id }}">{{ entry.contract_id }}</a>
+            {% else %}
+              <span class="text-muted">Unknown</span>
+            {% endif %}
+            {% if entry.contract_version %}
+              {% if entry.contract_id %}<span class="text-muted">/</span>{% endif %}
+              <a href="/contracts/{{ entry.contract_id }}/{{ entry.contract_version }}">{{ entry.contract_version }}</a>
+            {% endif %}
+          </dd>
+          <dt class="col-sm-3">Latest dataset</dt>
+          <dd class="col-sm-9">
+            {% if entry.latest_dataset_version %}
+              <span class="text-monospace">{{ entry.latest_dataset_version }}</span>
+            {% else %}
+              <span class="text-muted">n/a</span>
+            {% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
   {% endfor %}
-  </tbody>
-</table>
+</div>
 {% endif %}
 {% set output_details = record.dq_details.get('output', {}) %}
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>

@@ -6,6 +6,9 @@
 - Introduced `load_service_clients` and `load_governance_client` helpers to
   provision local or remote service clients directly from backend
   configuration, providing a single entry point for application bootstrap.
+- Governance clients now expose `get_dataset_records`, mirroring the new backend
+  endpoint so portals can request deduplicated dataset run metadata without
+  replaying pipeline activity on the client.
 
 ### Changed
 - Declared a direct dependency on ``attrs`` so OpenLineage support works out of

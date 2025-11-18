@@ -251,6 +251,18 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
             include_status=include_status,
         )
 
+    def get_dataset_records(
+        self,
+        *,
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        records = self._backend.get_dataset_records(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
+        return tuple(dict(record) for record in records)
+
     def resolve_read_context(
         self,
         *,

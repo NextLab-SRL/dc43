@@ -79,6 +79,10 @@
   state and keep the chart script attached even when no numeric metrics exist,
   ensuring contract selectors stay usable and it is obvious that Chart.js
   initialised instead of leaving a blank div on the dataset page.
+- The datasets catalog no longer includes the sparsely populated “Data products”
+  column; dataset version pages now render dedicated association cards for each
+  governed product port using the new dataset-records API so lineage stays
+  accurate even when runs predate explicit output bindings.
 - The dataset overview page now bundles Chart.js locally, waits for the library
   to load, and warns operators when the script cannot be fetched so the metrics
   trend card no longer stays blank when external CDNs are blocked.

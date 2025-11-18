@@ -5506,6 +5506,72 @@ class DatasetRecord:
     observation_label: str = ""
 
 
+def _coerce_optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _dataset_record_from_payload(payload: Mapping[str, Any]) -> DatasetRecord | None:
+    dataset_name = str(payload.get("dataset_name") or payload.get("dataset_id") or "")
+    dataset_version = str(payload.get("dataset_version") or "")
+    contract_id = str(payload.get("contract_id") or "")
+    contract_version = str(payload.get("contract_version") or "")
+    details = payload.get("dq_details")
+    dq_details = dict(details) if isinstance(details, Mapping) else {}
+    status_value = _normalise_record_status(str(payload.get("status") or ""))
+    run_type = str(payload.get("run_type") or "infer")
+    violations_raw = payload.get("violations")
+    try:
+        violations = int(violations_raw) if isinstance(violations_raw, (int, float)) else 0
+    except (TypeError, ValueError):
+        violations = 0
+    record = DatasetRecord(
+        contract_id,
+        contract_version,
+        dataset_name,
+        dataset_version,
+        status_value,
+        dq_details,
+        run_type,
+        violations,
+        draft_contract_version=_coerce_optional_str(payload.get("draft_contract_version")),
+        scenario_key=_coerce_optional_str(payload.get("scenario_key")),
+        data_product_id=str(payload.get("data_product_id") or ""),
+        data_product_port=str(payload.get("data_product_port") or ""),
+        data_product_role=str(payload.get("data_product_role") or ""),
+        observation_operation=str(payload.get("observation_operation") or ""),
+        observation_scope=str(payload.get("observation_scope") or ""),
+        observation_label=str(payload.get("observation_label") or ""),
+    )
+    record.reason = str(payload.get("reason") or "")
+    return record
+
+
+def _records_from_service(
+    *, dataset_id: str | None, dataset_version: str | None
+) -> List[DatasetRecord] | None:
+    service = governance_service_client()
+    if service is None:
+        return None
+    method = getattr(service, "get_dataset_records", None)
+    if not callable(method):
+        return None
+    try:
+        payloads = method(dataset_id=dataset_id, dataset_version=dataset_version)
+    except Exception:  # pragma: no cover - defensive fallback when backend fails
+        logger.exception("Failed to load dataset records via governance service")
+        return None
+    records: List[DatasetRecord] = []
+    for payload in payloads:
+        if isinstance(payload, Mapping):
+            record = _dataset_record_from_payload(payload)
+            if record is not None:
+                records.append(record)
+    return records
+
+
 _STATUS_BADGES: Dict[str, str] = {
     "kept": "bg-success",
     "updated": "bg-primary",
@@ -5909,6 +5975,12 @@ def load_records(
     *, dataset_id: str | None = None, dataset_version: str | None = None
 ) -> List[DatasetRecord]:
     """Return recorded dataset runs provided by the governance services."""
+
+    service_records = _records_from_service(
+        dataset_id=dataset_id, dataset_version=dataset_version
+    )
+    if service_records:
+        return service_records
 
     records: List[DatasetRecord] = []
     record_indices: Dict[Tuple[str, str, str, str], int] = {}
@@ -10045,21 +10117,123 @@ def data_products_for_contract(contract_id: str, records: Iterable[DatasetRecord
 
 
 def data_products_for_dataset(dataset_name: str, records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
-    associations: List[Dict[str, Any]] = []
-    for record in records:
-        if record.dataset_name != dataset_name or not record.data_product_id:
-            continue
-        associations.append(
-            {
-                "product_id": record.data_product_id,
-                "port_name": record.data_product_port,
-                "role": record.data_product_role,
-                "status": record.status,
-                "dataset_version": record.dataset_version,
-            }
+    relevant_records = [r for r in records if r.dataset_name == dataset_name]
+    if not relevant_records:
+        return []
+
+    by_contract: Dict[str, List[DatasetRecord]] = {}
+    for record in relevant_records:
+        if record.contract_id:
+            by_contract.setdefault(record.contract_id, []).append(record)
+    for contract_records in by_contract.values():
+        contract_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+
+    products = list(load_data_products())
+    product_map = {doc.id: doc for doc in products if doc.id}
+    summaries: Dict[tuple[str, str, str, str, str], Dict[str, Any]] = {}
+
+    def _status_payload(record: DatasetRecord) -> tuple[str, str, str]:
+        status_value = _normalise_record_status(record.status)
+        return (
+            status_value,
+            status_value.replace("_", " ").title(),
+            _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
         )
-    associations.sort(key=lambda item: _version_sort_key(item.get("dataset_version") or ""))
-    return associations
+
+    def _update_summary(key: tuple[str, str, str, str, str], payload: Dict[str, Any]) -> None:
+        existing = summaries.get(key)
+        if existing is None:
+            summaries[key] = payload
+            return
+        current_version = str(existing.get("latest_dataset_version") or "")
+        candidate_version = str(payload.get("latest_dataset_version") or "")
+        if _version_sort_key(candidate_version) >= _version_sort_key(current_version):
+            summaries[key] = payload
+
+    def _register_port(
+        product: OpenDataProductStandard,
+        port: DataProductInputPort | DataProductOutputPort,
+        direction: str,
+    ) -> None:
+        contract_id = port.contract_id or ""
+        if not contract_id:
+            return
+        contract_records = by_contract.get(contract_id)
+        if not contract_records:
+            return
+        port_version = str(port.version or "")
+        matching = [
+            rec
+            for rec in contract_records
+            if not port_version or not rec.contract_version or rec.contract_version == port_version
+        ]
+        if not matching:
+            matching = list(contract_records)
+        latest = matching[-1]
+        status_value, status_label, status_badge = _status_payload(latest)
+        key = (
+            product.id or "",
+            port.name or "",
+            direction,
+            contract_id,
+            port_version,
+        )
+        summaries[key] = {
+            "product_id": product.id or "",
+            "product_name": product.name or product.id or "",
+            "direction": direction,
+            "port_name": port.name or "",
+            "port_version": port_version,
+            "contract_id": contract_id,
+            "contract_version": port_version or latest.contract_version or "",
+            "latest_dataset_version": latest.dataset_version,
+            "latest_status": status_value,
+            "latest_status_label": status_label,
+            "latest_status_badge": status_badge,
+        }
+
+    for product in products:
+        for port in product.input_ports:
+            _register_port(product, port, "input")
+        for port in product.output_ports:
+            _register_port(product, port, "output")
+
+    for record in relevant_records:
+        if not record.data_product_id:
+            continue
+        product_info = product_map.get(record.data_product_id)
+        key = (
+            record.data_product_id,
+            record.data_product_port or "",
+            record.data_product_role or "",
+            record.contract_id or "",
+            record.contract_version or "",
+        )
+        status_value, status_label, status_badge = _status_payload(record)
+        payload = {
+            "product_id": record.data_product_id,
+            "product_name": (product_info.name if product_info and product_info.name else record.data_product_id),
+            "direction": record.data_product_role or "",
+            "port_name": record.data_product_port or "",
+            "port_version": record.contract_version or "",
+            "contract_id": record.contract_id or "",
+            "contract_version": record.contract_version or "",
+            "latest_dataset_version": record.dataset_version,
+            "latest_status": status_value,
+            "latest_status_label": status_label,
+            "latest_status_badge": status_badge,
+        }
+        _update_summary(key, payload)
+
+    ordered = list(summaries.values())
+    ordered.sort(
+        key=lambda item: (
+            str(item.get("product_id") or ""),
+            str(item.get("port_name") or ""),
+            str(item.get("direction") or ""),
+        )
+    )
+    return ordered
 
 
 
@@ -10121,32 +10295,6 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
         dataset_records: List[DatasetRecord] = list(payload.get("records", []))
         dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
         latest_record: Optional[DatasetRecord] = dataset_records[-1] if dataset_records else None
-
-        product_associations = data_products_for_dataset(dataset_name, dataset_records)
-        product_summary_map: Dict[tuple[str, str], Dict[str, Any]] = {}
-        for association in product_associations:
-            if not isinstance(association, Mapping):
-                continue
-            product_id = str(association.get("product_id") or "")
-            port_name = str(association.get("port_name") or "")
-            product_summary_map[(product_id, port_name)] = dict(association)
-        product_summaries: List[Dict[str, Any]] = []
-        for summary in product_summary_map.values():
-            product_summaries.append(
-                {
-                    "product_id": summary.get("product_id"),
-                    "port_name": summary.get("port_name"),
-                    "role": summary.get("role"),
-                    "latest_status": summary.get("status"),
-                    "latest_dataset_version": summary.get("dataset_version"),
-                }
-            )
-        product_summaries.sort(
-            key=lambda item: (
-                str(item.get("product_id") or ""),
-                str(item.get("port_name") or ""),
-            )
-        )
 
         latest_status_value: Optional[str] = None
         latest_status_label: str = ""
@@ -10210,7 +10358,6 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
                 "latest_observation_scope": latest_observation_scope,
                 "latest_observation_operation": latest_observation_operation,
                 "contract_summaries": contracts_summary,
-                "data_products": product_summaries,
                 "run_drafts_count": len(run_drafts),
                 "run_latest_draft_version": run_drafts[-1] if run_drafts else None,
             }
@@ -10222,7 +10369,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
 
 @router.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
-    records = load_records(dataset_id=dataset_name, dataset_version=dataset_version)
+    records = load_records(dataset_id=dataset_name)
     associations = data_products_for_dataset(dataset_name, records)
     for r in records:
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:

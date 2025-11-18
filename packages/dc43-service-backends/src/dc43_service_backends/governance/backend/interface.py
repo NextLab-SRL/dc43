@@ -160,6 +160,14 @@ class GovernanceServiceBackend(Protocol):
     ) -> Sequence[Mapping[str, object]]:
         ...
 
+    def get_dataset_records(
+        self,
+        *,
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        ...
+
     def resolve_read_context(
         self,
         *,

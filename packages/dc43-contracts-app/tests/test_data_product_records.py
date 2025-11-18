@@ -81,3 +81,48 @@ def test_data_products_for_contract_surface_records(monkeypatch: pytest.MonkeyPa
     assert matches
     assert matches[0]["product_id"] == product.id
     assert [r.dataset_version for r in matches[0]["records"]] == [sample_record.dataset_version]
+
+
+def test_data_products_for_dataset_infers_from_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    record = DatasetRecord(
+        contract_id="contracts.orders",
+        contract_version="1.0.0",
+        dataset_name="analytics.orders",
+        dataset_version="2024-01-02",
+        status="ok",
+        dq_details={},
+        run_type="batch",
+        violations=0,
+    )
+    product = _product_with_output(custom_properties=[])
+    product.output_ports[0].contract_id = record.contract_id
+    product.output_ports[0].version = record.contract_version
+    monkeypatch.setattr(server, "load_data_products", lambda: [product])
+
+    associations = server.data_products_for_dataset(record.dataset_name, [record])
+
+    assert associations
+    assert associations[0]["product_id"] == product.id
+    assert associations[0]["direction"] == "output"
+
+
+def test_data_products_for_dataset_keeps_recorded_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    record = DatasetRecord(
+        contract_id="contracts.orders",
+        contract_version="1.0.0",
+        dataset_name="analytics.orders",
+        dataset_version="2024-01-05",
+        status="ok",
+        dq_details={},
+        run_type="batch",
+        violations=0,
+        data_product_id="dp.orders",
+        data_product_port="primary",
+        data_product_role="output",
+    )
+    monkeypatch.setattr(server, "load_data_products", lambda: [])
+
+    associations = server.data_products_for_dataset(record.dataset_name, [record])
+
+    assert associations
+    assert associations[0]["product_id"] == record.data_product_id
