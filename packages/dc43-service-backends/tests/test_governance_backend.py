@@ -265,7 +265,6 @@ def test_register_write_activity_respects_binding_version(governance_fixture):
 
     backend.register_write_activity(plan=plan, assessment=assessment)
 
-
 def test_resolve_write_context_from_existing_output(governance_fixture):
     backend, _, contract = governance_fixture
 

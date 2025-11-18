@@ -904,6 +904,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     resolved_contract_version,
                 )
 
+        output_binding: DataProductOutputBinding | None = None
+
         if operation == "read":
             input_binding = normalise_input_binding(binding_mapping) if binding_mapping else None
             plan = ResolvedReadPlan(

@@ -219,6 +219,10 @@
   observation-scope metadata shipped, falling back to a neutral badge so the
   catalog keeps loading even when governance stores have not populated the new
   fields.
+- Contracts app data product catalog now infers run history by cross-referencing
+  dataset identifiers and contract bindings with product output ports, so
+  product pages show recorded runs even when older pipeline events lacked
+  explicit product metadata.
 - Contracts app dataset detail pages now retry governance metric lookups
   without contract filters so backends that only persist dataset-level
   measurements still surface snapshots and charts for every recorded version.

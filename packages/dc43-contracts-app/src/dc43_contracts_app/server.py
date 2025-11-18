@@ -9820,20 +9820,98 @@ def _port_custom_map(port: Any) -> Dict[str, Any]:
     return mapping
 
 
-def _records_by_data_product(records: Iterable[DatasetRecord]) -> Dict[str, List[DatasetRecord]]:
+def _normalise_identifier(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text.lower()
+
+
+def _data_product_port_index(
+    products: Iterable[OpenDataProductStandard],
+) -> Tuple[
+    Dict[str, set[str]],
+    Dict[Tuple[str, str], set[str]],
+    Dict[str, set[str]],
+]:
+    dataset_index: Dict[str, set[str]] = {}
+    contract_version_index: Dict[Tuple[str, str], set[str]] = {}
+    contract_index: Dict[str, set[str]] = {}
+    for product in products:
+        for port in list(product.output_ports or []):
+            props = _port_custom_map(port)
+            dataset_ref = props.get("dc43.dataset.id") or props.get("dc43.contract.ref")
+            dataset_key = _normalise_identifier(dataset_ref)
+            if dataset_key:
+                dataset_index.setdefault(dataset_key, set()).add(product.id)
+            contract_key = _normalise_identifier(port.contract_id)
+            version_key = _normalise_identifier(port.version)
+            if contract_key:
+                if version_key:
+                    contract_version_index.setdefault(
+                        (contract_key, version_key), set()
+                    ).add(product.id)
+                contract_index.setdefault(contract_key, set()).add(product.id)
+    return dataset_index, contract_version_index, contract_index
+
+
+def _pick_single_candidate(candidates: set[str] | None) -> str:
+    if not candidates:
+        return ""
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return ""
+
+
+def _infer_data_product_id(
+    record: DatasetRecord,
+    dataset_index: Mapping[str, set[str]],
+    contract_version_index: Mapping[Tuple[str, str], set[str]],
+    contract_index: Mapping[str, set[str]],
+) -> str:
+    dataset_key = _normalise_identifier(record.dataset_name)
+    match = _pick_single_candidate(dataset_index.get(dataset_key))
+    if match:
+        return match
+    contract_key = _normalise_identifier(record.contract_id)
+    version_key = _normalise_identifier(record.contract_version)
+    if contract_key and version_key:
+        match = _pick_single_candidate(contract_version_index.get((contract_key, version_key)))
+        if match:
+            return match
+    if contract_key:
+        match = _pick_single_candidate(contract_index.get(contract_key))
+        if match:
+            return match
+    return ""
+
+
+def _records_by_data_product(
+    records: Iterable[DatasetRecord],
+    *,
+    products: Iterable[OpenDataProductStandard] | None = None,
+) -> Dict[str, List[DatasetRecord]]:
+    product_docs = list(products) if products is not None else load_data_products()
+    dataset_index, contract_version_index, contract_index = _data_product_port_index(
+        product_docs
+    )
     grouped: Dict[str, List[DatasetRecord]] = {}
     for record in records:
-        if record.data_product_id:
-            grouped.setdefault(record.data_product_id, []).append(record)
+        product_id = record.data_product_id or _infer_data_product_id(
+            record, dataset_index, contract_version_index, contract_index
+        )
+        if product_id:
+            grouped.setdefault(product_id, []).append(record)
     for entries in grouped.values():
         entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
     return grouped
 
 
 def data_product_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
-    grouped = _records_by_data_product(records)
+    products = load_data_products()
+    grouped = _records_by_data_product(records, products=products)
     summaries: List[Dict[str, Any]] = []
-    for product in load_data_products():
+    for product in products:
         product_records = list(grouped.get(product.id, []))
         latest_record = product_records[-1] if product_records else None
         inputs: List[Dict[str, Any]] = []
@@ -9884,11 +9962,12 @@ def describe_data_product(
     product_id: str,
     records: Iterable[DatasetRecord],
 ) -> Dict[str, Any] | None:
-    products = {doc.id: doc for doc in load_data_products()}
+    product_docs = list(load_data_products())
+    products = {doc.id: doc for doc in product_docs}
     product = products.get(product_id)
     if product is None:
         return None
-    grouped = _records_by_data_product(records)
+    grouped = _records_by_data_product(records, products=product_docs)
     product_records = list(grouped.get(product.id, []))
     product_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
     input_ports: List[Dict[str, Any]] = []
@@ -9942,8 +10021,9 @@ def describe_data_product(
 
 def data_products_for_contract(contract_id: str, records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
     matches: List[Dict[str, Any]] = []
-    grouped_records = _records_by_data_product(records)
-    for product in load_data_products():
+    products = load_data_products()
+    grouped_records = _records_by_data_product(records, products=products)
+    for product in products:
         for port in list(product.input_ports) + list(product.output_ports):
             if port.contract_id != contract_id:
                 continue

@@ -118,6 +118,10 @@
 - Dataset catalog and dataset views now tolerate missing observation-scope
   metadata so historical runs recorded before the new annotations still load and
   simply display a neutral badge when the governance store lacks scope fields.
+- Data product catalog pages now infer run history by correlating dataset IDs
+  and contract bindings from governance activity with governed product ports,
+  so product pages surface recorded runs even when historical events predate
+  explicit product annotations.
 - Dataset detail pages now retry governance metric lookups without contract
   filters so backends that only persist dataset-level measurements still render
   metric tables and history charts for every run.
