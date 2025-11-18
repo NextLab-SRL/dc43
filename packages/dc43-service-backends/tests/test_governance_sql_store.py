@@ -165,6 +165,30 @@ def test_sql_store_extracts_metrics_from_details(sql_engine) -> None:
     assert rows == [("row_count", 3.0)]
 
 
+def test_sql_store_normalises_string_metrics(sql_engine) -> None:
+    store = SQLGovernanceStore(sql_engine)
+
+    status = ValidationResult(status="ok", metrics={"row_count": "12", "notes": "pass"})
+
+    store.save_status(
+        contract_id="sales.orders",
+        contract_version="1.0.0",
+        dataset_id="sales.orders",
+        dataset_version="2024-06-01",
+        status=status,
+    )
+
+    records = store.load_metrics(dataset_id="sales.orders")
+    assert any(
+        row["metric_key"] == "row_count" and row["metric_numeric_value"] == 12.0
+        for row in records
+    )
+    assert any(
+        row["metric_key"] == "notes" and row["metric_value"] == "pass"
+        for row in records
+    )
+
+
 def test_sql_store_respects_explicit_metrics_table(sql_engine) -> None:
     store = SQLGovernanceStore(sql_engine, metrics_table="dq_status_metrics")
 

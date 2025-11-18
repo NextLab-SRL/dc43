@@ -125,9 +125,81 @@ def test_summarise_metrics_includes_contract_filters() -> None:
         ]
     )
     assert summary["contract_filters"] == [
-        {"contract_id": "orders", "label": "orders", "versions": ["1.0.0", "2.0.0"]}
+        {
+            "contract_id": "orders",
+            "label": "orders",
+            "versions": ["1.0.0", "2.0.0"],
+            "version_source": "contract",
+        }
     ]
 
+
+def test_summarise_metrics_decodes_json_strings() -> None:
+    summary = server._summarise_metrics(
+        [
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-06-01",
+                "contract_id": "orders",
+                "contract_version": "1.0.0",
+                "status_recorded_at": "2024-06-02T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": '"15"',
+            },
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-06-01",
+                "contract_id": "orders",
+                "contract_version": "1.0.0",
+                "status_recorded_at": "2024-06-02T00:00:00Z",
+                "metric_key": "payload",
+                "metric_value": '{"failures": 2}',
+            },
+        ]
+    )
+    assert summary["numeric_metric_keys"] == ["row_count"]
+    latest = summary["latest"]
+    assert latest is not None
+    metrics = {metric["key"]: metric for metric in latest["metrics"]}
+    assert metrics["row_count"]["numeric_value"] == 15.0
+    assert metrics["row_count"]["value"] == "15"
+    assert metrics["payload"]["value"] == "{\"failures\": 2}"
+    assert metrics["payload"]["raw_value"] == {"failures": 2}
+
+
+def test_summarise_metrics_falls_back_to_dataset_versions_for_filters() -> None:
+    summary = server._summarise_metrics(
+        [
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-06-01",
+                "contract_id": "orders",
+                "contract_version": "",
+                "status_recorded_at": "2024-06-02T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": 10,
+                "metric_numeric_value": 10,
+            },
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-06-02",
+                "contract_id": "orders",
+                "contract_version": "",
+                "status_recorded_at": "2024-06-03T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": 12,
+                "metric_numeric_value": 12,
+            },
+        ]
+    )
+    assert summary["contract_filters"] == [
+        {
+            "contract_id": "orders",
+            "label": "orders",
+            "versions": ["2024-06-01", "2024-06-02"],
+            "version_source": "dataset",
+        }
+    ]
 
 def test_dataset_detail_returns_not_found(client: TestClient) -> None:
     resp = client.get("/datasets/demo_dataset/2024-01-01")

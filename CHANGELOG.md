@@ -86,7 +86,10 @@
 - Dataset overview charts now expose contract and contract-version selectors and
   treat numeric strings as plottable values, so governance stores that only
   persist textual metric payloads still populate the trend chart for the
-  selected filters.
+  selected filters. The selector now falls back to dataset versions when
+  contract revisions are missing, and service backends preserve textual metric
+  payloads while still populating ``metric_numeric_value`` so chart data remains
+  consistent across SQL, Delta, and filesystem stores.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.

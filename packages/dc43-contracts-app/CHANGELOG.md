@@ -67,6 +67,10 @@
 - Dataset trend charts now offer contract + contract-version selectors and
   treat textual numeric metrics as plottable values so historical runs from
   stores that omit dedicated numeric fields still render on the timeline.
+- The dataset metrics panel now decodes JSON-wrapped values, keeps chart data in
+  sync when governance stores emit numeric strings, and falls back to dataset
+  versions when contract revisions are missing so the selector remains usable on
+  every dataset.
 - Removed the legacy `workspace` module from the contracts UI; filesystem
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under

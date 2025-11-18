@@ -333,6 +333,22 @@ def _format_recorded_at(value: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
 
 
+def _decode_metric_value(value: object | None) -> object | None:
+    """Return ``value`` with JSON-wrapped payloads decoded when possible."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return ""
+    if text[0] in "{[\"" and text[-1] in "}]\"":
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
 def _coerce_numeric(value: object | None) -> float | None:
     """Return ``value`` as a :class:`float` when it resembles a number."""
 
@@ -359,6 +375,11 @@ def _format_metric_value(numeric: object | None, raw: object | None) -> str:
     if raw is not None:
         if raw == "":
             return "—"
+        if isinstance(raw, (dict, list)):
+            try:
+                return json.dumps(raw, sort_keys=True)
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                return str(raw)
         if isinstance(raw, float):
             return format(raw, "g")
         return str(raw)
@@ -404,6 +425,7 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
     keys: set[str] = set()
     numeric_keys: set[str] = set()
     contract_versions: dict[str, set[str]] = {}
+    contract_dataset_versions: dict[str, set[str]] = {}
     for entry in entries:
         recorded_at = str(entry.get("status_recorded_at") or "")
         dataset_version = str(entry.get("dataset_version") or "")
@@ -426,7 +448,7 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         metric_key = str(entry.get("metric_key") or "")
         if metric_key:
             keys.add(metric_key)
-        metric_value = entry.get("metric_value")
+        metric_value = _decode_metric_value(entry.get("metric_value"))
         numeric_value = entry.get("metric_numeric_value")
         coerced_numeric = _coerce_numeric(numeric_value)
         if coerced_numeric is None:
@@ -445,6 +467,11 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
             versions = contract_versions.setdefault(contract_id, set())
             if contract_version:
                 versions.add(contract_version)
+            dataset_versions = contract_dataset_versions.setdefault(
+                contract_id, set()
+            )
+            if dataset_version:
+                dataset_versions.add(dataset_version)
 
     snapshots = sorted(grouped.values(), key=_metric_group_sort_key)
     for snapshot in snapshots:
@@ -453,14 +480,21 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
 
     latest = snapshots[0] if snapshots else None
     previous = snapshots[1:] if len(snapshots) > 1 else []
-    filters = [
-        {
-            "contract_id": contract_id,
-            "label": contract_id,
-            "versions": sorted(versions),
-        }
-        for contract_id, versions in sorted(contract_versions.items())
-    ]
+    filters = []
+    for contract_id, versions in sorted(contract_versions.items()):
+        version_source = "contract"
+        version_values = sorted(versions)
+        if not version_values:
+            version_values = sorted(contract_dataset_versions.get(contract_id, set()))
+            version_source = "dataset"
+        filters.append(
+            {
+                "contract_id": contract_id,
+                "label": contract_id,
+                "versions": version_values,
+                "version_source": version_source,
+            }
+        )
 
     return {
         "latest": latest,

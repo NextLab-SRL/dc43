@@ -7,12 +7,11 @@ import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from numbers import Number
 from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
-from ._metrics import extract_metrics
+from ._metrics import extract_metrics, normalise_metric_value
 from ._table_names import (
     derive_related_table_basename,
     derive_related_table_name,
@@ -371,17 +370,7 @@ class DeltaGovernanceStore(GovernanceStore):
         metrics_map = extract_metrics(status)
         metrics_records = []
         for key, value in metrics_map.items():
-            numeric_value: float | None = None
-            if isinstance(value, Number):
-                numeric_value = float(value)
-                value_payload: str | None = str(value)
-            elif value is None:
-                value_payload = None
-            else:
-                try:
-                    value_payload = json.dumps(value)
-                except TypeError:
-                    value_payload = str(value)
+            value_payload, numeric_value = normalise_metric_value(value)
             metrics_records.append(
                 {
                     "dataset_id": dataset_id,

@@ -16,23 +16,30 @@
     const emptyMessage = document.getElementById('datasetMetricsEmptyMessage');
     const contractSelect = document.getElementById('datasetMetricsContractFilter');
     const versionSelect = document.getElementById('datasetMetricsContractVersionFilter');
-    const contractVersionMap = (contractFilters || []).reduce((acc, item) => {
+    const contractVersionMeta = (contractFilters || []).reduce((acc, item) => {
       if (item && item.contract_id) {
-        acc[item.contract_id] = Array.isArray(item.versions) ? item.versions : [];
+        acc[item.contract_id] = {
+          versions: Array.isArray(item.versions) ? item.versions : [],
+          source: item.version_source || 'contract',
+        };
       }
       return acc;
     }, {});
     let chart;
 
-    function filterHistory(contractId, contractVersion) {
+    function filterHistory(contractId, contractVersion, versionSource) {
       return history.filter((snapshot) => {
         const snapshotContract = snapshot.contract_id || '';
         const snapshotVersion = snapshot.contract_version || '';
+        const snapshotDatasetVersion = snapshot.dataset_version || '';
         if (contractId && snapshotContract !== contractId) {
           return false;
         }
         if (contractVersion && snapshotVersion !== contractVersion) {
-          return false;
+          const matchesDataset = versionSource === 'dataset' && snapshotDatasetVersion === contractVersion;
+          if (!matchesDataset) {
+            return false;
+          }
         }
         return true;
       });
@@ -66,8 +73,8 @@
       }).filter(Boolean);
     }
 
-    function renderChart(contractId, contractVersion) {
-      const scopedHistory = filterHistory(contractId, contractVersion);
+    function renderChart(contractId, contractVersion, versionSource) {
+      const scopedHistory = filterHistory(contractId, contractVersion, versionSource);
       const datasets = buildDatasets(scopedHistory);
       if (!datasets.length) {
         if (chart) {
@@ -147,17 +154,26 @@
       });
     }
 
+    function contractMeta(contractId) {
+      if (!contractId) {
+        return null;
+      }
+      return contractVersionMeta[contractId] || null;
+    }
+
     function resetVersionOptions(contractId) {
       if (!versionSelect) {
         return;
       }
-      const versions = contractId ? (contractVersionMap[contractId] || []) : [];
+      const meta = contractMeta(contractId);
+      const versions = meta ? meta.versions : [];
       versionSelect.innerHTML = '';
       const defaultOption = document.createElement('option');
       defaultOption.value = '';
       defaultOption.textContent = 'All versions';
       versionSelect.appendChild(defaultOption);
       versionSelect.disabled = !contractId || versions.length === 0;
+      versionSelect.dataset.source = meta && meta.source ? meta.source : 'contract';
       if (!versionSelect.disabled) {
         versions.forEach((version) => {
           const option = document.createElement('option');
@@ -177,18 +193,25 @@
       return versionSelect && versionSelect.value ? versionSelect.value : '';
     }
 
+    function currentVersionSource() {
+      if (!versionSelect || versionSelect.disabled) {
+        return 'contract';
+      }
+      return versionSelect.dataset.source || 'contract';
+    }
+
     resetVersionOptions(currentContractId());
-    renderChart(currentContractId(), currentContractVersion());
+    renderChart(currentContractId(), currentContractVersion(), currentVersionSource());
 
     if (contractSelect) {
       contractSelect.addEventListener('change', () => {
         resetVersionOptions(currentContractId());
-        renderChart(currentContractId(), currentContractVersion());
+        renderChart(currentContractId(), currentContractVersion(), currentVersionSource());
       });
     }
     if (versionSelect) {
       versionSelect.addEventListener('change', () => {
-        renderChart(currentContractId(), currentContractVersion());
+        renderChart(currentContractId(), currentContractVersion(), currentVersionSource());
       });
     }
   })();

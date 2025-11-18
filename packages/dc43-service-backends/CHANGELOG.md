@@ -81,6 +81,10 @@
   `DC43_GOVERNANCE_METRICS_TABLE` override), ensuring the bootstrapper wires the
   configured table into SQL stores instead of falling back to the legacy
   `dq_metrics` default.
+- SQL, Delta, filesystem, and in-memory governance stores now preserve textual
+  metric payloads (instead of JSON-encoding them twice) while still populating
+  ``metric_numeric_value`` for numeric strings, ensuring downstream UIs can plot
+  dataset trends even when validations provide numbers as strings.
 - Pipeline activity endpoints now encode inline `ValidationResult`s before
   returning JSON, preventing FastAPI from raising 500 errors when
   `include_status=true`.

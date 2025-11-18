@@ -649,6 +649,32 @@ def test_save_status_appends_metrics_to_derived_table_target() -> None:
     assert all(entry["type"] == "table" for entry in metric_writes)
 
 
+def test_delta_store_normalises_string_metrics() -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark)
+    store._now = lambda: "2024-04-05T12:00:00Z"  # type: ignore[assignment]
+
+    status = ValidationResult(status="ok", metrics={"row_count": "9", "note": "pass"})
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    metric_frames = [
+        frame for frame in spark.dataframes if frame.get("schema") is store._METRIC_SCHEMA  # type: ignore[attr-defined]
+    ]
+    assert metric_frames
+    records = metric_frames[-1]["data"]
+    metric_map = {entry["metric_key"]: entry for entry in records}
+    assert metric_map["row_count"]["metric_numeric_value"] == 9.0
+    assert metric_map["row_count"]["metric_value"] == "9"
+    assert metric_map["note"]["metric_value"] == "pass"
+
+
 def test_load_metrics_filters_results(tmp_path: Path) -> None:
     spark = _StubSpark()
     store = DeltaGovernanceStore(spark, base_path=tmp_path, bootstrap_tables=False)

@@ -80,8 +80,11 @@ contract revisions, and the recorded values without querying the backend
 directly. Use the contract and contract-version selectors above the chart to
 focus on a single relationship when you need to troubleshoot a specific
 agreement, or leave both set to “All” to compare every governed contract at
-once. Each dataset record lists an observation scope (for example, “Pre-write
-dataframe snapshot” or “Governed read snapshot”) so you can tell whether the
+once. The selector now falls back to dataset versions when governance stores
+omit contract revision metadata, so you can still scope charts to a single run,
+and the backend automatically treats numeric strings (including JSON-encoded
+values) as plottable metrics. Each dataset record lists an observation scope
+(for example, “Pre-write dataframe snapshot” or “Governed read snapshot”) so you can tell whether the
 metrics reflect the dataframe evaluated before a write, a streaming micro-batch,
 or a governed read. Use the scope badge to separate slice-level validations from
 full dataset verdicts when investigating unexpected counts. Older runs that
