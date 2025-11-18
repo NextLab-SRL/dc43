@@ -71,6 +71,10 @@
   sync when governance stores emit numeric strings, and falls back to dataset
   versions when contract revisions are missing so the selector remains usable on
   every dataset.
+- Dataset metric cards now reuse dataset history metadata when metric rows lack
+  contract revisions and surface a clear “No numeric metrics” message whenever
+  the backend only returns textual observations, so the selector and chart never
+  render as an empty panel.
 - The dataset overview page now bundles Chart.js locally, waits for the library
   to load, and warns operators when the script cannot be fetched so the metrics
   trend card no longer stays blank when external CDNs are blocked.

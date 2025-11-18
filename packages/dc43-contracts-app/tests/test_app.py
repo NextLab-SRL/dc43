@@ -201,6 +201,96 @@ def test_summarise_metrics_falls_back_to_dataset_versions_for_filters() -> None:
         }
     ]
 
+
+def test_contract_filter_fallbacks_extract_versions() -> None:
+    fallbacks = server._contract_filter_fallbacks(
+        [
+            {
+                "contract_id": "orders",
+                "contract_version": "1.0.0",
+                "dataset_version": "2024-06-01",
+            },
+            {
+                "contract_id": "orders",
+                "contract_version": "2.0.0",
+                "dataset_version": "2024-06-02",
+            },
+            {
+                "contract_id": "customers",
+                "contract_version": "",
+                "dataset_version": "2024-06-03",
+            },
+        ]
+    )
+    assert fallbacks["orders"]["contract_versions"] == {"1.0.0", "2.0.0"}
+    assert fallbacks["orders"]["dataset_versions"] == {"2024-06-01", "2024-06-02"}
+    assert fallbacks["customers"]["contract_versions"] == set()
+    assert fallbacks["customers"]["dataset_versions"] == {"2024-06-03"}
+
+
+def test_summarise_metrics_uses_fallback_contract_versions() -> None:
+    fallbacks = {
+        "orders": {
+            "contract_versions": {"1.0.0"},
+            "dataset_versions": {"2024-06-01"},
+        }
+    }
+    summary = server._summarise_metrics(
+        [
+            {
+                "dataset_id": "orders",
+                "dataset_version": "",
+                "contract_id": "orders",
+                "contract_version": "",
+                "status_recorded_at": "2024-06-02T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": 10,
+                "metric_numeric_value": 10,
+            }
+        ],
+        fallback_contract_versions=fallbacks,
+    )
+    assert summary["contract_filters"] == [
+        {
+            "contract_id": "orders",
+            "label": "orders",
+            "versions": ["1.0.0"],
+            "version_source": "contract",
+        }
+    ]
+
+
+def test_summarise_metrics_uses_dataset_version_fallbacks() -> None:
+    fallbacks = {
+        "orders": {
+            "contract_versions": set(),
+            "dataset_versions": {"2024-06-01", "2024-06-02"},
+        }
+    }
+    summary = server._summarise_metrics(
+        [
+            {
+                "dataset_id": "orders",
+                "dataset_version": "",
+                "contract_id": "orders",
+                "contract_version": "",
+                "status_recorded_at": "2024-06-02T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": 10,
+                "metric_numeric_value": 10,
+            }
+        ],
+        fallback_contract_versions=fallbacks,
+    )
+    assert summary["contract_filters"] == [
+        {
+            "contract_id": "orders",
+            "label": "orders",
+            "versions": ["2024-06-01", "2024-06-02"],
+            "version_source": "dataset",
+        }
+    ]
+
 def test_dataset_detail_returns_not_found(client: TestClient) -> None:
     resp = client.get("/datasets/demo_dataset/2024-01-01")
     assert resp.status_code == 404

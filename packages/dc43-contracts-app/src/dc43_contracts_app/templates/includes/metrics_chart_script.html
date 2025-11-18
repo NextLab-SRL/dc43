@@ -5,11 +5,18 @@
     const history = {{ chronological_history | tojson }};
     const metricKeys = {{ numeric_metric_keys | tojson }};
     const contractFilters = {{ contract_filters | tojson }};
+    const emptyMessage = document.getElementById('datasetMetricsEmptyMessage');
     if (!canvas || !Array.isArray(history) || !Array.isArray(metricKeys) || !history.length || !metricKeys.length) {
+      if (canvas) {
+        canvas.classList.add('d-none');
+      }
+      if (emptyMessage) {
+        emptyMessage.classList.remove('d-none');
+        emptyMessage.textContent = emptyMessage.textContent || 'No numeric metrics recorded for this dataset.';
+      }
       return;
     }
     const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6610f2', '#20c997', '#6f42c1', '#0dcaf0', '#ffc107', '#343a40'];
-    const emptyMessage = document.getElementById('datasetMetricsEmptyMessage');
     const defaultEmptyText = emptyMessage ? emptyMessage.textContent : '';
     const contractSelect = document.getElementById('datasetMetricsContractFilter');
     const versionSelect = document.getElementById('datasetMetricsContractVersionFilter');

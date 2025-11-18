@@ -415,7 +415,34 @@ def _empty_metrics_summary() -> Dict[str, Any]:
     }
 
 
-def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any]:
+def _contract_filter_fallbacks(
+    records: Iterable[Mapping[str, Any]]
+) -> dict[str, dict[str, set[str]]]:
+    """Return contract/version fallbacks derived from dataset history rows."""
+
+    fallbacks: dict[str, dict[str, set[str]]] = {}
+    for record in records:
+        contract_id = str(record.get("contract_id") or "").strip()
+        if not contract_id:
+            continue
+        entry = fallbacks.setdefault(
+            contract_id,
+            {"contract_versions": set(), "dataset_versions": set()},
+        )
+        contract_version = str(record.get("contract_version") or "").strip()
+        dataset_version = str(record.get("dataset_version") or "").strip()
+        if contract_version:
+            entry["contract_versions"].add(contract_version)
+        if dataset_version:
+            entry["dataset_versions"].add(dataset_version)
+    return fallbacks
+
+
+def _summarise_metrics(
+    entries: Sequence[Mapping[str, object]],
+    *,
+    fallback_contract_versions: Mapping[str, Mapping[str, Iterable[str]]] | None = None,
+) -> Dict[str, Any]:
     """Group raw metric rows into timestamped snapshots for the templates."""
 
     if not entries:
@@ -480,18 +507,39 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
 
     latest = snapshots[0] if snapshots else None
     previous = snapshots[1:] if len(snapshots) > 1 else []
+    fallbacks = fallback_contract_versions or {}
     filters = []
-    for contract_id, versions in sorted(contract_versions.items()):
+    contract_ids = sorted(set(contract_versions) | set(fallbacks))
+    for contract_id in contract_ids:
+        versions = contract_versions.get(contract_id)
+        dataset_version_candidates = contract_dataset_versions.get(contract_id, set())
+        fallback_entry = fallbacks.get(contract_id) or {}
+        fallback_contract_versions = {
+            str(value)
+            for value in fallback_entry.get("contract_versions", [])
+            if str(value)
+        }
+        fallback_dataset_versions = {
+            str(value)
+            for value in fallback_entry.get("dataset_versions", [])
+            if str(value)
+        }
+        explicit_versions = sorted({str(value) for value in (versions or set()) if str(value)})
         version_source = "contract"
-        version_values = sorted(versions)
-        if not version_values:
-            version_values = sorted(contract_dataset_versions.get(contract_id, set()))
+        if not explicit_versions and fallback_contract_versions:
+            explicit_versions = sorted(fallback_contract_versions)
+        dataset_versions = dataset_version_candidates or fallback_dataset_versions
+        dataset_version_values = sorted({str(value) for value in dataset_versions if str(value)})
+        if not explicit_versions and dataset_version_values:
+            explicit_versions = dataset_version_values
             version_source = "dataset"
+        if not explicit_versions:
+            continue
         filters.append(
             {
                 "contract_id": contract_id,
                 "label": contract_id,
-                "versions": version_values,
+                "versions": explicit_versions,
                 "version_source": version_source,
             }
         )
@@ -9530,6 +9578,7 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
     records = _sort_dataset_history_rows(
         [r.__dict__.copy() for r in load_records(dataset_id=dataset_name)]
     )
+    contract_filter_fallbacks = _contract_filter_fallbacks(records)
     metrics_summary = _empty_metrics_summary()
     metrics_error: str | None = None
 
@@ -9545,7 +9594,10 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
             metrics_error = str(exc)
             logger.exception("Failed to load dataset metrics for %s", dataset_name)
         else:
-            metrics_summary = _summarise_metrics(metrics_records)
+            metrics_summary = _summarise_metrics(
+                metrics_records,
+                fallback_contract_versions=contract_filter_fallbacks,
+            )
 
     context = {
         "request": request,
