@@ -649,9 +649,9 @@ def test_save_status_appends_metrics_to_derived_table_target() -> None:
     assert all(entry["type"] == "table" for entry in metric_writes)
 
 
-def test_delta_store_normalises_string_metrics() -> None:
+def test_delta_store_normalises_string_metrics(tmp_path: Path) -> None:
     spark = _StubSpark()
-    store = DeltaGovernanceStore(spark)
+    store = DeltaGovernanceStore(spark, base_path=tmp_path)
     store._now = lambda: "2024-04-05T12:00:00Z"  # type: ignore[assignment]
 
     status = ValidationResult(status="ok", metrics={"row_count": "9", "note": "pass"})
