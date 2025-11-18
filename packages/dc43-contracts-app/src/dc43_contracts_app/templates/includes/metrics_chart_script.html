@@ -1,23 +1,30 @@
-{% if show_metrics_history and numeric_metric_keys and chronological_history %}
+{% if show_metrics_history and chronological_history %}
 <script>
   (function () {
     const canvas = document.getElementById('datasetMetricsChart');
-    const history = {{ chronological_history | tojson }};
-    const metricKeys = {{ numeric_metric_keys | tojson }};
-    const contractFilters = {{ contract_filters | tojson }};
+    const rawHistory = {{ chronological_history | tojson }};
+    const history = Array.isArray(rawHistory) ? rawHistory : [];
+    const rawMetricKeys = {{ numeric_metric_keys | tojson }};
+    const metricKeys = Array.isArray(rawMetricKeys) ? rawMetricKeys : [];
+    const rawFilters = {{ contract_filters | tojson }};
+    const contractFilters = Array.isArray(rawFilters) ? rawFilters : [];
     const emptyMessage = document.getElementById('datasetMetricsEmptyMessage');
-    if (!canvas || !Array.isArray(history) || !Array.isArray(metricKeys) || !history.length || !metricKeys.length) {
+    const defaultEmptyText = emptyMessage ? (emptyMessage.dataset.defaultText || emptyMessage.textContent || '') : '';
+    const noNumericText = emptyMessage ? (emptyMessage.dataset.noNumericText || 'No numeric metrics recorded for this dataset.') : 'No numeric metrics recorded for this dataset.';
+    const noFilterResultsText = emptyMessage ? (emptyMessage.dataset.noFilterResultsText || 'No numeric metrics match the selected filters.') : 'No numeric metrics match the selected filters.';
+
+    if (!canvas || !Array.isArray(history) || !history.length) {
       if (canvas) {
         canvas.classList.add('d-none');
       }
       if (emptyMessage) {
+        emptyMessage.textContent = defaultEmptyText || 'No metric history recorded for this dataset.';
         emptyMessage.classList.remove('d-none');
-        emptyMessage.textContent = emptyMessage.textContent || 'No numeric metrics recorded for this dataset.';
       }
       return;
     }
     const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6610f2', '#20c997', '#6f42c1', '#0dcaf0', '#ffc107', '#343a40'];
-    const defaultEmptyText = emptyMessage ? emptyMessage.textContent : '';
+    const defaultMessage = defaultEmptyText || 'Metric trend data will appear once the chart loads.';
     const contractSelect = document.getElementById('datasetMetricsContractFilter');
     const versionSelect = document.getElementById('datasetMetricsContractVersionFilter');
     const contractVersionMeta = (contractFilters || []).reduce((acc, item) => {
@@ -77,7 +84,27 @@
       }).filter(Boolean);
     }
 
+    function showEmpty(text) {
+      if (canvas) {
+        canvas.classList.add('d-none');
+      }
+      if (emptyMessage) {
+        emptyMessage.textContent = text || defaultMessage;
+        emptyMessage.classList.remove('d-none');
+      }
+    }
+
+    function hideEmpty() {
+      if (emptyMessage) {
+        emptyMessage.classList.add('d-none');
+      }
+    }
+
     function renderChart(contractId, contractVersion, versionSource, ChartLib) {
+      if (!metricKeys.length) {
+        showEmpty(noNumericText);
+        return;
+      }
       const scopedHistory = filterHistory(contractId, contractVersion, versionSource);
       const datasets = buildDatasets(scopedHistory);
       if (!datasets.length) {
@@ -85,10 +112,7 @@
           chart.destroy();
           chart = null;
         }
-        canvas.classList.add('d-none');
-        if (emptyMessage) {
-          emptyMessage.classList.remove('d-none');
-        }
+        showEmpty(noFilterResultsText);
         return;
       }
       const labels = scopedHistory.map((snapshot) => snapshot.recorded_label || snapshot.recorded_at || 'Snapshot');
@@ -100,9 +124,7 @@
         return snapshot.contract_version ? `${snapshot.contract_id}:${snapshot.contract_version}` : snapshot.contract_id;
       });
       canvas.classList.remove('d-none');
-      if (emptyMessage) {
-        emptyMessage.classList.add('d-none');
-      }
+      hideEmpty();
       if (chart) {
         chart.destroy();
       }
@@ -234,13 +256,7 @@
     }
 
     if (!bootChart()) {
-      if (canvas) {
-        canvas.classList.add('d-none');
-      }
-      if (emptyMessage) {
-        emptyMessage.textContent = 'Loading chart library…';
-        emptyMessage.classList.remove('d-none');
-      }
+      showEmpty('Loading chart library…');
       window.addEventListener(
         'dc43:chart-ready',
         () => {
@@ -251,11 +267,7 @@
       window.addEventListener(
         'dc43:chart-error',
         (event) => {
-          if (emptyMessage) {
-            emptyMessage.textContent =
-              (event && event.detail && event.detail.message) || 'Metric chart unavailable: Chart.js failed to load.';
-            emptyMessage.classList.remove('d-none');
-          }
+          showEmpty((event && event.detail && event.detail.message) || 'Metric chart unavailable: Chart.js failed to load.');
         },
         { once: true }
       );

@@ -98,6 +98,10 @@
   and surface a clear “No numeric metrics” message whenever the backend only
   returns textual observations, preventing the chart from rendering as an empty
   card.
+- Dataset trend cards now always render with a visible loading/empty message and
+  keep their chart script attached even when no numeric metrics are present, so
+  operators can confirm the selector state and Chart.js initialisation instead
+  of staring at a blank block when governance stores only emit textual values.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.

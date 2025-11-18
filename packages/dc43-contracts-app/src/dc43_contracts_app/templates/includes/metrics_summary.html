@@ -14,7 +14,7 @@
   <div class="small mb-0">{{ metrics_error }}</div>
 </div>
 {% endif %}
-{% if show_metrics_history and numeric_metric_keys and chronological_history %}
+{% if show_metrics_history and chronological_history %}
 <div class="card mb-3" id="dataset-metric-trends">
   <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-3">
     <div class="me-auto">
@@ -53,10 +53,16 @@
     </div>
   </div>
   <div class="card-body">
-    <div class="chart-wrapper">
-      <canvas id="datasetMetricsChart" aria-label="Metric history chart" role="img"></canvas>
-      <p class="text-muted small mt-3 d-none" id="datasetMetricsEmptyMessage">
-        No numeric metrics match the selected filters.
+    <div class="chart-wrapper" data-chart-ready="false">
+      <canvas id="datasetMetricsChart" aria-label="Metric history chart" role="img" class="d-none"></canvas>
+      <p
+        class="text-muted small mt-3"
+        id="datasetMetricsEmptyMessage"
+        data-default-text="Metric trend data will appear once the chart loads."
+        data-no-numeric-text="No numeric metrics recorded for this dataset."
+        data-no-filter-results-text="No numeric metrics match the selected filters."
+      >
+        Metric trend data will appear once the chart loads.
       </p>
     </div>
   </div>

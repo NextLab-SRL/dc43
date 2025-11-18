@@ -75,6 +75,10 @@
   contract revisions and surface a clear “No numeric metrics” message whenever
   the backend only returns textual observations, so the selector and chart never
   render as an empty panel.
+- Dataset overview trend cards now always render with a visible loading/empty
+  state and keep the chart script attached even when no numeric metrics exist,
+  ensuring contract selectors stay usable and it is obvious that Chart.js
+  initialised instead of leaving a blank div on the dataset page.
 - The dataset overview page now bundles Chart.js locally, waits for the library
   to load, and warns operators when the script cannot be fetched so the metrics
   trend card no longer stays blank when external CDNs are blocked.

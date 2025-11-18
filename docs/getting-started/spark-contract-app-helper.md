@@ -82,10 +82,13 @@ focus on a single relationship when you need to troubleshoot a specific
 agreement, or leave both set to “All” to compare every governed contract at
 once. The selector now reuses dataset history metadata when governance stores
 omit contract revision fields, so you can still scope charts to a single run
-even if the metric rows skip contract-version columns, and the panel surfaces an
-inline “No numeric metrics” message instead of a blank card when the backend
-only returns textual observations. The backend automatically treats numeric
-strings (including JSON-encoded values) as plottable metrics. Each dataset
+even if the metric rows skip contract-version columns. The panel always renders
+with a loading message and falls back to an inline “No numeric metrics” notice
+when the backend only returns textual observations, so you never stare at an
+empty card wondering if the script ran. The backend automatically treats numeric
+strings (including JSON-encoded values) as plottable metrics and keeps the
+selector visible even while it waits for Chart.js to load, making it obvious
+which dataset the card is attempting to plot. Each dataset
 record lists an observation scope
 (for example, “Pre-write dataframe snapshot” or “Governed read snapshot”) so you can tell whether the
 metrics reflect the dataframe evaluated before a write, a streaming micro-batch,

@@ -476,6 +476,49 @@ def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) 
     assert first["dataset_id"] == contract_id
 
 
+def test_dataset_versions_page_renders_chart_without_numeric_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+) -> None:
+    record = server.DatasetRecord(
+        contract_id="demo.contract",
+        contract_version="1.0.0",
+        dataset_name="demo.dataset",
+        dataset_version="2024-01-01T00:00:00Z",
+        status="ok",
+    )
+
+    monkeypatch.setattr(server, "load_records", lambda **_: [record])
+
+    class DummyGovernanceClient:
+        def get_metrics(self, **kwargs):  # noqa: D401 - simple stub
+            assert kwargs["dataset_id"] == record.dataset_name
+            return [
+                {
+                    "dataset_id": record.dataset_name,
+                    "dataset_version": record.dataset_version,
+                    "contract_id": record.contract_id,
+                    "contract_version": record.contract_version,
+                    "status_recorded_at": "2024-01-02T00:00:00Z",
+                    "metric_key": "dq_state",
+                    "metric_value": "passed",
+                    "metric_numeric_value": None,
+                }
+            ]
+
+    monkeypatch.setattr(
+        server,
+        "_thread_service_clients",
+        lambda: (object(), object(), DummyGovernanceClient()),
+    )
+
+    resp = client.get(f"/datasets/{record.dataset_name}")
+
+    assert resp.status_code == 200
+    assert 'id="dataset-metric-trends"' in resp.text
+    assert "Metric trend data will appear once the chart loads." in resp.text
+
+
 def test_load_records_normalises_backend_status(monkeypatch: pytest.MonkeyPatch) -> None:
     details = {
         "metrics": {"violations.total": 5},
