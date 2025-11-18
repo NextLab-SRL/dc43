@@ -88,7 +88,9 @@ when the backend only returns textual observations, so you never stare at an
 empty card wondering if the script ran. The backend automatically treats numeric
 strings (including JSON-encoded values) as plottable metrics and keeps the
 selector visible even while it waits for Chart.js to load, making it obvious
-which dataset the card is attempting to plot. Each dataset
+which dataset the card is attempting to plot. The contracts UI now injects the
+metric trend script whenever the dataset panel is rendered, guaranteeing that
+the canvas initialises as soon as the Chart.js bundle becomes available. Each dataset
 record lists an observation scope
 (for example, “Pre-write dataframe snapshot” or “Governed read snapshot”) so you can tell whether the
 metrics reflect the dataframe evaluated before a write, a streaming micro-batch,

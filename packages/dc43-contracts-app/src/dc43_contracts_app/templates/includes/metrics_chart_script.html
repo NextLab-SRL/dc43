@@ -1,3 +1,8 @@
+{% set metrics_summary = metrics_summary | default({}) %}
+{% set chronological_history = metrics_summary.get('chronological_history', []) %}
+{% set numeric_metric_keys = metrics_summary.get('numeric_metric_keys', []) %}
+{% set contract_filters = metrics_summary.get('contract_filters', []) %}
+{% set show_metrics_history = show_metrics_history | default(False) %}
 {% if show_metrics_history and chronological_history %}
 <script>
   (function () {

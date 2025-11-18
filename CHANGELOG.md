@@ -209,6 +209,9 @@
 - Contracts app dataset history pages now deduplicate repeated pipeline
   activity entries so each dataset/contract version appears only once even when
   the backing governance store emits redundant rows.
+- Dataset overview pages now always include the metric trend script whenever the
+  chart card is rendered, ensuring Chart.js initialises and replaces the loading
+  message even when templates reuse the summary partial multiple times.
 - Contracts app dataset listings now attach contracts to the dataset IDs that
   governance runs recorded, preventing phantom dataset rows that only differ by
   contract ID when server metadata omits explicit dataset identifiers.
