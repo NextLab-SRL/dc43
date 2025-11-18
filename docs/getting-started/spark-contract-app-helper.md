@@ -77,7 +77,10 @@ version while keeping the history table sorted (and re-sortable) by dataset
 version, contract, and contract version. Numeric metrics render as interactive
 charts, letting you hover across the timeline to reveal dataset versions,
 contract revisions, and the recorded values without querying the backend
-directly. Each dataset record lists an observation scope (for example, “Pre-write
+directly. Use the contract and contract-version selectors above the chart to
+focus on a single relationship when you need to troubleshoot a specific
+agreement, or leave both set to “All” to compare every governed contract at
+once. Each dataset record lists an observation scope (for example, “Pre-write
 dataframe snapshot” or “Governed read snapshot”) so you can tell whether the
 metrics reflect the dataframe evaluated before a write, a streaming micro-batch,
 or a governed read. Use the scope badge to separate slice-level validations from

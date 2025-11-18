@@ -390,6 +390,7 @@ def _empty_metrics_summary() -> Dict[str, Any]:
         "metric_keys": [],
         "numeric_metric_keys": [],
         "chronological_history": [],
+        "contract_filters": [],
     }
 
 
@@ -402,6 +403,7 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
     grouped: dict[tuple[str, str, str, str], Dict[str, Any]] = {}
     keys: set[str] = set()
     numeric_keys: set[str] = set()
+    contract_versions: dict[str, set[str]] = {}
     for entry in entries:
         recorded_at = str(entry.get("status_recorded_at") or "")
         dataset_version = str(entry.get("dataset_version") or "")
@@ -425,17 +427,24 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         if metric_key:
             keys.add(metric_key)
         metric_value = entry.get("metric_value")
-        numeric_value = _coerce_numeric(entry.get("metric_numeric_value"))
-        if metric_key and numeric_value is not None:
+        numeric_value = entry.get("metric_numeric_value")
+        coerced_numeric = _coerce_numeric(numeric_value)
+        if coerced_numeric is None:
+            coerced_numeric = _coerce_numeric(metric_value)
+        if metric_key and coerced_numeric is not None:
             numeric_keys.add(metric_key)
         group["metrics"].append(
             {
                 "key": metric_key,
-                "value": _format_metric_value(numeric_value, metric_value),
+                "value": _format_metric_value(coerced_numeric, metric_value),
                 "raw_value": metric_value,
-                "numeric_value": numeric_value,
+                "numeric_value": coerced_numeric,
             }
         )
+        if contract_id:
+            versions = contract_versions.setdefault(contract_id, set())
+            if contract_version:
+                versions.add(contract_version)
 
     snapshots = sorted(grouped.values(), key=_metric_group_sort_key)
     for snapshot in snapshots:
@@ -444,6 +453,14 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
 
     latest = snapshots[0] if snapshots else None
     previous = snapshots[1:] if len(snapshots) > 1 else []
+    filters = [
+        {
+            "contract_id": contract_id,
+            "label": contract_id,
+            "versions": sorted(versions),
+        }
+        for contract_id, versions in sorted(contract_versions.items())
+    ]
 
     return {
         "latest": latest,
@@ -452,6 +469,7 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         "chronological_history": list(reversed(snapshots)),
         "metric_keys": sorted(keys),
         "numeric_metric_keys": sorted(numeric_keys),
+        "contract_filters": filters,
     }
 
 

@@ -64,6 +64,9 @@
 - Dataset overview pages now surface dataset-wide metric trend charts and a
   sortable history table (sorted by dataset version, then contract and version)
   while the per-version detail view focuses on the selected run’s snapshot.
+- Dataset trend charts now offer contract + contract-version selectors and
+  treat textual numeric metrics as plottable values so historical runs from
+  stores that omit dedicated numeric fields still render on the timeline.
 - Removed the legacy `workspace` module from the contracts UI; filesystem
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under

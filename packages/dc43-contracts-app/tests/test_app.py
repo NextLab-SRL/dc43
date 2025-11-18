@@ -78,6 +78,57 @@ def test_summarise_metrics_groups_snapshots() -> None:
     assert summary["previous"]
 
 
+def test_summarise_metrics_coerces_numeric_values() -> None:
+    summary = server._summarise_metrics(
+        [
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-06-01",
+                "contract_id": "orders",
+                "contract_version": "1.0.0",
+                "status_recorded_at": "2024-06-02T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": "15",
+            }
+        ]
+    )
+    assert summary["numeric_metric_keys"] == ["row_count"]
+    latest = summary["latest"]
+    assert latest is not None
+    row_count = next(metric for metric in latest["metrics"] if metric["key"] == "row_count")
+    assert row_count["numeric_value"] == 15.0
+
+
+def test_summarise_metrics_includes_contract_filters() -> None:
+    summary = server._summarise_metrics(
+        [
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-06-01",
+                "contract_id": "orders",
+                "contract_version": "1.0.0",
+                "status_recorded_at": "2024-06-02T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": 10,
+                "metric_numeric_value": 10,
+            },
+            {
+                "dataset_id": "orders",
+                "dataset_version": "2024-06-02",
+                "contract_id": "orders",
+                "contract_version": "2.0.0",
+                "status_recorded_at": "2024-06-03T00:00:00Z",
+                "metric_key": "row_count",
+                "metric_value": 12,
+                "metric_numeric_value": 12,
+            },
+        ]
+    )
+    assert summary["contract_filters"] == [
+        {"contract_id": "orders", "label": "orders", "versions": ["1.0.0", "2.0.0"]}
+    ]
+
+
 def test_dataset_detail_returns_not_found(client: TestClient) -> None:
     resp = client.get("/datasets/demo_dataset/2024-01-01")
     assert resp.status_code == 404

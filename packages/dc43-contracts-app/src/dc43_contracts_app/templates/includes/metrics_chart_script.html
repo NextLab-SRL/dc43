@@ -2,105 +2,195 @@
 <script>
   (function () {
     const canvas = document.getElementById('datasetMetricsChart');
-    if (!canvas || !window.Chart) {
+    const ChartLib = window.Chart;
+    if (!canvas || !ChartLib) {
       return;
     }
     const history = {{ chronological_history | tojson }};
     const metricKeys = {{ numeric_metric_keys | tojson }};
+    const contractFilters = {{ contract_filters | tojson }};
     if (!Array.isArray(history) || !Array.isArray(metricKeys) || !history.length || !metricKeys.length) {
       return;
     }
-    const labels = history.map((snapshot) => snapshot.recorded_label || snapshot.recorded_at || 'Snapshot');
-    const datasetVersions = history.map((snapshot) => snapshot.dataset_version || '');
-    const contractLabels = history.map((snapshot) => {
-      if (!snapshot.contract_id) {
-        return '';
-      }
-      return snapshot.contract_version ? `${snapshot.contract_id}:${snapshot.contract_version}` : snapshot.contract_id;
-    });
     const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6610f2', '#20c997', '#6f42c1', '#0dcaf0', '#ffc107', '#343a40'];
-    const datasets = metricKeys.map((key, index) => {
-      const colour = palette[index % palette.length];
-      const data = history.map((snapshot) => {
-        const metric = (snapshot.metrics || []).find((item) => item.key === key);
-        if (metric && metric.numeric_value !== null && metric.numeric_value !== undefined) {
-          const value = Number(metric.numeric_value);
-          return Number.isFinite(value) ? value : null;
+    const emptyMessage = document.getElementById('datasetMetricsEmptyMessage');
+    const contractSelect = document.getElementById('datasetMetricsContractFilter');
+    const versionSelect = document.getElementById('datasetMetricsContractVersionFilter');
+    const contractVersionMap = (contractFilters || []).reduce((acc, item) => {
+      if (item && item.contract_id) {
+        acc[item.contract_id] = Array.isArray(item.versions) ? item.versions : [];
+      }
+      return acc;
+    }, {});
+    let chart;
+
+    function filterHistory(contractId, contractVersion) {
+      return history.filter((snapshot) => {
+        const snapshotContract = snapshot.contract_id || '';
+        const snapshotVersion = snapshot.contract_version || '';
+        if (contractId && snapshotContract !== contractId) {
+          return false;
         }
-        return null;
+        if (contractVersion && snapshotVersion !== contractVersion) {
+          return false;
+        }
+        return true;
       });
-      if (!data.some((value) => value !== null)) {
-        return null;
-      }
-      return {
-        label: key,
-        data,
-        spanGaps: true,
-        tension: 0.25,
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 4,
-        borderColor: colour,
-        backgroundColor: `${colour}33`,
-      };
-    }).filter(Boolean);
-    if (!datasets.length) {
-      const wrapper = canvas.closest('.card');
-      if (wrapper) {
-        wrapper.classList.add('d-none');
-      }
-      return;
     }
-    new window.Chart(canvas, {
-      type: 'line',
-      data: {
-        labels,
-        datasets,
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: {
-          intersect: false,
-          mode: 'nearest',
+
+    function buildDatasets(targetHistory) {
+      return metricKeys.map((key, index) => {
+        const colour = palette[index % palette.length];
+        const data = targetHistory.map((snapshot) => {
+          const metric = (snapshot.metrics || []).find((item) => item.key === key);
+          if (metric && metric.numeric_value !== null && metric.numeric_value !== undefined) {
+            const value = Number(metric.numeric_value);
+            return Number.isFinite(value) ? value : null;
+          }
+          return null;
+        });
+        if (!data.some((value) => value !== null)) {
+          return null;
+        }
+        return {
+          label: key,
+          data,
+          spanGaps: true,
+          tension: 0.25,
+          borderWidth: 2,
+          pointRadius: 3,
+          pointHoverRadius: 4,
+          borderColor: colour,
+          backgroundColor: `${colour}33`,
+        };
+      }).filter(Boolean);
+    }
+
+    function renderChart(contractId, contractVersion) {
+      const scopedHistory = filterHistory(contractId, contractVersion);
+      const datasets = buildDatasets(scopedHistory);
+      if (!datasets.length) {
+        if (chart) {
+          chart.destroy();
+          chart = null;
+        }
+        canvas.classList.add('d-none');
+        if (emptyMessage) {
+          emptyMessage.classList.remove('d-none');
+        }
+        return;
+      }
+      const labels = scopedHistory.map((snapshot) => snapshot.recorded_label || snapshot.recorded_at || 'Snapshot');
+      const datasetVersions = scopedHistory.map((snapshot) => snapshot.dataset_version || '');
+      const contractLabels = scopedHistory.map((snapshot) => {
+        if (!snapshot.contract_id) {
+          return '';
+        }
+        return snapshot.contract_version ? `${snapshot.contract_id}:${snapshot.contract_version}` : snapshot.contract_id;
+      });
+      canvas.classList.remove('d-none');
+      if (emptyMessage) {
+        emptyMessage.classList.add('d-none');
+      }
+      if (chart) {
+        chart.destroy();
+      }
+      chart = new ChartLib(canvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets,
         },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              afterBody(items) {
-                const index = items?.[0]?.dataIndex ?? 0;
-                const parts = [];
-                if (datasetVersions[index]) {
-                  parts.push(`Dataset ${datasetVersions[index]}`);
-                }
-                if (contractLabels[index]) {
-                  parts.push(`Contract ${contractLabels[index]}`);
-                }
-                return parts.join('\n');
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            intersect: false,
+            mode: 'nearest',
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                afterBody(items) {
+                  const index = items?.[0]?.dataIndex ?? 0;
+                  const parts = [];
+                  if (datasetVersions[index]) {
+                    parts.push(`Dataset ${datasetVersions[index]}`);
+                  }
+                  if (contractLabels[index]) {
+                    parts.push(`Contract ${contractLabels[index]}`);
+                  }
+                  return parts.join('\n');
+                },
+              },
+            },
+            legend: {
+              display: true,
+              position: 'bottom',
+            },
+          },
+          scales: {
+            x: {
+              ticks: {
+                autoSkip: true,
+                maxRotation: 0,
+              },
+            },
+            y: {
+              beginAtZero: false,
+              ticks: {
+                precision: 2,
               },
             },
           },
-          legend: {
-            display: true,
-            position: 'bottom',
-          },
         },
-        scales: {
-          x: {
-            ticks: {
-              autoSkip: true,
-              maxRotation: 0,
-            },
-          },
-          y: {
-            beginAtZero: false,
-            ticks: {
-              precision: 2,
-            },
-          },
-        },
-      },
-    });
+      });
+    }
+
+    function resetVersionOptions(contractId) {
+      if (!versionSelect) {
+        return;
+      }
+      const versions = contractId ? (contractVersionMap[contractId] || []) : [];
+      versionSelect.innerHTML = '';
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'All versions';
+      versionSelect.appendChild(defaultOption);
+      versionSelect.disabled = !contractId || versions.length === 0;
+      if (!versionSelect.disabled) {
+        versions.forEach((version) => {
+          const option = document.createElement('option');
+          option.value = version;
+          option.textContent = version;
+          versionSelect.appendChild(option);
+        });
+      }
+      versionSelect.value = '';
+    }
+
+    function currentContractId() {
+      return contractSelect && contractSelect.value ? contractSelect.value : '';
+    }
+
+    function currentContractVersion() {
+      return versionSelect && versionSelect.value ? versionSelect.value : '';
+    }
+
+    resetVersionOptions(currentContractId());
+    renderChart(currentContractId(), currentContractVersion());
+
+    if (contractSelect) {
+      contractSelect.addEventListener('change', () => {
+        resetVersionOptions(currentContractId());
+        renderChart(currentContractId(), currentContractVersion());
+      });
+    }
+    if (versionSelect) {
+      versionSelect.addEventListener('change', () => {
+        renderChart(currentContractId(), currentContractVersion());
+      });
+    }
   })();
 </script>
 {% endif %}
