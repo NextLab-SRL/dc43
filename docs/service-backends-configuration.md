@@ -92,6 +92,10 @@ expose. Supported values are:
 
 The remaining keys under `contract_store` configure the selected backend.
 
+> Set `log_sql = true` (or export `DC43_CONTRACT_STORE_LOG_SQL=1`) to log every
+> SQL or Spark SQL statement issued by the active store. This is helpful when
+> troubleshooting slow queries against Unity Catalog or relational deployments.
+
 #### Filesystem contract store
 
 | Key | Type | Applies to | Description |
@@ -197,6 +201,9 @@ expects either `table` or `base_path` to be defined. Switching the type to a
 remote backend keeps the service compatible with managed stores such as
 PostgreSQL or Azure Files.
 
+Toggle `log_sql = true` (or export `DC43_DATA_PRODUCT_STORE_LOG_SQL=1`) when you
+need to inspect the Spark SQL statements issued by the data product backend.
+
 ### Configuring the data-quality backend
 
 `[data_quality]` controls how the backend evaluates contract expectations.
@@ -274,7 +281,15 @@ Common keys include `root`/`base_path` (filesystem and Delta), `dsn` and
 and `base_url`/`token`/`headers` (HTTP). Environment overrides follow the
 pattern `DC43_GOVERNANCE_STORE_*`, for example
 `DC43_GOVERNANCE_STORE_TYPE`, `DC43_GOVERNANCE_STORE`,
-`DC43_GOVERNANCE_STORE_URL`, and `DC43_GOVERNANCE_STORE_TOKEN`.
+`DC43_GOVERNANCE_STORE_URL`, and `DC43_GOVERNANCE_STORE_TOKEN`. Individual
+table names also expose dedicated overrides such as
+`DC43_GOVERNANCE_STATUS_TABLE`, `DC43_GOVERNANCE_ACTIVITY_TABLE`,
+`DC43_GOVERNANCE_LINK_TABLE`, and the new
+`DC43_GOVERNANCE_METRICS_TABLE` flag.
+
+Set `log_sql = true` (or `DC43_GOVERNANCE_STORE_LOG_SQL=1`) to log every
+statement executed by the SQL/Delta governance stores. This makes it easier to
+trace which dataset view triggered a specific query when debugging slow pages.
 
 When `metrics_table` is omitted, SQL and Delta stores derive a companion name
 from the configured status table. Identifiers ending with `_dq_status` swap that

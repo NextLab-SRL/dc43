@@ -477,26 +477,58 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             ),
         )
 
+        status_lookup: dict[tuple[str, str, str], ValidationResult | Mapping[str, object] | None] = {}
+        try:
+            status_records = self._store.load_status_matrix_entries(
+                dataset_id=dataset_id,
+                dataset_versions=versions,
+                contract_ids=[item[1] for item in sorted(contract_filter or set())],
+            )
+        except AttributeError:
+            status_records = ()
+        except Exception:  # pragma: no cover - defensive guard for legacy stores
+            logger.exception(
+                "Failed to load batch statuses for %s", dataset_id,
+            )
+            status_records = ()
+        if status_records is None:
+            status_records = ()
+        for entry in status_records:
+            if not isinstance(entry, Mapping):
+                continue
+            dataset_version = str(entry.get("dataset_version") or "")
+            contract_id = str(entry.get("contract_id") or "")
+            contract_version = str(entry.get("contract_version") or "")
+            if not (dataset_version and contract_id and contract_version):
+                continue
+            status_lookup[(dataset_version, contract_id, contract_version)] = entry.get(
+                "status"
+            )
+
         results: list[Mapping[str, object]] = []
         for dataset_version, contract_id, contract_version in sorted_combos:
             if contract_filter and contract_id not in contract_filter:
                 continue
-            try:
-                status = self._store.load_status(
-                    contract_id=contract_id,
-                    contract_version=contract_version,
-                    dataset_id=dataset_id,
-                    dataset_version=dataset_version,
-                )
-            except Exception:  # pragma: no cover - defensive guard for legacy stores
-                logger.exception(
-                    "Failed to load status for %s@%s via %s:%s",
-                    dataset_id,
-                    dataset_version,
-                    contract_id,
-                    contract_version,
-                )
-                status = None
+            status = status_lookup.get(
+                (dataset_version, contract_id, contract_version)
+            )
+            if status is None:
+                try:
+                    status = self._store.load_status(
+                        contract_id=contract_id,
+                        contract_version=contract_version,
+                        dataset_id=dataset_id,
+                        dataset_version=dataset_version,
+                    )
+                except Exception:  # pragma: no cover - defensive guard for legacy stores
+                    logger.exception(
+                        "Failed to load status for %s@%s via %s:%s",
+                        dataset_id,
+                        dataset_version,
+                        contract_id,
+                        contract_version,
+                    )
+                    status = None
             results.append(
                 {
                     "dataset_id": dataset_id,
@@ -516,10 +548,100 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
     ) -> Sequence[Mapping[str, Any]]:
-        return self._store.load_pipeline_activity(
+        records = self._store.load_pipeline_activity(
             dataset_id=dataset_id, dataset_version=dataset_version
         )
+        if not include_status:
+            return records
+
+        entries: list[Mapping[str, Any]] = []
+        combos: list[tuple[str, str, str]] = []
+        versions: set[str] = set()
+        contracts: set[str] = set()
+        for record in records:
+            if not isinstance(record, Mapping):
+                continue
+            entry = dict(record)
+            entries.append(entry)
+            contract_id = str(entry.get("contract_id") or "")
+            contract_version = str(entry.get("contract_version") or "")
+            recorded_version = str(
+                entry.get("dataset_version") or dataset_version or ""
+            )
+            if contract_id and contract_version and recorded_version:
+                combos.append((recorded_version, contract_id, contract_version))
+                versions.add(recorded_version)
+                contracts.add(contract_id)
+
+        status_lookup: dict[tuple[str, str, str], ValidationResult | Mapping[str, object] | None] = {}
+        if combos:
+            try:
+                status_records = self._store.load_status_matrix_entries(
+                    dataset_id=dataset_id,
+                    dataset_versions=list(versions),
+                    contract_ids=list(contracts),
+                )
+            except AttributeError:
+                status_records = ()
+            except Exception:  # pragma: no cover - defensive guard for legacy stores
+                logger.exception(
+                    "Failed to load batch statuses for %s", dataset_id,
+                )
+                status_records = ()
+            if status_records is None:
+                status_records = ()
+            for entry in status_records:
+                if not isinstance(entry, Mapping):
+                    continue
+                dataset_version_value = str(entry.get("dataset_version") or "")
+                contract_id_value = str(entry.get("contract_id") or "")
+                contract_version_value = str(entry.get("contract_version") or "")
+                if not (
+                    dataset_version_value and contract_id_value and contract_version_value
+                ):
+                    continue
+                status_lookup[
+                    (
+                        dataset_version_value,
+                        contract_id_value,
+                        contract_version_value,
+                    )
+                ] = entry.get("status")
+
+        enriched: list[Mapping[str, Any]] = []
+        for entry in entries:
+            contract_id = str(entry.get("contract_id") or "")
+            contract_version = str(entry.get("contract_version") or "")
+            recorded_version = str(
+                entry.get("dataset_version") or dataset_version or ""
+            )
+            status_payload = None
+            if contract_id and contract_version and recorded_version:
+                status_payload = status_lookup.get(
+                    (recorded_version, contract_id, contract_version)
+                )
+                if status_payload is None:
+                    try:
+                        status_payload = self._store.load_status(
+                            contract_id=contract_id,
+                            contract_version=contract_version,
+                            dataset_id=dataset_id,
+                            dataset_version=recorded_version,
+                        )
+                    except Exception:  # pragma: no cover - defensive guard for legacy stores
+                        logger.exception(
+                            "Failed to load status for %s@%s via %s:%s",
+                            dataset_id,
+                            recorded_version,
+                            contract_id,
+                            contract_version,
+                        )
+            if status_payload is not None:
+                entry["validation_status"] = status_payload
+            enriched.append(entry)
+        return tuple(enriched)
 
     def resolve_read_context(
         self,

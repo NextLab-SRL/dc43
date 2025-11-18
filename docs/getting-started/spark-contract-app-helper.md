@@ -71,20 +71,46 @@ you need the container to spawn the backend locally.
 ### Inspect governance metrics
 
 Once the UI is running, open any dataset or contract entry from the catalog to
-review the metrics recorded by the governance service. The dataset view groups
-observations by the status timestamp so you can see the latest snapshot alongside
-earlier runs, while the contract overview highlights the same metrics filtered to
-the active version. Numeric metrics now render as interactive charts, letting you
-hover across the timeline to reveal dataset versions, contract revisions, and the
-recorded values. This makes it easy to validate row counts, violation totals, and
-other KPIs without querying the backend directly. Each dataset record now lists an
-observation scope (for example, “Pre-write dataframe snapshot” or “Governed read
-snapshot”) so you can tell whether the metrics reflect the dataframe evaluated
-before a write, a streaming micro-batch, or a governed read. Use the scope badge
-to separate slice-level validations from full dataset verdicts when investigating
-unexpected counts. Older runs that predate the metadata emit a neutral “Snapshot”
-badge so the catalog still renders even when governance stores have not populated
-the scope fields yet.
+review the metrics recorded by the governance service. The dataset overview page
+now renders the metric trend chart at the dataset level, plotting every recorded
+version while keeping the history table sorted (and re-sortable) by dataset
+version, contract, and contract version. Numeric metrics render as interactive
+charts, letting you hover across the timeline to reveal dataset versions,
+contract revisions, and the recorded values without querying the backend
+directly. Use the contract and contract-version selectors above the chart to
+focus on a single relationship when you need to troubleshoot a specific
+agreement, or leave both set to “All” to compare every governed contract at
+once. The selector now reuses dataset history metadata when governance stores
+omit contract revision fields, so you can still scope charts to a single run
+even if the metric rows skip contract-version columns. The panel always renders
+with a loading message and falls back to an inline “No numeric metrics” notice
+when the backend only returns textual observations, so you never stare at an
+empty card wondering if the script ran. The backend automatically treats numeric
+strings (including JSON-encoded values) as plottable metrics and keeps the
+selector visible even while it waits for Chart.js to load, making it obvious
+which dataset the card is attempting to plot. The contracts UI now injects the
+metric trend script whenever the dataset panel is rendered, guaranteeing that
+the canvas initialises as soon as the Chart.js bundle becomes available. Each dataset
+record lists an observation scope
+(for example, “Pre-write dataframe snapshot” or “Governed read snapshot”) so you can tell whether the
+metrics reflect the dataframe evaluated before a write, a streaming micro-batch,
+or a governed read. Use the scope badge to separate slice-level validations from
+full dataset verdicts when investigating unexpected counts. Older runs that
+predate the metadata emit a neutral “Snapshot” badge so the catalog still renders
+even when governance stores have not populated the scope fields yet.
+
+The metric chart bundle now ships directly with the contracts UI, so
+air-gapped installations no longer depend on third-party CDNs to render the
+timeline. The page waits for the bundled Chart.js script (falling back to the
+public CDN when available) before initialising the plot and surfaces an inline
+warning if the script cannot be loaded, preventing blank cards when outbound
+requests are blocked.
+
+Individual dataset version pages now focus on the selected run only, leaning on
+the governance service’s batched status lookups instead of rebuilding the full
+compatibility matrix. Opening a single dataset version therefore issues one
+targeted activity request plus a compact metrics query, keeping the UI snappy
+even when governance stores track hundreds of historical versions.
 
 ### Create or edit data products visually
 

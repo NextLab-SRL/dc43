@@ -26,13 +26,14 @@ class DeltaDataProductServiceBackend(_StoreBackedDataProductServiceBackend):
         table: str | None = None,
         path: str | None = None,
         store: DataProductStore | None = None,
+        log_sql: bool = False,
     ) -> None:
         if store is None:
             if DeltaDataProductStore is None:
                 raise RuntimeError(
                     "pyspark is required when using the Delta data product backend"
                 )
-            store = DeltaDataProductStore(spark, table=table, path=path)
+            store = DeltaDataProductStore(spark, table=table, path=path, log_sql=log_sql)
         super().__init__(store)
 
 

@@ -19,6 +19,9 @@
 - Governance clients now expose dataset listing, pipeline activity, and
   validation status helpers so UI consumers can gather run history entirely via
   service APIs.
+- Pipeline activity helpers now accept an `include_status` flag that forwards
+  to the governance API so callers receive inline validation results without
+  issuing follow-up status or matrix queries.
 - Governance clients now expose contract discovery helpers (`get_contract`,
   `latest_contract`, `list_contract_versions`, and
   `describe_expectations`) and include validation payloads in

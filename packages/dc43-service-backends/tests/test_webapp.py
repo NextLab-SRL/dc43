@@ -209,3 +209,33 @@ def test_status_matrix_handles_legacy_activity_table(tmp_path):
     assert payload["entries"]
     assert payload["entries"][0]["status"]["status"] == "ok"
 
+
+def test_pipeline_activity_encodes_validation_results():
+    class _ActivityBackend(_StubGovernanceBackend):
+        def get_pipeline_activity(self, *, dataset_id, dataset_version=None, include_status=False):
+            assert include_status is True
+            return (
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version or "2024-01-01",
+                    "validation_status": ValidationResult(status="ok"),
+                },
+            )
+
+    app = build_app(
+        contract_backend=_StubServiceBackend(),
+        dq_backend=_StubServiceBackend(),
+        governance_backend=_ActivityBackend(),
+        data_product_backend=_StubServiceBackend(),
+    )
+
+    client = TestClient(app)
+    response = client.get(
+        "/governance/activity",
+        params={"dataset_id": "orders", "include_status": "true"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload
+    assert payload[0]["validation_status"]["status"] == "ok"
+

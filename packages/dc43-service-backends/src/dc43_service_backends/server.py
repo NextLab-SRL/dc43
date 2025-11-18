@@ -627,12 +627,40 @@ def build_app(
         return list(governance_backend.list_datasets())
 
     @router.get("/governance/activity")
-    def pipeline_activity(dataset_id: str, dataset_version: str | None = None) -> list[Mapping[str, Any]]:
+    def pipeline_activity(
+        dataset_id: str,
+        dataset_version: str | None = None,
+        include_status: bool = False,
+    ) -> list[Mapping[str, Any]]:
         records = governance_backend.get_pipeline_activity(
             dataset_id=dataset_id,
             dataset_version=dataset_version,
+            include_status=include_status,
         )
-        return list(jsonable_encoder(records))
+        if not include_status:
+            return list(jsonable_encoder(records))
+
+        entries: list[Mapping[str, Any]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                entries.append(record)
+                continue
+            entry = dict(record)
+            status_payload = entry.get("validation_status")
+            encoded_status = None
+            if isinstance(status_payload, ValidationResult):
+                encoded_status = encode_validation_result(status_payload)
+            elif isinstance(status_payload, Mapping):
+                encoded_status = dict(status_payload)
+            elif status_payload is not None:
+                try:
+                    encoded_status = encode_validation_result(status_payload)  # type: ignore[arg-type]
+                except Exception:  # pragma: no cover - defensive guard
+                    encoded_status = None
+            if encoded_status is not None:
+                entry["validation_status"] = encoded_status
+            entries.append(entry)
+        return list(jsonable_encoder(entries))
 
     app.include_router(router)
     return app

@@ -20,4 +20,7 @@
   generated copy match the governance-first annotations.
 - Rely on the service-client dependency graph to pull in ``openlineage-python``
   so the demo no longer duplicates the lineage runtime requirement.
+- The demo record loader now accepts ``dataset_id``/``dataset_version`` filters
+  so the contracts UI and demo helpers can request a single dataset run without
+  re-reading the entire JSON registry.
 

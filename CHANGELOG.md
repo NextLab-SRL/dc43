@@ -34,12 +34,18 @@
 - Added Delta Live Tables batch and streaming notebooks so Databricks pipelines
   can reproduce the governed versioning scenario without converting the Python
   scripts manually.
+- Added `log_sql` toggles to the service backend stores so Delta and SQL
+  implementations can emit the statements they execute when debugging slow
+  dataset or contract views.
 
 ### Changed
 - `dc43-integrations` now treats Spark as an optional dependency, so
   environments that already provide PySpark can install the integrations
   without pulling in a duplicate runtime; opt into the `spark` extra to
   provision PySpark alongside the helpers when needed.
+- The contracts UI now requests dataset-scoped pipeline activity with inline
+  validation statuses, reducing the number of governance API calls required to
+  render dataset listings and version detail pages.
 - Spark governance reads now always recompute validations through the
   governance service instead of reusing cached statuses so every run reflects
   the freshest recorded metrics, even when historical snapshots exist.
@@ -67,6 +73,35 @@
   toggle and updated helpers so dataset identifiers fall back to the timestamped
   versions that production pipelines use instead of forcing manual increments in
   the walkthrough notebooks.
+- Service backend configuration now honours explicit `governance_store.metrics_table`
+  entries (and the `DC43_GOVERNANCE_METRICS_TABLE` override) so governance SQL
+  stores stop deriving table names when the operator already provided one.
+- Governance stores now expose batch status lookups so matrix endpoints and
+  pipeline activity enrichment reuse a single SQL query instead of issuing one
+  lookup per dataset/contract combination.
+- The contracts UI now bundles Chart.js locally, waits for the script to load,
+  and surfaces inline warnings when the library cannot be fetched so dataset
+  metric charts no longer render as blank cards when CDN traffic is blocked.
+- Dataset overview pages now render dataset-wide metric charts and sortable
+  history tables while individual dataset version views limit governance calls
+  to the selected run, reducing redundant backend work when inspecting a single
+  version.
+- Dataset overview charts now expose contract and contract-version selectors and
+  treat numeric strings as plottable values, so governance stores that only
+  persist textual metric payloads still populate the trend chart for the
+  selected filters. The selector now falls back to dataset versions when
+  contract revisions are missing, and service backends preserve textual metric
+  payloads while still populating ``metric_numeric_value`` so chart data remains
+  consistent across SQL, Delta, and filesystem stores.
+- Dataset overview metric panels now reuse dataset history metadata to keep the
+  contract-version dropdown enabled even when metric rows omit revision fields
+  and surface a clear “No numeric metrics” message whenever the backend only
+  returns textual observations, preventing the chart from rendering as an empty
+  card.
+- Dataset trend cards now always render with a visible loading/empty message and
+  keep their chart script attached even when no numeric metrics are present, so
+  operators can confirm the selector state and Chart.js initialisation instead
+  of staring at a blank block when governance stores only emit textual values.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.
@@ -90,6 +125,9 @@
   contracts UI surfaces that scope beside each dataset record so you can
   distinguish slice-level snapshots from full dataset verdicts when comparing
   metrics.
+- Contracts app dataset version pages now fetch only the selected run and reuse
+  the backend’s batched status queries, preventing a single view from rebuilding
+  the entire compatibility matrix.
 - Fixed the Test PyPI publish workflow so labeled pull requests query the
   current labels before deciding whether to run, ensuring tagged branches
   actually build and upload packages for validation.
@@ -171,6 +209,9 @@
 - Contracts app dataset history pages now deduplicate repeated pipeline
   activity entries so each dataset/contract version appears only once even when
   the backing governance store emits redundant rows.
+- Dataset overview pages now always include the metric trend script whenever the
+  chart card is rendered, ensuring Chart.js initialises and replaces the loading
+  message even when templates reuse the summary partial multiple times.
 - Contracts app dataset listings now attach contracts to the dataset IDs that
   governance runs recorded, preventing phantom dataset rows that only differ by
   contract ID when server metadata omits explicit dataset identifiers.
@@ -178,6 +219,12 @@
   observation-scope metadata shipped, falling back to a neutral badge so the
   catalog keeps loading even when governance stores have not populated the new
   fields.
+- Contracts app dataset detail pages now retry governance metric lookups
+  without contract filters so backends that only persist dataset-level
+  measurements still surface snapshots and charts for every recorded version.
+- Governance pipeline activity endpoint now encodes inline validation results
+  before responding, so include-status requests no longer raise FastAPI
+  serialization errors when backends return `ValidationResult` instances.
 - Governance status lookups now tolerate legacy SQL activity tables that lack
   timestamp columns, preventing 500 errors and eliminating the fallback storm
   of per-version requests from the contracts UI.

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from numbers import Number
 from typing import Mapping, Optional, Sequence
 
 from sqlalchemy import (
@@ -24,7 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
-from ._metrics import extract_metrics
+from ._metrics import extract_metrics, normalise_metric_value
 from ._table_names import derive_related_table_name
 from .interface import GovernanceStore
 
@@ -258,17 +257,7 @@ class SQLGovernanceStore(GovernanceStore):
         metrics_map = extract_metrics(status)
         metrics_entries = []
         for key, value in metrics_map.items():
-            numeric_value: float | None = None
-            if isinstance(value, Number):
-                numeric_value = float(value)
-                serialized_value = str(value)
-            elif value is None:
-                serialized_value = None
-            else:
-                try:
-                    serialized_value = json.dumps(value)
-                except TypeError:
-                    serialized_value = str(value)
+            serialised_value, numeric_value = normalise_metric_value(value)
             metrics_entries.append(
                 {
                     "dataset_id": dataset_id,
@@ -277,7 +266,7 @@ class SQLGovernanceStore(GovernanceStore):
                     "contract_version": contract_version,
                     "status_recorded_at": recorded_at,
                     "metric_key": str(key),
-                    "metric_value": serialized_value,
+                    "metric_value": serialised_value,
                     "metric_numeric_value": numeric_value,
                 }
             )
@@ -314,6 +303,52 @@ class SQLGovernanceStore(GovernanceStore):
             reason=str(payload.get("reason")) if payload.get("reason") else None,
             details=coerce_details(payload.get("details")),
         )
+
+    def load_status_matrix_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_versions: Sequence[str] | None = None,
+        contract_ids: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        versions = [str(value) for value in (dataset_versions or []) if str(value)]
+        contracts = [str(value) for value in (contract_ids or []) if str(value)]
+        statement = select(
+            self._status.c.dataset_id,
+            self._status.c.dataset_version,
+            self._status.c.contract_id,
+            self._status.c.contract_version,
+            self._status.c.payload,
+        ).where(self._status.c.dataset_id == dataset_id)
+        if versions:
+            statement = statement.where(self._status.c.dataset_version.in_(versions))
+        if contracts:
+            statement = statement.where(self._status.c.contract_id.in_(contracts))
+
+        entries: list[Mapping[str, object]] = []
+        with self._engine.connect() as conn:
+            rows = conn.execute(statement).fetchall()
+        for row in rows:
+            raw_payload = row.payload or "{}"
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, ValueError):
+                payload = {}
+            status = ValidationResult(
+                status=str(payload.get("status", "unknown")),
+                reason=str(payload.get("reason")) if payload.get("reason") else None,
+                details=coerce_details(payload.get("details")),
+            )
+            entries.append(
+                {
+                    "dataset_id": row.dataset_id,
+                    "dataset_version": row.dataset_version,
+                    "contract_id": row.contract_id,
+                    "contract_version": row.contract_version,
+                    "status": status,
+                }
+            )
+        return tuple(entries)
 
     # ------------------------------------------------------------------
     # Dataset links

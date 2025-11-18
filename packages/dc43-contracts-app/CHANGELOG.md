@@ -51,10 +51,37 @@
 - Dropped the ``server.store`` export from the contracts app; downstream demos
   should import the shared ``dc43_contracts_app.services.store`` adapter or call
   ``contract_service`` directly.
+- Dataset catalogs and version detail pages now request dataset-scoped pipeline
+  activity with inline validation statuses so the UI issues far fewer
+  governance API calls when rendering individual datasets.
 - Dataset catalog, versions, and detail pages now display the observation scope
   recorded alongside each governance status (pre-write dataframe snapshot,
   governed read, streaming batch, …) so analysts can tell whether a metric comes
   from a slice or the full dataset version.
+- Dataset version pages now filter governance calls to the selected dataset
+  version, preventing a single view from walking the entire history just to
+  render one record.
+- Dataset overview pages now surface dataset-wide metric trend charts and a
+  sortable history table (sorted by dataset version, then contract and version)
+  while the per-version detail view focuses on the selected run’s snapshot.
+- Dataset trend charts now offer contract + contract-version selectors and
+  treat textual numeric metrics as plottable values so historical runs from
+  stores that omit dedicated numeric fields still render on the timeline.
+- The dataset metrics panel now decodes JSON-wrapped values, keeps chart data in
+  sync when governance stores emit numeric strings, and falls back to dataset
+  versions when contract revisions are missing so the selector remains usable on
+  every dataset.
+- Dataset metric cards now reuse dataset history metadata when metric rows lack
+  contract revisions and surface a clear “No numeric metrics” message whenever
+  the backend only returns textual observations, so the selector and chart never
+  render as an empty panel.
+- Dataset overview trend cards now always render with a visible loading/empty
+  state and keep the chart script attached even when no numeric metrics exist,
+  ensuring contract selectors stay usable and it is obvious that Chart.js
+  initialised instead of leaving a blank div on the dataset page.
+- The dataset overview page now bundles Chart.js locally, waits for the library
+  to load, and warns operators when the script cannot be fetched so the metrics
+  trend card no longer stays blank when external CDNs are blocked.
 - Removed the legacy `workspace` module from the contracts UI; filesystem
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under
@@ -82,12 +109,18 @@
 - Dataset history views now deduplicate repeated pipeline activity rows so each
   dataset/contract version shows up once even if the backing governance store
   returns redundant entries for the same write.
+- Dataset overview pages now always attach the metric trend script whenever the
+  history card renders, ensuring Chart.js initialises and replaces the placeholder
+  copy even when templates include the summary partial multiple times.
 - Dataset listings now attach contracts to the dataset identifiers that
   governance runs recorded, preventing phantom rows that only contain contract
   IDs when server metadata omits explicit dataset references.
 - Dataset catalog and dataset views now tolerate missing observation-scope
   metadata so historical runs recorded before the new annotations still load and
   simply display a neutral badge when the governance store lacks scope fields.
+- Dataset detail pages now retry governance metric lookups without contract
+  filters so backends that only persist dataset-level measurements still render
+  metric tables and history charts for every run.
 - Adjusted the documentation assistant to discover repository Markdown when running from
   editable installs so the chat surface no longer reports missing documentation directories.
 - Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured

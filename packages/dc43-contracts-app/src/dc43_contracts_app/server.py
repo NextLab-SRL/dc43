@@ -19,7 +19,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import (
     List,
@@ -333,6 +333,22 @@ def _format_recorded_at(value: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
 
 
+def _decode_metric_value(value: object | None) -> object | None:
+    """Return ``value`` with JSON-wrapped payloads decoded when possible."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return ""
+    if text[0] in "{[\"" and text[-1] in "}]\"":
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
 def _coerce_numeric(value: object | None) -> float | None:
     """Return ``value`` as a :class:`float` when it resembles a number."""
 
@@ -359,6 +375,11 @@ def _format_metric_value(numeric: object | None, raw: object | None) -> str:
     if raw is not None:
         if raw == "":
             return "—"
+        if isinstance(raw, (dict, list)):
+            try:
+                return json.dumps(raw, sort_keys=True)
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                return str(raw)
         if isinstance(raw, float):
             return format(raw, "g")
         return str(raw)
@@ -390,10 +411,38 @@ def _empty_metrics_summary() -> Dict[str, Any]:
         "metric_keys": [],
         "numeric_metric_keys": [],
         "chronological_history": [],
+        "contract_filters": [],
     }
 
 
-def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any]:
+def _contract_filter_fallbacks(
+    records: Iterable[Mapping[str, Any]]
+) -> dict[str, dict[str, set[str]]]:
+    """Return contract/version fallbacks derived from dataset history rows."""
+
+    fallbacks: dict[str, dict[str, set[str]]] = {}
+    for record in records:
+        contract_id = str(record.get("contract_id") or "").strip()
+        if not contract_id:
+            continue
+        entry = fallbacks.setdefault(
+            contract_id,
+            {"contract_versions": set(), "dataset_versions": set()},
+        )
+        contract_version = str(record.get("contract_version") or "").strip()
+        dataset_version = str(record.get("dataset_version") or "").strip()
+        if contract_version:
+            entry["contract_versions"].add(contract_version)
+        if dataset_version:
+            entry["dataset_versions"].add(dataset_version)
+    return fallbacks
+
+
+def _summarise_metrics(
+    entries: Sequence[Mapping[str, object]],
+    *,
+    fallback_contract_versions: Mapping[str, Mapping[str, Iterable[str]]] | None = None,
+) -> Dict[str, Any]:
     """Group raw metric rows into timestamped snapshots for the templates."""
 
     if not entries:
@@ -402,6 +451,8 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
     grouped: dict[tuple[str, str, str, str], Dict[str, Any]] = {}
     keys: set[str] = set()
     numeric_keys: set[str] = set()
+    contract_versions: dict[str, set[str]] = {}
+    contract_dataset_versions: dict[str, set[str]] = {}
     for entry in entries:
         recorded_at = str(entry.get("status_recorded_at") or "")
         dataset_version = str(entry.get("dataset_version") or "")
@@ -424,18 +475,30 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         metric_key = str(entry.get("metric_key") or "")
         if metric_key:
             keys.add(metric_key)
-        metric_value = entry.get("metric_value")
-        numeric_value = _coerce_numeric(entry.get("metric_numeric_value"))
-        if metric_key and numeric_value is not None:
+        metric_value = _decode_metric_value(entry.get("metric_value"))
+        numeric_value = entry.get("metric_numeric_value")
+        coerced_numeric = _coerce_numeric(numeric_value)
+        if coerced_numeric is None:
+            coerced_numeric = _coerce_numeric(metric_value)
+        if metric_key and coerced_numeric is not None:
             numeric_keys.add(metric_key)
         group["metrics"].append(
             {
                 "key": metric_key,
-                "value": _format_metric_value(numeric_value, metric_value),
+                "value": _format_metric_value(coerced_numeric, metric_value),
                 "raw_value": metric_value,
-                "numeric_value": numeric_value,
+                "numeric_value": coerced_numeric,
             }
         )
+        if contract_id:
+            versions = contract_versions.setdefault(contract_id, set())
+            if contract_version:
+                versions.add(contract_version)
+            dataset_versions = contract_dataset_versions.setdefault(
+                contract_id, set()
+            )
+            if dataset_version:
+                dataset_versions.add(dataset_version)
 
     snapshots = sorted(grouped.values(), key=_metric_group_sort_key)
     for snapshot in snapshots:
@@ -444,6 +507,42 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
 
     latest = snapshots[0] if snapshots else None
     previous = snapshots[1:] if len(snapshots) > 1 else []
+    fallbacks = fallback_contract_versions or {}
+    filters = []
+    contract_ids = sorted(set(contract_versions) | set(fallbacks))
+    for contract_id in contract_ids:
+        versions = contract_versions.get(contract_id)
+        dataset_version_candidates = contract_dataset_versions.get(contract_id, set())
+        fallback_entry = fallbacks.get(contract_id) or {}
+        fallback_contract_versions = {
+            str(value)
+            for value in fallback_entry.get("contract_versions", [])
+            if str(value)
+        }
+        fallback_dataset_versions = {
+            str(value)
+            for value in fallback_entry.get("dataset_versions", [])
+            if str(value)
+        }
+        explicit_versions = sorted({str(value) for value in (versions or set()) if str(value)})
+        version_source = "contract"
+        if not explicit_versions and fallback_contract_versions:
+            explicit_versions = sorted(fallback_contract_versions)
+        dataset_versions = dataset_version_candidates or fallback_dataset_versions
+        dataset_version_values = sorted({str(value) for value in dataset_versions if str(value)})
+        if not explicit_versions and dataset_version_values:
+            explicit_versions = dataset_version_values
+            version_source = "dataset"
+        if not explicit_versions:
+            continue
+        filters.append(
+            {
+                "contract_id": contract_id,
+                "label": contract_id,
+                "versions": explicit_versions,
+                "version_source": version_source,
+            }
+        )
 
     return {
         "latest": latest,
@@ -452,6 +551,7 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         "chronological_history": list(reversed(snapshots)),
         "metric_keys": sorted(keys),
         "numeric_metric_keys": sorted(numeric_keys),
+        "contract_filters": filters,
     }
 
 
@@ -5805,31 +5905,49 @@ def _extract_violation_count(section: Mapping[str, Any] | None) -> int:
     return total
 
 
-def load_records() -> List[DatasetRecord]:
+def load_records(
+    *, dataset_id: str | None = None, dataset_version: str | None = None
+) -> List[DatasetRecord]:
     """Return recorded dataset runs provided by the governance services."""
 
     records: List[DatasetRecord] = []
     record_indices: Dict[Tuple[str, str, str, str], int] = {}
-    for dataset_id in list_dataset_ids():
-        activity = dataset_pipeline_activity(dataset_id)
+    dataset_ids = [dataset_id] if dataset_id else list_dataset_ids()
+    for dataset_name in dataset_ids:
+        if not dataset_name:
+            continue
+        version_filter = dataset_version if dataset_id is not None else None
+        activity = dataset_pipeline_activity(
+            dataset_name,
+            dataset_version=version_filter,
+            include_status=True,
+        )
+        inline_status_available = any(
+            isinstance(item, Mapping) and item.get("validation_status") is not None
+            for item in activity
+        )
         status_lookup: Dict[Tuple[str, str, str], Any] = {}
-        if activity:
+        if activity and not inline_status_available:
             contract_candidates = {
                 str(item.get("contract_id") or "").strip()
                 for item in activity
                 if item.get("contract_id")
             }
-            version_candidates = {
-                value
-                for value in (
-                    str(item.get("dataset_version") or "").strip()
-                    for item in activity
-                    if item.get("dataset_version")
-                )
-                if value and value.lower() != "latest"
-            }
+            version_candidates: Set[str] = set()
+            if version_filter:
+                version_candidates.add(version_filter)
+            else:
+                version_candidates = {
+                    value
+                    for value in (
+                        str(item.get("dataset_version") or "").strip()
+                        for item in activity
+                        if item.get("dataset_version")
+                    )
+                    if value and value.lower() != "latest"
+                }
             matrix_entries = dataset_status_matrix(
-                dataset_id,
+                dataset_name,
                 contract_ids=[c for c in contract_candidates if c],
                 dataset_versions=[v for v in version_candidates if v],
             )
@@ -5850,26 +5968,42 @@ def load_records() -> List[DatasetRecord]:
                 if cid and cver and dver:
                     status_lookup[(cid, cver, dver)] = result
         for entry in activity:
-            dataset_version = str(entry.get("dataset_version") or "").strip()
+            dataset_version_value = str(entry.get("dataset_version") or "").strip()
+            if (
+                version_filter
+                and dataset_version_value
+                and dataset_version_value != version_filter
+            ):
+                continue
             contract_id = str(entry.get("contract_id") or "").strip()
             contract_version = str(entry.get("contract_version") or "").strip()
 
             latest_event = _latest_event(entry)
             validation: Optional[ValidationResult] = None
-            if contract_id and contract_version and dataset_version:
-                validation = status_lookup.get(
-                    (contract_id, contract_version, dataset_version)
-                )
+            inline_details: Mapping[str, Any] | None = None
+            if contract_id and contract_version and dataset_version_value:
+                inline_payload = entry.get("validation_status")
+                if isinstance(inline_payload, Mapping):
+                    maybe_details = inline_payload.get("details")
+                    if isinstance(maybe_details, Mapping):
+                        inline_details = dict(maybe_details)
+                if inline_payload is not None:
+                    validation = _as_validation_result(inline_payload)
+                else:
+                    validation = status_lookup.get(
+                        (contract_id, contract_version, dataset_version_value)
+                    )
                 if (
                     validation is None
-                    and dataset_version.lower() != "latest"
+                    and not inline_status_available
+                    and dataset_version_value.lower() != "latest"
                 ):
                     validation = _as_validation_result(
                         dataset_validation_status(
                             contract_id=contract_id,
                             contract_version=contract_version,
-                            dataset_id=dataset_id,
-                            dataset_version=dataset_version,
+                            dataset_id=dataset_name,
+                            dataset_version=dataset_version_value,
                         )
                     )
 
@@ -5883,12 +6017,14 @@ def load_records() -> List[DatasetRecord]:
                 try:
                     status_value = _normalise_record_status(validation.status)
                     details = dict(validation.details)
+                    if inline_details is not None:
+                        details = inline_details
                     reason = validation.reason or ""
                 except Exception:  # pragma: no cover - defensive guard
                     logger.exception(
                         "Failed to interpret validation status for %s@%s",
-                        dataset_id,
-                        dataset_version,
+                        dataset_name,
+                        dataset_version_value,
                     )
                     details = {}
             else:
@@ -5943,8 +6079,8 @@ def load_records() -> List[DatasetRecord]:
             record = DatasetRecord(
                 contract_id,
                 contract_version,
-                dataset_id,
-                dataset_version,
+                dataset_name,
+                dataset_version_value,
                 status_value,
                 details,
                 run_type,
@@ -5961,8 +6097,18 @@ def load_records() -> List[DatasetRecord]:
             record.reason = reason
 
             dedup_key: Tuple[str, str, str, str] | None = None
-            if dataset_id and dataset_version and contract_id and contract_version:
-                dedup_key = (dataset_id, dataset_version, contract_id, contract_version)
+            if (
+                dataset_name
+                and dataset_version_value
+                and contract_id
+                and contract_version
+            ):
+                dedup_key = (
+                    dataset_name,
+                    dataset_version_value,
+                    contract_id,
+                    contract_version,
+                )
 
             if dedup_key is None:
                 records.append(record)
@@ -7592,12 +7738,12 @@ async def api_contract_preview(
     server = (contract.servers or [None])[0]
     dataset_path_hint = server.path if server else None
     version_contract = contract if effective_dataset_id == (contract.id or cid) else None
+    dataset_records = load_records(dataset_id=effective_dataset_id)
     scoped_records = [
         record
-        for record in load_records()
+        for record in dataset_records
         if record.contract_id == cid
         and record.contract_version == ver
-        and record.dataset_name == effective_dataset_id
     ]
     version_records = _dq_version_records(
         effective_dataset_id,
@@ -9415,10 +9561,55 @@ async def list_datasets(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("datasets.html", context)
 
 
+def _dataset_history_sort_key(record: Mapping[str, Any]) -> Tuple[str, str, str]:
+    return (
+        str(record.get("dataset_version") or ""),
+        str(record.get("contract_id") or ""),
+        str(record.get("contract_version") or ""),
+    )
+
+
+def _sort_dataset_history_rows(records: Iterable[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    return sorted((dict(item) for item in records), key=_dataset_history_sort_key, reverse=True)
+
+
 @router.get("/datasets/{dataset_name}", response_class=HTMLResponse)
 async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
-    records = [r.__dict__.copy() for r in load_records() if r.dataset_name == dataset_name]
-    context = {"request": request, "dataset_name": dataset_name, "records": records}
+    records = _sort_dataset_history_rows(
+        [r.__dict__.copy() for r in load_records(dataset_id=dataset_name)]
+    )
+    contract_filter_fallbacks = _contract_filter_fallbacks(records)
+    metrics_summary = _empty_metrics_summary()
+    metrics_error: str | None = None
+
+    if dataset_name:
+
+        def _load_metrics() -> Sequence[Mapping[str, object]]:
+            _, _, governance_client = _thread_service_clients()
+            return governance_client.get_metrics(dataset_id=dataset_name)
+
+        try:
+            metrics_records = await run_in_threadpool(_load_metrics)
+        except Exception as exc:  # pragma: no cover - defensive
+            metrics_error = str(exc)
+            logger.exception("Failed to load dataset metrics for %s", dataset_name)
+        else:
+            metrics_summary = _summarise_metrics(
+                metrics_records,
+                fallback_contract_versions=contract_filter_fallbacks,
+            )
+
+    context = {
+        "request": request,
+        "dataset_name": dataset_name,
+        "records": records,
+        "metrics_summary": metrics_summary,
+        "metrics_error": metrics_error,
+        "show_metrics_history": True,
+        "metrics_panel_title": "Dataset metrics",
+        "metrics_panel_scope_label": f"Dataset {dataset_name}",
+        "metrics_empty_message": "No metrics recorded for this dataset yet.",
+    }
     return templates.TemplateResponse("dataset_versions.html", context)
 
 
@@ -9951,7 +10142,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
 
 @router.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
-    records = load_records()
+    records = load_records(dataset_id=dataset_name, dataset_version=dataset_version)
     associations = data_products_for_dataset(dataset_name, records)
     for r in records:
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
@@ -9967,21 +10158,32 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
 
             if r.dataset_name:
 
-                def _load_metrics() -> Sequence[Mapping[str, object]]:
+                def _load_metrics(
+                    include_contract_filters: bool = True,
+                ) -> Sequence[Mapping[str, object]]:
                     _, _, governance_client = _thread_service_clients()
                     kwargs: dict[str, object] = {
                         "dataset_id": r.dataset_name,
                     }
                     if r.dataset_version:
                         kwargs["dataset_version"] = r.dataset_version
-                    if r.contract_id:
-                        kwargs["contract_id"] = r.contract_id
-                    if r.contract_version:
-                        kwargs["contract_version"] = r.contract_version
+                    if include_contract_filters:
+                        if r.contract_id:
+                            kwargs["contract_id"] = r.contract_id
+                        if r.contract_version:
+                            kwargs["contract_version"] = r.contract_version
                     return governance_client.get_metrics(**kwargs)
 
                 try:
                     metrics_records = await run_in_threadpool(_load_metrics)
+                    if (
+                        not metrics_records
+                        and r.dataset_version
+                        and (r.contract_id or r.contract_version)
+                    ):
+                        metrics_records = await run_in_threadpool(
+                            partial(_load_metrics, include_contract_filters=False)
+                        )
                 except Exception as exc:  # pragma: no cover - defensive fallback when backend fails
                     metrics_error = str(exc)
                     logger.exception(
@@ -9999,6 +10201,12 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 "data_products": associations,
                 "metrics_summary": metrics_summary,
                 "metrics_error": metrics_error,
+                "show_metrics_history": False,
+                "metrics_panel_title": "Dataset metrics",
+                "metrics_panel_scope_label": (
+                    f"Dataset {dataset_name} {dataset_version}".strip()
+                ),
+                "metrics_empty_message": "No metrics recorded for this dataset version.",
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")

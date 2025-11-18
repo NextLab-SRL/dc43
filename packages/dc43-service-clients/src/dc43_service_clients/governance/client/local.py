@@ -243,10 +243,12 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
     ) -> Sequence[Mapping[str, object]]:
         return self._backend.get_pipeline_activity(
             dataset_id=dataset_id,
             dataset_version=dataset_version,
+            include_status=include_status,
         )
 
     def resolve_read_context(

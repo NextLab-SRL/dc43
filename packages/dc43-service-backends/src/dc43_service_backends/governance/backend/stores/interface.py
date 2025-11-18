@@ -82,5 +82,14 @@ class GovernanceStore(Protocol):
     ) -> Sequence[Mapping[str, object]]:
         """Return stored metric entries associated with the dataset."""
 
+    def load_status_matrix_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_versions: Sequence[str] | None = None,
+        contract_ids: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        """Return persisted status rows for the dataset filtered by version and contract."""
+
 
 __all__ = ["GovernanceStore"]

@@ -156,6 +156,7 @@ class GovernanceServiceBackend(Protocol):
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
     ) -> Sequence[Mapping[str, object]]:
         ...
 

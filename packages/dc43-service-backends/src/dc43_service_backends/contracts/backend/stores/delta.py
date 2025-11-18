@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 try:  # pragma: no cover - optional dependency
@@ -16,25 +17,41 @@ from dc43_service_backends.core.versioning import version_key
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 
+logger = logging.getLogger(__name__)
+
+
 class DeltaContractStore(ContractStore):
     """Store contracts inside a Delta table with simple schema."""
 
-    def __init__(self, spark: SparkSession, table: Optional[str] = None, path: Optional[str] = None):
+    def __init__(
+        self,
+        spark: SparkSession,
+        table: Optional[str] = None,
+        path: Optional[str] = None,
+        *,
+        log_sql: bool = False,
+    ):
         """Create the store backed by a UC table or a Delta path."""
         if not (table or path):
             raise ValueError("Provide either a Unity Catalog table name or a Delta path")
         self.spark = spark
         self.table = table
         self.path = path
+        self._log_sql = log_sql
         self._ensure_table()
 
     def _table_ref(self) -> str:
         return self.table if self.table else f"delta.`{self.path}`"
 
+    def _execute_sql(self, statement: str):  # pragma: no cover - small helper
+        if self._log_sql:
+            logger.info("Spark SQL (contracts): %s", statement.strip())
+        return self.spark.sql(statement)
+
     def _ensure_table(self) -> None:
         ref = self._table_ref()
         if self.table:
-            self.spark.sql(
+            self._execute_sql(
                 f"""
                 CREATE TABLE IF NOT EXISTS {ref} (
                     contract_id STRING,
@@ -51,7 +68,7 @@ class DeltaContractStore(ContractStore):
             )
         else:
             # Path-backed table (Delta path)
-            self.spark.sql(
+            self._execute_sql(
                 f"""
                 CREATE TABLE IF NOT EXISTS {ref} (
                     contract_id STRING,
@@ -80,7 +97,7 @@ class DeltaContractStore(ContractStore):
         desc_usage = payload.get("description")
         desc_sql = "NULL" if not desc_usage else "'" + str(desc_usage).replace("'", "''") + "'"
         json_sql = json_str.replace("'", "''")
-        self.spark.sql(
+        self._execute_sql(
             f"""
             MERGE INTO {ref} t
             USING (SELECT
@@ -100,7 +117,7 @@ class DeltaContractStore(ContractStore):
     def get(self, contract_id: str, version: str) -> OpenDataContractStandard:
         """Fetch and parse the ODCS JSON document for the id/version as model."""
         ref = self._table_ref()
-        row = self.spark.sql(
+        row = self._execute_sql(
             f"SELECT json FROM {ref} WHERE contract_id = '{contract_id}' AND version = '{version}'"
         ).head(1)
         if not row:
@@ -112,7 +129,7 @@ class DeltaContractStore(ContractStore):
     def list_contracts(self) -> List[str]:
         """Return all distinct contract identifiers present in the table."""
         ref = self._table_ref()
-        rows = self.spark.sql(
+        rows = self._execute_sql(
             f"SELECT DISTINCT contract_id FROM {ref}"
         ).collect()
         return [r[0] for r in rows]
@@ -120,7 +137,7 @@ class DeltaContractStore(ContractStore):
     def list_versions(self, contract_id: str) -> List[str]:
         """List available versions recorded in the Delta table."""
         ref = self._table_ref()
-        rows = self.spark.sql(
+        rows = self._execute_sql(
             f"SELECT version FROM {ref} WHERE contract_id = '{contract_id}'"
         ).collect()
         return [r[0] for r in rows]
@@ -128,7 +145,7 @@ class DeltaContractStore(ContractStore):
     def latest(self, contract_id: str) -> OpenDataContractStandard | None:
         """Return the latest ODCS model for the given contract id, if any."""
         ref = self._table_ref()
-        rows = self.spark.sql(
+        rows = self._execute_sql(
             f"SELECT version, json FROM {ref} WHERE contract_id = '{contract_id}'"
         ).collect()
         entries: list[tuple[str, object]] = []

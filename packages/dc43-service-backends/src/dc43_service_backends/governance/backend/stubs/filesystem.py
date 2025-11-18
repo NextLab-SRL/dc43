@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Mapping
+from typing import Any, Dict, List, Optional, Mapping, Sequence
 
 from dc43_service_backends.contracts.drafting import draft_from_validation_result
 from dc43_service_backends.data_quality.backend.engine import evaluate_contract
@@ -194,6 +194,49 @@ class StubDQClient:
         )
         return ValidationResult(status=status, details=details)
 
+    def load_status_matrix_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_versions: Sequence[str] | None = None,
+        contract_ids: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        versions = {str(value) for value in (dataset_versions or []) if str(value)}
+        contracts = {str(value) for value in (contract_ids or []) if str(value)}
+        status_dir = os.path.join(self.base_path, "status", self._safe(dataset_id))
+        if not os.path.isdir(status_dir):
+            return ()
+        entries: list[Mapping[str, object]] = []
+        for name in os.listdir(status_dir):
+            path = os.path.join(status_dir, name)
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            except (OSError, json.JSONDecodeError):
+                continue
+            dataset_version = str(payload.get("dataset_version") or "")
+            if versions and dataset_version not in versions:
+                continue
+            contract_id = str(payload.get("contract_id") or "")
+            if contracts and contract_id not in contracts:
+                continue
+            contract_version = str(payload.get("contract_version") or "")
+            status = ValidationResult(
+                status=str(payload.get("status", "unknown")),
+                reason=str(payload.get("reason")) if payload.get("reason") else None,
+                details=coerce_details(payload.get("details")),
+            )
+            entries.append(
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version,
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "status": status,
+                }
+            )
+        return tuple(entries)
+
     def record_pipeline_activity(
         self,
         *,
@@ -243,6 +286,7 @@ class StubDQClient:
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
     ) -> List[Dict[str, Any]]:
         payload = self._load_activity(dataset_id)
         versions = payload.get("versions")
