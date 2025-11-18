@@ -91,6 +91,13 @@ full dataset verdicts when investigating unexpected counts. Older runs that
 predate the metadata emit a neutral “Snapshot” badge so the catalog still renders
 even when governance stores have not populated the scope fields yet.
 
+The metric chart bundle now ships directly with the contracts UI, so
+air-gapped installations no longer depend on third-party CDNs to render the
+timeline. The page waits for the bundled Chart.js script (falling back to the
+public CDN when available) before initialising the plot and surfaces an inline
+warning if the script cannot be loaded, preventing blank cards when outbound
+requests are blocked.
+
 Individual dataset version pages now focus on the selected run only, leaning on
 the governance service’s batched status lookups instead of rebuilding the full
 compatibility matrix. Opening a single dataset version therefore issues one

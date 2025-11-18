@@ -79,6 +79,9 @@
 - Governance stores now expose batch status lookups so matrix endpoints and
   pipeline activity enrichment reuse a single SQL query instead of issuing one
   lookup per dataset/contract combination.
+- The contracts UI now bundles Chart.js locally, waits for the script to load,
+  and surfaces inline warnings when the library cannot be fetched so dataset
+  metric charts no longer render as blank cards when CDN traffic is blocked.
 - Dataset overview pages now render dataset-wide metric charts and sortable
   history tables while individual dataset version views limit governance calls
   to the selected run, reducing redundant backend work when inspecting a single

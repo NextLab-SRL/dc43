@@ -2,18 +2,15 @@
 <script>
   (function () {
     const canvas = document.getElementById('datasetMetricsChart');
-    const ChartLib = window.Chart;
-    if (!canvas || !ChartLib) {
-      return;
-    }
     const history = {{ chronological_history | tojson }};
     const metricKeys = {{ numeric_metric_keys | tojson }};
     const contractFilters = {{ contract_filters | tojson }};
-    if (!Array.isArray(history) || !Array.isArray(metricKeys) || !history.length || !metricKeys.length) {
+    if (!canvas || !Array.isArray(history) || !Array.isArray(metricKeys) || !history.length || !metricKeys.length) {
       return;
     }
     const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6610f2', '#20c997', '#6f42c1', '#0dcaf0', '#ffc107', '#343a40'];
     const emptyMessage = document.getElementById('datasetMetricsEmptyMessage');
+    const defaultEmptyText = emptyMessage ? emptyMessage.textContent : '';
     const contractSelect = document.getElementById('datasetMetricsContractFilter');
     const versionSelect = document.getElementById('datasetMetricsContractVersionFilter');
     const contractVersionMeta = (contractFilters || []).reduce((acc, item) => {
@@ -73,7 +70,7 @@
       }).filter(Boolean);
     }
 
-    function renderChart(contractId, contractVersion, versionSource) {
+    function renderChart(contractId, contractVersion, versionSource, ChartLib) {
       const scopedHistory = filterHistory(contractId, contractVersion, versionSource);
       const datasets = buildDatasets(scopedHistory);
       if (!datasets.length) {
@@ -200,19 +197,61 @@
       return versionSelect.dataset.source || 'contract';
     }
 
-    resetVersionOptions(currentContractId());
-    renderChart(currentContractId(), currentContractVersion(), currentVersionSource());
+    function bootChart() {
+      const ChartLib = window.Chart;
+      if (!ChartLib) {
+        return false;
+      }
+      if (emptyMessage) {
+        emptyMessage.textContent = defaultEmptyText;
+      }
+      canvas.classList.remove('d-none');
+      if (emptyMessage) {
+        emptyMessage.classList.add('d-none');
+      }
+      resetVersionOptions(currentContractId());
+      renderChart(currentContractId(), currentContractVersion(), currentVersionSource(), ChartLib);
 
-    if (contractSelect) {
-      contractSelect.addEventListener('change', () => {
-        resetVersionOptions(currentContractId());
-        renderChart(currentContractId(), currentContractVersion(), currentVersionSource());
-      });
+      if (contractSelect) {
+        contractSelect.addEventListener('change', () => {
+          resetVersionOptions(currentContractId());
+          renderChart(currentContractId(), currentContractVersion(), currentVersionSource(), ChartLib);
+        });
+      }
+      if (versionSelect) {
+        versionSelect.addEventListener('change', () => {
+          renderChart(currentContractId(), currentContractVersion(), currentVersionSource(), ChartLib);
+        });
+      }
+      return true;
     }
-    if (versionSelect) {
-      versionSelect.addEventListener('change', () => {
-        renderChart(currentContractId(), currentContractVersion(), currentVersionSource());
-      });
+
+    if (!bootChart()) {
+      if (canvas) {
+        canvas.classList.add('d-none');
+      }
+      if (emptyMessage) {
+        emptyMessage.textContent = 'Loading chart library…';
+        emptyMessage.classList.remove('d-none');
+      }
+      window.addEventListener(
+        'dc43:chart-ready',
+        () => {
+          bootChart();
+        },
+        { once: true }
+      );
+      window.addEventListener(
+        'dc43:chart-error',
+        (event) => {
+          if (emptyMessage) {
+            emptyMessage.textContent =
+              (event && event.detail && event.detail.message) || 'Metric chart unavailable: Chart.js failed to load.';
+            emptyMessage.classList.remove('d-none');
+          }
+        },
+        { once: true }
+      );
     }
   })();
 </script>

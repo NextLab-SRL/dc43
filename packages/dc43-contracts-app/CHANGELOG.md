@@ -71,6 +71,9 @@
   sync when governance stores emit numeric strings, and falls back to dataset
   versions when contract revisions are missing so the selector remains usable on
   every dataset.
+- The dataset overview page now bundles Chart.js locally, waits for the library
+  to load, and warns operators when the script cannot be fetched so the metrics
+  trend card no longer stays blank when external CDNs are blocked.
 - Removed the legacy `workspace` module from the contracts UI; filesystem
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under

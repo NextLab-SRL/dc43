@@ -312,6 +312,12 @@ def test_dataset_detail_limits_record_fetch(
     assert captured_kwargs["dataset_version"] == "2024-01-01"
 
 
+def test_metric_chart_bundle_served(client: TestClient) -> None:
+    resp = client.get("/static/chart.umd.js")
+    assert resp.status_code == 200
+    assert b"Chart" in resp.content
+
+
 def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) -> None:
     contract_id = "demo_contract"
     contract_version = "1.0.0"
