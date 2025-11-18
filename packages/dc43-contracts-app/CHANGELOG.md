@@ -51,6 +51,9 @@
 - Dropped the ``server.store`` export from the contracts app; downstream demos
   should import the shared ``dc43_contracts_app.services.store`` adapter or call
   ``contract_service`` directly.
+- Dataset catalogs and version detail pages now request dataset-scoped pipeline
+  activity with inline validation statuses so the UI issues far fewer
+  governance API calls when rendering individual datasets.
 - Dataset catalog, versions, and detail pages now display the observation scope
   recorded alongside each governance status (pre-write dataframe snapshot,
   governed read, streaming batch, …) so analysts can tell whether a metric comes
@@ -88,6 +91,9 @@
 - Dataset catalog and dataset views now tolerate missing observation-scope
   metadata so historical runs recorded before the new annotations still load and
   simply display a neutral badge when the governance store lacks scope fields.
+- Dataset detail pages now retry governance metric lookups without contract
+  filters so backends that only persist dataset-level measurements still render
+  metric tables and history charts for every run.
 - Adjusted the documentation assistant to discover repository Markdown when running from
   editable installs so the chat surface no longer reports missing documentation directories.
 - Treat secrets pasted into `docs_chat.api_key_env` as inline API keys automatically so misconfigured

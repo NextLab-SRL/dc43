@@ -96,7 +96,7 @@ def test_dataset_detail_displays_observation_scope(
     )
     record.observation_label = "Pre-write dataframe snapshot"
 
-    monkeypatch.setattr(server, "load_records", lambda: [record])
+    monkeypatch.setattr(server, "load_records", lambda **_: [record])
     monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
     monkeypatch.setattr(server, "_dataset_preview", lambda *_, **__: None)
 
@@ -104,6 +104,60 @@ def test_dataset_detail_displays_observation_scope(
 
     assert resp.status_code == 200
     assert "Pre-write dataframe snapshot" in resp.text
+
+
+def test_dataset_detail_falls_back_to_dataset_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+) -> None:
+    record = server.DatasetRecord(
+        contract_id="demo.contract",
+        contract_version="1.0.0",
+        dataset_name="demo.dataset",
+        dataset_version="2024-01-01T12:00:00Z",
+        status="ok",
+    )
+
+    monkeypatch.setattr(server, "load_records", lambda **_: [record])
+    monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
+    monkeypatch.setattr(server, "_dataset_preview", lambda *_, **__: None)
+
+    calls: list[dict[str, object]] = []
+
+    class DummyGovernanceClient:
+        def __init__(self) -> None:
+            self._responses = [[], [
+                {
+                    "dataset_id": record.dataset_name,
+                    "dataset_version": record.dataset_version,
+                    "contract_id": record.contract_id,
+                    "contract_version": record.contract_version,
+                    "status_recorded_at": "2024-01-02T00:00:00Z",
+                    "metric_key": "row_count",
+                    "metric_value": 10,
+                    "metric_numeric_value": 10.0,
+                }
+            ]]
+
+        def get_metrics(self, **kwargs):
+            calls.append(kwargs)
+            return self._responses.pop(0)
+
+    dummy_client = DummyGovernanceClient()
+
+    def fake_thread_clients():
+        return (object(), object(), dummy_client)
+
+    monkeypatch.setattr(server, "_thread_service_clients", fake_thread_clients)
+
+    resp = client.get("/datasets/demo.dataset/2024-01-01T12:00:00Z")
+
+    assert resp.status_code == 200
+    assert "row_count" in resp.text
+    assert len(calls) == 2
+    first, second = calls
+    assert first.get("contract_id") == "demo.contract"
+    assert "contract_id" not in second
 
 
 def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) -> None:
@@ -184,8 +238,15 @@ def test_load_records_normalises_backend_status(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(server, "list_dataset_ids", lambda: ["sales.orders"])
 
-    def fake_activity(dataset_id: str) -> list[dict[str, object]]:
+    def fake_activity(
+        dataset_id: str,
+        dataset_version: str | None = None,
+        *,
+        include_status: bool = False,
+    ) -> list[dict[str, object]]:
         assert dataset_id == "sales.orders"
+        assert dataset_version is None
+        assert include_status is True
         return [
             {
                 "dataset_version": "2024-05-02",
@@ -206,6 +267,11 @@ def test_load_records_normalises_backend_status(monkeypatch: pytest.MonkeyPatch)
                         },
                     },
                 ],
+                "validation_status": {
+                    "status": "ok",
+                    "details": details,
+                    "reason": "All good",
+                },
             }
         ]
 
@@ -234,12 +300,7 @@ def test_load_records_normalises_backend_status(monkeypatch: pytest.MonkeyPatch)
     assert record.data_product_role == "publisher"
     assert record.reason == "All good"
 
-    assert calls
-    first_call = calls[0]
-    assert first_call["contract_id"] == "sales.contract"
-    assert first_call["contract_version"] == "1.2.3"
-    assert first_call["dataset_id"] == "sales.orders"
-    assert first_call["dataset_version"] == "2024-05-02"
+    assert not calls
 
 
 def test_load_records_uses_event_status_when_backend_missing(
@@ -247,7 +308,13 @@ def test_load_records_uses_event_status_when_backend_missing(
 ) -> None:
     monkeypatch.setattr(server, "list_dataset_ids", lambda: ["inventory.stock"])
 
-    def fake_activity(_: str) -> list[dict[str, object]]:
+    def fake_activity(
+        _: str,
+        dataset_version: str | None = None,
+        *,
+        include_status: bool = False,
+    ) -> list[dict[str, object]]:
+        assert include_status is True
         return [
             {
                 "dataset_version": "2024-05-03",
@@ -303,7 +370,13 @@ def test_load_records_deduplicates_dataset_versions(
     first_recorded_at = "2025-11-14T20:04:16.238229Z"
     second_recorded_at = "2025-11-14T20:05:00.000000Z"
 
-    def fake_activity(_: str) -> list[dict[str, object]]:
+    def fake_activity(
+        _: str,
+        dataset_version: str | None = None,
+        *,
+        include_status: bool = False,
+    ) -> list[dict[str, object]]:
+        assert include_status is True
         return [
             {
                 "dataset_version": "2025-11-14T20:04:16.238229Z",

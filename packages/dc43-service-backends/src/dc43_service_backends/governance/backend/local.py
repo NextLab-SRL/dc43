@@ -516,10 +516,45 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
     ) -> Sequence[Mapping[str, Any]]:
-        return self._store.load_pipeline_activity(
+        records = self._store.load_pipeline_activity(
             dataset_id=dataset_id, dataset_version=dataset_version
         )
+        if not include_status:
+            return records
+
+        enriched: list[Mapping[str, Any]] = []
+        for record in records:
+            if not isinstance(record, Mapping):
+                continue
+            entry = dict(record)
+            contract_id = str(entry.get("contract_id") or "")
+            contract_version = str(entry.get("contract_version") or "")
+            recorded_version = str(
+                entry.get("dataset_version") or dataset_version or ""
+            )
+            status_payload = None
+            if contract_id and contract_version and recorded_version:
+                try:
+                    status_payload = self._store.load_status(
+                        contract_id=contract_id,
+                        contract_version=contract_version,
+                        dataset_id=dataset_id,
+                        dataset_version=recorded_version,
+                    )
+                except Exception:  # pragma: no cover - defensive guard for legacy stores
+                    logger.exception(
+                        "Failed to load status for %s@%s via %s:%s",
+                        dataset_id,
+                        recorded_version,
+                        contract_id,
+                        contract_version,
+                    )
+            if status_payload is not None:
+                entry["validation_status"] = status_payload
+            enriched.append(entry)
+        return tuple(enriched)
 
     def resolve_read_context(
         self,

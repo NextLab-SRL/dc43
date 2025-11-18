@@ -74,6 +74,7 @@ class DeltaGovernanceStore(GovernanceStore):
         link_table: str | None = None,
         metrics_table: str | None = None,
         bootstrap_tables: bool = True,
+        log_sql: bool = False,
     ) -> None:
         if not base_path and not (status_table and activity_table and link_table):
             raise ValueError(
@@ -85,6 +86,7 @@ class DeltaGovernanceStore(GovernanceStore):
         self._activity_table = activity_table
         self._link_table = link_table
         self._metrics_table = metrics_table
+        self._log_sql = log_sql
         if not self._metrics_table and self._base_path is None:
             reference_table = status_table or activity_table or link_table
             if reference_table:
@@ -177,6 +179,11 @@ class DeltaGovernanceStore(GovernanceStore):
             return f"delta.`{DeltaGovernanceStore._escape_identifier(str(folder))}`"
         return None
 
+    def _execute_sql(self, statement: str):  # pragma: no cover - logging shim
+        if self._log_sql:
+            logger.info("Spark SQL (governance): %s", statement.strip())
+        return self._spark.sql(statement)
+
     def _purge_status_entries(
         self,
         *,
@@ -196,7 +203,7 @@ class DeltaGovernanceStore(GovernanceStore):
         )
         statement = f"DELETE FROM {target} WHERE {condition}"
         try:
-            self._spark.sql(statement)
+            self._execute_sql(statement)
         except Exception:  # pragma: no cover - delta deletes may fail on legacy runtimes
             logger.exception(
                 "Failed to purge existing status rows for %s@%s",
@@ -241,7 +248,7 @@ class DeltaGovernanceStore(GovernanceStore):
                         f"AND table_name = '{_escape(name)}' "
                         "LIMIT 1"
                     )
-                    rows = self._spark.sql(query).collect()
+                    rows = self._execute_sql(query).collect()
                     if rows:
                         return True
                 except Exception:  # pragma: no cover - fall back to catalog lookup

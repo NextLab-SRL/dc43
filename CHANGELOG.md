@@ -34,12 +34,18 @@
 - Added Delta Live Tables batch and streaming notebooks so Databricks pipelines
   can reproduce the governed versioning scenario without converting the Python
   scripts manually.
+- Added `log_sql` toggles to the service backend stores so Delta and SQL
+  implementations can emit the statements they execute when debugging slow
+  dataset or contract views.
 
 ### Changed
 - `dc43-integrations` now treats Spark as an optional dependency, so
   environments that already provide PySpark can install the integrations
   without pulling in a duplicate runtime; opt into the `spark` extra to
   provision PySpark alongside the helpers when needed.
+- The contracts UI now requests dataset-scoped pipeline activity with inline
+  validation statuses, reducing the number of governance API calls required to
+  render dataset listings and version detail pages.
 - Spark governance reads now always recompute validations through the
   governance service instead of reusing cached statuses so every run reflects
   the freshest recorded metrics, even when historical snapshots exist.
@@ -178,6 +184,9 @@
   observation-scope metadata shipped, falling back to a neutral badge so the
   catalog keeps loading even when governance stores have not populated the new
   fields.
+- Contracts app dataset detail pages now retry governance metric lookups
+  without contract filters so backends that only persist dataset-level
+  measurements still surface snapshots and charts for every recorded version.
 - Governance status lookups now tolerate legacy SQL activity tables that lack
   timestamp columns, preventing 500 errors and eliminating the fallback storm
   of per-version requests from the contracts UI.

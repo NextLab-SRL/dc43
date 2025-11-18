@@ -19,7 +19,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import (
     List,
@@ -5805,31 +5805,49 @@ def _extract_violation_count(section: Mapping[str, Any] | None) -> int:
     return total
 
 
-def load_records() -> List[DatasetRecord]:
+def load_records(
+    *, dataset_id: str | None = None, dataset_version: str | None = None
+) -> List[DatasetRecord]:
     """Return recorded dataset runs provided by the governance services."""
 
     records: List[DatasetRecord] = []
     record_indices: Dict[Tuple[str, str, str, str], int] = {}
-    for dataset_id in list_dataset_ids():
-        activity = dataset_pipeline_activity(dataset_id)
+    dataset_ids = [dataset_id] if dataset_id else list_dataset_ids()
+    for dataset_name in dataset_ids:
+        if not dataset_name:
+            continue
+        version_filter = dataset_version if dataset_id is not None else None
+        activity = dataset_pipeline_activity(
+            dataset_name,
+            dataset_version=version_filter,
+            include_status=True,
+        )
+        inline_status_available = any(
+            isinstance(item, Mapping) and item.get("validation_status") is not None
+            for item in activity
+        )
         status_lookup: Dict[Tuple[str, str, str], Any] = {}
-        if activity:
+        if activity and not inline_status_available:
             contract_candidates = {
                 str(item.get("contract_id") or "").strip()
                 for item in activity
                 if item.get("contract_id")
             }
-            version_candidates = {
-                value
-                for value in (
-                    str(item.get("dataset_version") or "").strip()
-                    for item in activity
-                    if item.get("dataset_version")
-                )
-                if value and value.lower() != "latest"
-            }
+            version_candidates: Set[str] = set()
+            if version_filter:
+                version_candidates.add(version_filter)
+            else:
+                version_candidates = {
+                    value
+                    for value in (
+                        str(item.get("dataset_version") or "").strip()
+                        for item in activity
+                        if item.get("dataset_version")
+                    )
+                    if value and value.lower() != "latest"
+                }
             matrix_entries = dataset_status_matrix(
-                dataset_id,
+                dataset_name,
                 contract_ids=[c for c in contract_candidates if c],
                 dataset_versions=[v for v in version_candidates if v],
             )
@@ -5850,26 +5868,42 @@ def load_records() -> List[DatasetRecord]:
                 if cid and cver and dver:
                     status_lookup[(cid, cver, dver)] = result
         for entry in activity:
-            dataset_version = str(entry.get("dataset_version") or "").strip()
+            dataset_version_value = str(entry.get("dataset_version") or "").strip()
+            if (
+                version_filter
+                and dataset_version_value
+                and dataset_version_value != version_filter
+            ):
+                continue
             contract_id = str(entry.get("contract_id") or "").strip()
             contract_version = str(entry.get("contract_version") or "").strip()
 
             latest_event = _latest_event(entry)
             validation: Optional[ValidationResult] = None
-            if contract_id and contract_version and dataset_version:
-                validation = status_lookup.get(
-                    (contract_id, contract_version, dataset_version)
-                )
+            inline_details: Mapping[str, Any] | None = None
+            if contract_id and contract_version and dataset_version_value:
+                inline_payload = entry.get("validation_status")
+                if isinstance(inline_payload, Mapping):
+                    maybe_details = inline_payload.get("details")
+                    if isinstance(maybe_details, Mapping):
+                        inline_details = dict(maybe_details)
+                if inline_payload is not None:
+                    validation = _as_validation_result(inline_payload)
+                else:
+                    validation = status_lookup.get(
+                        (contract_id, contract_version, dataset_version_value)
+                    )
                 if (
                     validation is None
-                    and dataset_version.lower() != "latest"
+                    and not inline_status_available
+                    and dataset_version_value.lower() != "latest"
                 ):
                     validation = _as_validation_result(
                         dataset_validation_status(
                             contract_id=contract_id,
                             contract_version=contract_version,
-                            dataset_id=dataset_id,
-                            dataset_version=dataset_version,
+                            dataset_id=dataset_name,
+                            dataset_version=dataset_version_value,
                         )
                     )
 
@@ -5883,12 +5917,14 @@ def load_records() -> List[DatasetRecord]:
                 try:
                     status_value = _normalise_record_status(validation.status)
                     details = dict(validation.details)
+                    if inline_details is not None:
+                        details = inline_details
                     reason = validation.reason or ""
                 except Exception:  # pragma: no cover - defensive guard
                     logger.exception(
                         "Failed to interpret validation status for %s@%s",
-                        dataset_id,
-                        dataset_version,
+                        dataset_name,
+                        dataset_version_value,
                     )
                     details = {}
             else:
@@ -5943,8 +5979,8 @@ def load_records() -> List[DatasetRecord]:
             record = DatasetRecord(
                 contract_id,
                 contract_version,
-                dataset_id,
-                dataset_version,
+                dataset_name,
+                dataset_version_value,
                 status_value,
                 details,
                 run_type,
@@ -5961,8 +5997,18 @@ def load_records() -> List[DatasetRecord]:
             record.reason = reason
 
             dedup_key: Tuple[str, str, str, str] | None = None
-            if dataset_id and dataset_version and contract_id and contract_version:
-                dedup_key = (dataset_id, dataset_version, contract_id, contract_version)
+            if (
+                dataset_name
+                and dataset_version_value
+                and contract_id
+                and contract_version
+            ):
+                dedup_key = (
+                    dataset_name,
+                    dataset_version_value,
+                    contract_id,
+                    contract_version,
+                )
 
             if dedup_key is None:
                 records.append(record)
@@ -7592,12 +7638,12 @@ async def api_contract_preview(
     server = (contract.servers or [None])[0]
     dataset_path_hint = server.path if server else None
     version_contract = contract if effective_dataset_id == (contract.id or cid) else None
+    dataset_records = load_records(dataset_id=effective_dataset_id)
     scoped_records = [
         record
-        for record in load_records()
+        for record in dataset_records
         if record.contract_id == cid
         and record.contract_version == ver
-        and record.dataset_name == effective_dataset_id
     ]
     version_records = _dq_version_records(
         effective_dataset_id,
@@ -9417,7 +9463,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
 
 @router.get("/datasets/{dataset_name}", response_class=HTMLResponse)
 async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
-    records = [r.__dict__.copy() for r in load_records() if r.dataset_name == dataset_name]
+    records = [r.__dict__.copy() for r in load_records(dataset_id=dataset_name)]
     context = {"request": request, "dataset_name": dataset_name, "records": records}
     return templates.TemplateResponse("dataset_versions.html", context)
 
@@ -9951,7 +9997,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
 
 @router.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
-    records = load_records()
+    records = load_records(dataset_id=dataset_name)
     associations = data_products_for_dataset(dataset_name, records)
     for r in records:
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
@@ -9967,21 +10013,32 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
 
             if r.dataset_name:
 
-                def _load_metrics() -> Sequence[Mapping[str, object]]:
+                def _load_metrics(
+                    include_contract_filters: bool = True,
+                ) -> Sequence[Mapping[str, object]]:
                     _, _, governance_client = _thread_service_clients()
                     kwargs: dict[str, object] = {
                         "dataset_id": r.dataset_name,
                     }
                     if r.dataset_version:
                         kwargs["dataset_version"] = r.dataset_version
-                    if r.contract_id:
-                        kwargs["contract_id"] = r.contract_id
-                    if r.contract_version:
-                        kwargs["contract_version"] = r.contract_version
+                    if include_contract_filters:
+                        if r.contract_id:
+                            kwargs["contract_id"] = r.contract_id
+                        if r.contract_version:
+                            kwargs["contract_version"] = r.contract_version
                     return governance_client.get_metrics(**kwargs)
 
                 try:
                     metrics_records = await run_in_threadpool(_load_metrics)
+                    if (
+                        not metrics_records
+                        and r.dataset_version
+                        and (r.contract_id or r.contract_version)
+                    ):
+                        metrics_records = await run_in_threadpool(
+                            partial(_load_metrics, include_contract_filters=False)
+                        )
                 except Exception as exc:  # pragma: no cover - defensive fallback when backend fails
                     metrics_error = str(exc)
                     logger.exception(

@@ -627,10 +627,15 @@ def build_app(
         return list(governance_backend.list_datasets())
 
     @router.get("/governance/activity")
-    def pipeline_activity(dataset_id: str, dataset_version: str | None = None) -> list[Mapping[str, Any]]:
+    def pipeline_activity(
+        dataset_id: str,
+        dataset_version: str | None = None,
+        include_status: bool = False,
+    ) -> list[Mapping[str, Any]]:
         records = governance_backend.get_pipeline_activity(
             dataset_id=dataset_id,
             dataset_version=dataset_version,
+            include_status=include_status,
         )
         return list(jsonable_encoder(records))
 

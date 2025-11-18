@@ -243,6 +243,7 @@ class StubDQClient:
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
     ) -> List[Dict[str, Any]]:
         payload = self._load_activity(dataset_id)
         versions = payload.get("versions")

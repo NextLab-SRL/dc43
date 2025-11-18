@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Contract, data product, and governance stores now expose `log_sql` toggles
+  plus matching `DC43_*_LOG_SQL` environment overrides so Delta and SQL
+  implementations can emit the statements they execute when debugging backend
+  traffic.
+
 ### Changed
 - Core ODCS/ODPS helpers now live in the shared `dc43-core` package and this
   distribution imports them directly, ensuring all runtimes share the same
@@ -14,6 +20,10 @@
 - Governance backends and stores now surface `list_datasets` and pipeline
   activity/status lookups so UI clients can assemble dataset history directly
   from the service without relying on demo-specific record stores.
+- Pipeline activity endpoints now accept an `include_status` flag that embeds
+  the persisted validation result alongside each dataset/contract combination,
+  avoiding additional status matrix lookups for consumers that only need the
+  latest verdict.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so
   clients relying solely on the governance layer retain access to detailed data
