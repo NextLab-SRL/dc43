@@ -58,6 +58,9 @@
   recorded alongside each governance status (pre-write dataframe snapshot,
   governed read, streaming batch, …) so analysts can tell whether a metric comes
   from a slice or the full dataset version.
+- Dataset version pages now filter governance calls to the selected dataset
+  version, preventing a single view from walking the entire history just to
+  render one record.
 - Removed the legacy `workspace` module from the contracts UI; filesystem
   helpers now live exclusively in the demo app while the standalone UI derives
   optional path hints from configuration and persists setup state under

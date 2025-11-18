@@ -86,6 +86,12 @@ unexpected counts. Older runs that predate the metadata emit a neutral “Snapsh
 badge so the catalog still renders even when governance stores have not populated
 the scope fields yet.
 
+Dataset version pages now request only the selected run, leaning on the
+governance service’s batched status lookups instead of rebuilding the full
+compatibility matrix. Opening a single dataset version therefore issues one
+targeted activity request plus a compact metrics query, which keeps the UI
+snappy even when governance stores track hundreds of historical versions.
+
 ### Create or edit data products visually
 
 The data products tab now includes **Add** and **Edit** buttons when a data

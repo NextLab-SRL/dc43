@@ -160,6 +160,35 @@ def test_dataset_detail_falls_back_to_dataset_metrics(
     assert "contract_id" not in second
 
 
+def test_dataset_detail_limits_record_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+) -> None:
+    record = server.DatasetRecord(
+        contract_id="demo.contract",
+        contract_version="1.0.0",
+        dataset_name="demo.dataset",
+        dataset_version="2024-01-01",
+        status="ok",
+    )
+
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_load_records(**kwargs):
+        captured_kwargs.update(kwargs)
+        return [record]
+
+    monkeypatch.setattr(server, "load_records", fake_load_records)
+    monkeypatch.setattr(server, "data_products_for_dataset", lambda *_: [])
+    monkeypatch.setattr(server, "_dataset_preview", lambda *_, **__: None)
+
+    resp = client.get("/datasets/demo.dataset/2024-01-01")
+
+    assert resp.status_code == 200
+    assert captured_kwargs["dataset_id"] == "demo.dataset"
+    assert captured_kwargs["dataset_version"] == "2024-01-01"
+
+
 def test_contract_detail_includes_metric_chart(monkeypatch, client: TestClient) -> None:
     contract_id = "demo_contract"
     contract_version = "1.0.0"

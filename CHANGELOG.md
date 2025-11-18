@@ -76,6 +76,9 @@
 - Service backend configuration now honours explicit `governance_store.metrics_table`
   entries (and the `DC43_GOVERNANCE_METRICS_TABLE` override) so governance SQL
   stores stop deriving table names when the operator already provided one.
+- Governance stores now expose batch status lookups so matrix endpoints and
+  pipeline activity enrichment reuse a single SQL query instead of issuing one
+  lookup per dataset/contract combination.
 - Updated internal dependency floors to align the new `dc43-core` package with
   the 0.27.0.0 release train so Test PyPI rewrites pick up the shared helper
   requirement during pre-release validation.
@@ -99,6 +102,9 @@
   contracts UI surfaces that scope beside each dataset record so you can
   distinguish slice-level snapshots from full dataset verdicts when comparing
   metrics.
+- Contracts app dataset version pages now fetch only the selected run and reuse
+  the backend’s batched status queries, preventing a single view from rebuilding
+  the entire compatibility matrix.
 - Fixed the Test PyPI publish workflow so labeled pull requests query the
   current labels before deciding whether to run, ensuring tagged branches
   actually build and upload packages for validation.
@@ -190,6 +196,9 @@
 - Contracts app dataset detail pages now retry governance metric lookups
   without contract filters so backends that only persist dataset-level
   measurements still surface snapshots and charts for every recorded version.
+- Governance pipeline activity endpoint now encodes inline validation results
+  before responding, so include-status requests no longer raise FastAPI
+  serialization errors when backends return `ValidationResult` instances.
 - Governance status lookups now tolerate legacy SQL activity tables that lack
   timestamp columns, preventing 500 errors and eliminating the fallback storm
   of per-version requests from the contracts UI.

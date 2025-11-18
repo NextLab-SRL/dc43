@@ -315,6 +315,52 @@ class SQLGovernanceStore(GovernanceStore):
             details=coerce_details(payload.get("details")),
         )
 
+    def load_status_matrix_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_versions: Sequence[str] | None = None,
+        contract_ids: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        versions = [str(value) for value in (dataset_versions or []) if str(value)]
+        contracts = [str(value) for value in (contract_ids or []) if str(value)]
+        statement = select(
+            self._status.c.dataset_id,
+            self._status.c.dataset_version,
+            self._status.c.contract_id,
+            self._status.c.contract_version,
+            self._status.c.payload,
+        ).where(self._status.c.dataset_id == dataset_id)
+        if versions:
+            statement = statement.where(self._status.c.dataset_version.in_(versions))
+        if contracts:
+            statement = statement.where(self._status.c.contract_id.in_(contracts))
+
+        entries: list[Mapping[str, object]] = []
+        with self._engine.connect() as conn:
+            rows = conn.execute(statement).fetchall()
+        for row in rows:
+            raw_payload = row.payload or "{}"
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, ValueError):
+                payload = {}
+            status = ValidationResult(
+                status=str(payload.get("status", "unknown")),
+                reason=str(payload.get("reason")) if payload.get("reason") else None,
+                details=coerce_details(payload.get("details")),
+            )
+            entries.append(
+                {
+                    "dataset_id": row.dataset_id,
+                    "dataset_version": row.dataset_version,
+                    "contract_id": row.contract_id,
+                    "contract_version": row.contract_version,
+                    "status": status,
+                }
+            )
+        return tuple(entries)
+
     # ------------------------------------------------------------------
     # Dataset links
     # ------------------------------------------------------------------

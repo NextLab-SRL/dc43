@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, Sequence
 
 import pytest
 from open_data_contract_standard.model import (  # type: ignore
@@ -550,3 +550,62 @@ def test_resolve_write_context_enforces_product_version(governance_fixture):
 
     with pytest.raises(ValueError, match="could not be retrieved"):
         backend.resolve_write_context(context=context)
+
+
+def test_pipeline_activity_uses_batch_statuses() -> None:
+    class DummyStore:
+        def __init__(self) -> None:
+            self.matrix_calls = 0
+            self.status_calls = 0
+
+        def load_pipeline_activity(self, *, dataset_id: str, dataset_version: str | None = None):
+            return (
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version or "2024-01-01",
+                    "contract_id": "sales.orders",
+                    "contract_version": "1.0.0",
+                },
+            )
+
+        def load_status_matrix_entries(
+            self,
+            *,
+            dataset_id: str,
+            dataset_versions: Sequence[str] | None = None,
+            contract_ids: Sequence[str] | None = None,
+        ):
+            self.matrix_calls += 1
+            version = (dataset_versions or ["2024-01-01"])[0]
+            return (
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": version,
+                    "contract_id": "sales.orders",
+                    "contract_version": "1.0.0",
+                    "status": ValidationResult(status="ok"),
+                },
+            )
+
+        def load_status(self, **_kwargs):
+            self.status_calls += 1
+            return ValidationResult(status="warn")
+
+    store = DummyStore()
+    backend = LocalGovernanceServiceBackend(
+        contract_client=object(),
+        dq_client=object(),
+        data_product_client=None,
+        store=store,
+    )
+
+    records = backend.get_pipeline_activity(
+        dataset_id="sales.orders",
+        dataset_version="2024-01-01",
+        include_status=True,
+    )
+
+    assert records
+    assert isinstance(records[0].get("validation_status"), ValidationResult)
+    assert store.matrix_calls == 1
+    assert store.status_calls == 0

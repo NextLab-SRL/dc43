@@ -443,6 +443,46 @@ class DeltaGovernanceStore(GovernanceStore):
             details=coerce_details(record.get("details")),
         )
 
+    def load_status_matrix_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_versions: Sequence[str] | None = None,
+        contract_ids: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        folder = self._table_path("status") if self._base_path else None
+        df = self._read(table=self._status_table, folder=folder)
+        if df is None:
+            return ()
+        condition = col("dataset_id") == dataset_id
+        versions = [str(value) for value in (dataset_versions or []) if str(value)]
+        if versions:
+            condition = condition & col("dataset_version").isin(versions)
+        contracts = [str(value) for value in (contract_ids or []) if str(value)]
+        if contracts:
+            condition = condition & col("contract_id").isin(contracts)
+        rows = df.filter(condition).collect()
+        entries: list[Mapping[str, object]] = []
+        for row in rows:
+            if getattr(row, "deleted", False):
+                continue
+            record = json.loads(row.payload)
+            status = ValidationResult(
+                status=str(record.get("status", "unknown")),
+                reason=str(record.get("reason")) if record.get("reason") else None,
+                details=coerce_details(record.get("details")),
+            )
+            entries.append(
+                {
+                    "dataset_id": row.dataset_id,
+                    "dataset_version": row.dataset_version,
+                    "contract_id": row.contract_id,
+                    "contract_version": row.contract_version,
+                    "status": status,
+                }
+            )
+        return tuple(entries)
+
     # ------------------------------------------------------------------
     # Dataset links
     # ------------------------------------------------------------------

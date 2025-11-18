@@ -9997,7 +9997,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
 
 @router.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
-    records = load_records(dataset_id=dataset_name)
+    records = load_records(dataset_id=dataset_name, dataset_version=dataset_version)
     associations = data_products_for_dataset(dataset_name, records)
     for r in records:
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:

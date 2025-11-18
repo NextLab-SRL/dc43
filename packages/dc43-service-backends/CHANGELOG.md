@@ -24,6 +24,9 @@
   the persisted validation result alongside each dataset/contract combination,
   avoiding additional status matrix lookups for consumers that only need the
   latest verdict.
+- Governance stores now expose `load_status_matrix_entries` so batched status
+  lookups reuse a single SQL/Delta query instead of issuing one request per
+  dataset/contract combination.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so
   clients relying solely on the governance layer retain access to detailed data
@@ -78,6 +81,9 @@
   `DC43_GOVERNANCE_METRICS_TABLE` override), ensuring the bootstrapper wires the
   configured table into SQL stores instead of falling back to the legacy
   `dq_metrics` default.
+- Pipeline activity endpoints now encode inline `ValidationResult`s before
+  returning JSON, preventing FastAPI from raising 500 errors when
+  `include_status=true`.
 - ODPS serialisation raises a descriptive error when non data-product objects
   (for example, Open Data Contracts) are passed to the helper, steering callers
   towards the correct client API instead of surfacing an attribute error.
