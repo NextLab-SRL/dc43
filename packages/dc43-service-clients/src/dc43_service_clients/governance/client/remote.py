@@ -497,6 +497,29 @@ class RemoteGovernanceServiceClient(GovernanceServiceClient):
             return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in payload]
         return []
 
+    def get_dataset_records(
+        self,
+        *,
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        params: dict[str, str] = {}
+        if dataset_id:
+            params["dataset_id"] = dataset_id
+        if dataset_version:
+            params["dataset_version"] = dataset_version
+        response = ensure_response(
+            self._client.get(
+                self._request_path("/governance/dataset-records"),
+                params=params or None,
+            )
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [dict(item) if isinstance(item, Mapping) else {"value": item} for item in payload]
+        return []
+
     def resolve_read_context(
         self,
         *,

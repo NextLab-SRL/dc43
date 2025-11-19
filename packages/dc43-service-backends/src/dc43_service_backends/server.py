@@ -662,6 +662,17 @@ def build_app(
             entries.append(entry)
         return list(jsonable_encoder(entries))
 
+    @router.get("/governance/dataset-records")
+    def dataset_records(
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
+    ) -> list[Mapping[str, Any]]:
+        records = governance_backend.get_dataset_records(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
+        return [dict(record) for record in records]
+
     app.include_router(router)
     return app
 

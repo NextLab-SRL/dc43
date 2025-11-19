@@ -6,6 +6,9 @@
 - Integration helper pipeline now surfaces governed data products alongside
   contracts so you can add product nodes, wire their ports into transformations,
   and generate stubs with the correct product bindings.
+- Governance services now expose a `/governance/dataset-records` endpoint so
+  portals and automation can fetch deduplicated dataset/contract/product run
+  history without replaying pipeline activity on the client.
 - The integration helper sidebar now scrolls independently with taller catalog
   sections, adds explicit drag handles so contracts or data products drop into
   the canvas reliably, and mirrors the product **Add input/output** controls in
@@ -98,6 +101,10 @@
   and surface a clear “No numeric metrics” message whenever the backend only
   returns textual observations, preventing the chart from rendering as an empty
   card.
+- The datasets catalog drops the sparsely populated “Data products” column and
+  instead renders governed product associations on the dataset detail page,
+  where each card lists the bound product, port, contract, and latest dataset
+  version recorded for that lineage.
 - Dataset trend cards now always render with a visible loading/empty message and
   keep their chart script attached even when no numeric metrics are present, so
   operators can confirm the selector state and Chart.js initialisation instead
@@ -219,6 +226,10 @@
   observation-scope metadata shipped, falling back to a neutral badge so the
   catalog keeps loading even when governance stores have not populated the new
   fields.
+- Contracts app data product catalog now infers run history by cross-referencing
+  dataset identifiers and contract bindings with product output ports, so
+  product pages show recorded runs even when older pipeline events lacked
+  explicit product metadata.
 - Contracts app dataset detail pages now retry governance metric lookups
   without contract filters so backends that only persist dataset-level
   measurements still surface snapshots and charts for every recorded version.

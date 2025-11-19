@@ -399,7 +399,7 @@ def test_dataset_detail_limits_record_fetch(
 
     assert resp.status_code == 200
     assert captured_kwargs["dataset_id"] == "demo.dataset"
-    assert captured_kwargs["dataset_version"] == "2024-01-01"
+    assert "dataset_version" not in captured_kwargs
 
 
 def test_metric_chart_bundle_served(client: TestClient) -> None:

@@ -112,6 +112,16 @@ compatibility matrix. Opening a single dataset version therefore issues one
 targeted activity request plus a compact metrics query, keeping the UI snappy
 even when governance stores track hundreds of historical versions.
 
+Dataset pages now dedicate their product context to a separate section instead
+of squeezing partial information into the catalog table. Open any dataset
+version to see which governed data products treat that contract as an input or
+output port. The card lists the product, port, contract reference, and the
+latest dataset version recorded for that association so you can confirm which
+product line published the dataset slice you are inspecting. The dataset list
+now focuses on validation status and contract summaries while the per-version
+pages surface the richer lineage, avoiding columns full of `None` values when a
+dataset serves multiple products across different contracts.
+
 ### Create or edit data products visually
 
 The data products tab now includes **Add** and **Edit** buttons when a data

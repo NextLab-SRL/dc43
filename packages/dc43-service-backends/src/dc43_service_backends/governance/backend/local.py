@@ -23,6 +23,7 @@ from dc43_service_clients.data_quality import (
     ObservationPayload,
     ValidationResult,
 )
+from dc43_service_clients.data_quality.transport import decode_validation_result
 from dc43_service_clients.data_products import (
     DataProductInputBinding,
     DataProductOutputBinding,
@@ -53,6 +54,76 @@ from dc43_service_clients.governance.models import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _latest_event(entry: Mapping[str, object]) -> Mapping[str, object]:
+    events = entry.get("events") if isinstance(entry, Mapping) else None
+    if isinstance(events, list):
+        for event in reversed(events):
+            if isinstance(event, Mapping):
+                return dict(event)
+    return {}
+
+
+def _normalise_record_status(value: str | None) -> str:
+    if not value:
+        return "unknown"
+    text = str(value).strip().lower()
+    if not text:
+        return "unknown"
+    if text in {"ok", "pass", "passed", "success", "succeeded", "valid"}:
+        return "ok"
+    if text in {"warn", "warning", "caution"}:
+        return "warn"
+    if text in {"block", "blocked", "error", "fail", "failed", "invalid", "ko"}:
+        return "block"
+    if text in {"stale", "outdated", "expired"}:
+        return "stale"
+    return "unknown"
+
+
+def _extract_violation_count(section: Mapping[str, object] | None) -> int:
+    if not isinstance(section, Mapping):
+        return 0
+
+    total = 0
+    candidate = section.get("violations")
+    if isinstance(candidate, (int, float)):
+        total = max(total, int(candidate))
+
+    metrics = section.get("metrics")
+    if isinstance(metrics, Mapping):
+        for key, value in metrics.items():
+            if str(key).startswith("violations") and isinstance(value, (int, float)):
+                total = max(total, int(value))
+
+    failed = section.get("failed_expectations")
+    if isinstance(failed, Mapping):
+        for info in failed.values():
+            if not isinstance(info, Mapping):
+                continue
+            count = info.get("count")
+            if isinstance(count, (int, float)):
+                total = max(total, int(count))
+
+    errors = section.get("errors")
+    if isinstance(errors, list):
+        total = max(total, len(errors))
+    return total
+
+
+def _as_validation_result(payload: object) -> ValidationResult | None:
+    if payload is None:
+        return None
+    if isinstance(payload, ValidationResult):
+        return payload
+    if isinstance(payload, Mapping):
+        try:
+            return decode_validation_result(payload)
+        except Exception:  # pragma: no cover - defensive guard
+            logger.exception("Failed to decode validation payload")
+            return None
+    return None
 
 
 class LocalGovernanceServiceBackend(GovernanceServiceBackend):
@@ -543,6 +614,208 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
     def list_datasets(self) -> Sequence[str]:
         return self._store.list_datasets()
 
+    def get_dataset_records(
+        self,
+        *,
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        dataset_ids = [dataset_id] if dataset_id else self.list_datasets()
+        records: list[Mapping[str, object]] = []
+        record_indices: dict[tuple[str, str, str, str], int] = {}
+        for dataset_name in dataset_ids:
+            if not dataset_name:
+                continue
+            version_filter = dataset_version if dataset_id else None
+            activity = self.get_pipeline_activity(
+                dataset_id=dataset_name,
+                dataset_version=version_filter,
+                include_status=True,
+            )
+            inline_status_available = any(
+                isinstance(item, Mapping) and item.get("validation_status") is not None
+                for item in activity
+            )
+            status_lookup: dict[tuple[str, str, str], ValidationResult | None] = {}
+            if activity and not inline_status_available:
+                contract_candidates = {
+                    str(item.get("contract_id") or "").strip()
+                    for item in activity
+                    if isinstance(item, Mapping) and item.get("contract_id")
+                }
+                version_candidates: set[str] = set()
+                if version_filter:
+                    version_candidates.add(version_filter)
+                else:
+                    version_candidates = {
+                        value
+                        for value in (
+                            str(item.get("dataset_version") or "").strip()
+                            for item in activity
+                            if isinstance(item, Mapping) and item.get("dataset_version")
+                        )
+                        if value and value.lower() != "latest"
+                    }
+                matrix_entries = self.get_status_matrix(
+                    dataset_id=dataset_name,
+                    contract_ids=[c for c in contract_candidates if c],
+                    dataset_versions=[v for v in version_candidates if v],
+                )
+                for entry in matrix_entries:
+                    if isinstance(entry, Mapping):
+                        cid = str(entry.get("contract_id") or "").strip()
+                        cver = str(entry.get("contract_version") or "").strip()
+                        dver = str(entry.get("dataset_version") or "").strip()
+                        status_obj = entry.get("status")
+                    else:
+                        cid = getattr(entry, "contract_id", "") or ""
+                        cver = getattr(entry, "contract_version", "") or ""
+                        dver = getattr(entry, "dataset_version", "") or ""
+                        status_obj = getattr(entry, "status", None)
+                    if cid and cver and dver:
+                        status_lookup[(cid, cver, dver)] = _as_validation_result(status_obj)
+            for raw_entry in activity:
+                if not isinstance(raw_entry, Mapping):
+                    continue
+                dataset_version_value = str(raw_entry.get("dataset_version") or "").strip()
+                if (
+                    version_filter
+                    and dataset_version_value
+                    and dataset_version_value != version_filter
+                ):
+                    continue
+                contract_id = str(raw_entry.get("contract_id") or "").strip()
+                contract_version = str(raw_entry.get("contract_version") or "").strip()
+
+                latest_event = _latest_event(raw_entry)
+                validation: ValidationResult | None = None
+                inline_payload = raw_entry.get("validation_status")
+                if inline_payload is not None:
+                    validation = _as_validation_result(inline_payload)
+                elif contract_id and contract_version and dataset_version_value:
+                    validation = status_lookup.get(
+                        (contract_id, contract_version, dataset_version_value)
+                    )
+                    if (
+                        validation is None
+                        and not inline_status_available
+                        and dataset_version_value
+                        and dataset_version_value.lower() != "latest"
+                    ):
+                        validation = _as_validation_result(
+                            self.get_status(
+                                contract_id=contract_id,
+                                contract_version=contract_version,
+                                dataset_id=dataset_name,
+                                dataset_version=dataset_version_value,
+                            )
+                        )
+
+                details: dict[str, object] = {}
+                reason = ""
+                status_value = "unknown"
+                observation_operation = ""
+                observation_scope = ""
+                observation_label = ""
+                if validation is not None:
+                    try:
+                        status_value = _normalise_record_status(validation.status)
+                        details = dict(validation.details)
+                        reason = validation.reason or ""
+                    except Exception:  # pragma: no cover - defensive guard
+                        logger.exception(
+                            "Failed to interpret validation status for %s@%s",
+                            dataset_name,
+                            dataset_version_value,
+                        )
+                        details = {}
+                else:
+                    raw_status = str(latest_event.get("dq_status", "unknown"))
+                    status_value = _normalise_record_status(raw_status)
+
+                if isinstance(details, Mapping):
+                    observation_operation = str(details.get("observation_operation") or "")
+                    observation_scope = str(details.get("observation_scope") or "")
+                    observation_label = str(details.get("observation_label") or "")
+                    if observation_scope and not observation_label:
+                        observation_label = observation_scope.replace("_", " ").title()
+
+                pipeline_context = latest_event.get("pipeline_context")
+                run_type = "infer"
+                scenario_key = None
+                if isinstance(pipeline_context, Mapping):
+                    run_type = str(pipeline_context.get("run_type", run_type))
+                    scenario_key_value = pipeline_context.get("scenario_key")
+                    if isinstance(scenario_key_value, str) and scenario_key_value:
+                        scenario_key = scenario_key_value
+                if latest_event.get("scenario_key") and not scenario_key:
+                    scenario_key = str(latest_event.get("scenario_key"))
+
+                draft_version = details.get("draft_contract_version")
+                if not isinstance(draft_version, str):
+                    draft_version = latest_event.get("draft_contract_version")
+                    if not isinstance(draft_version, str):
+                        draft_version = None
+
+                data_product_id = ""
+                data_product_port = ""
+                data_product_role = ""
+                data_product_info = latest_event.get("data_product")
+                if isinstance(data_product_info, Mapping):
+                    data_product_id = str(data_product_info.get("id") or "")
+                    data_product_port = str(data_product_info.get("port") or "")
+                    data_product_role = str(data_product_info.get("role") or "")
+                else:
+                    if latest_event.get("data_product_id"):
+                        data_product_id = str(latest_event.get("data_product_id"))
+                    if latest_event.get("data_product_port"):
+                        data_product_port = str(latest_event.get("data_product_port"))
+                    if latest_event.get("data_product_role"):
+                        data_product_role = str(latest_event.get("data_product_role"))
+
+                violations = _extract_violation_count(details)
+
+                payload: dict[str, object] = {
+                    "contract_id": contract_id,
+                    "contract_version": contract_version,
+                    "dataset_name": dataset_name,
+                    "dataset_version": dataset_version_value,
+                    "status": status_value,
+                    "dq_details": details,
+                    "run_type": run_type,
+                    "violations": violations,
+                    "draft_contract_version": draft_version,
+                    "scenario_key": scenario_key,
+                    "data_product_id": data_product_id,
+                    "data_product_port": data_product_port,
+                    "data_product_role": data_product_role,
+                    "observation_operation": observation_operation,
+                    "observation_scope": observation_scope,
+                    "observation_label": observation_label,
+                    "reason": reason,
+                }
+
+                dedup_key: tuple[str, str, str, str] | None = None
+                if dataset_name and dataset_version_value and contract_id and contract_version:
+                    dedup_key = (
+                        dataset_name,
+                        dataset_version_value,
+                        contract_id,
+                        contract_version,
+                    )
+
+                if dedup_key is None:
+                    records.append(payload)
+                else:
+                    existing_index = record_indices.get(dedup_key)
+                    if existing_index is None:
+                        record_indices[dedup_key] = len(records)
+                        records.append(payload)
+                    else:
+                        records[existing_index] = payload
+
+        return tuple(records)
+
     def get_pipeline_activity(
         self,
         *,
@@ -903,6 +1176,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     resolved_contract_id,
                     resolved_contract_version,
                 )
+
+        output_binding: DataProductOutputBinding | None = None
 
         if operation == "read":
             input_binding = normalise_input_binding(binding_mapping) if binding_mapping else None

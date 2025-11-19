@@ -158,7 +158,10 @@ Create a small synthetic dataset that adheres to the contract and write it to a
 Unity Catalog table via the Spark IO helper. The helper enforces the contract
 before the data hits storage and registers the output port through the
 governance service, so you no longer need to call the data product client
-directly.
+directly. The contracts application now correlates the recorded dataset IDs and
+contract bindings from this governance activity with the catalogued product
+ports, so the product detail pages surface run counts even when historical
+pipeline events predate the dedicated product metadata fields.
 
 ```python
 from pyspark.sql import functions as F

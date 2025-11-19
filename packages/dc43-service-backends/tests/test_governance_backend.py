@@ -266,6 +266,25 @@ def test_register_write_activity_respects_binding_version(governance_fixture):
     backend.register_write_activity(plan=plan, assessment=assessment)
 
 
+def test_get_dataset_records_returns_runs(governance_fixture):
+    backend, _, contract = governance_fixture
+
+    backend.evaluate_dataset(
+        contract_id=contract.id,
+        contract_version=contract.version,
+        dataset_id="analytics.orders",
+        dataset_version="2024-01-01",
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    records = backend.get_dataset_records(dataset_id="analytics.orders")
+
+    assert records
+    assert records[0]["dataset_name"] == "analytics.orders"
+    assert records[0]["status"] == "ok"
+
+
 def test_resolve_write_context_from_existing_output(governance_fixture):
     backend, _, contract = governance_fixture
 
