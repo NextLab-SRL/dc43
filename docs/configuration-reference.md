@@ -294,6 +294,8 @@ No additional fields are captured.
 - `static_tags` – Optional newline-separated `key=value` pairs mirrored into Unity Catalog tags. Tag names automatically replace Unity-reserved characters like `.`, `-`, `/`, `=`, `:` and `,` with underscores before the statements run.
 - `workspace_url`, `workspace_profile`, `token` – Legacy fields that remain available in exported configurations but are ignored by the Unity Catalog linker now that Databricks no longer supports property updates via the workspace REST API.
 
+Unity tagging runs only against the datasets referenced by `link_dataset_contract`. The backend automatically ignores tables declared for the contract store, data product store, and governance store so catalog metadata never lands on those internal artefacts even if a misconfigured pipeline forwards their identifiers.
+
 #### Custom Python module (`custom_module`)
 *Required*
 - `module_path` – Import path exposing the governance hook entry points.
@@ -508,6 +510,8 @@ Environment overrides:
 - `static_tags` – Additional Unity Catalog tags applied during dataset↔contract links. Tag names automatically replace Unity-reserved characters (for example, `.` or `-`) with underscores prior to execution.
 - `workspace_profile`, `workspace_url`, `workspace_token` – Legacy fields retained for backwards compatibility. Override with `DATABRICKS_CONFIG_PROFILE`, `DATABRICKS_HOST`, and `DATABRICKS_TOKEN` if you still need them in exported bundles, but the Unity Catalog linker ignores these values now that Databricks no longer exposes a properties-aware workspace API.
 
+Unity Catalog updates never target the contract, data product, or governance tables declared elsewhere in the configuration. Those table names are treated as reserved so the linker only touches actual datasets even if a client accidentally reuses a governance identifier.
+
 ### `[governance]`
 - `dataset_contract_link_builders` – Tuple of import paths used to build dataset→contract links. Override with `DC43_GOVERNANCE_LINK_BUILDERS` (comma-separated).
 
@@ -518,6 +522,8 @@ Environment overrides:
   `DC43_GOVERNANCE_STORE_TABLE`, `DC43_GOVERNANCE_STATUS_TABLE`, `DC43_GOVERNANCE_ACTIVITY_TABLE`, `DC43_GOVERNANCE_LINK_TABLE`.
 - `dsn` – SQL DSN. Override with `DC43_GOVERNANCE_STORE_DSN`.
 - `schema` – Database schema. Override with `DC43_GOVERNANCE_STORE_SCHEMA`.
+
+When `governance_store.type = "delta"` and a `dsn` is supplied, the backend reuses the SQL implementation against that DSN instead of requiring a local Spark session. This lets remote FastAPI deployments talk to Databricks-managed Delta tables exclusively through SQL warehouses.
 - `base_url` – Remote governance API endpoint. Override with `DC43_GOVERNANCE_STORE_URL`.
 - `token` – Token used by the remote governance API. Override with `DC43_GOVERNANCE_STORE_TOKEN`.
 - `token_header` / `token_scheme` – HTTP auth overrides. Override with

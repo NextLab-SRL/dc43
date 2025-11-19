@@ -6,10 +6,17 @@ import sys
 
 import pytest
 
-from dc43_service_backends.config import ServiceBackendsConfig, UnityCatalogConfig
+from dc43_service_backends.config import (
+    ContractStoreConfig,
+    DataProductStoreConfig,
+    GovernanceStoreConfig,
+    ServiceBackendsConfig,
+    UnityCatalogConfig,
+)
 from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
 from dc43_service_backends.governance.unity_catalog import (
     UnityCatalogLinker,
+    build_link_hooks,
     build_linker_from_config,
     prefix_table_resolver,
     sql_table_property_updater,
@@ -70,6 +77,28 @@ def test_linker_skips_non_matching_datasets() -> None:
         contract_id="sales.orders",
         contract_version="0.1.0",
     )
+
+    assert updates == []
+
+
+def test_linker_skips_reserved_tables() -> None:
+    updates: list[tuple[str, Mapping[str, str]]] = []
+
+    def _update(table_name: str, properties: Mapping[str, str]) -> None:
+        updates.append((table_name, dict(properties)))
+
+    linker = UnityCatalogLinker(
+        apply_table_properties=_update,
+        skip_tables=frozenset({"dev.catalog.contracts"}),
+    )
+
+    with pytest.warns(RuntimeWarning):
+        linker.link_dataset_contract(
+            dataset_id="table:dev.catalog.contracts",
+            dataset_version="1",
+            contract_id="sales.orders",
+            contract_version="0.1.0",
+        )
 
     assert updates == []
 
@@ -373,6 +402,54 @@ def test_build_linker_from_config_with_tags(monkeypatch: pytest.MonkeyPatch) -> 
     ]
 
 
+def test_build_link_hooks_injects_reserved_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def _fake_builder(
+        _: UnityCatalogConfig,
+        engine_builder=sql_table_property_updater,  # type: ignore[assignment]
+        *,
+        skip_tables: Sequence[str] | None = None,
+    ) -> UnityCatalogLinker:
+        captured["skip"] = tuple(sorted(skip_tables or ()))
+
+        class _Linker:
+            def link_dataset_contract(self, **_: object) -> None:
+                pass
+
+        return _Linker()  # type: ignore[return-value]
+
+    monkeypatch.setattr(
+        "dc43_service_backends.governance.unity_catalog.build_linker_from_config",
+        _fake_builder,
+    )
+
+    config = ServiceBackendsConfig(
+        unity_catalog=UnityCatalogConfig(enabled=True, sql_dsn="sqlite:///tmp.db"),
+        contract_store=ContractStoreConfig(table="dev.catalog.contracts"),
+        data_product_store=DataProductStoreConfig(table="dev.catalog.products"),
+        governance_store=GovernanceStoreConfig(
+            table="dev.catalog.dq_status",
+            status_table="dev.catalog.dq_status",
+            activity_table="dev.catalog.dq_activity",
+            link_table="dev.catalog.dq_links",
+            metrics_table="dev.catalog.dq_metrics",
+        ),
+    )
+
+    hooks = build_link_hooks(config)
+
+    assert hooks is not None and len(hooks) == 1
+    assert set(captured["skip"]) == {
+        "dev.catalog.contracts",
+        "dev.catalog.products",
+        "dev.catalog.dq_status",
+        "dev.catalog.dq_activity",
+        "dev.catalog.dq_links",
+        "dev.catalog.dq_metrics",
+    }
+
+
 def test_build_linker_from_config_warns_when_tag_dsn_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     config = UnityCatalogConfig(enabled=True, tags_enabled=True)
 
@@ -436,7 +513,7 @@ def test_build_dataset_contract_link_hooks_uses_unity(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "dc43_service_backends.governance.unity_catalog.build_linker_from_config",
-        lambda cfg: linker,
+        lambda cfg, **kwargs: linker,
     )
 
     hooks = build_dataset_contract_link_hooks(config)

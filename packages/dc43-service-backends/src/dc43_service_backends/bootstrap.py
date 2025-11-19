@@ -431,6 +431,28 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
         )
 
     if store_type == "delta":
+        if config.dsn:
+            try:
+                from sqlalchemy import create_engine
+            except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+                raise RuntimeError(
+                    "sqlalchemy is required when governance_store.type is 'delta' with dsn configured.",
+                ) from exc
+            engine = create_engine(config.dsn, echo=bool(config.log_sql))
+            status_table = config.status_table or "dq_status"
+            activity_table = config.activity_table or "dq_activity"
+            link_table = config.link_table or "dq_dataset_contract_links"
+            metrics_table = config.metrics_table
+            if not metrics_table and status_table:
+                metrics_table = derive_related_table_name(status_table, "metrics")
+            return SQLGovernanceStore(
+                engine,
+                schema=config.schema,
+                status_table=status_table,
+                activity_table=activity_table,
+                link_table=link_table,
+                metrics_table=metrics_table,
+            )
         if DeltaGovernanceStore is None:
             raise RuntimeError(
                 "pyspark is required when governance_store.type is 'delta'.",

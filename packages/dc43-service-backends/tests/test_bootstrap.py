@@ -215,3 +215,16 @@ def test_build_governance_store_sql_echo(monkeypatch: pytest.MonkeyPatch, tmp_pa
     from dc43_service_backends.governance.backend.stores import SQLGovernanceStore
 
     assert isinstance(store, SQLGovernanceStore)
+
+
+def test_build_governance_store_delta_with_dsn(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = _capture_create_engine(monkeypatch)
+    dsn = f"sqlite:///{tmp_path / 'governance-delta.db'}"
+    cfg = GovernanceStoreConfig(type="delta", dsn=dsn, log_sql=True)
+
+    store = build_governance_store(cfg)
+
+    from dc43_service_backends.governance.backend.stores import SQLGovernanceStore
+
+    assert isinstance(store, SQLGovernanceStore)
+    assert calls and calls[0]["kwargs"].get("echo") is True

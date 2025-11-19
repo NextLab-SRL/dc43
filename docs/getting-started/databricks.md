@@ -95,6 +95,8 @@ configuration pointing at your existing governance services (for example,
 Postgres- or Azure-backed APIs) and the Unity Catalog hooks continue to apply
 tags while the contract or product payloads live in those external stores.
 
+If you run the FastAPI backend outside Databricks but still want to persist governance metadata in Unity tables, configure `[governance_store]` with `type = "delta"` and add a `dsn` that points at your Databricks SQL warehouse. The builder automatically reuses the SQL store whenever that DSN is present, so the service talks to Delta tables exclusively through the warehouse instead of starting a Spark session locally.
+
 ## 4. Create a demo contract and data product
 
 The demo contract describes a small `orders` table. Use the Open Data Contract
@@ -314,6 +316,8 @@ entire update. Likewise, if the Databricks token injected into the DSN lacks
 permission to mutate a target table, the hook logs a `RuntimeWarning` and keeps
 processing the governance request so dataset↔contract links continue to record
 successfully.
+
+The linker automatically ignores the contract, data product, and governance tables declared elsewhere in your configuration. Only dataset identifiers that reach `link_dataset_contract` trigger Unity metadata, so governance control tables never receive catalog tags or properties even if a client accidentally forwards their names.
 
 The dataset prefix tells the backend how to extract the table name from the
 dataset identifier. The default `table:` prefix works with dataset identifiers

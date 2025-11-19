@@ -45,6 +45,8 @@
   drops reserved property names such as `owner`, and catches permission errors
   so failed catalog updates only emit warnings instead of interrupting
   governance flows.
+- Unity Catalog hooks now treat contract, data product, and governance tables declared in the backend configuration as reserved, guaranteeing that only dataset identifiers passed to `link_dataset_contract` receive properties or tags even if a client forwards the wrong table name.
+- Delta governance stores can now specify a `dsn`; when present, the builder reuses the SQL implementation so Databricks SQL warehouses handle every insert/update and remote FastAPI deployments no longer need to start a Spark session purely to persist governance metadata in Delta tables.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so
   clients relying solely on the governance layer retain access to detailed data

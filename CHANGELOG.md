@@ -56,6 +56,8 @@
 - Spark governance reads now always recompute validations through the
   governance service instead of reusing cached statuses so every run reflects
   the freshest recorded metrics, even when historical snapshots exist.
+- Unity Catalog hooks now treat the contract, data product, and governance tables declared in the backend configuration as reserved so only actual datasets receive `dc43.*` properties and tags even if a misconfigured client forwards those control-table identifiers.
+- Delta governance stores can now specify a `dsn`; when present, the backend reuses the SQL implementation and issues all persistence statements through the referenced Databricks SQL warehouse so remote FastAPI deployments no longer require an embedded Spark session just to update Unity-backed Delta tables.
 - Streaming reads now copy dataset identifiers into validation payloads even
   when the data quality service provided the metrics so governance clients see
   consistent metadata when correlating validation results with history.

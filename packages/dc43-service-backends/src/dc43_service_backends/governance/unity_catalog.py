@@ -148,6 +148,21 @@ def _build_tags(
     return serialised, keys
 
 
+def _normalise_table_identifier(value: str | None) -> str | None:
+    """Return a canonical representation of ``value`` for skip-table checks."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    cleaned = text.replace("`", "")
+    lowered = cleaned.lower()
+    if not lowered:
+        return None
+    return lowered
+
+
 @dataclass(slots=True)
 class UnityCatalogLinker:
     """Apply Unity Catalog table properties after governance link operations."""
@@ -158,6 +173,7 @@ class UnityCatalogLinker:
     metadata_provider: MetadataProvider = _default_metadata
     static_properties: Mapping[str, str] = field(default_factory=dict)
     static_tags: Mapping[str, str] = field(default_factory=dict)
+    skip_tables: frozenset[str] = field(default_factory=frozenset)
 
     def link_dataset_contract(
         self,
@@ -169,6 +185,14 @@ class UnityCatalogLinker:
     ) -> None:
         table_name = self.table_resolver(dataset_id)
         if table_name is None or not table_name:
+            return
+        canonical_table = _normalise_table_identifier(table_name)
+        if canonical_table and canonical_table in self.skip_tables:
+            warnings.warn(
+                f"Unity Catalog sync skipped reserved table '{table_name}'.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
             return
         metadata = self.metadata_provider(
             dataset_id,
@@ -283,6 +307,8 @@ def _default_engine_builder(dsn: str) -> Any:
 def build_linker_from_config(
     config: UnityCatalogConfig,
     engine_builder: EngineBuilder = _default_engine_builder,
+    *,
+    skip_tables: Sequence[str] | None = None,
 ) -> UnityCatalogLinker | None:
     """Return a Unity Catalog linker configured from backend settings."""
 
@@ -348,12 +374,16 @@ def build_linker_from_config(
         )
         return None
 
+    skip: frozenset[str] = frozenset(
+        filter(None, (_normalise_table_identifier(item) for item in skip_tables or ())))
+
     return UnityCatalogLinker(
         apply_table_properties=updater,
         apply_table_tags=tag_updater,
         table_resolver=resolver,
         static_properties=static_properties,
         static_tags=static_tags,
+        skip_tables=skip,
     )
 
 
@@ -366,8 +396,13 @@ def build_link_hooks(
     can keep Databricks-specific concerns outside of the core web application.
     """
 
+    reserved_tables = _collect_reserved_tables(config)
+
     try:
-        linker = build_linker_from_config(config.unity_catalog)
+        linker = build_linker_from_config(
+            config.unity_catalog,
+            skip_tables=reserved_tables,
+        )
     except Exception as exc:  # pragma: no cover - defensive guard
         warnings.warn(
             f"Unity Catalog integration disabled due to error: {exc}",
@@ -380,6 +415,29 @@ def build_link_hooks(
         return None
 
     return (linker.link_dataset_contract,)
+
+
+def _collect_reserved_tables(config: ServiceBackendsConfig) -> frozenset[str]:
+    """Return tables that must never receive Unity Catalog annotations."""
+
+    tables: set[str] = set()
+
+    def _add(value: Optional[str]) -> None:
+        normalised = _normalise_table_identifier(value)
+        if normalised:
+            tables.add(normalised)
+
+    _add(config.contract_store.table)
+    _add(config.data_product_store.table)
+
+    store = config.governance_store
+    _add(store.table)
+    _add(store.status_table)
+    _add(store.activity_table)
+    _add(store.link_table)
+    _add(store.metrics_table)
+
+    return frozenset(tables)
 
 
 __all__ = [

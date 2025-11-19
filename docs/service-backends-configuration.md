@@ -133,6 +133,8 @@ catalog metadata shared between contract, product, and governance stores:
 | `static_properties` | table | Additional catalog metadata (for example `{ catalog = "main", schema = "contracts" }`). Unity Catalog reserves property names such as `owner`, so the backend ignores those keys and emits a warning. |
 | `static_tags` | table | Optional tag key/value pairs that always accompany the dynamic `dc43.*` metadata. Tag names automatically replace Unity-reserved characters (`.`, `-`, `/`, `=`, `:`, `,`) with underscores before statements run. |
 
+The Unity Catalog linker automatically ignores the contract, data product, and governance tables declared elsewhere in the configuration. Only dataset identifiers supplied to `link_dataset_contract` trigger tagging, so those control artefacts never receive catalog metadata by mistake.
+
 Environment overrides include the legacy `DATABRICKS_HOST`/`DATABRICKS_TOKEN`/`DATABRICKS_CONFIG_PROFILE` triplet (retained for backwards compatibility) and the active `DC43_UNITY_CATALOG_SQL_DSN`, `DC43_UNITY_CATALOG_TAGS_ENABLED`, and `DC43_UNITY_CATALOG_TAGS_SQL_DSN`. When the setup wizard exports a Delta-based configuration it also records the same values in `dc43-setup/config/modules/*.toml` so automation pipelines can hydrate secrets before launching the services.
 
 The hook prefers the SQL DSN when present because Databricks' REST client no
@@ -289,6 +291,8 @@ pipeline activity are persisted. Supported types are:
 | `sql` | Uses a relational database via `SQLGovernanceStore`. Requires `sqlalchemy`. |
 | `delta` | Writes governance artefacts to Delta tables using Spark. Requires `pyspark`. |
 | `http` | Delegates persistence to an external HTTP service implementing the governance store API. |
+
+When `type = "delta"` and a `dsn` is supplied, the backend falls back to the SQL implementation and issues every insert/update through the Databricks SQL warehouse referenced by that DSN. This keeps remote FastAPI deployments compatible with Unity Catalog tables without bootstrapping a Spark session next to the service.
 
 Common keys include `root`/`base_path` (filesystem and Delta), `dsn` and
 `schema` (SQL), `status_table`/`activity_table`/`link_table`/`metrics_table`
