@@ -17,9 +17,9 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-core>=0.32.0.0",
-  "dc43-service-clients>=0.32.0.0",
-  "dc43-service-backends>=0.32.0.0",
+  "dc43-core>=0.33.0.0",
+  "dc43-service-clients>=0.33.0.0",
+  "dc43-service-backends>=0.33.0.0",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +33,7 @@ telemetry = [
   "opentelemetry-sdk>=1.24.0",
 ]
 test = [
-  "dc43-service-backends[sql]>=0.32.0.0",
+  "dc43-service-backends[sql]>=0.33.0.0",
   "httpx>=0.24",
   "databricks-dlt>=0.2,<0.3",
   "faker>=25.0",
