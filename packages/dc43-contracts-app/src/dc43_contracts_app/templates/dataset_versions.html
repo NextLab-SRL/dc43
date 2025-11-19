@@ -1,42 +1,137 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Dataset {{ dataset_name }}</h1>
-<table class="table table-striped">
-  <thead><tr><th>Version</th><th>Contract</th><th>Data product</th><th>Status</th></tr></thead>
-  <tbody>
-  {% for r in records %}
-  <tr>
-    <td><a href="/datasets/{{ dataset_name }}/{{ r.dataset_version }}">{{ r.dataset_version }}</a></td>
-    <td>
-      {% if r.contract_id %}
-        <a href="/contracts/{{ r.contract_id }}">{{ r.contract_id }}</a>
-        {% if r.contract_version %}
-          <a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a>
+{% include "includes/metrics_summary.html" %}
+<div class="table-responsive">
+  <table class="table table-striped align-middle" data-table-sort="dataset-history" data-default-sort="dataset-version" data-default-order="desc">
+    <thead>
+      <tr>
+        <th scope="col">
+          <button type="button" class="btn btn-link btn-sm p-0 table-sort-control" data-sort-key="dataset-version" data-default-order="desc">
+            Version
+            <span class="visually-hidden">Sort by dataset version</span>
+          </button>
+        </th>
+        <th scope="col">
+          <button type="button" class="btn btn-link btn-sm p-0 table-sort-control" data-sort-key="contract">
+            Contract
+            <span class="visually-hidden">Sort by contract identifier</span>
+          </button>
+        </th>
+        <th scope="col">
+          <button type="button" class="btn btn-link btn-sm p-0 table-sort-control" data-sort-key="contract-version">
+            Contract version
+            <span class="visually-hidden">Sort by contract version</span>
+          </button>
+        </th>
+        <th scope="col">Data product</th>
+        <th scope="col">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in records %}
+    <tr data-sort-dataset-version="{{ r.dataset_version | default('', true) }}" data-sort-contract="{{ r.contract_id | default('', true) | lower }}" data-sort-contract-version="{{ r.contract_version | default('', true) | lower }}">
+      <td>
+        {% if r.dataset_version %}
+        <a href="/datasets/{{ dataset_name }}/{{ r.dataset_version }}">{{ r.dataset_version }}</a>
         {% else %}
+        <span class="text-muted">Latest</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if r.contract_id %}
+          <a href="/contracts/{{ r.contract_id }}">{{ r.contract_id }}</a>
+        {% else %}
+          <span class="text-muted">No contract</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if r.contract_id and r.contract_version %}
+          <a href="/contracts/{{ r.contract_id }}/{{ r.contract_version }}">{{ r.contract_version }}</a>
+        {% elif r.contract_id %}
           <span class="text-muted">No version</span>
+        {% else %}
+          <span class="text-muted">—</span>
         {% endif %}
-      {% else %}
-        <span class="text-muted">No contract</span>
-      {% endif %}
-    </td>
-    <td>
-      {% if r.data_product_id %}
-        <a href="/data-products/{{ r.data_product_id }}">{{ r.data_product_id }}</a>
-        {% if r.data_product_port %}
-          <span class="text-muted">/</span>
-          <code>{{ r.data_product_port }}</code>
+      </td>
+      <td>
+        {% if r.data_product_id %}
+          <a href="/data-products/{{ r.data_product_id }}">{{ r.data_product_id }}</a>
+          {% if r.data_product_port %}
+            <span class="text-muted">/</span>
+            <code>{{ r.data_product_port }}</code>
+          {% endif %}
+          {% if r.data_product_role %}
+            <span class="badge bg-secondary text-uppercase ms-1">{{ r.data_product_role }}</span>
+          {% endif %}
+        {% else %}
+          <span class="text-muted">None</span>
         {% endif %}
-        {% if r.data_product_role %}
-          <span class="badge bg-secondary text-uppercase ms-1">{{ r.data_product_role }}</span>
+      </td>
+      <td>
+        {{ r.status }}
+        {% if r.observation_label or r.observation_scope %}
+          <div class="small text-muted">
+            {{ r.observation_label or r.observation_scope.replace('_', ' ').title() }}
+          </div>
         {% endif %}
-      {% else %}
-        <span class="text-muted">None</span>
-      {% endif %}
-    </td>
-    <td>{{ r.status }}</td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% if not records %}<p>No versions found.</p>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if not records %}<p class="text-muted">No versions found.</p>{% endif %}
+{% endblock %}
+
+{% block page_scripts %}
+{{ super() }}
+{% include "includes/metrics_chart_script.html" %}
+<script>
+  (function () {
+    function datasetProperty(key) {
+      if (!key) {
+        return '';
+      }
+      return `sort${key.replace(/(^|-)\w/g, (chunk) => chunk.replace('-', '').toUpperCase())}`;
+    }
+
+    function sortRows(table, key, order) {
+      const tbody = table.querySelector('tbody');
+      if (!tbody) {
+        return;
+      }
+      const attr = datasetProperty(key);
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const direction = order === 'asc' ? 1 : -1;
+      rows.sort((a, b) => {
+        const aValue = (a.dataset[attr] || '').toString();
+        const bValue = (b.dataset[attr] || '').toString();
+        return aValue.localeCompare(bValue, undefined, { sensitivity: 'base' }) * direction;
+      });
+      rows.forEach((row) => tbody.appendChild(row));
+    }
+
+    document.querySelectorAll('[data-table-sort]').forEach((table) => {
+      const defaultKey = table.dataset.defaultSort || 'dataset-version';
+      const defaultOrder = table.dataset.defaultOrder || 'desc';
+      sortRows(table, defaultKey, defaultOrder);
+
+      table.querySelectorAll('.table-sort-control').forEach((button) => {
+        const startingOrder = button.dataset.defaultOrder || 'asc';
+        button.dataset.sortOrder = startingOrder;
+        button.addEventListener('click', () => {
+          const key = button.dataset.sortKey;
+          if (!key) {
+            return;
+          }
+          const current = button.dataset.sortOrder === 'asc' ? 'asc' : 'desc';
+          const next = current === 'asc' ? 'desc' : 'asc';
+          button.dataset.sortOrder = next;
+          sortRows(table, key, next);
+        });
+      });
+    });
+  })();
+</script>
 {% endblock %}

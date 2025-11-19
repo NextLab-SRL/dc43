@@ -156,6 +156,15 @@ class GovernanceServiceBackend(Protocol):
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
+    ) -> Sequence[Mapping[str, object]]:
+        ...
+
+    def get_dataset_records(
+        self,
+        *,
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
     ) -> Sequence[Mapping[str, object]]:
         ...
 

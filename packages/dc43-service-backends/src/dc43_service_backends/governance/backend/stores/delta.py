@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from numbers import Number
 from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._metrics import extract_metrics, normalise_metric_value
+from ._table_names import (
+    derive_related_table_basename,
+    derive_related_table_name,
+)
 from .interface import GovernanceStore
+
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static typing
     from pyspark.sql import DataFrame, SparkSession
@@ -65,6 +73,7 @@ class DeltaGovernanceStore(GovernanceStore):
         link_table: str | None = None,
         metrics_table: str | None = None,
         bootstrap_tables: bool = True,
+        log_sql: bool = False,
     ) -> None:
         if not base_path and not (status_table and activity_table and link_table):
             raise ValueError(
@@ -76,6 +85,7 @@ class DeltaGovernanceStore(GovernanceStore):
         self._activity_table = activity_table
         self._link_table = link_table
         self._metrics_table = metrics_table
+        self._log_sql = log_sql
         if not self._metrics_table and self._base_path is None:
             reference_table = status_table or activity_table or link_table
             if reference_table:
@@ -85,6 +95,9 @@ class DeltaGovernanceStore(GovernanceStore):
 
         if bootstrap_tables:
             self.bootstrap()
+
+    _derive_related_table_name = staticmethod(derive_related_table_name)
+    _derive_related_table_basename = staticmethod(derive_related_table_basename)
 
     _STATUS_SCHEMA = StructType(
         [
@@ -142,6 +155,61 @@ class DeltaGovernanceStore(GovernanceStore):
         path.mkdir(parents=True, exist_ok=True)
         return str(path)
 
+    @staticmethod
+    def _escape_identifier(value: str) -> str:
+        return value.replace("`", "``")
+
+    @staticmethod
+    def _escape_literal(value: str) -> str:
+        return value.replace("'", "''")
+
+    @staticmethod
+    def _column_condition(column: str, value: Optional[str]) -> str:
+        if value is None:
+            return f"{column} IS NULL"
+        escaped = DeltaGovernanceStore._escape_literal(str(value))
+        return f"{column} = '{escaped}'"
+
+    @staticmethod
+    def _sql_target_identifier(table: str | None, folder: str | None) -> str | None:
+        if table:
+            return table
+        if folder:
+            return f"delta.`{DeltaGovernanceStore._escape_identifier(str(folder))}`"
+        return None
+
+    def _execute_sql(self, statement: str):  # pragma: no cover - logging shim
+        if self._log_sql:
+            logger.info("Spark SQL (governance): %s", statement.strip())
+        return self._spark.sql(statement)
+
+    def _purge_status_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: str,
+        table: str | None,
+        folder: str | None,
+    ) -> None:
+        target = self._sql_target_identifier(table, folder)
+        if not target:
+            return
+        condition = " AND ".join(
+            (
+                self._column_condition("dataset_id", dataset_id),
+                self._column_condition("dataset_version", dataset_version),
+            )
+        )
+        statement = f"DELETE FROM {target} WHERE {condition}"
+        try:
+            self._execute_sql(statement)
+        except Exception:  # pragma: no cover - delta deletes may fail on legacy runtimes
+            logger.exception(
+                "Failed to purge existing status rows for %s@%s",
+                dataset_id,
+                dataset_version,
+            )
+
     def _delta_folder_exists(self, folder: str | None) -> bool:
         if not folder:
             return False
@@ -179,7 +247,7 @@ class DeltaGovernanceStore(GovernanceStore):
                         f"AND table_name = '{_escape(name)}' "
                         "LIMIT 1"
                     )
-                    rows = self._spark.sql(query).collect()
+                    rows = self._execute_sql(query).collect()
                     if rows:
                         return True
                 except Exception:  # pragma: no cover - fall back to catalog lookup
@@ -187,14 +255,6 @@ class DeltaGovernanceStore(GovernanceStore):
 
         return bool(self._spark.catalog.tableExists(table))
 
-    @staticmethod
-    def _derive_related_table_name(table: str, suffix: str) -> str:
-        """Create a deterministic companion table name sharing ``table``'s scope."""
-
-        if "." in table:
-            prefix, name = table.rsplit(".", 1)
-            return f"{prefix}.{name}_{suffix}"
-        return f"{table}_{suffix}"
 
     def _ensure_delta_target(
         self,
@@ -273,6 +333,14 @@ class DeltaGovernanceStore(GovernanceStore):
         status: ValidationResult | None,
     ) -> None:
         recorded_at = self._now()
+        folder = self._table_path("status") if self._base_path else None
+        self._purge_status_entries(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            table=self._status_table,
+            folder=folder,
+        )
+        details_payload = status.details if status else {}
         payload = {
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
@@ -284,7 +352,7 @@ class DeltaGovernanceStore(GovernanceStore):
                 {
                     "status": status.status if status else "unknown",
                     "reason": status.reason if status else None,
-                    "details": status.details if status else {},
+                    "details": details_payload,
                     "contract_id": contract_id,
                     "contract_version": contract_version,
                     "dataset_id": dataset_id,
@@ -293,26 +361,16 @@ class DeltaGovernanceStore(GovernanceStore):
                 }
             ),
         }
-        df = self._spark.createDataFrame([payload])
-        folder = self._table_path("status") if self._base_path else None
+        df = self._spark.createDataFrame([payload], schema=self._STATUS_SCHEMA)
         self._write(df, table=self._status_table, folder=folder)
 
         if status is None:
             return
 
+        metrics_map = extract_metrics(status)
         metrics_records = []
-        for key, value in (status.metrics or {}).items():
-            numeric_value: float | None = None
-            if isinstance(value, Number):
-                numeric_value = float(value)
-                value_payload: str | None = str(value)
-            elif value is None:
-                value_payload = None
-            else:
-                try:
-                    value_payload = json.dumps(value)
-                except TypeError:
-                    value_payload = str(value)
+        for key, value in metrics_map.items():
+            value_payload, numeric_value = normalise_metric_value(value)
             metrics_records.append(
                 {
                     "dataset_id": dataset_id,
@@ -374,6 +432,46 @@ class DeltaGovernanceStore(GovernanceStore):
             details=coerce_details(record.get("details")),
         )
 
+    def load_status_matrix_entries(
+        self,
+        *,
+        dataset_id: str,
+        dataset_versions: Sequence[str] | None = None,
+        contract_ids: Sequence[str] | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        folder = self._table_path("status") if self._base_path else None
+        df = self._read(table=self._status_table, folder=folder)
+        if df is None:
+            return ()
+        condition = col("dataset_id") == dataset_id
+        versions = [str(value) for value in (dataset_versions or []) if str(value)]
+        if versions:
+            condition = condition & col("dataset_version").isin(versions)
+        contracts = [str(value) for value in (contract_ids or []) if str(value)]
+        if contracts:
+            condition = condition & col("contract_id").isin(contracts)
+        rows = df.filter(condition).collect()
+        entries: list[Mapping[str, object]] = []
+        for row in rows:
+            if getattr(row, "deleted", False):
+                continue
+            record = json.loads(row.payload)
+            status = ValidationResult(
+                status=str(record.get("status", "unknown")),
+                reason=str(record.get("reason")) if record.get("reason") else None,
+                details=coerce_details(record.get("details")),
+            )
+            entries.append(
+                {
+                    "dataset_id": row.dataset_id,
+                    "dataset_version": row.dataset_version,
+                    "contract_id": row.contract_id,
+                    "contract_version": row.contract_version,
+                    "status": status,
+                }
+            )
+        return tuple(entries)
+
     # ------------------------------------------------------------------
     # Dataset links
     # ------------------------------------------------------------------
@@ -392,7 +490,7 @@ class DeltaGovernanceStore(GovernanceStore):
             "contract_version": contract_version,
             "linked_at": self._now(),
         }
-        df = self._spark.createDataFrame([payload])
+        df = self._spark.createDataFrame([payload], schema=self._LINK_SCHEMA)
         folder = self._table_path("links") if self._base_path else None
         self._write(df, table=self._link_table, folder=folder)
 
@@ -441,7 +539,7 @@ class DeltaGovernanceStore(GovernanceStore):
             "payload": json.dumps(dict(event)),
             "lineage_event": json.dumps(dict(lineage_event)) if lineage_event is not None else None,
         }
-        df = self._spark.createDataFrame([payload])
+        df = self._spark.createDataFrame([payload], schema=self._ACTIVITY_SCHEMA)
         folder = self._table_path("activity") if self._base_path else None
         self._write(df, table=self._activity_table, folder=folder)
 

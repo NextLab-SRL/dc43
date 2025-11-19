@@ -158,7 +158,10 @@ Create a small synthetic dataset that adheres to the contract and write it to a
 Unity Catalog table via the Spark IO helper. The helper enforces the contract
 before the data hits storage and registers the output port through the
 governance service, so you no longer need to call the data product client
-directly.
+directly. The contracts application now correlates the recorded dataset IDs and
+contract bindings from this governance activity with the catalogued product
+ports, so the product detail pages surface run counts even when historical
+pipeline events predate the dedicated product metadata fields.
 
 ```python
 from pyspark.sql import functions as F
@@ -188,7 +191,6 @@ validation, _ = write_with_governance(
             "output_binding": {
                 "data_product": "dp.analytics.orders",
                 "port_name": "primary",
-                "physical_location": "governed.analytics.orders",
             },
         },
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
@@ -275,9 +277,9 @@ updates the matching Unity Catalog table with:
   `dc43.catalog_synced` or ownership tags)
 
 The dataset prefix tells the backend how to extract the table name from the
-dataset identifier. The default `table:` prefix works with the `physical_location`
-values used in the Spark helper example earlier in this guide. Adjust it if your
-pipelines encode Unity Catalog references differently.
+dataset identifier. The default `table:` prefix works with dataset identifiers
+that start with `table:`—for example `table:governed.analytics.orders`. Adjust
+it if your pipelines encode Unity Catalog references differently.
 
 Because the tagging happens in the governance backend, it does not depend on a
 specific contract or data product store implementation. Whether those services

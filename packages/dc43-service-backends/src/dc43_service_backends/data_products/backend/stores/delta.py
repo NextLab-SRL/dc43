@@ -28,12 +28,14 @@ class DeltaDataProductStore(DataProductStore):
         *,
         table: str | None = None,
         path: str | None = None,
+        log_sql: bool = False,
     ) -> None:
         if not (table or path):
             raise ValueError("Provide either a Unity Catalog table name or a Delta path")
         self._spark = spark
         self._table = table
         self._path = path
+        self._log_sql = log_sql
         self._ensure_table()
 
     # ------------------------------------------------------------------
@@ -42,10 +44,15 @@ class DeltaDataProductStore(DataProductStore):
     def _table_ref(self) -> str:
         return self._table if self._table else f"delta.`{self._path}`"
 
+    def _execute_sql(self, statement: str):  # pragma: no cover - logging shim
+        if self._log_sql:
+            logger.info("Spark SQL (data products): %s", statement.strip())
+        return self._spark.sql(statement)
+
     def _ensure_table(self) -> None:
         ref = self._table_ref()
         if self._table:
-            self._spark.sql(
+            self._execute_sql(
                 f"""
                 CREATE TABLE IF NOT EXISTS {ref} (
                     data_product_id STRING,
@@ -59,7 +66,7 @@ class DeltaDataProductStore(DataProductStore):
                 """
             )
         else:
-            self._spark.sql(
+            self._execute_sql(
                 f"""
                 CREATE TABLE IF NOT EXISTS {ref} (
                     data_product_id STRING,
@@ -83,7 +90,7 @@ class DeltaDataProductStore(DataProductStore):
         status = product.status or "draft"
         json_sql = json_payload.replace("'", "''")
         status_sql = status.replace("'", "''")
-        self._spark.sql(
+        self._execute_sql(
             f"""
             MERGE INTO {ref} t
             USING (SELECT
@@ -106,7 +113,7 @@ class DeltaDataProductStore(DataProductStore):
 
     def _collect_versions(self, data_product_id: str) -> Iterable[tuple[str, object]]:
         ref = self._table_ref()
-        rows = self._spark.sql(
+        rows = self._execute_sql(
             f"SELECT version, json FROM {ref} WHERE data_product_id = '{data_product_id}'"
         ).collect()
         for row in rows:
@@ -127,7 +134,7 @@ class DeltaDataProductStore(DataProductStore):
 
     def get(self, data_product_id: str, version: str) -> OpenDataProductStandard:  # noqa: D401
         ref = self._table_ref()
-        rows = self._spark.sql(
+        rows = self._execute_sql(
             f"SELECT json FROM {ref} WHERE data_product_id = '{data_product_id}' AND version = '{version}'"
         ).head(1)
         if not rows:
@@ -150,7 +157,7 @@ class DeltaDataProductStore(DataProductStore):
 
     def list_data_product_ids(self) -> Sequence[str]:  # noqa: D401
         ref = self._table_ref()
-        rows = self._spark.sql(f"SELECT DISTINCT data_product_id FROM {ref}").collect()
+        rows = self._execute_sql(f"SELECT DISTINCT data_product_id FROM {ref}").collect()
         product_ids = {str(row[0]) for row in rows if row and row[0]}
         return sorted(product_ids)
 

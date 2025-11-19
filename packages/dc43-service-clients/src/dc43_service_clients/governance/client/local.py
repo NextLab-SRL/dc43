@@ -243,11 +243,25 @@ class LocalGovernanceServiceClient(GovernanceServiceClient):
         *,
         dataset_id: str,
         dataset_version: Optional[str] = None,
+        include_status: bool = False,
     ) -> Sequence[Mapping[str, object]]:
         return self._backend.get_pipeline_activity(
             dataset_id=dataset_id,
             dataset_version=dataset_version,
+            include_status=include_status,
         )
+
+    def get_dataset_records(
+        self,
+        *,
+        dataset_id: str | None = None,
+        dataset_version: str | None = None,
+    ) -> Sequence[Mapping[str, object]]:
+        records = self._backend.get_dataset_records(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
+        return tuple(dict(record) for record in records)
 
     def resolve_read_context(
         self,

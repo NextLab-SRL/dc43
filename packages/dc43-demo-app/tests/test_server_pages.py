@@ -135,6 +135,7 @@ def test_dataset_detail_page():
     resp = client.get(f"/datasets/{rec.dataset_name}/{rec.dataset_version}")
     assert resp.status_code == 200
     assert "order_id" in resp.text
+    assert "datasetMetricsChart" not in resp.text
 
 
 @pytest.mark.skipif(not PYSPARK_AVAILABLE, reason="pyspark required")
@@ -143,6 +144,8 @@ def test_dataset_versions_page():
     client = TestClient(contracts_app)
     resp = client.get(f"/datasets/{rec.dataset_name}")
     assert resp.status_code == 200
+    assert "datasetMetricsChart" in resp.text
+    assert 'data-table-sort="dataset-history"' in resp.text
 
 
 @pytest.mark.skipif(not PYSPARK_AVAILABLE, reason="pyspark required")
@@ -402,6 +405,7 @@ def test_dataset_versions_page_history_table():
     resp = client.get(f"/datasets/{rec.dataset_name}")
     assert resp.status_code == 200
     assert rec.dataset_version in resp.text
+    assert "table-sort-control" in resp.text
 
 
 @pytest.mark.skipif(not PYSPARK_AVAILABLE, reason="pyspark required")

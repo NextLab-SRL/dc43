@@ -89,6 +89,71 @@ def test_load_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config.governance_store.root == tmp_path / "gov"
 
 
+def test_load_config_log_sql_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[contract_store]",
+                "type = 'sql'",
+                "dsn = 'sqlite:///:memory:'",
+                "log_sql = true",
+                "",
+                "[data_product]",
+                "type = 'sql'",
+                "dsn = 'sqlite:///:memory:'",
+                "log_sql = false",
+                "",
+                "[governance_store]",
+                "type = 'sql'",
+                "dsn = 'sqlite:///:memory:'",
+                "log_sql = false",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.contract_store.log_sql is True
+    assert config.data_product_store.log_sql is False
+    assert config.governance_store.log_sql is False
+
+    monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
+    monkeypatch.setenv("DC43_DATA_PRODUCT_STORE_LOG_SQL", "1")
+    monkeypatch.setenv("DC43_GOVERNANCE_STORE_LOG_SQL", "true")
+
+    env_config = load_config()
+    assert env_config.contract_store.log_sql is True
+    assert env_config.data_product_store.log_sql is True
+    assert env_config.governance_store.log_sql is True
+
+
+def test_governance_metrics_table_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[governance_store]",
+                "type = 'sql'",
+                "metrics_table = 'dq_status_metrics'",
+                "status_table = 'dq_status'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.governance_store.metrics_table == "dq_status_metrics"
+
+    monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
+    monkeypatch.setenv("DC43_GOVERNANCE_METRICS_TABLE", "custom_metrics")
+
+    env_config = load_config()
+    assert env_config.governance_store.metrics_table == "custom_metrics"
+
+
 def test_env_overrides_contract_store_type(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_path = tmp_path / "backends.toml"
     config_path.write_text("", encoding="utf-8")

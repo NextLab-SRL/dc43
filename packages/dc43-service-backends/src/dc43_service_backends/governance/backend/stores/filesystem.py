@@ -6,12 +6,12 @@ import json
 import os
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from numbers import Number
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._metrics import extract_metrics, normalise_metric_value
 from .interface import GovernanceStore
 
 
@@ -112,14 +112,15 @@ class FilesystemGovernanceStore(GovernanceStore):
         )
         self._write_json(path, asdict(record))
 
-        if status.metrics:
+        metrics_map = extract_metrics(status)
+        if metrics_map:
             self._append_metrics(
                 contract_id=contract_id,
                 contract_version=contract_version,
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
                 recorded_at=record.recorded_at,
-                metrics=status.metrics,
+                metrics=metrics_map,
             )
 
     def load_status(
@@ -313,19 +314,8 @@ class FilesystemGovernanceStore(GovernanceStore):
         if not isinstance(records, list):
             records = []
 
-        def _normalise(value: Any) -> tuple[Any | None, float | None]:
-            if isinstance(value, Number):
-                return value, float(value)
-            if value is None:
-                return None, None
-            try:
-                json.dumps(value)
-                return value, None
-            except TypeError:
-                return str(value), None
-
         for metric_key, metric_value in metrics.items():
-            value, numeric = _normalise(metric_value)
+            value, numeric = normalise_metric_value(metric_value)
             records.append(
                 {
                     "dataset_id": dataset_id,

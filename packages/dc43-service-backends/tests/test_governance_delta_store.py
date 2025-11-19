@@ -377,6 +377,28 @@ def test_bootstrap_derives_metrics_table_name() -> None:
         assert entry["options"].get("overwriteSchema") == "true"
 
 
+def test_bootstrap_derives_metrics_table_name_from_status_suffix() -> None:
+    spark = _StubSpark()
+    DeltaGovernanceStore(
+        spark,
+        status_table="analytics.governance.dq_status",
+        activity_table="analytics.governance.activity",
+        link_table="analytics.governance.links",
+    )
+
+    tables = _tables(spark.records)
+    assert {entry["target"] for entry in tables} == {
+        "analytics.governance.dq_status",
+        "analytics.governance.activity",
+        "analytics.governance.links",
+        "analytics.governance.dq_metrics",
+    }
+    for entry in tables:
+        assert entry["format"] == "delta"
+        assert entry["mode"] == "overwrite"
+        assert entry["options"].get("overwriteSchema") == "true"
+
+
 def test_bootstrap_skips_existing_tables() -> None:
     spark = _StubSpark(existing_tables={"analytics.governance.status"})
     DeltaGovernanceStore(
@@ -494,6 +516,33 @@ def test_save_status_records_metrics_entries(tmp_path: Path) -> None:
     assert summary_row["metric_numeric_value"] is None
 
 
+def test_save_status_records_metrics_from_details_payload(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark, base_path=tmp_path)
+    store._now = lambda: "2024-05-01T00:00:00Z"  # type: ignore[assignment]
+
+    status = ValidationResult(status="ok")
+    status.details = {"metrics": {"row_count": 3}}
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="1.0.0",
+        dataset_id="orders",
+        dataset_version="2024-05-01",
+        status=status,
+    )
+
+    metrics_frames = [
+        frame
+        for frame in spark.dataframes
+        if frame["schema"] is DeltaGovernanceStore._METRIC_SCHEMA and frame["data"]
+    ]
+    assert len(metrics_frames) == 1
+    rows = metrics_frames[0]["data"]
+    assert rows[0]["metric_key"] == "row_count"
+    assert rows[0]["metric_numeric_value"] == 3.0
+
+
 def test_save_status_appends_metrics_to_table_target() -> None:
     spark = _StubSpark()
     store = DeltaGovernanceStore(
@@ -518,6 +567,57 @@ def test_save_status_appends_metrics_to_table_target() -> None:
     metric_writes = [entry for entry in spark.records if entry["target"] == "analytics.metrics"]
     assert metric_writes
     assert all(entry["type"] == "table" for entry in metric_writes)
+
+
+def test_save_status_deletes_existing_rows_for_table_target() -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(
+        spark,
+        status_table="analytics.status",
+        activity_table="analytics.activity",
+        link_table="analytics.links",
+        metrics_table="analytics.metrics",
+    )
+
+    status = ValidationResult(status="ok")
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    delete_queries = [
+        query for query in spark.sql_queries if query.startswith("DELETE FROM analytics.status")
+    ]
+    assert delete_queries
+    latest = delete_queries[-1]
+    assert "dataset_id = 'orders'" in latest
+    assert "dataset_version = '2024-04-01'" in latest
+
+
+def test_save_status_deletes_existing_rows_for_path_target(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark, base_path=tmp_path)
+
+    status = ValidationResult(status="ok")
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    delete_queries = [
+        query for query in spark.sql_queries if query.startswith("DELETE FROM delta.`")
+    ]
+    assert delete_queries
+    expected = str(tmp_path / "status")
+    assert DeltaGovernanceStore._escape_identifier(expected) in delete_queries[-1]
 
 
 def test_save_status_appends_metrics_to_derived_table_target() -> None:
@@ -547,6 +647,32 @@ def test_save_status_appends_metrics_to_derived_table_target() -> None:
     ]
     assert metric_writes
     assert all(entry["type"] == "table" for entry in metric_writes)
+
+
+def test_delta_store_normalises_string_metrics(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(spark, base_path=tmp_path)
+    store._now = lambda: "2024-04-05T12:00:00Z"  # type: ignore[assignment]
+
+    status = ValidationResult(status="ok", metrics={"row_count": "9", "note": "pass"})
+
+    store.save_status(
+        contract_id="contracts",
+        contract_version="2.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        status=status,
+    )
+
+    metric_frames = [
+        frame for frame in spark.dataframes if frame.get("schema") is store._METRIC_SCHEMA  # type: ignore[attr-defined]
+    ]
+    assert metric_frames
+    records = metric_frames[-1]["data"]
+    metric_map = {entry["metric_key"]: entry for entry in records}
+    assert metric_map["row_count"]["metric_numeric_value"] == 9.0
+    assert metric_map["row_count"]["metric_value"] == "9"
+    assert metric_map["note"]["metric_value"] == "pass"
 
 
 def test_load_metrics_filters_results(tmp_path: Path) -> None:

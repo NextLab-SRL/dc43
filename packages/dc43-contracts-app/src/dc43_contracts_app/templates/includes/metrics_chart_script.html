@@ -1,0 +1,282 @@
+{% set metrics_summary = metrics_summary | default({}) %}
+{% set chronological_history = metrics_summary.get('chronological_history', []) %}
+{% set numeric_metric_keys = metrics_summary.get('numeric_metric_keys', []) %}
+{% set contract_filters = metrics_summary.get('contract_filters', []) %}
+{% set show_metrics_history = show_metrics_history | default(False) %}
+{% if show_metrics_history and chronological_history %}
+<script>
+  (function () {
+    const canvas = document.getElementById('datasetMetricsChart');
+    const rawHistory = {{ chronological_history | tojson }};
+    const history = Array.isArray(rawHistory) ? rawHistory : [];
+    const rawMetricKeys = {{ numeric_metric_keys | tojson }};
+    const metricKeys = Array.isArray(rawMetricKeys) ? rawMetricKeys : [];
+    const rawFilters = {{ contract_filters | tojson }};
+    const contractFilters = Array.isArray(rawFilters) ? rawFilters : [];
+    const emptyMessage = document.getElementById('datasetMetricsEmptyMessage');
+    const defaultEmptyText = emptyMessage ? (emptyMessage.dataset.defaultText || emptyMessage.textContent || '') : '';
+    const noNumericText = emptyMessage ? (emptyMessage.dataset.noNumericText || 'No numeric metrics recorded for this dataset.') : 'No numeric metrics recorded for this dataset.';
+    const noFilterResultsText = emptyMessage ? (emptyMessage.dataset.noFilterResultsText || 'No numeric metrics match the selected filters.') : 'No numeric metrics match the selected filters.';
+
+    if (!canvas || !Array.isArray(history) || !history.length) {
+      if (canvas) {
+        canvas.classList.add('d-none');
+      }
+      if (emptyMessage) {
+        emptyMessage.textContent = defaultEmptyText || 'No metric history recorded for this dataset.';
+        emptyMessage.classList.remove('d-none');
+      }
+      return;
+    }
+    const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6610f2', '#20c997', '#6f42c1', '#0dcaf0', '#ffc107', '#343a40'];
+    const defaultMessage = defaultEmptyText || 'Metric trend data will appear once the chart loads.';
+    const contractSelect = document.getElementById('datasetMetricsContractFilter');
+    const versionSelect = document.getElementById('datasetMetricsContractVersionFilter');
+    const contractVersionMeta = (contractFilters || []).reduce((acc, item) => {
+      if (item && item.contract_id) {
+        acc[item.contract_id] = {
+          versions: Array.isArray(item.versions) ? item.versions : [],
+          source: item.version_source || 'contract',
+        };
+      }
+      return acc;
+    }, {});
+    let chart;
+
+    function filterHistory(contractId, contractVersion, versionSource) {
+      return history.filter((snapshot) => {
+        const snapshotContract = snapshot.contract_id || '';
+        const snapshotVersion = snapshot.contract_version || '';
+        const snapshotDatasetVersion = snapshot.dataset_version || '';
+        if (contractId && snapshotContract !== contractId) {
+          return false;
+        }
+        if (contractVersion && snapshotVersion !== contractVersion) {
+          const matchesDataset = versionSource === 'dataset' && snapshotDatasetVersion === contractVersion;
+          if (!matchesDataset) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
+    function buildDatasets(targetHistory) {
+      return metricKeys.map((key, index) => {
+        const colour = palette[index % palette.length];
+        const data = targetHistory.map((snapshot) => {
+          const metric = (snapshot.metrics || []).find((item) => item.key === key);
+          if (metric && metric.numeric_value !== null && metric.numeric_value !== undefined) {
+            const value = Number(metric.numeric_value);
+            return Number.isFinite(value) ? value : null;
+          }
+          return null;
+        });
+        if (!data.some((value) => value !== null)) {
+          return null;
+        }
+        return {
+          label: key,
+          data,
+          spanGaps: true,
+          tension: 0.25,
+          borderWidth: 2,
+          pointRadius: 3,
+          pointHoverRadius: 4,
+          borderColor: colour,
+          backgroundColor: `${colour}33`,
+        };
+      }).filter(Boolean);
+    }
+
+    function showEmpty(text) {
+      if (canvas) {
+        canvas.classList.add('d-none');
+      }
+      if (emptyMessage) {
+        emptyMessage.textContent = text || defaultMessage;
+        emptyMessage.classList.remove('d-none');
+      }
+    }
+
+    function hideEmpty() {
+      if (emptyMessage) {
+        emptyMessage.classList.add('d-none');
+      }
+    }
+
+    function renderChart(contractId, contractVersion, versionSource, ChartLib) {
+      if (!metricKeys.length) {
+        showEmpty(noNumericText);
+        return;
+      }
+      const scopedHistory = filterHistory(contractId, contractVersion, versionSource);
+      const datasets = buildDatasets(scopedHistory);
+      if (!datasets.length) {
+        if (chart) {
+          chart.destroy();
+          chart = null;
+        }
+        showEmpty(noFilterResultsText);
+        return;
+      }
+      const labels = scopedHistory.map((snapshot) => snapshot.recorded_label || snapshot.recorded_at || 'Snapshot');
+      const datasetVersions = scopedHistory.map((snapshot) => snapshot.dataset_version || '');
+      const contractLabels = scopedHistory.map((snapshot) => {
+        if (!snapshot.contract_id) {
+          return '';
+        }
+        return snapshot.contract_version ? `${snapshot.contract_id}:${snapshot.contract_version}` : snapshot.contract_id;
+      });
+      canvas.classList.remove('d-none');
+      hideEmpty();
+      if (chart) {
+        chart.destroy();
+      }
+      chart = new ChartLib(canvas, {
+        type: 'line',
+        data: {
+          labels,
+          datasets,
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            intersect: false,
+            mode: 'nearest',
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                afterBody(items) {
+                  const index = items?.[0]?.dataIndex ?? 0;
+                  const parts = [];
+                  if (datasetVersions[index]) {
+                    parts.push(`Dataset ${datasetVersions[index]}`);
+                  }
+                  if (contractLabels[index]) {
+                    parts.push(`Contract ${contractLabels[index]}`);
+                  }
+                  return parts.join('\n');
+                },
+              },
+            },
+            legend: {
+              display: true,
+              position: 'bottom',
+            },
+          },
+          scales: {
+            x: {
+              ticks: {
+                autoSkip: true,
+                maxRotation: 0,
+              },
+            },
+            y: {
+              beginAtZero: false,
+              ticks: {
+                precision: 2,
+              },
+            },
+          },
+        },
+      });
+    }
+
+    function contractMeta(contractId) {
+      if (!contractId) {
+        return null;
+      }
+      return contractVersionMeta[contractId] || null;
+    }
+
+    function resetVersionOptions(contractId) {
+      if (!versionSelect) {
+        return;
+      }
+      const meta = contractMeta(contractId);
+      const versions = meta ? meta.versions : [];
+      versionSelect.innerHTML = '';
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'All versions';
+      versionSelect.appendChild(defaultOption);
+      versionSelect.disabled = !contractId || versions.length === 0;
+      versionSelect.dataset.source = meta && meta.source ? meta.source : 'contract';
+      if (!versionSelect.disabled) {
+        versions.forEach((version) => {
+          const option = document.createElement('option');
+          option.value = version;
+          option.textContent = version;
+          versionSelect.appendChild(option);
+        });
+      }
+      versionSelect.value = '';
+    }
+
+    function currentContractId() {
+      return contractSelect && contractSelect.value ? contractSelect.value : '';
+    }
+
+    function currentContractVersion() {
+      return versionSelect && versionSelect.value ? versionSelect.value : '';
+    }
+
+    function currentVersionSource() {
+      if (!versionSelect || versionSelect.disabled) {
+        return 'contract';
+      }
+      return versionSelect.dataset.source || 'contract';
+    }
+
+    function bootChart() {
+      const ChartLib = window.Chart;
+      if (!ChartLib) {
+        return false;
+      }
+      if (emptyMessage) {
+        emptyMessage.textContent = defaultEmptyText;
+      }
+      canvas.classList.remove('d-none');
+      if (emptyMessage) {
+        emptyMessage.classList.add('d-none');
+      }
+      resetVersionOptions(currentContractId());
+      renderChart(currentContractId(), currentContractVersion(), currentVersionSource(), ChartLib);
+
+      if (contractSelect) {
+        contractSelect.addEventListener('change', () => {
+          resetVersionOptions(currentContractId());
+          renderChart(currentContractId(), currentContractVersion(), currentVersionSource(), ChartLib);
+        });
+      }
+      if (versionSelect) {
+        versionSelect.addEventListener('change', () => {
+          renderChart(currentContractId(), currentContractVersion(), currentVersionSource(), ChartLib);
+        });
+      }
+      return true;
+    }
+
+    if (!bootChart()) {
+      showEmpty('Loading chart library…');
+      window.addEventListener(
+        'dc43:chart-ready',
+        () => {
+          bootChart();
+        },
+        { once: true }
+      );
+      window.addEventListener(
+        'dc43:chart-error',
+        (event) => {
+          showEmpty((event && event.detail && event.detail.message) || 'Metric chart unavailable: Chart.js failed to load.');
+        },
+        { once: true }
+      );
+    }
+  })();
+</script>
+{% endif %}

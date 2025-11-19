@@ -608,6 +608,33 @@ class _ServiceBackendMock:
                 and (dataset_version is None or item["dataset_version"] == dataset_version)
             ]
             return httpx.Response(status_code=200, json=activities)
+        if path == "/governance/dataset-records" and method == "GET":
+            dataset_id = request.url.params.get("dataset_id")
+            dataset_version = request.url.params.get("dataset_version")
+            entries: list[dict[str, object]] = []
+            for (ds_id, ds_version), status in self._governance_status.items():
+                if dataset_id and ds_id != dataset_id:
+                    continue
+                if dataset_version and ds_version != dataset_version:
+                    continue
+                contract_id = ""
+                contract_version = ""
+                contract_ref = self._dataset_links.get((ds_id, ds_version))
+                if contract_ref:
+                    contract_id, _, contract_version = contract_ref.partition(":")
+                entries.append(
+                    {
+                        "dataset_name": ds_id,
+                        "dataset_version": ds_version,
+                        "contract_id": contract_id,
+                        "contract_version": contract_version,
+                        "status": getattr(status, "status", "unknown"),
+                        "dq_details": getattr(status, "details", {}),
+                        "run_type": "infer",
+                        "violations": 0,
+                    }
+                )
+            return httpx.Response(status_code=200, json=entries)
         if path == "/governance/auth" and method == "POST":  # pragma: no cover - smoke path
             return httpx.Response(status_code=204)
         return httpx.Response(status_code=404, json={"detail": "Unknown governance endpoint"})
@@ -864,6 +891,9 @@ def test_remote_governance_client(http_clients):
     activity = governance_client.get_pipeline_activity(dataset_id="orders")
     assert isinstance(activity, list)
     assert activity
+    dataset_records = governance_client.get_dataset_records(dataset_id="orders")
+    assert dataset_records
+    assert dataset_records[0]["dataset_name"] == "orders"
 
     read_plan = governance_client.resolve_read_context(
         context=GovernanceReadContext(

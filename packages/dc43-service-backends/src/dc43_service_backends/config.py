@@ -138,6 +138,7 @@ class ContractStoreConfig:
     default_status: str = "Draft"
     status_filter: str | None = None
     catalog: dict[str, tuple[str, str]] = field(default_factory=dict)
+    log_sql: bool = False
 
 
 @dataclass(slots=True)
@@ -159,6 +160,7 @@ class DataProductStoreConfig:
     schema: str | None = None
     base_url: str | None = None
     catalog: str | None = None
+    log_sql: bool = False
 
 
 @dataclass(slots=True)
@@ -195,6 +197,7 @@ class GovernanceStoreConfig:
     token_scheme: str = "Bearer"
     timeout: float = 10.0
     headers: dict[str, str] = field(default_factory=dict)
+    log_sql: bool = False
 
 
 @dataclass(slots=True)
@@ -379,6 +382,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     default_status = "Draft"
     status_filter = None
     catalog_value: dict[str, tuple[str, str]] = {}
+    store_log_sql = False
     if isinstance(store_section, MutableMapping):
         raw_type = store_section.get("type")
         if isinstance(raw_type, str) and raw_type.strip():
@@ -409,6 +413,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if status_raw is not None:
             status_filter = str(status_raw).strip() or None
         catalog_value = _parse_catalog(store_section.get("catalog"))
+        store_log_sql = _parse_bool(store_section.get("log_sql"), False)
 
     dp_type = "memory"
     dp_root_value = None
@@ -418,6 +423,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     dp_schema_value = None
     dp_base_url_value = None
     dp_catalog_value = None
+    dp_log_sql = False
     if isinstance(data_product_section, MutableMapping):
         raw_type = data_product_section.get("type")
         if isinstance(raw_type, str) and raw_type.strip():
@@ -439,6 +445,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         catalog_raw = data_product_section.get("catalog")
         if catalog_raw is not None:
             dp_catalog_value = str(catalog_raw).strip() or None
+        dp_log_sql = _parse_bool(data_product_section.get("log_sql"), False)
 
     dq_type = "local"
     dq_base_url_value = None
@@ -539,6 +546,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     gov_token_scheme_value = "Bearer"
     gov_timeout_value = 10.0
     gov_headers_value: dict[str, str] = {}
+    gov_log_sql = False
+    gov_metrics_table_value = None
     if isinstance(governance_store_section, MutableMapping):
         raw_type = governance_store_section.get("type")
         if isinstance(raw_type, str) and raw_type.strip():
@@ -557,6 +566,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         link_table_raw = governance_store_section.get("link_table")
         if isinstance(link_table_raw, str) and link_table_raw.strip():
             gov_link_table_value = link_table_raw.strip()
+        metrics_table_raw = governance_store_section.get("metrics_table")
+        if isinstance(metrics_table_raw, str) and metrics_table_raw.strip():
+            gov_metrics_table_value = metrics_table_raw.strip()
         dsn_raw = governance_store_section.get("dsn")
         if dsn_raw is not None:
             gov_dsn_value = str(dsn_raw).strip() or None
@@ -579,6 +591,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         headers_raw = governance_store_section.get("headers")
         if headers_raw is not None:
             gov_headers_value = _parse_str_dict(headers_raw)
+        gov_log_sql = _parse_bool(governance_store_section.get("log_sql"), False)
 
     env_contract_type = os.getenv("DC43_CONTRACT_STORE_TYPE")
     if env_contract_type:
@@ -603,6 +616,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_contract_schema:
         schema_value = env_contract_schema.strip() or schema_value
 
+    env_contract_log_sql = os.getenv("DC43_CONTRACT_STORE_LOG_SQL")
+    if env_contract_log_sql is not None:
+        store_log_sql = _parse_bool(env_contract_log_sql, store_log_sql)
+
     env_dp_root = os.getenv("DC43_DATA_PRODUCT_STORE")
     if env_dp_root:
         dp_root_value = _coerce_path(env_dp_root)
@@ -611,6 +628,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     env_dp_table = os.getenv("DC43_DATA_PRODUCT_TABLE")
     if env_dp_table:
         dp_table_value = env_dp_table.strip() or dp_table_value
+
+    env_dp_log_sql = os.getenv("DC43_DATA_PRODUCT_STORE_LOG_SQL")
+    if env_dp_log_sql is not None:
+        dp_log_sql = _parse_bool(env_dp_log_sql, dp_log_sql)
 
     env_token = os.getenv("DC43_BACKEND_TOKEN")
     if env_token:
@@ -698,6 +719,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_gov_link_table:
         gov_link_table_value = env_gov_link_table.strip() or gov_link_table_value
 
+    env_gov_metrics_table = os.getenv("DC43_GOVERNANCE_METRICS_TABLE")
+    if env_gov_metrics_table:
+        gov_metrics_table_value = env_gov_metrics_table.strip() or gov_metrics_table_value
+
     env_gov_dsn = os.getenv("DC43_GOVERNANCE_STORE_DSN")
     if env_gov_dsn:
         gov_dsn_value = env_gov_dsn.strip() or gov_dsn_value
@@ -705,6 +730,10 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     env_gov_schema = os.getenv("DC43_GOVERNANCE_STORE_SCHEMA")
     if env_gov_schema:
         gov_schema_value = env_gov_schema.strip() or gov_schema_value
+
+    env_gov_log_sql = os.getenv("DC43_GOVERNANCE_STORE_LOG_SQL")
+    if env_gov_log_sql is not None:
+        gov_log_sql = _parse_bool(env_gov_log_sql, gov_log_sql)
 
     env_gov_url = os.getenv("DC43_GOVERNANCE_STORE_URL")
     if env_gov_url:
@@ -751,6 +780,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             default_status=default_status,
             status_filter=status_filter,
             catalog=catalog_value,
+            log_sql=store_log_sql,
         ),
         data_product_store=DataProductStoreConfig(
             type=dp_type,
@@ -761,6 +791,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             schema=dp_schema_value,
             base_url=dp_base_url_value,
             catalog=dp_catalog_value,
+            log_sql=dp_log_sql,
         ),
         data_quality=DataQualityBackendConfig(
             type=dq_type,
@@ -792,6 +823,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             status_table=gov_status_table_value,
             activity_table=gov_activity_table_value,
             link_table=gov_link_table_value,
+            metrics_table=gov_metrics_table_value,
             dsn=gov_dsn_value,
             schema=gov_schema_value,
             base_url=gov_base_url_value,
@@ -800,6 +832,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             token_scheme=gov_token_scheme_value,
             timeout=gov_timeout_value,
             headers=gov_headers_value,
+            log_sql=gov_log_sql,
         ),
     )
 
@@ -850,6 +883,8 @@ def _contract_store_mapping(config: ContractStoreConfig) -> dict[str, Any]:
             }
         if catalog_mapping:
             mapping["catalog"] = catalog_mapping
+    if config.log_sql:
+        mapping["log_sql"] = True
     return mapping
 
 
@@ -871,6 +906,8 @@ def _data_product_store_mapping(config: DataProductStoreConfig) -> dict[str, Any
         mapping["base_url"] = config.base_url
     if config.catalog:
         mapping["catalog"] = config.catalog
+    if config.log_sql:
+        mapping["log_sql"] = True
     return mapping
 
 
@@ -942,6 +979,8 @@ def _governance_store_mapping(config: GovernanceStoreConfig) -> dict[str, Any]:
         mapping["activity_table"] = config.activity_table
     if config.link_table:
         mapping["link_table"] = config.link_table
+    if config.metrics_table:
+        mapping["metrics_table"] = config.metrics_table
     if config.dsn:
         mapping["dsn"] = config.dsn
     if config.schema:
@@ -958,6 +997,8 @@ def _governance_store_mapping(config: GovernanceStoreConfig) -> dict[str, Any]:
         mapping["timeout"] = config.timeout
     if config.headers:
         mapping["headers"] = dict(config.headers)
+    if config.log_sql:
+        mapping["log_sql"] = True
     return mapping
 
 

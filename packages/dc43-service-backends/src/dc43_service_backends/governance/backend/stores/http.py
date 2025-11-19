@@ -6,6 +6,7 @@ from typing import Mapping, Optional, Sequence
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._metrics import extract_metrics
 from .interface import GovernanceStore
 
 try:  # pragma: no cover - optional dependency guard
@@ -76,8 +77,9 @@ class HttpGovernanceStore(GovernanceStore):
                 "reason": status.reason,
                 "details": status.details,
             }
-            if status.metrics:
-                payload["metrics"] = dict(status.metrics)
+            metrics_map = extract_metrics(status)
+            if metrics_map:
+                payload["metrics"] = metrics_map
         response = self._client.request(
             "DELETE" if status is None else "PUT",
             self._status_url(dataset_id, dataset_version),

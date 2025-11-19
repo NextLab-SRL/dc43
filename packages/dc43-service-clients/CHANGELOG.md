@@ -6,6 +6,9 @@
 - Introduced `load_service_clients` and `load_governance_client` helpers to
   provision local or remote service clients directly from backend
   configuration, providing a single entry point for application bootstrap.
+- Governance clients now expose `get_dataset_records`, mirroring the new backend
+  endpoint so portals can request deduplicated dataset run metadata without
+  replaying pipeline activity on the client.
 
 ### Changed
 - Declared a direct dependency on ``attrs`` so OpenLineage support works out of
@@ -19,6 +22,9 @@
 - Governance clients now expose dataset listing, pipeline activity, and
   validation status helpers so UI consumers can gather run history entirely via
   service APIs.
+- Pipeline activity helpers now accept an `include_status` flag that forwards
+  to the governance API so callers receive inline validation results without
+  issuing follow-up status or matrix queries.
 - Governance clients now expose contract discovery helpers (`get_contract`,
   `latest_contract`, `list_contract_versions`, and
   `describe_expectations`) and include validation payloads in

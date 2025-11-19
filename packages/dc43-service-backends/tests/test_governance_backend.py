@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, Sequence
 
 import pytest
 from open_data_contract_standard.model import (  # type: ignore
@@ -266,6 +266,25 @@ def test_register_write_activity_respects_binding_version(governance_fixture):
     backend.register_write_activity(plan=plan, assessment=assessment)
 
 
+def test_get_dataset_records_returns_runs(governance_fixture):
+    backend, _, contract = governance_fixture
+
+    backend.evaluate_dataset(
+        contract_id=contract.id,
+        contract_version=contract.version,
+        dataset_id="analytics.orders",
+        dataset_version="2024-01-01",
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    records = backend.get_dataset_records(dataset_id="analytics.orders")
+
+    assert records
+    assert records[0]["dataset_name"] == "analytics.orders"
+    assert records[0]["status"] == "ok"
+
+
 def test_resolve_write_context_from_existing_output(governance_fixture):
     backend, _, contract = governance_fixture
 
@@ -286,6 +305,83 @@ def test_resolve_write_context_from_existing_output(governance_fixture):
         observations=lambda: ObservationPayload(metrics={}, schema=None),
     )
     backend.register_write_activity(plan=plan, assessment=assessment)
+
+
+def test_register_write_skips_registration_for_pinned_version(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    version = product.version
+    assert version
+    port = product.find_output_port("primary")
+    assert port is not None
+    port.custom_properties = [
+        {"property": "dc43.output.physical_location", "value": "table"}
+    ]
+    data_product_backend.put(product)
+
+    data_product_backend.last_output_call = None
+
+    context = GovernanceWriteContext(
+        output_binding=DataProductOutputBinding(
+            data_product="dp.analytics",
+            port_name="primary",
+            data_product_version=version,
+        ),
+        dataset_id="analytics.orders.out",
+    )
+
+    plan = backend.resolve_write_context(context=context)
+    assessment = backend.evaluate_write_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    backend.register_write_activity(plan=plan, assessment=assessment)
+
+    assert data_product_backend.last_output_call is None
+
+
+def test_register_read_skips_registration_for_pinned_version(governance_fixture):
+    backend, data_product_backend, _ = governance_fixture
+
+    product = data_product_backend.latest("dp.analytics")
+    assert product is not None
+    version = product.version
+    assert version
+    port = product.find_input_port("orders")
+    assert port is not None
+    port.custom_properties = [
+        {"property": "dc43.input.refresh_mode", "value": "batch"}
+    ]
+    data_product_backend.put(product)
+
+    data_product_backend.last_input_call = None
+
+    context = GovernanceReadContext(
+        input_binding=DataProductInputBinding(
+            data_product="dp.analytics",
+            port_name="orders",
+            data_product_version=version,
+        )
+    )
+
+    plan = backend.resolve_read_context(context=context)
+    assessment = backend.evaluate_read_plan(
+        plan=plan,
+        validation=ValidationResult(ok=True, status="ok"),
+        observations=lambda: ObservationPayload(metrics={}, schema=None),
+    )
+
+    product.status = "draft"
+    data_product_backend.put(product)
+
+    with pytest.raises(ValueError, match="status"):
+        backend.register_read_activity(plan=plan, assessment=assessment)
+
+    assert data_product_backend.last_input_call is None
 
 
 def test_resolve_read_context_rejects_draft_product(governance_fixture):
@@ -473,3 +569,62 @@ def test_resolve_write_context_enforces_product_version(governance_fixture):
 
     with pytest.raises(ValueError, match="could not be retrieved"):
         backend.resolve_write_context(context=context)
+
+
+def test_pipeline_activity_uses_batch_statuses() -> None:
+    class DummyStore:
+        def __init__(self) -> None:
+            self.matrix_calls = 0
+            self.status_calls = 0
+
+        def load_pipeline_activity(self, *, dataset_id: str, dataset_version: str | None = None):
+            return (
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": dataset_version or "2024-01-01",
+                    "contract_id": "sales.orders",
+                    "contract_version": "1.0.0",
+                },
+            )
+
+        def load_status_matrix_entries(
+            self,
+            *,
+            dataset_id: str,
+            dataset_versions: Sequence[str] | None = None,
+            contract_ids: Sequence[str] | None = None,
+        ):
+            self.matrix_calls += 1
+            version = (dataset_versions or ["2024-01-01"])[0]
+            return (
+                {
+                    "dataset_id": dataset_id,
+                    "dataset_version": version,
+                    "contract_id": "sales.orders",
+                    "contract_version": "1.0.0",
+                    "status": ValidationResult(status="ok"),
+                },
+            )
+
+        def load_status(self, **_kwargs):
+            self.status_calls += 1
+            return ValidationResult(status="warn")
+
+    store = DummyStore()
+    backend = LocalGovernanceServiceBackend(
+        contract_client=object(),
+        dq_client=object(),
+        data_product_client=None,
+        store=store,
+    )
+
+    records = backend.get_pipeline_activity(
+        dataset_id="sales.orders",
+        dataset_version="2024-01-01",
+        include_status=True,
+    )
+
+    assert records
+    assert isinstance(records[0].get("validation_status"), ValidationResult)
+    assert store.matrix_calls == 1
+    assert store.status_calls == 0
