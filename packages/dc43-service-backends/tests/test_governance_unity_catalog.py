@@ -6,6 +6,8 @@ import sys
 
 import pytest
 
+from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
+
 from dc43_service_backends.config import (
     ContractStoreConfig,
     DataProductStoreConfig,
@@ -16,6 +18,7 @@ from dc43_service_backends.config import (
 from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
 from dc43_service_backends.governance.unity_catalog import (
     UnityCatalogLinker,
+    contract_servers_table_resolver,
     build_link_hooks,
     build_linker_from_config,
     prefix_table_resolver,
@@ -24,6 +27,7 @@ from dc43_service_backends.governance.unity_catalog import (
 )
 from dc43_service_backends.governance.bootstrap import (
     DEFAULT_LINK_HOOK_BUILDER_SPECS,
+    LinkHookContext,
     build_dataset_contract_link_hooks,
     load_link_hook_builder,
 )
@@ -58,6 +62,80 @@ def test_linker_updates_table() -> None:
             },
         )
     ]
+
+
+def test_linker_uses_contract_servers_before_dataset_id() -> None:
+    updates: list[str] = []
+
+    def _update(table_name: str, properties: Mapping[str, str]) -> None:
+        updates.append(table_name)
+
+    contract = OpenDataContractStandard(
+        id="sales.orders",
+        version="0.1.0",
+        kind="DatasetContract",
+        apiVersion="3.0.2",
+        servers=[
+            Server(server="unity", type="catalog", catalog="dev", schema="bronze", dataset="orders"),
+            Server(server="unity", type="catalog", catalog="dev", schema="bronze", dataset="orders"),
+        ],
+    )
+
+    linker = UnityCatalogLinker(
+        apply_table_properties=_update,
+        contract_loader=lambda *_: contract,
+        contract_table_resolver=contract_servers_table_resolver,
+        table_resolver=prefix_table_resolver("table__"),
+    )
+
+    linker.link_dataset_contract(
+        dataset_id="ignored.dataset",  # does not match the prefix
+        dataset_version="7",
+        contract_id="sales.orders",
+        contract_version="0.1.0",
+    )
+
+    assert updates == ["dev.bronze.orders"]
+
+
+def test_linker_falls_back_to_dataset_identifier_when_contract_missing() -> None:
+    updates: list[str] = []
+
+    def _update(table_name: str, properties: Mapping[str, str]) -> None:
+        updates.append(table_name)
+
+    linker = UnityCatalogLinker(
+        apply_table_properties=_update,
+        contract_loader=lambda *_: None,
+        table_resolver=prefix_table_resolver("table:"),
+    )
+
+    linker.link_dataset_contract(
+        dataset_id="table:dev.analytics.orders",
+        dataset_version="9",
+        contract_id="sales.orders",
+        contract_version="0.2.0",
+    )
+
+    assert updates == ["dev.analytics.orders"]
+
+
+def test_contract_servers_table_resolver_handles_partial_servers() -> None:
+    contract = OpenDataContractStandard(
+        id="sales.orders",
+        version="0.1.0",
+        kind="DatasetContract",
+        apiVersion="3.0.2",
+        servers=[
+            Server(server="unity", type="catalog", catalog="dev", schema="bronze", dataset="orders"),
+            Server(server="unity", type="catalog", schema="bronze", dataset="orders_rejects"),
+            Server(server="raw", type="filesystem", path="dbfs:/raw/orders"),
+        ],
+    )
+
+    tables = contract_servers_table_resolver(contract)
+
+    assert tables == ("dev.bronze.orders", "bronze.orders_rejects")
 
 
 def test_linker_skips_non_matching_datasets() -> None:
@@ -407,9 +485,11 @@ def test_build_link_hooks_injects_reserved_tables(monkeypatch: pytest.MonkeyPatc
 
     def _fake_builder(
         _: UnityCatalogConfig,
+        context=None,
         engine_builder=sql_table_property_updater,  # type: ignore[assignment]
         *,
         skip_tables: Sequence[str] | None = None,
+        **extra: object,
     ) -> UnityCatalogLinker:
         captured["skip"] = tuple(sorted(skip_tables or ()))
 
@@ -499,6 +579,46 @@ def test_build_linker_from_config_supports_tag_only_flow() -> None:
     ]
 
 
+def test_build_link_hooks_passes_contract_loader(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _ContractService:
+        def get(self, contract_id: str, contract_version: str) -> None:
+            captured["requested"] = (contract_id, contract_version)
+            return None
+
+    class _Linker:
+        def link_dataset_contract(self, **_: object) -> None:
+            pass
+
+    def _fake_builder(
+        config: UnityCatalogConfig,
+        *,
+        contract_loader=None,
+        **_: object,
+    ) -> _Linker:
+        captured["loader"] = contract_loader
+        return _Linker()
+
+    monkeypatch.setattr(
+        "dc43_service_backends.governance.unity_catalog.build_linker_from_config",
+        _fake_builder,
+    )
+
+    config = ServiceBackendsConfig(
+        unity_catalog=UnityCatalogConfig(enabled=True, sql_dsn="sqlite:///tmp.db"),
+    )
+    context = LinkHookContext(contract_service=_ContractService())
+
+    hooks = build_link_hooks(config, context=context)
+
+    assert hooks is not None and len(hooks) == 1
+    loader = captured.get("loader")
+    assert callable(loader)
+    loader("sales.orders", "0.1.0")
+    assert captured["requested"] == ("sales.orders", "0.1.0")
+
+
 def test_build_linker_from_config_disabled() -> None:
     config = UnityCatalogConfig(enabled=False)
     linker = build_linker_from_config(config)
@@ -536,6 +656,26 @@ def test_build_dataset_contract_link_hooks_warns_on_failure() -> None:
     assert hooks == ()
 
 
+def test_build_dataset_contract_link_hooks_pass_context() -> None:
+    config = ServiceBackendsConfig()
+    context = LinkHookContext(contract_service=SimpleNamespace())
+    captured: dict[str, object] = {}
+
+    def _builder(_: ServiceBackendsConfig, context: LinkHookContext | None = None):
+        captured["context"] = context
+        return ()
+
+    hooks = build_dataset_contract_link_hooks(
+        config,
+        include_defaults=False,
+        extra_builders=[_builder],
+        context=context,
+    )
+
+    assert hooks == ()
+    assert captured["context"] is context
+
+
 def test_build_dataset_contract_link_hooks_uses_configured_specs(monkeypatch) -> None:
     config = ServiceBackendsConfig()
     config.governance.dataset_contract_link_builders = (
@@ -547,7 +687,7 @@ def test_build_dataset_contract_link_hooks_uses_configured_specs(monkeypatch) ->
 
     def _loader(spec: str):
         loaded.append(spec)
-        return lambda cfg: None
+        return lambda cfg, context=None: None
 
     monkeypatch.setattr(
         "dc43_service_backends.governance.bootstrap.load_link_hook_builder",

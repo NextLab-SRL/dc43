@@ -294,7 +294,7 @@ No additional fields are captured.
 - `static_tags` – Optional newline-separated `key=value` pairs mirrored into Unity Catalog tags. Tag names automatically replace Unity-reserved characters like `.`, `-`, `/`, `=`, `:` and `,` with underscores before the statements run.
 - `workspace_url`, `workspace_profile`, `token` – Legacy fields that remain available in exported configurations but are ignored by the Unity Catalog linker now that Databricks no longer supports property updates via the workspace REST API.
 
-Unity tagging runs only against the datasets referenced by `link_dataset_contract`. The backend automatically ignores tables declared for the contract store, data product store, and governance store so catalog metadata never lands on those internal artefacts even if a misconfigured pipeline forwards their identifiers.
+Unity tagging runs only against the datasets referenced by `link_dataset_contract`. The backend loads the referenced contract, extracts Unity tables from its `servers` block, and only falls back to dataset identifiers when no catalog metadata exists. It automatically ignores tables declared for the contract store, data product store, and governance store so catalog metadata never lands on those internal artefacts even if a misconfigured pipeline forwards their identifiers.
 
 #### Custom Python module (`custom_module`)
 *Required*

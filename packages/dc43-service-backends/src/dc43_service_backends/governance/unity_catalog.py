@@ -6,9 +6,12 @@ from dataclasses import dataclass, field
 import warnings
 from typing import Any, Callable, Mapping, MutableMapping, Optional, Protocol, Sequence
 
+from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+
 from dc43_service_backends.config import ServiceBackendsConfig, UnityCatalogConfig
 
 from .hooks import DatasetContractLinkHook
+from .bootstrap import LinkHookContext
 
 
 class TablePropertyUpdater(Protocol):
@@ -33,6 +36,8 @@ class TableTagUpdater(Protocol):
 MetadataProvider = Callable[[str, str, str, str], Mapping[str, object]]
 DatasetToTable = Callable[[str], Optional[str]]
 EngineBuilder = Callable[[str], Any]
+ContractLoader = Callable[[str, str], OpenDataContractStandard | None]
+ContractTableResolver = Callable[[OpenDataContractStandard], Sequence[str]]
 
 
 _RESERVED_PROPERTY_KEYS = frozenset({"owner"})
@@ -163,6 +168,50 @@ def _normalise_table_identifier(value: str | None) -> str | None:
     return lowered
 
 
+def _server_attribute(server: object, *names: str) -> str | None:
+    """Return the first non-empty attribute from ``names`` for ``server``."""
+
+    for name in names:
+        candidate = getattr(server, name, None)
+        if candidate:
+            text = str(candidate).strip()
+            if text:
+                return text
+    return None
+
+
+def _table_identifier_from_server(server: object) -> str | None:
+    """Return a Unity Catalog table identifier derived from ``server``."""
+
+    dataset = _server_attribute(server, "dataset")
+    if not dataset:
+        return None
+    catalog = _server_attribute(server, "catalog")
+    schema = _server_attribute(server, "schema_", "schema", "database")
+    parts = [part for part in (catalog, schema, dataset) if part]
+    if not parts:
+        return None
+    return ".".join(parts)
+
+
+def contract_servers_table_resolver(contract: OpenDataContractStandard) -> Sequence[str]:
+    """Return Unity Catalog table identifiers from ``contract.servers``."""
+
+    tables: list[str] = []
+    seen: set[str] = set()
+    for server in contract.servers or []:
+        table = _table_identifier_from_server(server)
+        if not table:
+            continue
+        canonical = _normalise_table_identifier(table)
+        if canonical and canonical in seen:
+            continue
+        if canonical:
+            seen.add(canonical)
+        tables.append(table)
+    return tuple(tables)
+
+
 @dataclass(slots=True)
 class UnityCatalogLinker:
     """Apply Unity Catalog table properties after governance link operations."""
@@ -170,6 +219,8 @@ class UnityCatalogLinker:
     apply_table_properties: TablePropertyUpdater | None = None
     apply_table_tags: TableTagUpdater | None = None
     table_resolver: DatasetToTable = prefix_table_resolver()
+    contract_loader: ContractLoader | None = None
+    contract_table_resolver: ContractTableResolver | None = None
     metadata_provider: MetadataProvider = _default_metadata
     static_properties: Mapping[str, str] = field(default_factory=dict)
     static_tags: Mapping[str, str] = field(default_factory=dict)
@@ -183,16 +234,45 @@ class UnityCatalogLinker:
         contract_id: str,
         contract_version: str,
     ) -> None:
-        table_name = self.table_resolver(dataset_id)
-        if table_name is None or not table_name:
-            return
-        canonical_table = _normalise_table_identifier(table_name)
-        if canonical_table and canonical_table in self.skip_tables:
-            warnings.warn(
-                f"Unity Catalog sync skipped reserved table '{table_name}'.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+        contract: OpenDataContractStandard | None = None
+        if self.contract_loader is not None:
+            try:
+                contract = self.contract_loader(contract_id, contract_version)
+            except Exception as exc:  # pragma: no cover - runtime guard
+                warnings.warn(
+                    f"Unity Catalog could not load contract '{contract_id}:{contract_version}': {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+        targets: list[str] = []
+        seen: set[str] = set()
+
+        def _add_table(table: Optional[str]) -> None:
+            if not table:
+                return
+            canonical = _normalise_table_identifier(table)
+            if canonical and canonical in self.skip_tables:
+                warnings.warn(
+                    f"Unity Catalog sync skipped reserved table '{table}'.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                return
+            if canonical and canonical in seen:
+                return
+            if canonical:
+                seen.add(canonical)
+            targets.append(table)
+
+        if contract and self.contract_table_resolver:
+            for table_name in self.contract_table_resolver(contract):
+                _add_table(table_name)
+
+        if not targets:
+            table_name = self.table_resolver(dataset_id)
+            _add_table(table_name)
+
+        if not targets:
             return
         metadata = self.metadata_provider(
             dataset_id,
@@ -201,28 +281,34 @@ class UnityCatalogLinker:
             contract_version,
         )
         properties = _build_properties(metadata, dict(self.static_properties))
-        if properties and self.apply_table_properties:
-            try:
-                self.apply_table_properties(table_name, properties)
-            except Exception as exc:  # pragma: no cover - runtime guard
-                warnings.warn(
-                    f"Unity Catalog property sync failed for '{table_name}': {exc}",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+        tags: Mapping[str, str] = {}
+        tag_keys: Sequence[str] = ()
         if self.apply_table_tags:
-            tags, tag_keys = _build_tags(metadata, dict(self.static_tags))
-            unset: tuple[str, ...] = ()
-            if not tags and tag_keys:
-                unset = tuple(sorted(tag_keys))
-            try:
-                self.apply_table_tags(table_name, tags, unset)
-            except Exception as exc:  # pragma: no cover - runtime guard
-                warnings.warn(
-                    f"Unity Catalog tag sync failed for '{table_name}': {exc}",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+            tags, keys = _build_tags(metadata, dict(self.static_tags))
+            tag_keys = tuple(sorted(keys))
+
+        for table_name in targets:
+            if properties and self.apply_table_properties:
+                try:
+                    self.apply_table_properties(table_name, properties)
+                except Exception as exc:  # pragma: no cover - runtime guard
+                    warnings.warn(
+                        f"Unity Catalog property sync failed for '{table_name}': {exc}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+            if self.apply_table_tags:
+                unset: tuple[str, ...] = ()
+                if not tags and tag_keys:
+                    unset = tuple(tag_keys)
+                try:
+                    self.apply_table_tags(table_name, tags, unset)
+                except Exception as exc:  # pragma: no cover - runtime guard
+                    warnings.warn(
+                        f"Unity Catalog tag sync failed for '{table_name}': {exc}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -308,6 +394,8 @@ def build_linker_from_config(
     config: UnityCatalogConfig,
     engine_builder: EngineBuilder = _default_engine_builder,
     *,
+    contract_loader: ContractLoader | None = None,
+    contract_table_resolver: ContractTableResolver | None = None,
     skip_tables: Sequence[str] | None = None,
 ) -> UnityCatalogLinker | None:
     """Return a Unity Catalog linker configured from backend settings."""
@@ -381,6 +469,8 @@ def build_linker_from_config(
         apply_table_properties=updater,
         apply_table_tags=tag_updater,
         table_resolver=resolver,
+        contract_loader=contract_loader,
+        contract_table_resolver=contract_table_resolver or contract_servers_table_resolver,
         static_properties=static_properties,
         static_tags=static_tags,
         skip_tables=skip,
@@ -389,6 +479,7 @@ def build_linker_from_config(
 
 def build_link_hooks(
     config: ServiceBackendsConfig,
+    context: LinkHookContext | None = None,
 ) -> Sequence[DatasetContractLinkHook] | None:
     """Return Unity Catalog link hooks derived from ``config``.
 
@@ -397,10 +488,17 @@ def build_link_hooks(
     """
 
     reserved_tables = _collect_reserved_tables(config)
+    contract_loader: ContractLoader | None = None
+    if context is not None and context.contract_service is not None:
+        loader = getattr(context.contract_service, "get", None)
+        if callable(loader):
+            contract_loader = loader
 
     try:
         linker = build_linker_from_config(
             config.unity_catalog,
+            contract_loader=contract_loader,
+            contract_table_resolver=contract_servers_table_resolver,
             skip_tables=reserved_tables,
         )
     except Exception as exc:  # pragma: no cover - defensive guard
@@ -444,6 +542,7 @@ __all__ = [
     "UnityCatalogLinker",
     "TablePropertyUpdater",
     "TableTagUpdater",
+    "contract_servers_table_resolver",
     "sql_table_property_updater",
     "sql_table_tag_updater",
     "build_linker_from_config",

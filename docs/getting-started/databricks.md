@@ -275,8 +275,9 @@ dataset_contract_link_builders = [
 ```
 
 The DSN may omit the `catalog` or `schema` query parameters—the backend issues
-fully-qualified `ALTER TABLE` statements based on the dataset identifiers it
-receives. Legacy `workspace_*` keys remain accepted in the configuration for
+fully-qualified `ALTER TABLE` statements based on the Unity tables declared in
+each contract's `servers` section (falling back to dataset identifiers only when
+those entries are missing). Legacy `workspace_*` keys remain accepted in the configuration for
 backwards compatibility but are ignored by the Unity Catalog linker now that the
 workspace API no longer supports property updates.
 
@@ -317,20 +318,23 @@ permission to mutate a target table, the hook logs a `RuntimeWarning` and keeps
 processing the governance request so dataset↔contract links continue to record
 successfully.
 
-The linker automatically ignores the contract, data product, and governance tables declared elsewhere in your configuration. Only dataset identifiers that reach `link_dataset_contract` trigger Unity metadata, so governance control tables never receive catalog tags or properties even if a client accidentally forwards their names.
+The linker automatically ignores the contract, data product, and governance tables declared elsewhere in your configuration. Each `link_dataset_contract` call triggers catalog updates for the Unity tables listed under the referenced contract's `servers`. Dataset identifiers only act as a fallback, so governance control tables never receive catalog tags or properties even if a client accidentally forwards their names.
 
-The dataset prefix tells the backend how to extract the table name from the
-dataset identifier. The default `table:` prefix works with dataset identifiers
-that start with `table:`—for example `table:governed.analytics.orders`. Adjust
-it if your pipelines encode Unity Catalog references differently.
+The dataset prefix now only applies when a contract has no Unity servers. The
+default `table:` prefix works with dataset identifiers that start with
+`table:`—for example `table:governed.analytics.orders`. Adjust it if your
+pipelines encode Unity Catalog references differently or rely solely on contract
+metadata for table resolution.
 
 Because the tagging happens in the governance backend, it does not depend on a
 specific contract or data product store implementation. Whether those services
 persist their catalogues in Delta Lake, PostgreSQL, Azure Files, or another
-storage layer, the Unity Catalog linker only needs the dataset identifier that
-arrives with the `link_dataset_contract` call. This keeps the integration
-compatible with remote deployments where the contract or product descriptors are
-served by HTTP backends backed by managed databases.
+storage layer, the Unity Catalog linker simply asks the contract backend for the
+full ODCS document and reads its `servers` block. If no Unity metadata is
+available, it falls back to the dataset identifier shipped with the
+`link_dataset_contract` call. This keeps the integration compatible with remote
+deployments where the contract or product descriptors are served by HTTP
+backends backed by managed databases.
 
 The Unity Catalog bridge registers as a backend hook, so the REST contracts and
 client interfaces stay agnostic of Databricks-specific concerns. Pipelines and

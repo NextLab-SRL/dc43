@@ -46,6 +46,7 @@
   so failed catalog updates only emit warnings instead of interrupting
   governance flows.
 - Unity Catalog hooks now treat contract, data product, and governance tables declared in the backend configuration as reserved, guaranteeing that only dataset identifiers passed to `link_dataset_contract` receive properties or tags even if a client forwards the wrong table name.
+- Unity Catalog tagging now resolves target tables directly from each contract's `servers` block (falling back to dataset identifiers only when no Unity metadata exists) and the hook builders receive a `LinkHookContext` with the active contract backend so catalog updates can safely load contracts while continuing on permission failures.
 - Delta governance stores can now specify a `dsn`; when present, the builder reuses the SQL implementation so Databricks SQL warehouses handle every insert/update and remote FastAPI deployments no longer need to start a Spark session purely to persist governance metadata in Delta tables.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so

@@ -126,14 +126,14 @@ catalog metadata shared between contract, product, and governance stores:
 | `workspace_url` | string | **Legacy.** Databricks workspace URL recorded for compatibility. The Unity Catalog linker ignores this value now that Databricks no longer exposes a properties-aware workspace API. |
 | `workspace_profile` | string | **Legacy.** Databricks CLI profile retained for backwards compatibility. |
 | `workspace_token` | string | **Legacy.** Personal access token stored for historical exports. |
-| `sql_dsn` | string | SQLAlchemy DSN pointing at a Databricks SQL warehouse (for example `databricks://token:abc@adb-123.azuredatabricks.net?http_path=/sql/1.0/warehouses/xyz`). The DSN may omit `catalog`/`schema` hints because dataset identifiers arrive fully qualified; the Unity Catalog hook issues `ALTER TABLE … SET/UNSET TBLPROPERTIES` statements through this DSN to propagate governance tags. |
+| `sql_dsn` | string | SQLAlchemy DSN pointing at a Databricks SQL warehouse (for example `databricks://token:abc@adb-123.azuredatabricks.net?http_path=/sql/1.0/warehouses/xyz`). The DSN may omit `catalog`/`schema` hints because the hook resolves Unity tables from each contract's `servers` entries and only falls back to dataset identifiers when no catalog metadata exists. |
 | `tags_enabled` | bool | Enable Unity Catalog tag propagation (disabled by default). |
 | `tags_sql_dsn` | string | Optional SQLAlchemy DSN used specifically for `ALTER TABLE … SET/UNSET TAGS`; defaults to `sql_dsn` when omitted. |
-| `dataset_prefix` | string | Prefix applied to dataset identifiers synchronised to Unity Catalog (defaults to `table:`). |
+| `dataset_prefix` | string | Prefix applied to dataset identifiers when the linker needs to fall back because a contract lacks Unity `servers` metadata (defaults to `table:`). |
 | `static_properties` | table | Additional catalog metadata (for example `{ catalog = "main", schema = "contracts" }`). Unity Catalog reserves property names such as `owner`, so the backend ignores those keys and emits a warning. |
 | `static_tags` | table | Optional tag key/value pairs that always accompany the dynamic `dc43.*` metadata. Tag names automatically replace Unity-reserved characters (`.`, `-`, `/`, `=`, `:`, `,`) with underscores before statements run. |
 
-The Unity Catalog linker automatically ignores the contract, data product, and governance tables declared elsewhere in the configuration. Only dataset identifiers supplied to `link_dataset_contract` trigger tagging, so those control artefacts never receive catalog metadata by mistake.
+The Unity Catalog linker automatically ignores the contract, data product, and governance tables declared elsewhere in the configuration. It looks up the contract referenced by `link_dataset_contract` and tags every Unity table declared under `servers`. Dataset identifiers only act as a fallback (using `dataset_prefix`) so governance control tables never receive catalog metadata even if a client forwards their names.
 
 Environment overrides include the legacy `DATABRICKS_HOST`/`DATABRICKS_TOKEN`/`DATABRICKS_CONFIG_PROFILE` triplet (retained for backwards compatibility) and the active `DC43_UNITY_CATALOG_SQL_DSN`, `DC43_UNITY_CATALOG_TAGS_ENABLED`, and `DC43_UNITY_CATALOG_TAGS_SQL_DSN`. When the setup wizard exports a Delta-based configuration it also records the same values in `dc43-setup/config/modules/*.toml` so automation pipelines can hydrate secrets before launching the services.
 

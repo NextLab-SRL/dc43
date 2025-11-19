@@ -2,7 +2,11 @@
 
 from .backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
 from .hooks import DatasetContractLinkHook
-from .bootstrap import build_dataset_contract_link_hooks, LinkHookBuilder
+from .bootstrap import (
+    LinkHookBuilder,
+    LinkHookContext,
+    build_dataset_contract_link_hooks,
+)
 
 __all__ = [
     "GovernanceServiceBackend",
@@ -10,4 +14,5 @@ __all__ = [
     "DatasetContractLinkHook",
     "build_dataset_contract_link_hooks",
     "LinkHookBuilder",
+    "LinkHookContext",
 ]

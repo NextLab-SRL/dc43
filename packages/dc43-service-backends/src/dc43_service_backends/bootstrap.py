@@ -44,7 +44,10 @@ from .data_quality.backend.engines import (
     SodaEngine,
 )
 from .governance.backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
-from .governance.bootstrap import build_dataset_contract_link_hooks
+from .governance.bootstrap import (
+    LinkHookContext,
+    build_dataset_contract_link_hooks,
+)
 from .governance.hooks import DatasetContractLinkHook
 from .governance.backend.stores import (
     GovernanceStore,
@@ -513,7 +516,8 @@ def build_backends(config: ServiceBackendsConfig) -> BackendSuite:
     data_product_backend = build_data_product_backend(config.data_product_store)
     dq_backend = build_data_quality_backend(config.data_quality)
     governance_store = build_governance_store(config.governance_store)
-    link_hooks = build_dataset_contract_link_hooks(config)
+    link_context = LinkHookContext(contract_service=contract_backend)
+    link_hooks = build_dataset_contract_link_hooks(config, context=link_context)
     governance_backend = LocalGovernanceServiceBackend(
         contract_client=contract_backend,
         dq_client=dq_backend,
