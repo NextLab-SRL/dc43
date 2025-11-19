@@ -11,6 +11,11 @@
   returns deduplicated dataset run metadata (contract, product port, latest
   status) so portals and automation no longer replay pipeline activity to build
   dataset histories.
+- Unity Catalog tagging can now emit Unity Catalog tags in addition to table
+  properties. Set `unity_catalog.tags_enabled = true` (and optionally
+  `tags_sql_dsn`) to have the backend execute `ALTER TABLE … SET/UNSET TAGS`
+  whenever datasets link to contracts, and configure `[unity_catalog.static_tags]`
+  for custom ownership labels.
 
 ### Changed
 - Core ODCS/ODPS helpers now live in the shared `dc43-core` package and this
@@ -31,6 +36,15 @@
 - Governance stores now expose `load_status_matrix_entries` so batched status
   lookups reuse a single SQL/Delta query instead of issuing one request per
   dataset/contract combination.
+- Unity Catalog tagging now relies on `unity_catalog.sql_dsn` and the Databricks
+  SQLAlchemy driver to issue `ALTER TABLE … SET/UNSET TBLPROPERTIES`, replacing
+  the unsupported workspace `tables.update` call and documenting the new
+  configuration knobs plus cleanup steps.
+- The Unity Catalog linker now removes the unused workspace/Spark pathway,
+  sanitises Unity tag keys (replacing reserved characters with underscores),
+  drops reserved property names such as `owner`, and catches permission errors
+  so failed catalog updates only emit warnings instead of interrupting
+  governance flows.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so
   clients relying solely on the governance layer retain access to detailed data

@@ -219,20 +219,19 @@ LOCATION 'dbfs:/mnt/dc43-demo/delta/orders';
 Most teams want catalog metadata to highlight whether a table is governed by a
 contract or belongs to a specific data product. Instead of sprinkling tagging
 statements across individual notebooks, enable the Unity Catalog bridge in the
-governance backend and let the service handle table properties as part of the
-link workflow.
+governance backend and let the service handle both table properties and Unity
+tags as part of the link workflow.
 
-Install the optional Databricks dependency for the service (the Unity Catalog
-bridge calls [`WorkspaceClient.tables.update`](https://databricks-sdk-python.readthedocs.io/en/latest/workspace.html#databricks.sdk.service.catalog.TablesAPI.update)
-behind the scenes) and configure the backend with credentials that are allowed
-to alter table properties:
+Install the Databricks SQL connector alongside the backend so the Unity Catalog
+bridge can run `ALTER TABLE … SET/UNSET TBLPROPERTIES` statements through a SQL
+warehouse:
 
 ```bash
-pip install "dc43-service-backends[http]" databricks-sdk
+pip install "dc43-service-backends[http]" databricks-sqlalchemy
 ```
 
-The token or service principal used by `databricks-sdk` must have the following
-Unity Catalog privileges on the governed catalog and schema:
+The token or service principal embedded in the Databricks SQLAlchemy DSN must
+have the following Unity Catalog privileges on the governed catalog and schema:
 
 - `USE CATALOG`
 - `USE SCHEMA`
@@ -240,12 +239,15 @@ Unity Catalog privileges on the governed catalog and schema:
 
 Grant those permissions to a dedicated service principal and create a
 Databricks personal access token for it. Store the token alongside the dc43
-configuration (for example in a Databricks secret scope) and point the backend
-environment variables at the secret when deploying the FastAPI app.
+configuration (for example in a Databricks secret scope) and point
+`DC43_UNITY_CATALOG_SQL_DSN` at the rendered DSN when deploying the FastAPI app.
+You can optionally export `DC43_UNITY_CATALOG_TAGS_ENABLED=1` (and, if you
+prefer a different warehouse for tags, `DC43_UNITY_CATALOG_TAGS_SQL_DSN`) to
+control the Unity tag helper independently of the property updater.
 
 With the permissions in place, add Unity Catalog settings to the service backend
-configuration so the web application can talk to the Databricks workspace. The
-bridge is wired as a governance hook, which means you can keep the REST
+configuration so the web application can talk to the Databricks SQL warehouse.
+The bridge is wired as a governance hook, which means you can keep the REST
 interfaces completely technology agnostic and still compose multiple
 implementations if needed:
 
@@ -253,10 +255,16 @@ implementations if needed:
 [unity_catalog]
 enabled = true
 dataset_prefix = "table:"
-workspace_profile = "prod" # or set host/token via environment variables
+sql_dsn = "databricks://token:${DATABRICKS_TOKEN}@adb-<workspace>.azuredatabricks.net?http_path=/sql/1.0/warehouses/<id>"
+tags_enabled = true
+# tags_sql_dsn defaults to sql_dsn when omitted
 
 [unity_catalog.static_properties]
 dc43.catalog_synced = "true"
+
+[unity_catalog.static_tags]
+owner = "governance"
+environment = "sandbox"
 
 [governance]
 dataset_contract_link_builders = [
@@ -264,17 +272,48 @@ dataset_contract_link_builders = [
 ]
 ```
 
-Restart the backend after updating the configuration (or the environment
-variables `DC43_UNITY_CATALOG_ENABLED`, `DATABRICKS_HOST`, and
-`DATABRICKS_TOKEN`). When `link_dataset_contract` runs—either via
-`write_to_data_product` or through another governance workflow—the backend now
-updates the matching Unity Catalog table with:
+The DSN may omit the `catalog` or `schema` query parameters—the backend issues
+fully-qualified `ALTER TABLE` statements based on the dataset identifiers it
+receives. Legacy `workspace_*` keys remain accepted in the configuration for
+backwards compatibility but are ignored by the Unity Catalog linker now that the
+workspace API no longer supports property updates.
+
+Restart the backend after updating the configuration (or export
+`DC43_UNITY_CATALOG_ENABLED`/`DC43_UNITY_CATALOG_SQL_DSN`). When
+`link_dataset_contract` runs—either via `write_to_data_product` or through
+another governance workflow—the backend now updates the matching Unity Catalog
+table with:
 
 - `dc43.contract_id`
 - `dc43.contract_version`
 - `dc43.dataset_version`
 - Any static properties defined in the configuration (for example,
   `dc43.catalog_synced` or ownership tags)
+- Matching Unity Catalog tags when `tags_enabled = true` (including any values
+  from `[unity_catalog.static_tags]`). Tag keys that contain Unity-reserved
+  characters such as `.`, `-`, or `/` are automatically converted to
+  underscore-separated names (for example, `dc43.contract_id` becomes
+  `dc43_contract_id`).
+
+To clear those test tags later, run the inverse statement through the same
+Databricks SQL warehouse:
+
+```sql
+ALTER TABLE governed.analytics.orders
+UNSET TBLPROPERTIES ('dc43.contract_id', 'dc43.contract_version', 'dc43.dataset_version');
+```
+
+```sql
+ALTER TABLE governed.analytics.orders
+UNSET TAGS ('dc43.contract_id', 'dc43.contract_version', 'dc43.dataset_version');
+```
+
+Unity Catalog reserves specific property names (for example, `owner`), so the
+backend silently drops those keys and emits a warning instead of rejecting the
+entire update. Likewise, if the Databricks token injected into the DSN lacks
+permission to mutate a target table, the hook logs a `RuntimeWarning` and keeps
+processing the governance request so dataset↔contract links continue to record
+successfully.
 
 The dataset prefix tells the backend how to extract the table name from the
 dataset identifier. The default `table:` prefix works with dataset identifiers
@@ -305,5 +344,6 @@ custom auditing—completely pluggable.
   locations so other workspaces can reuse the artefacts.
 - Replace the local backends with the dc43 FastAPI services (see the operations
   guide) and update the configuration file to point at the remote URLs.
-- Extend the tagging helper to emit Unity Catalog tags for quality status,
-  lineage, or ownership information gathered from the dc43 governance API.
+- Expand static Unity Catalog tags to capture data-product tiering, residency,
+  or other platform-specific classifications that need to surface alongside the
+  automated `dc43.*` metadata.

@@ -40,6 +40,10 @@
 - Added `log_sql` toggles to the service backend stores so Delta and SQL
   implementations can emit the statements they execute when debugging slow
   dataset or contract views.
+- Unity Catalog tagging can now emit Unity tags alongside table properties.
+  Enable `unity_catalog.tags_enabled` (optionally pointing `tags_sql_dsn` at a
+  dedicated warehouse) to have the governance backend run `ALTER TABLE … SET/UNSET
+  TAGS` automatically whenever datasets are linked to contracts.
 
 ### Changed
 - `dc43-integrations` now treats Spark as an optional dependency, so
@@ -76,9 +80,17 @@
   toggle and updated helpers so dataset identifiers fall back to the timestamped
   versions that production pipelines use instead of forcing manual increments in
   the walkthrough notebooks.
+- Unity Catalog governance hooks now rely exclusively on Databricks SQL DSNs,
+  sanitise Unity tag names, skip reserved properties such as `owner`, and warn
+  instead of aborting governance updates when the Databricks token lacks
+  permission to alter a target table.
 - Service backend configuration now honours explicit `governance_store.metrics_table`
   entries (and the `DC43_GOVERNANCE_METRICS_TABLE` override) so governance SQL
   stores stop deriving table names when the operator already provided one.
+- Unity Catalog tagging now uses a Databricks SQLAlchemy DSN (`unity_catalog.sql_dsn`)
+  to run `ALTER TABLE … SET/UNSET TBLPROPERTIES` instead of the unsupported
+  workspace `tables.update` call, and the Databricks guide documents the new
+  configuration plus cleanup commands.
 - Governance stores now expose batch status lookups so matrix endpoints and
   pipeline activity enrichment reuse a single SQL query instead of issuing one
   lookup per dataset/contract combination.

@@ -209,7 +209,11 @@ class UnityCatalogConfig:
     workspace_profile: str | None = None
     workspace_url: str | None = None
     workspace_token: str | None = None
+    sql_dsn: str | None = None
+    tags_enabled: bool = False
+    tags_sql_dsn: str | None = None
     static_properties: dict[str, str] = field(default_factory=dict)
+    static_tags: dict[str, str] = field(default_factory=dict)
 
     @property
     def workspace_host(self) -> str | None:
@@ -498,7 +502,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     unity_profile = None
     unity_url = None
     unity_token = None
+    unity_sql_dsn = None
+    unity_tags_enabled = False
+    unity_tags_sql_dsn = None
     unity_static: dict[str, str] = {}
+    unity_static_tags: dict[str, str] = {}
     if isinstance(unity_section, MutableMapping):
         unity_enabled = _parse_bool(unity_section.get("enabled"), False)
         prefix_raw = unity_section.get("dataset_prefix")
@@ -515,7 +523,16 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         token_raw = unity_section.get("workspace_token")
         if isinstance(token_raw, str) and token_raw.strip():
             unity_token = token_raw.strip()
+        sql_dsn_raw = unity_section.get("sql_dsn")
+        if isinstance(sql_dsn_raw, str) and sql_dsn_raw.strip():
+            unity_sql_dsn = sql_dsn_raw.strip()
+        tags_enabled_raw = unity_section.get("tags_enabled")
+        unity_tags_enabled = _parse_bool(tags_enabled_raw, False)
+        tags_sql_dsn_raw = unity_section.get("tags_sql_dsn")
+        if isinstance(tags_sql_dsn_raw, str) and tags_sql_dsn_raw.strip():
+            unity_tags_sql_dsn = tags_sql_dsn_raw.strip()
         unity_static = _parse_str_dict(unity_section.get("static_properties"))
+        unity_static_tags = _parse_str_dict(unity_section.get("static_tags"))
 
     link_builder_specs: list[str] = []
     if isinstance(governance_section, MutableMapping):
@@ -683,6 +700,18 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_workspace_token:
         unity_token = env_workspace_token.strip() or None
 
+    env_unity_sql_dsn = os.getenv("DC43_UNITY_CATALOG_SQL_DSN")
+    if env_unity_sql_dsn:
+        unity_sql_dsn = env_unity_sql_dsn.strip() or None
+
+    env_unity_tags_enabled = os.getenv("DC43_UNITY_CATALOG_TAGS_ENABLED")
+    if env_unity_tags_enabled is not None:
+        unity_tags_enabled = _parse_bool(env_unity_tags_enabled, unity_tags_enabled)
+
+    env_unity_tags_sql_dsn = os.getenv("DC43_UNITY_CATALOG_TAGS_SQL_DSN")
+    if env_unity_tags_sql_dsn:
+        unity_tags_sql_dsn = env_unity_tags_sql_dsn.strip() or None
+
     env_link_builders = os.getenv("DC43_GOVERNANCE_LINK_BUILDERS")
     if env_link_builders:
         for chunk in env_link_builders.split(","):
@@ -810,7 +839,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             workspace_profile=unity_profile,
             workspace_url=unity_url,
             workspace_token=unity_token,
+            sql_dsn=unity_sql_dsn,
+            tags_enabled=unity_tags_enabled,
+            tags_sql_dsn=unity_tags_sql_dsn,
             static_properties=unity_static,
+            static_tags=unity_static_tags,
         ),
         governance=GovernanceConfig(
             dataset_contract_link_builders=tuple(ordered_builders),
@@ -950,8 +983,16 @@ def _unity_catalog_mapping(config: UnityCatalogConfig) -> dict[str, Any]:
         mapping["workspace_url"] = config.workspace_url
     if config.workspace_token:
         mapping["workspace_token"] = config.workspace_token
+    if config.sql_dsn:
+        mapping["sql_dsn"] = config.sql_dsn
+    if config.tags_enabled:
+        mapping["tags_enabled"] = True
+    if config.tags_sql_dsn:
+        mapping["tags_sql_dsn"] = config.tags_sql_dsn
     if config.static_properties:
         mapping["static_properties"] = dict(config.static_properties)
+    if config.static_tags:
+        mapping["static_tags"] = dict(config.static_tags)
     return mapping
 
 

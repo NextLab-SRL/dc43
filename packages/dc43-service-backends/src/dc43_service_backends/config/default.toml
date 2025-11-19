@@ -49,9 +49,16 @@ token = ""
 # catalog table properties.
 enabled = false
 dataset_prefix = "table:"
+# Legacy workspace_* fields remain for backwards compatibility but are ignored
+# by the Unity Catalog linker now that tagging runs exclusively through
+# Databricks SQL.
 workspace_profile = ""
 workspace_url = ""
 workspace_token = ""
+# SQLAlchemy DSN for Databricks SQL or Unity Catalog warehouses.
+sql_dsn = ""
+tags_enabled = false
+tags_sql_dsn = ""
 
 [governance_store]
 # Persist governance outcomes in memory by default. Switch to ``filesystem``,

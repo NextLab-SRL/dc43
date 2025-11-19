@@ -202,6 +202,38 @@ def test_load_collibra_stub_config(tmp_path: Path) -> None:
     }
 
 
+def test_unity_catalog_tag_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[unity_catalog]",
+                "enabled = true",
+                "tags_enabled = true",
+                "tags_sql_dsn = 'databricks://token@host'",
+                "",
+                "[unity_catalog.static_tags]",
+                "owner = 'data-team'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.unity_catalog.tags_enabled is True
+    assert config.unity_catalog.tags_sql_dsn == "databricks://token@host"
+    assert config.unity_catalog.static_tags == {"owner": "data-team"}
+
+    monkeypatch.setenv("DC43_SERVICE_BACKENDS_CONFIG", str(config_path))
+    monkeypatch.setenv("DC43_UNITY_CATALOG_TAGS_ENABLED", "0")
+    monkeypatch.setenv("DC43_UNITY_CATALOG_TAGS_SQL_DSN", "databricks://env@host")
+
+    env_config = load_config()
+    assert env_config.unity_catalog.tags_enabled is False
+    assert env_config.unity_catalog.tags_sql_dsn == "databricks://env@host"
+
+
 def test_delta_store_config(tmp_path: Path) -> None:
     config_path = tmp_path / "backends.toml"
     config_path.write_text(
@@ -311,6 +343,7 @@ def test_unity_catalog_config_section(tmp_path: Path) -> None:
                 "workspace_profile = 'prod'",
                 "workspace_url = 'https://adb.example.com'",
                 "workspace_token = 'token-123'",
+                "sql_dsn = 'databricks://token:abc@adb.example.com?http_path=/sql/1.0/warehouses/123'",
                 "",
                 "[unity_catalog.static_properties]",
                 "owner = 'governance'",
@@ -331,6 +364,10 @@ def test_unity_catalog_config_section(tmp_path: Path) -> None:
     assert config.unity_catalog.workspace_profile == "prod"
     assert config.unity_catalog.workspace_url == "https://adb.example.com"
     assert config.unity_catalog.workspace_token == "token-123"
+    assert (
+        config.unity_catalog.sql_dsn
+        == "databricks://token:abc@adb.example.com?http_path=/sql/1.0/warehouses/123"
+    )
     assert config.unity_catalog.static_properties == {"owner": "governance"}
     assert config.governance.dataset_contract_link_builders == (
         "example.module:builder",
@@ -348,6 +385,10 @@ def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     monkeypatch.setenv("DATABRICKS_HOST", "https://adb.example.com")
     monkeypatch.setenv("DATABRICKS_TOKEN", "env-token")
     monkeypatch.setenv(
+        "DC43_UNITY_CATALOG_SQL_DSN",
+        "databricks://token:env@adb.example.com?http_path=/sql/warehouses/abc",
+    )
+    monkeypatch.setenv(
         "DC43_GOVERNANCE_LINK_BUILDERS",
         "custom.module:builder, other.module.hooks:make",
     )
@@ -358,6 +399,10 @@ def test_unity_catalog_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert config.unity_catalog.workspace_profile == "unity-prod"
     assert config.unity_catalog.workspace_url == "https://adb.example.com"
     assert config.unity_catalog.workspace_token == "env-token"
+    assert (
+        config.unity_catalog.sql_dsn
+        == "databricks://token:env@adb.example.com?http_path=/sql/warehouses/abc"
+    )
     assert config.governance.dataset_contract_link_builders == (
         "custom.module:builder",
         "other.module.hooks:make",
@@ -379,6 +424,7 @@ def test_dumps_matches_mapping_including_workspace_url() -> None:
             workspace_profile="prod",
             workspace_token="token-123",
             dataset_prefix="table:",
+            sql_dsn="databricks://token:abc@adb.example.com?http_path=/sql/warehouses/abc",
             static_properties={"catalog": "main", "schema": "contracts"},
         ),
         auth=AuthConfig(token="auth-token"),
@@ -458,6 +504,7 @@ def test_config_to_mapping_covers_all_sections() -> None:
             workspace_profile="prod",
             workspace_url="https://adb.example.com",
             workspace_token="uc-token",
+            sql_dsn="databricks://token:abc@adb.example.com?http_path=/sql/warehouses/abc",
             static_properties={"catalog": "main", "schema": "governance"},
         ),
         governance=GovernanceConfig(
@@ -534,6 +581,7 @@ def test_config_to_mapping_covers_all_sections() -> None:
         "workspace_profile": "prod",
         "workspace_url": "https://adb.example.com",
         "workspace_token": "uc-token",
+        "sql_dsn": "databricks://token:abc@adb.example.com?http_path=/sql/warehouses/abc",
         "static_properties": {"catalog": "main", "schema": "governance"},
     }
     assert mapping["governance"] == {

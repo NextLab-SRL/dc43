@@ -282,15 +282,17 @@ No additional fields are captured.
 
 #### Unity Catalog synchronisation (`unity_catalog`)
 *Required*
-- `workspace_url` – Databricks workspace URL hosting the Unity Catalog.
-- `catalog` – Unity Catalog name.
-- `schema` – Schema within the catalog.
-- `token` – Access token used by the hook.
+- `sql_dsn` – SQLAlchemy DSN targeting a Databricks SQL warehouse used to issue `ALTER TABLE … SET/UNSET TBLPROPERTIES` statements. The DSN may omit the `catalog`/`schema` query parameters because table identifiers arrive fully qualified in the governance events.
+- `catalog` – Unity Catalog name captured for documentation purposes.
+- `schema` – Schema within the catalog captured for documentation purposes.
 
 *Optional*
 - `dataset_prefix` – Prefix applied to published dataset identifiers (defaults to `table:`).
-- `workspace_profile` – Databricks CLI profile used for authentication.
-- `static_properties` – Optional newline-separated `key=value` pairs forwarded to Unity Catalog.
+- `static_properties` – Optional newline-separated `key=value` pairs forwarded to Unity Catalog. Unity Catalog reserves property names such as `owner`, so the backend ignores those keys and emits a warning.
+- `tags_enabled` – Enable Unity Catalog tag propagation.
+- `tags_sql_dsn` – Optional SQL DSN dedicated to the tag updater; falls back to `sql_dsn`.
+- `static_tags` – Optional newline-separated `key=value` pairs mirrored into Unity Catalog tags. Tag names automatically replace Unity-reserved characters like `.`, `-`, `/`, `=`, `:` and `,` with underscores before the statements run.
+- `workspace_url`, `workspace_profile`, `token` – Legacy fields that remain available in exported configurations but are ignored by the Unity Catalog linker now that Databricks no longer supports property updates via the workspace REST API.
 
 #### Custom Python module (`custom_module`)
 *Required*
@@ -499,11 +501,12 @@ Environment overrides:
 ### `[unity_catalog]`
 - `enabled` – Toggle for Unity Catalog synchronisation. Override with `DC43_UNITY_CATALOG_ENABLED`.
 - `dataset_prefix` – Prefix applied to dataset identifiers. Override with `DC43_UNITY_CATALOG_PREFIX`.
-- `workspace_profile` – Databricks CLI profile name. Override with `DATABRICKS_CONFIG_PROFILE`.
-- `workspace_url` – Databricks workspace URL. Override with `DATABRICKS_HOST`. Existing configurations that still use
-  `workspace_host` remain supported for backwards compatibility.
-- `workspace_token` – Databricks token. Override with `DATABRICKS_TOKEN` or `DC43_DATABRICKS_TOKEN`.
-- `static_properties` – Additional metadata pushed to Unity Catalog.
+- `sql_dsn` – SQLAlchemy DSN pointing at a Databricks SQL warehouse. Override with `DC43_UNITY_CATALOG_SQL_DSN`. The DSN can omit catalog/schema hints because dataset identifiers arrive fully qualified.
+- `tags_enabled` – Toggle Unity Catalog tag propagation. Override with `DC43_UNITY_CATALOG_TAGS_ENABLED`.
+- `tags_sql_dsn` – Optional SQLAlchemy DSN used for Unity Catalog tags. Override with `DC43_UNITY_CATALOG_TAGS_SQL_DSN`.
+- `static_properties` – Additional metadata pushed to Unity Catalog. Reserved names such as `owner` are skipped automatically and emit a warning.
+- `static_tags` – Additional Unity Catalog tags applied during dataset↔contract links. Tag names automatically replace Unity-reserved characters (for example, `.` or `-`) with underscores prior to execution.
+- `workspace_profile`, `workspace_url`, `workspace_token` – Legacy fields retained for backwards compatibility. Override with `DATABRICKS_CONFIG_PROFILE`, `DATABRICKS_HOST`, and `DATABRICKS_TOKEN` if you still need them in exported bundles, but the Unity Catalog linker ignores these values now that Databricks no longer exposes a properties-aware workspace API.
 
 ### `[governance]`
 - `dataset_contract_link_builders` – Tuple of import paths used to build dataset→contract links. Override with `DC43_GOVERNANCE_LINK_BUILDERS` (comma-separated).
