@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
-from numbers import Number
 from typing import Dict, List, Mapping, MutableMapping, Optional, Sequence
 
 from dc43_service_clients.data_quality import ValidationResult
 
+from ._metrics import extract_metrics, normalise_metric_value
 from .interface import GovernanceStore
 
 
@@ -43,14 +43,15 @@ class InMemoryGovernanceStore(GovernanceStore):
 
         recorded_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         self._status_cache[key] = status
-        if status.metrics:
+        metrics_map = extract_metrics(status)
+        if metrics_map:
             self._record_metrics(
                 contract_id=contract_id,
                 contract_version=contract_version,
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
                 recorded_at=recorded_at,
-                metrics=status.metrics,
+                metrics=metrics_map,
             )
 
     def load_status(
@@ -109,19 +110,8 @@ class InMemoryGovernanceStore(GovernanceStore):
         recorded_at: str,
         metrics: Mapping[str, object],
     ) -> None:
-        def _normalise(value: object) -> tuple[object | None, float | None]:
-            if isinstance(value, Number):
-                return value, float(value)
-            if value is None:
-                return None, None
-            try:
-                json.dumps(value)
-                return value, None
-            except TypeError:
-                return str(value), None
-
         for metric_key, metric_value in metrics.items():
-            value, numeric = _normalise(metric_value)
+            value, numeric = normalise_metric_value(metric_value)
             self._metrics.append(
                 {
                     "dataset_id": dataset_id,

@@ -20,49 +20,70 @@
 {% endif %}
 {% if data_products %}
 <h2>Data product associations</h2>
-<table class="table table-sm align-middle">
-  <thead>
-    <tr>
-      <th scope="col">Data product</th>
-      <th scope="col">Port</th>
-      <th scope="col">Role</th>
-      <th scope="col">Status</th>
-      <th scope="col">Version</th>
-    </tr>
-  </thead>
-  <tbody>
+<div class="row g-3">
   {% for entry in data_products %}
-    <tr>
-      <td>
-        {% if entry.product_id %}
-          <a href="/data-products/{{ entry.product_id }}">{{ entry.product_id }}</a>
-        {% else %}
-          <span class="text-muted">Unknown</span>
+  <div class="col-12">
+    <div class="card h-100">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+        <div>
+          {% if entry.product_id %}
+            <a href="/data-products/{{ entry.product_id }}">{{ entry.product_name or entry.product_id }}</a>
+          {% else %}
+            <span class="text-muted">Unknown product</span>
+          {% endif %}
+          {% if entry.direction %}
+            <span class="badge bg-secondary text-uppercase ms-2">{{ entry.direction }}</span>
+          {% endif %}
+        </div>
+        {% if entry.latest_status_label %}
+          <span class="badge {{ entry.latest_status_badge }}">{{ entry.latest_status_label }}</span>
         {% endif %}
-      </td>
-      <td>
-        {% if entry.port_name %}
-          <code>{{ entry.port_name }}</code>
-        {% else %}
-          <span class="text-muted">n/a</span>
-        {% endif %}
-      </td>
-      <td>
-        {% if entry.role %}
-          <span class="badge bg-secondary text-uppercase">{{ entry.role }}</span>
-        {% else %}
-          <span class="text-muted">—</span>
-        {% endif %}
-      </td>
-      <td>{{ entry.status or 'unknown' }}</td>
-      <td>{{ entry.dataset_version or '—' }}</td>
-    </tr>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0">
+          <dt class="col-sm-3">Port</dt>
+          <dd class="col-sm-9">
+            {% if entry.port_name %}<code>{{ entry.port_name }}</code>{% else %}<span class="text-muted">n/a</span>{% endif %}
+            {% if entry.port_version %}<span class="text-muted ms-2">{{ entry.port_version }}</span>{% endif %}
+          </dd>
+          <dt class="col-sm-3">Contract</dt>
+          <dd class="col-sm-9">
+            {% if entry.contract_id %}
+              <a href="/contracts/{{ entry.contract_id }}">{{ entry.contract_id }}</a>
+            {% else %}
+              <span class="text-muted">Unknown</span>
+            {% endif %}
+            {% if entry.contract_version %}
+              {% if entry.contract_id %}<span class="text-muted">/</span>{% endif %}
+              <a href="/contracts/{{ entry.contract_id }}/{{ entry.contract_version }}">{{ entry.contract_version }}</a>
+            {% endif %}
+          </dd>
+          <dt class="col-sm-3">Latest dataset</dt>
+          <dd class="col-sm-9">
+            {% if entry.latest_dataset_version %}
+              <span class="text-monospace">{{ entry.latest_dataset_version }}</span>
+            {% else %}
+              <span class="text-muted">n/a</span>
+            {% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
   {% endfor %}
-  </tbody>
-</table>
+</div>
 {% endif %}
 {% set output_details = record.dq_details.get('output', {}) %}
 <p>Status: {{ record.status }} | Run type: {{ record.run_type }}</p>
+{% if record.observation_label or record.observation_scope %}
+<p class="text-muted">
+  Observation scope:
+  {{ record.observation_label or record.observation_scope.replace('_', ' ').title() }}
+  {% if record.observation_operation %}
+    <span class="text-lowercase">({{ record.observation_operation }} run)</span>
+  {% endif %}
+</p>
+{% endif %}
 {% if output_details.get('violation_strategy') %}
 <p><strong>Violation strategy:</strong> {{ output_details.get('violation_strategy') }}</p>
 {% endif %}
@@ -77,118 +98,7 @@
   </ul>
 </div>
 {% endif %}
-{% set metrics_summary = metrics_summary | default({}) %}
-{% set latest_metrics = metrics_summary.get('latest') %}
-{% set previous_metrics = metrics_summary.get('previous', []) %}
-{% set chronological_history = metrics_summary.get('chronological_history', []) %}
-{% set numeric_metric_keys = metrics_summary.get('numeric_metric_keys', []) %}
-{% if metrics_error %}
-<div class="alert alert-warning mt-3">
-  <strong>Metrics unavailable.</strong>
-  <div class="small mb-0">{{ metrics_error }}</div>
-</div>
-{% endif %}
-{% if numeric_metric_keys and chronological_history %}
-<div class="card mb-3" id="dataset-metric-trends">
-  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div>
-      <strong>Metric trends</strong>
-      {% if record.dataset_version %}
-      <span class="text-muted ms-2">Dataset {{ record.dataset_version }}</span>
-      {% endif %}
-    </div>
-    <div class="text-muted small">
-      {% if latest_metrics %}
-      Latest {{ latest_metrics.recorded_label or latest_metrics.recorded_at or 'snapshot' }}
-      {% else %}
-      Latest snapshot
-      {% endif %}
-    </div>
-  </div>
-  <div class="card-body">
-    <div class="chart-wrapper">
-      <canvas id="datasetMetricsChart" aria-label="Metric history chart" role="img"></canvas>
-    </div>
-  </div>
-  <div class="card-footer small text-muted">
-    Hover points to see recorded timestamps and dataset versions. Only metrics with numeric values are plotted.
-  </div>
-</div>
-{% endif %}
-{% if latest_metrics %}
-<h2>Metrics</h2>
-<div class="card mb-3">
-  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div>
-      <strong>{{ latest_metrics.recorded_label or latest_metrics.recorded_at or 'Latest snapshot' }}</strong>
-      {% if latest_metrics.dataset_version %}
-      <span class="text-muted ms-2">Dataset {{ latest_metrics.dataset_version }}</span>
-      {% endif %}
-    </div>
-    {% if latest_metrics.contract_id %}
-    <div class="text-muted small">
-      Contract {{ latest_metrics.contract_id }}{% if latest_metrics.contract_version %}:{{ latest_metrics.contract_version }}{% endif %}
-    </div>
-    {% endif %}
-  </div>
-  <div class="table-responsive">
-    <table class="table table-sm mb-0">
-      <thead>
-        <tr><th scope="col">Metric</th><th scope="col">Value</th></tr>
-      </thead>
-      <tbody>
-        {% for metric in latest_metrics.metrics %}
-        <tr>
-          <td><code>{{ metric.key }}</code></td>
-          <td>{{ metric.value }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% elif not metrics_error %}
-<p class="text-muted">No metrics recorded for this dataset version.</p>
-{% endif %}
-{% if previous_metrics %}
-<details class="mb-3">
-  <summary>Earlier metric snapshots</summary>
-  <div class="mt-3">
-    {% for snapshot in previous_metrics %}
-    <div class="card mb-3">
-      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <div>
-          <strong>{{ snapshot.recorded_label or snapshot.recorded_at or 'Snapshot' }}</strong>
-          {% if snapshot.dataset_version %}
-          <span class="text-muted ms-2">Dataset {{ snapshot.dataset_version }}</span>
-          {% endif %}
-        </div>
-        {% if snapshot.contract_id %}
-        <div class="text-muted small">
-          Contract {{ snapshot.contract_id }}{% if snapshot.contract_version %}:{{ snapshot.contract_version }}{% endif %}
-        </div>
-        {% endif %}
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm mb-0">
-          <thead>
-            <tr><th scope="col">Metric</th><th scope="col">Value</th></tr>
-          </thead>
-          <tbody>
-            {% for metric in snapshot.metrics %}
-            <tr>
-              <td><code>{{ metric.key }}</code></td>
-              <td>{{ metric.value }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</details>
-{% endif %}
+{% include "includes/metrics_summary.html" %}
 {% set aux = output_details.get('auxiliary_datasets', []) %}
 {% if aux %}
 <h2>Auxiliary datasets</h2>
@@ -288,114 +198,6 @@
 {% endblock %}
 {% block page_scripts %}
 {{ super() }}
-{% if numeric_metric_keys and chronological_history %}
-<script>
-  (function () {
-    const canvas = document.getElementById('datasetMetricsChart');
-    if (!canvas || !window.Chart) {
-      return;
-    }
-    const history = {{ chronological_history | tojson }};
-    const metricKeys = {{ numeric_metric_keys | tojson }};
-    if (!Array.isArray(history) || !Array.isArray(metricKeys) || !history.length || !metricKeys.length) {
-      return;
-    }
-    const labels = history.map((snapshot) => snapshot.recorded_label || snapshot.recorded_at || 'Snapshot');
-    const datasetVersions = history.map((snapshot) => snapshot.dataset_version || '');
-    const contractLabels = history.map((snapshot) => {
-      if (!snapshot.contract_id) {
-        return '';
-      }
-      return snapshot.contract_version ? `${snapshot.contract_id}:${snapshot.contract_version}` : snapshot.contract_id;
-    });
-    const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6610f2', '#20c997', '#6f42c1', '#0dcaf0', '#ffc107', '#343a40'];
-    const datasets = metricKeys.map((key, index) => {
-      const colour = palette[index % palette.length];
-      const data = history.map((snapshot) => {
-        const metric = (snapshot.metrics || []).find((item) => item.key === key);
-        if (metric && metric.numeric_value !== null && metric.numeric_value !== undefined) {
-          const value = Number(metric.numeric_value);
-          return Number.isFinite(value) ? value : null;
-        }
-        return null;
-      });
-      if (!data.some((value) => value !== null)) {
-        return null;
-      }
-      return {
-        label: key,
-        data,
-        spanGaps: true,
-        tension: 0.25,
-        borderWidth: 2,
-        pointRadius: 3,
-        pointHoverRadius: 4,
-        borderColor: colour,
-        backgroundColor: `${colour}33`,
-      };
-    }).filter(Boolean);
-    if (!datasets.length) {
-      const wrapper = canvas.closest('.card');
-      if (wrapper) {
-        wrapper.classList.add('d-none');
-      }
-      return;
-    }
-    new window.Chart(canvas, {
-      type: 'line',
-      data: {
-        labels,
-        datasets,
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: {
-          mode: 'nearest',
-          axis: 'x',
-          intersect: false,
-        },
-        scales: {
-          y: {
-            ticks: {
-              precision: 3,
-            },
-            title: {
-              display: true,
-              text: 'Value',
-            },
-          },
-        },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              title(items) {
-                if (!items.length) {
-                  return '';
-                }
-                const index = items[0].dataIndex;
-                const lines = [];
-                if (labels[index]) {
-                  lines.push(labels[index]);
-                }
-                if (datasetVersions[index]) {
-                  lines.push(`Dataset ${datasetVersions[index]}`);
-                }
-                if (contractLabels[index]) {
-                  lines.push(contractLabels[index]);
-                }
-                return lines;
-              },
-            },
-          },
-          legend: {
-            display: true,
-          },
-        },
-      },
-    });
-  })();
-</script>
-{% endif %}
+{% include "includes/metrics_chart_script.html" %}
 {% endblock %}
 

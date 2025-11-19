@@ -52,6 +52,15 @@ It records the latest known contract for every dataset version alongside
 the DQ verdict, enabling governance tools to visualise whether a dataset
 version is approved for consumption under a specific contract.
 
+In addition to the raw pipeline activity stream, the governance API now exposes
+`GET /governance/dataset-records`, a read-optimised view that returns the same
+dataset/contract/product metadata the contracts UI needs to render run history.
+The backend expands pipeline activity into deduplicated `DatasetRecord` entries
+so callers no longer stitch together activity logs, compatibility matrices, and
+product definitions on the client. Filters for `dataset_id` and
+`dataset_version` keep the payload scoped to the catalog, detail page, or API
+consumer’s current view.
+
 Link hooks run as part of the same orchestration path. They mirror
 approved dataset↔contract bindings into external catalogs (Unity Catalog,
 bespoke metadata services) so readers discover the active governance

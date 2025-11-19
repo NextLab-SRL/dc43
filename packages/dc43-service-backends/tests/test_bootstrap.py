@@ -58,10 +58,33 @@ class _StubSpark:
     builder = _StubSparkBuilder()
 
 
+def _capture_create_engine(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+    sqlalchemy = pytest.importorskip("sqlalchemy")
+    original = sqlalchemy.create_engine
+    calls: list[dict[str, object]] = []
+
+    def fake_create_engine(*args: object, **kwargs: object):
+        calls.append({"args": args, "kwargs": dict(kwargs)})
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sqlalchemy, "create_engine", fake_create_engine)
+    return calls
+
+
 def test_build_contract_store_filesystem(tmp_path: Path) -> None:
     cfg = ContractStoreConfig(type="filesystem", root=tmp_path)
     store = build_contract_store(cfg)
     assert isinstance(store, FSContractStore)
+
+
+def test_build_contract_store_delta_log_sql(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("dc43_service_backends.bootstrap.SparkSession", _StubSpark)
+    cfg = ContractStoreConfig(type="delta", table="unity.contracts", log_sql=True)
+
+    store = build_contract_store(cfg)
+
+    assert isinstance(store, DeltaContractStore)
+    assert getattr(store, "_log_sql", False) is True
 
 
 def test_build_contract_store_sql(tmp_path: Path) -> None:
@@ -79,6 +102,16 @@ def test_build_contract_store_sql(tmp_path: Path) -> None:
 def test_build_data_product_backend_memory() -> None:
     backend = build_data_product_backend(DataProductStoreConfig(type="memory"))
     assert isinstance(backend, LocalDataProductServiceBackend)
+
+
+def test_build_data_product_backend_delta_log_sql(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("dc43_service_backends.bootstrap.SparkSession", _StubSpark)
+    backend = build_data_product_backend(
+        DataProductStoreConfig(type="delta", table="unity.products", log_sql=True)
+    )
+
+    assert isinstance(backend, DeltaDataProductServiceBackend)
+    assert getattr(backend._store, "_log_sql", False) is True  # type: ignore[attr-defined]
 
 
 def test_build_backends_delta(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,3 +181,37 @@ def test_build_governance_store_filesystem(tmp_path: Path) -> None:
     store = build_governance_store(cfg)
     assert isinstance(store, FilesystemGovernanceStore)
     assert (tmp_path / "status").exists()
+
+
+def test_build_contract_store_sql_echo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = _capture_create_engine(monkeypatch)
+    dsn = f"sqlite:///{tmp_path / 'contracts-log.db'}"
+    cfg = ContractStoreConfig(type="sql", dsn=dsn, log_sql=True)
+
+    build_contract_store(cfg)
+
+    assert calls and calls[0]["kwargs"].get("echo") is True
+
+
+def test_build_data_product_store_sql_echo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = _capture_create_engine(monkeypatch)
+    dsn = f"sqlite:///{tmp_path / 'data-products-log.db'}"
+    cfg = DataProductStoreConfig(type="sql", dsn=dsn, log_sql=True)
+
+    backend = build_data_product_backend(cfg)
+
+    assert calls and calls[0]["kwargs"].get("echo") is True
+    assert isinstance(backend, LocalDataProductServiceBackend)
+
+
+def test_build_governance_store_sql_echo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = _capture_create_engine(monkeypatch)
+    dsn = f"sqlite:///{tmp_path / 'governance-log.db'}"
+    cfg = GovernanceStoreConfig(type="sql", dsn=dsn, log_sql=True)
+
+    store = build_governance_store(cfg)
+
+    assert calls and calls[0]["kwargs"].get("echo") is True
+    from dc43_service_backends.governance.backend.stores import SQLGovernanceStore
+
+    assert isinstance(store, SQLGovernanceStore)

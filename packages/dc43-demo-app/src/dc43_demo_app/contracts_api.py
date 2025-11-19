@@ -159,7 +159,10 @@ if contracts_server is not None:
         return dataset_ids
 
     def _demo_pipeline_activity(
-        dataset_id: str, dataset_version: str | None = None
+        dataset_id: str,
+        dataset_version: str | None = None,
+        *,
+        include_status: bool = False,
     ) -> list[Mapping[str, object]]:
         entries: list[Mapping[str, object]] = []
         for record in load_records():
@@ -188,15 +191,20 @@ if contracts_server is not None:
                 product["role"] = record.data_product_role
             if product:
                 event["data_product"] = product
-            entries.append(
-                {
-                    "dataset_id": dataset_id,
-                    "dataset_version": record.dataset_version,
-                    "contract_id": record.contract_id,
-                    "contract_version": record.contract_version,
-                    "events": [event],
+            entry: dict[str, object] = {
+                "dataset_id": dataset_id,
+                "dataset_version": record.dataset_version,
+                "contract_id": record.contract_id,
+                "contract_version": record.contract_version,
+                "events": [event],
+            }
+            if include_status:
+                entry["validation_status"] = {
+                    "status": record.status,
+                    "details": dict(record.dq_details),
+                    "reason": record.reason,
                 }
-            )
+            entries.append(entry)
         return entries
 
     def _demo_validation_status(

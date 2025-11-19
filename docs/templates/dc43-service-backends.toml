@@ -15,6 +15,8 @@ type = "filesystem"
 # creates the directory when it does not exist. Use "~" to reference the
 # current user's home directory.
 root = "./contracts"
+# Set to true to log every SQL/Delta statement issued by the store.
+log_sql = false
 
 # ---------------------------------------------------------------------------
 # Collibra stub contract store (uncomment this block and comment the filesystem
@@ -74,6 +76,8 @@ type = "memory"
 root = "./data-products"
 # Provide a Unity Catalog table name when ``type = "delta"``.
 table = ""
+# Emit SQL statements executed by the backend when troubleshooting Delta/SQL stores.
+log_sql = false
 
 # ---------------------------------------------------------------------------
 # Data-quality backend (defaults to the embedded engine)
@@ -105,6 +109,7 @@ type = "memory"
 # type = "sql"
 # dsn = "postgresql+psycopg://user:password@db.internal/dc43"
 # status_table = "dq_status"
+# metrics_table = "dq_status_metrics"
 # activity_table = "dq_activity"
 # link_table = "dq_links"
 # type = "delta"
@@ -116,3 +121,5 @@ type = "memory"
 # type = "http"
 # base_url = "https://governance.example.com"
 # token = "$GOVERNANCE_TOKEN"
+# Enable verbose SQL logging for Delta and relational stores.
+log_sql = false

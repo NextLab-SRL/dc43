@@ -251,13 +251,17 @@ def list_dataset_ids() -> List[str]:
 def dataset_pipeline_activity(
     dataset_id: str,
     dataset_version: str | None = None,
+    *,
+    include_status: bool = False,
 ) -> List[Mapping[str, object]]:
     service = governance_service_client()
     if service is None:
         return []
     try:
         records = service.get_pipeline_activity(
-            dataset_id=dataset_id, dataset_version=dataset_version
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            include_status=include_status,
         )
     except Exception:  # pragma: no cover - defensive guard when backend fails
         logger.exception(

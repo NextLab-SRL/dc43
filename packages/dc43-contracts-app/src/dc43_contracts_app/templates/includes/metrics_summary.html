@@ -1,0 +1,146 @@
+{% set metrics_summary = metrics_summary | default({}) %}
+{% set latest_metrics = metrics_summary.get('latest') %}
+{% set previous_metrics = metrics_summary.get('previous', []) %}
+{% set chronological_history = metrics_summary.get('chronological_history', []) %}
+{% set numeric_metric_keys = metrics_summary.get('numeric_metric_keys', []) %}
+{% set contract_filters = metrics_summary.get('contract_filters', []) %}
+{% set metrics_panel_title = metrics_panel_title | default('Metric summary') %}
+{% set metrics_panel_scope_label = metrics_panel_scope_label | default('') %}
+{% set metrics_empty_message = metrics_empty_message | default('No metrics recorded for this dataset yet.') %}
+{% set show_metrics_history = show_metrics_history | default(False) %}
+{% if metrics_error %}
+<div class="alert alert-warning mt-3">
+  <strong>Metrics unavailable.</strong>
+  <div class="small mb-0">{{ metrics_error }}</div>
+</div>
+{% endif %}
+{% if show_metrics_history and chronological_history %}
+<div class="card mb-3" id="dataset-metric-trends">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div class="me-auto">
+      <strong>{{ metrics_panel_title }}</strong>
+      {% if metrics_panel_scope_label %}
+      <span class="text-muted ms-2">{{ metrics_panel_scope_label }}</span>
+      {% endif %}
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-3">
+      <div class="text-muted small">
+        {% if latest_metrics %}
+        Latest {{ latest_metrics.recorded_label or latest_metrics.recorded_at or 'snapshot' }}
+        {% else %}
+        Latest snapshot
+        {% endif %}
+      </div>
+      {% if contract_filters %}
+      <div class="d-flex flex-wrap align-items-center gap-2" id="datasetMetricsFilters">
+        <label class="form-label text-muted small mb-0">
+          Contract
+          <select class="form-select form-select-sm" id="datasetMetricsContractFilter" aria-label="Filter metrics by contract">
+            <option value="">All contracts</option>
+            {% for option in contract_filters %}
+            <option value="{{ option.contract_id }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="form-label text-muted small mb-0">
+          Version
+          <select class="form-select form-select-sm" id="datasetMetricsContractVersionFilter" aria-label="Filter metrics by contract version" disabled>
+            <option value="">All versions</option>
+          </select>
+        </label>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="chart-wrapper" data-chart-ready="false">
+      <canvas id="datasetMetricsChart" aria-label="Metric history chart" role="img" class="d-none"></canvas>
+      <p
+        class="text-muted small mt-3"
+        id="datasetMetricsEmptyMessage"
+        data-default-text="Metric trend data will appear once the chart loads."
+        data-no-numeric-text="No numeric metrics recorded for this dataset."
+        data-no-filter-results-text="No numeric metrics match the selected filters."
+      >
+        Metric trend data will appear once the chart loads.
+      </p>
+    </div>
+  </div>
+  <div class="card-footer small text-muted">
+    Hover points to see recorded timestamps and dataset versions. Only metrics with numeric values are plotted.
+  </div>
+</div>
+{% endif %}
+{% if latest_metrics %}
+<div class="card mb-3">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <strong>{{ latest_metrics.recorded_label or latest_metrics.recorded_at or 'Latest snapshot' }}</strong>
+      {% if latest_metrics.dataset_version %}
+      <span class="text-muted ms-2">Dataset {{ latest_metrics.dataset_version }}</span>
+      {% endif %}
+    </div>
+    {% if latest_metrics.contract_id %}
+    <div class="text-muted small">
+      Contract {{ latest_metrics.contract_id }}{% if latest_metrics.contract_version %}:{{ latest_metrics.contract_version }}{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr><th scope="col">Metric</th><th scope="col">Value</th></tr>
+      </thead>
+      <tbody>
+        {% for metric in latest_metrics.metrics %}
+        <tr>
+          <td><code>{{ metric.key }}</code></td>
+          <td>{{ metric.value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% elif not metrics_error %}
+<p class="text-muted">{{ metrics_empty_message }}</p>
+{% endif %}
+{% if previous_metrics %}
+<details class="mb-3">
+  <summary>Earlier metric snapshots</summary>
+  <div class="mt-3">
+    {% for snapshot in previous_metrics %}
+    <div class="card mb-3">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+          <strong>{{ snapshot.recorded_label or snapshot.recorded_at or 'Snapshot' }}</strong>
+          {% if snapshot.dataset_version %}
+          <span class="text-muted ms-2">Dataset {{ snapshot.dataset_version }}</span>
+          {% endif %}
+        </div>
+        {% if snapshot.contract_id %}
+        <div class="text-muted small">
+          Contract {{ snapshot.contract_id }}{% if snapshot.contract_version %}:{{ snapshot.contract_version }}{% endif %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr><th scope="col">Metric</th><th scope="col">Value</th></tr>
+          </thead>
+          <tbody>
+            {% for metric in snapshot.metrics %}
+            <tr>
+              <td><code>{{ metric.key }}</code></td>
+              <td>{{ metric.value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}

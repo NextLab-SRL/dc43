@@ -17,8 +17,8 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 dependencies = [
-  "dc43-service-clients>=0.31.0.0",
-  "dc43-service-backends>=0.31.0.0",
+  "dc43-service-clients>=0.32.0.0",
+  "dc43-service-backends>=0.32.0.0",
   "fastapi>=0.118.0",
   "jinja2>=3.1.0",
   "python-multipart>=0.0.5",
@@ -27,11 +27,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-spark = ["dc43-integrations[spark,lineage,telemetry]>=0.31.0.0"]
+spark = ["dc43-integrations[spark,lineage,telemetry]>=0.32.0.0"]
 test = [
-  "dc43-service-clients[lineage,test]>=0.31.0.0",
-  "dc43-service-backends[test]>=0.31.0.0",
-  "dc43-integrations[spark,lineage,telemetry,test]>=0.31.0.0",
+  "dc43-service-clients[lineage,test]>=0.32.0.0",
+  "dc43-service-backends[test]>=0.32.0.0",
+  "dc43-integrations[spark,lineage,telemetry,test]>=0.32.0.0",
   "httpx>=0.24",
 ]
 docs-chat = [

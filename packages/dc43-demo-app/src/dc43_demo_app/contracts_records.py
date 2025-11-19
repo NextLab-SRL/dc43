@@ -69,7 +69,12 @@ def _coerce_int(value: Any) -> int:
         return 0
 
 
-def load_records(workspace: ContractsAppWorkspace | None = None) -> List[DatasetRecord]:
+def load_records(
+    workspace: ContractsAppWorkspace | None = None,
+    *,
+    dataset_id: str | None = None,
+    dataset_version: str | None = None,
+) -> List[DatasetRecord]:
     """Load dataset history from the demo registry file."""
 
     ws = workspace or current_workspace()
@@ -102,6 +107,10 @@ def load_records(workspace: ContractsAppWorkspace | None = None) -> List[Dataset
             data_product_port=_coerce_str(entry.get("data_product_port")),
             data_product_role=_coerce_str(entry.get("data_product_role")),
         )
+        if dataset_id and record.dataset_name != dataset_id:
+            continue
+        if dataset_version and record.dataset_version != dataset_version:
+            continue
         records.append(record)
 
     return records

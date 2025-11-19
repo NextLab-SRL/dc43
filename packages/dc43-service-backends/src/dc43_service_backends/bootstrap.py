@@ -51,6 +51,7 @@ from .governance.backend.stores import (
     InMemoryGovernanceStore,
     SQLGovernanceStore,
 )
+from .governance.backend.stores._table_names import derive_related_table_name
 from .governance.backend.stores.filesystem import FilesystemGovernanceStore
 
 try:  # pragma: no cover - optional dependencies
@@ -177,6 +178,7 @@ def build_contract_store(config: ContractStoreConfig) -> ContractStore:
             spark,
             table=table,
             path=str(base_path) if base_path and not table else None,
+            log_sql=config.log_sql,
         )
 
     if store_type == "sql":
@@ -194,7 +196,7 @@ def build_contract_store(config: ContractStoreConfig) -> ContractStore:
                 "contract_store.dsn must be configured when type is 'sql'",
             )
 
-        engine = create_engine(config.dsn)
+        engine = create_engine(config.dsn, echo=bool(config.log_sql))
         table_name = config.table or "contracts"
         return SQLContractStore(engine, table_name=table_name, schema=config.schema)
 
@@ -247,7 +249,7 @@ def build_data_product_backend(config: DataProductStoreConfig) -> DataProductSer
                 "data_product_store.dsn must be configured when type is 'sql'",
             )
 
-        engine = create_engine(config.dsn)
+        engine = create_engine(config.dsn, echo=bool(config.log_sql))
         table_name = config.table or "data_products"
         store = SQLDataProductStore(engine, table_name=table_name, schema=config.schema)
         return LocalDataProductServiceBackend(store=store)
@@ -264,6 +266,7 @@ def build_data_product_backend(config: DataProductStoreConfig) -> DataProductSer
             spark,
             table=table,
             path=str(base_path) if base_path and not table else None,
+            log_sql=config.log_sql,
         )
 
     if store_type == "collibra_stub":
@@ -411,16 +414,20 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
             raise RuntimeError(
                 "governance_store.dsn must be configured when type is 'sql'",
             )
-        engine = create_engine(config.dsn)
+        engine = create_engine(config.dsn, echo=bool(config.log_sql))
         status_table = config.status_table or "dq_status"
         activity_table = config.activity_table or "dq_activity"
         link_table = config.link_table or "dq_dataset_contract_links"
+        metrics_table = config.metrics_table
+        if not metrics_table and status_table:
+            metrics_table = derive_related_table_name(status_table, "metrics")
         return SQLGovernanceStore(
             engine,
             schema=config.schema,
             status_table=status_table,
             activity_table=activity_table,
             link_table=link_table,
+            metrics_table=metrics_table,
         )
 
     if store_type == "delta":
@@ -441,6 +448,7 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
             activity_table=config.activity_table,
             link_table=config.link_table,
             metrics_table=config.metrics_table,
+            log_sql=config.log_sql,
         )
 
     if store_type in {"http", "remote"}:

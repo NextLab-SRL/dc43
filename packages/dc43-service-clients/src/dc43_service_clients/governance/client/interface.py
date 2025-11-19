@@ -108,6 +108,15 @@ class GovernanceServiceClient(Protocol):
     def list_datasets(self) -> Sequence[str]:
         ...
 
+    def get_pipeline_activity(
+        self,
+        *,
+        dataset_id: str,
+        dataset_version: Optional[str] = None,
+        include_status: bool = False,
+    ) -> Sequence[Mapping[str, object]]:
+        ...
+
     def resolve_read_context(
         self,
         *,

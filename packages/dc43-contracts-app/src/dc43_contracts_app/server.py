@@ -19,7 +19,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import (
     List,
@@ -333,6 +333,22 @@ def _format_recorded_at(value: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S %Z").strip()
 
 
+def _decode_metric_value(value: object | None) -> object | None:
+    """Return ``value`` with JSON-wrapped payloads decoded when possible."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return ""
+    if text[0] in "{[\"" and text[-1] in "}]\"":
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
 def _coerce_numeric(value: object | None) -> float | None:
     """Return ``value`` as a :class:`float` when it resembles a number."""
 
@@ -359,6 +375,11 @@ def _format_metric_value(numeric: object | None, raw: object | None) -> str:
     if raw is not None:
         if raw == "":
             return "—"
+        if isinstance(raw, (dict, list)):
+            try:
+                return json.dumps(raw, sort_keys=True)
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                return str(raw)
         if isinstance(raw, float):
             return format(raw, "g")
         return str(raw)
@@ -390,10 +411,38 @@ def _empty_metrics_summary() -> Dict[str, Any]:
         "metric_keys": [],
         "numeric_metric_keys": [],
         "chronological_history": [],
+        "contract_filters": [],
     }
 
 
-def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any]:
+def _contract_filter_fallbacks(
+    records: Iterable[Mapping[str, Any]]
+) -> dict[str, dict[str, set[str]]]:
+    """Return contract/version fallbacks derived from dataset history rows."""
+
+    fallbacks: dict[str, dict[str, set[str]]] = {}
+    for record in records:
+        contract_id = str(record.get("contract_id") or "").strip()
+        if not contract_id:
+            continue
+        entry = fallbacks.setdefault(
+            contract_id,
+            {"contract_versions": set(), "dataset_versions": set()},
+        )
+        contract_version = str(record.get("contract_version") or "").strip()
+        dataset_version = str(record.get("dataset_version") or "").strip()
+        if contract_version:
+            entry["contract_versions"].add(contract_version)
+        if dataset_version:
+            entry["dataset_versions"].add(dataset_version)
+    return fallbacks
+
+
+def _summarise_metrics(
+    entries: Sequence[Mapping[str, object]],
+    *,
+    fallback_contract_versions: Mapping[str, Mapping[str, Iterable[str]]] | None = None,
+) -> Dict[str, Any]:
     """Group raw metric rows into timestamped snapshots for the templates."""
 
     if not entries:
@@ -402,6 +451,8 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
     grouped: dict[tuple[str, str, str, str], Dict[str, Any]] = {}
     keys: set[str] = set()
     numeric_keys: set[str] = set()
+    contract_versions: dict[str, set[str]] = {}
+    contract_dataset_versions: dict[str, set[str]] = {}
     for entry in entries:
         recorded_at = str(entry.get("status_recorded_at") or "")
         dataset_version = str(entry.get("dataset_version") or "")
@@ -424,18 +475,30 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         metric_key = str(entry.get("metric_key") or "")
         if metric_key:
             keys.add(metric_key)
-        metric_value = entry.get("metric_value")
-        numeric_value = _coerce_numeric(entry.get("metric_numeric_value"))
-        if metric_key and numeric_value is not None:
+        metric_value = _decode_metric_value(entry.get("metric_value"))
+        numeric_value = entry.get("metric_numeric_value")
+        coerced_numeric = _coerce_numeric(numeric_value)
+        if coerced_numeric is None:
+            coerced_numeric = _coerce_numeric(metric_value)
+        if metric_key and coerced_numeric is not None:
             numeric_keys.add(metric_key)
         group["metrics"].append(
             {
                 "key": metric_key,
-                "value": _format_metric_value(numeric_value, metric_value),
+                "value": _format_metric_value(coerced_numeric, metric_value),
                 "raw_value": metric_value,
-                "numeric_value": numeric_value,
+                "numeric_value": coerced_numeric,
             }
         )
+        if contract_id:
+            versions = contract_versions.setdefault(contract_id, set())
+            if contract_version:
+                versions.add(contract_version)
+            dataset_versions = contract_dataset_versions.setdefault(
+                contract_id, set()
+            )
+            if dataset_version:
+                dataset_versions.add(dataset_version)
 
     snapshots = sorted(grouped.values(), key=_metric_group_sort_key)
     for snapshot in snapshots:
@@ -444,6 +507,42 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
 
     latest = snapshots[0] if snapshots else None
     previous = snapshots[1:] if len(snapshots) > 1 else []
+    fallbacks = fallback_contract_versions or {}
+    filters = []
+    contract_ids = sorted(set(contract_versions) | set(fallbacks))
+    for contract_id in contract_ids:
+        versions = contract_versions.get(contract_id)
+        dataset_version_candidates = contract_dataset_versions.get(contract_id, set())
+        fallback_entry = fallbacks.get(contract_id) or {}
+        fallback_contract_versions = {
+            str(value)
+            for value in fallback_entry.get("contract_versions", [])
+            if str(value)
+        }
+        fallback_dataset_versions = {
+            str(value)
+            for value in fallback_entry.get("dataset_versions", [])
+            if str(value)
+        }
+        explicit_versions = sorted({str(value) for value in (versions or set()) if str(value)})
+        version_source = "contract"
+        if not explicit_versions and fallback_contract_versions:
+            explicit_versions = sorted(fallback_contract_versions)
+        dataset_versions = dataset_version_candidates or fallback_dataset_versions
+        dataset_version_values = sorted({str(value) for value in dataset_versions if str(value)})
+        if not explicit_versions and dataset_version_values:
+            explicit_versions = dataset_version_values
+            version_source = "dataset"
+        if not explicit_versions:
+            continue
+        filters.append(
+            {
+                "contract_id": contract_id,
+                "label": contract_id,
+                "versions": explicit_versions,
+                "version_source": version_source,
+            }
+        )
 
     return {
         "latest": latest,
@@ -452,6 +551,7 @@ def _summarise_metrics(entries: Sequence[Mapping[str, object]]) -> Dict[str, Any
         "chronological_history": list(reversed(snapshots)),
         "metric_keys": sorted(keys),
         "numeric_metric_keys": sorted(numeric_keys),
+        "contract_filters": filters,
     }
 
 
@@ -5401,6 +5501,75 @@ class DatasetRecord:
     data_product_id: str = ""
     data_product_port: str = ""
     data_product_role: str = ""
+    observation_operation: str = ""
+    observation_scope: str = ""
+    observation_label: str = ""
+
+
+def _coerce_optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _dataset_record_from_payload(payload: Mapping[str, Any]) -> DatasetRecord | None:
+    dataset_name = str(payload.get("dataset_name") or payload.get("dataset_id") or "")
+    dataset_version = str(payload.get("dataset_version") or "")
+    contract_id = str(payload.get("contract_id") or "")
+    contract_version = str(payload.get("contract_version") or "")
+    details = payload.get("dq_details")
+    dq_details = dict(details) if isinstance(details, Mapping) else {}
+    status_value = _normalise_record_status(str(payload.get("status") or ""))
+    run_type = str(payload.get("run_type") or "infer")
+    violations_raw = payload.get("violations")
+    try:
+        violations = int(violations_raw) if isinstance(violations_raw, (int, float)) else 0
+    except (TypeError, ValueError):
+        violations = 0
+    record = DatasetRecord(
+        contract_id,
+        contract_version,
+        dataset_name,
+        dataset_version,
+        status_value,
+        dq_details,
+        run_type,
+        violations,
+        draft_contract_version=_coerce_optional_str(payload.get("draft_contract_version")),
+        scenario_key=_coerce_optional_str(payload.get("scenario_key")),
+        data_product_id=str(payload.get("data_product_id") or ""),
+        data_product_port=str(payload.get("data_product_port") or ""),
+        data_product_role=str(payload.get("data_product_role") or ""),
+        observation_operation=str(payload.get("observation_operation") or ""),
+        observation_scope=str(payload.get("observation_scope") or ""),
+        observation_label=str(payload.get("observation_label") or ""),
+    )
+    record.reason = str(payload.get("reason") or "")
+    return record
+
+
+def _records_from_service(
+    *, dataset_id: str | None, dataset_version: str | None
+) -> List[DatasetRecord] | None:
+    service = governance_service_client()
+    if service is None:
+        return None
+    method = getattr(service, "get_dataset_records", None)
+    if not callable(method):
+        return None
+    try:
+        payloads = method(dataset_id=dataset_id, dataset_version=dataset_version)
+    except Exception:  # pragma: no cover - defensive fallback when backend fails
+        logger.exception("Failed to load dataset records via governance service")
+        return None
+    records: List[DatasetRecord] = []
+    for payload in payloads:
+        if isinstance(payload, Mapping):
+            record = _dataset_record_from_payload(payload)
+            if record is not None:
+                records.append(record)
+    return records
 
 
 _STATUS_BADGES: Dict[str, str] = {
@@ -5802,30 +5971,55 @@ def _extract_violation_count(section: Mapping[str, Any] | None) -> int:
     return total
 
 
-def load_records() -> List[DatasetRecord]:
+def load_records(
+    *, dataset_id: str | None = None, dataset_version: str | None = None
+) -> List[DatasetRecord]:
     """Return recorded dataset runs provided by the governance services."""
 
+    service_records = _records_from_service(
+        dataset_id=dataset_id, dataset_version=dataset_version
+    )
+    if service_records:
+        return service_records
+
     records: List[DatasetRecord] = []
-    for dataset_id in list_dataset_ids():
-        activity = dataset_pipeline_activity(dataset_id)
+    record_indices: Dict[Tuple[str, str, str, str], int] = {}
+    dataset_ids = [dataset_id] if dataset_id else list_dataset_ids()
+    for dataset_name in dataset_ids:
+        if not dataset_name:
+            continue
+        version_filter = dataset_version if dataset_id is not None else None
+        activity = dataset_pipeline_activity(
+            dataset_name,
+            dataset_version=version_filter,
+            include_status=True,
+        )
+        inline_status_available = any(
+            isinstance(item, Mapping) and item.get("validation_status") is not None
+            for item in activity
+        )
         status_lookup: Dict[Tuple[str, str, str], Any] = {}
-        if activity:
+        if activity and not inline_status_available:
             contract_candidates = {
                 str(item.get("contract_id") or "").strip()
                 for item in activity
                 if item.get("contract_id")
             }
-            version_candidates = {
-                value
-                for value in (
-                    str(item.get("dataset_version") or "").strip()
-                    for item in activity
-                    if item.get("dataset_version")
-                )
-                if value and value.lower() != "latest"
-            }
+            version_candidates: Set[str] = set()
+            if version_filter:
+                version_candidates.add(version_filter)
+            else:
+                version_candidates = {
+                    value
+                    for value in (
+                        str(item.get("dataset_version") or "").strip()
+                        for item in activity
+                        if item.get("dataset_version")
+                    )
+                    if value and value.lower() != "latest"
+                }
             matrix_entries = dataset_status_matrix(
-                dataset_id,
+                dataset_name,
                 contract_ids=[c for c in contract_candidates if c],
                 dataset_versions=[v for v in version_candidates if v],
             )
@@ -5846,42 +6040,63 @@ def load_records() -> List[DatasetRecord]:
                 if cid and cver and dver:
                     status_lookup[(cid, cver, dver)] = result
         for entry in activity:
-            dataset_version = str(entry.get("dataset_version") or "").strip()
+            dataset_version_value = str(entry.get("dataset_version") or "").strip()
+            if (
+                version_filter
+                and dataset_version_value
+                and dataset_version_value != version_filter
+            ):
+                continue
             contract_id = str(entry.get("contract_id") or "").strip()
             contract_version = str(entry.get("contract_version") or "").strip()
 
             latest_event = _latest_event(entry)
             validation: Optional[ValidationResult] = None
-            if contract_id and contract_version and dataset_version:
-                validation = status_lookup.get(
-                    (contract_id, contract_version, dataset_version)
-                )
+            inline_details: Mapping[str, Any] | None = None
+            if contract_id and contract_version and dataset_version_value:
+                inline_payload = entry.get("validation_status")
+                if isinstance(inline_payload, Mapping):
+                    maybe_details = inline_payload.get("details")
+                    if isinstance(maybe_details, Mapping):
+                        inline_details = dict(maybe_details)
+                if inline_payload is not None:
+                    validation = _as_validation_result(inline_payload)
+                else:
+                    validation = status_lookup.get(
+                        (contract_id, contract_version, dataset_version_value)
+                    )
                 if (
                     validation is None
-                    and dataset_version.lower() != "latest"
+                    and not inline_status_available
+                    and dataset_version_value.lower() != "latest"
                 ):
                     validation = _as_validation_result(
                         dataset_validation_status(
                             contract_id=contract_id,
                             contract_version=contract_version,
-                            dataset_id=dataset_id,
-                            dataset_version=dataset_version,
+                            dataset_id=dataset_name,
+                            dataset_version=dataset_version_value,
                         )
                     )
 
             details: Dict[str, Any] = {}
             reason = ""
             status_value = "unknown"
+            observation_operation = ""
+            observation_scope = ""
+            observation_label = ""
             if validation is not None:
                 try:
                     status_value = _normalise_record_status(validation.status)
                     details = dict(validation.details)
+                    if inline_details is not None:
+                        details = inline_details
                     reason = validation.reason or ""
                 except Exception:  # pragma: no cover - defensive guard
                     logger.exception(
                         "Failed to interpret validation status for %s@%s",
-                        dataset_id,
-                        dataset_version,
+                        dataset_name,
+                        dataset_version_value,
                     )
                     details = {}
             else:
@@ -5889,6 +6104,13 @@ def load_records() -> List[DatasetRecord]:
                 status_value = _normalise_record_status(raw_status)
                 details = dict(latest_event.get("dq_details") or {})
                 reason = str(latest_event.get("dq_reason") or "")
+
+            if details:
+                observation_operation = str(details.get("observation_operation") or "")
+                observation_scope = str(details.get("observation_scope") or "")
+                observation_label = str(details.get("observation_label") or "")
+                if observation_scope and not observation_label:
+                    observation_label = observation_scope.replace("_", " ").title()
 
             pipeline_context = latest_event.get("pipeline_context")
             run_type = "infer"
@@ -5929,8 +6151,8 @@ def load_records() -> List[DatasetRecord]:
             record = DatasetRecord(
                 contract_id,
                 contract_version,
-                dataset_id,
-                dataset_version,
+                dataset_name,
+                dataset_version_value,
                 status_value,
                 details,
                 run_type,
@@ -5940,9 +6162,35 @@ def load_records() -> List[DatasetRecord]:
                 data_product_id=data_product_id,
                 data_product_port=data_product_port,
                 data_product_role=data_product_role,
+                observation_operation=observation_operation,
+                observation_scope=observation_scope,
+                observation_label=observation_label,
             )
             record.reason = reason
-            records.append(record)
+
+            dedup_key: Tuple[str, str, str, str] | None = None
+            if (
+                dataset_name
+                and dataset_version_value
+                and contract_id
+                and contract_version
+            ):
+                dedup_key = (
+                    dataset_name,
+                    dataset_version_value,
+                    contract_id,
+                    contract_version,
+                )
+
+            if dedup_key is None:
+                records.append(record)
+            else:
+                existing_index = record_indices.get(dedup_key)
+                if existing_index is None:
+                    record_indices[dedup_key] = len(records)
+                    records.append(record)
+                else:
+                    records[existing_index] = record
 
     return records
 
@@ -7562,12 +7810,12 @@ async def api_contract_preview(
     server = (contract.servers or [None])[0]
     dataset_path_hint = server.path if server else None
     version_contract = contract if effective_dataset_id == (contract.id or cid) else None
+    dataset_records = load_records(dataset_id=effective_dataset_id)
     scoped_records = [
         record
-        for record in load_records()
+        for record in dataset_records
         if record.contract_id == cid
         and record.contract_version == ver
-        and record.dataset_name == effective_dataset_id
     ]
     version_records = _dq_version_records(
         effective_dataset_id,
@@ -9385,10 +9633,55 @@ async def list_datasets(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("datasets.html", context)
 
 
+def _dataset_history_sort_key(record: Mapping[str, Any]) -> Tuple[str, str, str]:
+    return (
+        str(record.get("dataset_version") or ""),
+        str(record.get("contract_id") or ""),
+        str(record.get("contract_version") or ""),
+    )
+
+
+def _sort_dataset_history_rows(records: Iterable[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    return sorted((dict(item) for item in records), key=_dataset_history_sort_key, reverse=True)
+
+
 @router.get("/datasets/{dataset_name}", response_class=HTMLResponse)
 async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
-    records = [r.__dict__.copy() for r in load_records() if r.dataset_name == dataset_name]
-    context = {"request": request, "dataset_name": dataset_name, "records": records}
+    records = _sort_dataset_history_rows(
+        [r.__dict__.copy() for r in load_records(dataset_id=dataset_name)]
+    )
+    contract_filter_fallbacks = _contract_filter_fallbacks(records)
+    metrics_summary = _empty_metrics_summary()
+    metrics_error: str | None = None
+
+    if dataset_name:
+
+        def _load_metrics() -> Sequence[Mapping[str, object]]:
+            _, _, governance_client = _thread_service_clients()
+            return governance_client.get_metrics(dataset_id=dataset_name)
+
+        try:
+            metrics_records = await run_in_threadpool(_load_metrics)
+        except Exception as exc:  # pragma: no cover - defensive
+            metrics_error = str(exc)
+            logger.exception("Failed to load dataset metrics for %s", dataset_name)
+        else:
+            metrics_summary = _summarise_metrics(
+                metrics_records,
+                fallback_contract_versions=contract_filter_fallbacks,
+            )
+
+    context = {
+        "request": request,
+        "dataset_name": dataset_name,
+        "records": records,
+        "metrics_summary": metrics_summary,
+        "metrics_error": metrics_error,
+        "show_metrics_history": True,
+        "metrics_panel_title": "Dataset metrics",
+        "metrics_panel_scope_label": f"Dataset {dataset_name}",
+        "metrics_empty_message": "No metrics recorded for this dataset yet.",
+    }
     return templates.TemplateResponse("dataset_versions.html", context)
 
 
@@ -9599,20 +9892,98 @@ def _port_custom_map(port: Any) -> Dict[str, Any]:
     return mapping
 
 
-def _records_by_data_product(records: Iterable[DatasetRecord]) -> Dict[str, List[DatasetRecord]]:
+def _normalise_identifier(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text.lower()
+
+
+def _data_product_port_index(
+    products: Iterable[OpenDataProductStandard],
+) -> Tuple[
+    Dict[str, set[str]],
+    Dict[Tuple[str, str], set[str]],
+    Dict[str, set[str]],
+]:
+    dataset_index: Dict[str, set[str]] = {}
+    contract_version_index: Dict[Tuple[str, str], set[str]] = {}
+    contract_index: Dict[str, set[str]] = {}
+    for product in products:
+        for port in list(product.output_ports or []):
+            props = _port_custom_map(port)
+            dataset_ref = props.get("dc43.dataset.id") or props.get("dc43.contract.ref")
+            dataset_key = _normalise_identifier(dataset_ref)
+            if dataset_key:
+                dataset_index.setdefault(dataset_key, set()).add(product.id)
+            contract_key = _normalise_identifier(port.contract_id)
+            version_key = _normalise_identifier(port.version)
+            if contract_key:
+                if version_key:
+                    contract_version_index.setdefault(
+                        (contract_key, version_key), set()
+                    ).add(product.id)
+                contract_index.setdefault(contract_key, set()).add(product.id)
+    return dataset_index, contract_version_index, contract_index
+
+
+def _pick_single_candidate(candidates: set[str] | None) -> str:
+    if not candidates:
+        return ""
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return ""
+
+
+def _infer_data_product_id(
+    record: DatasetRecord,
+    dataset_index: Mapping[str, set[str]],
+    contract_version_index: Mapping[Tuple[str, str], set[str]],
+    contract_index: Mapping[str, set[str]],
+) -> str:
+    dataset_key = _normalise_identifier(record.dataset_name)
+    match = _pick_single_candidate(dataset_index.get(dataset_key))
+    if match:
+        return match
+    contract_key = _normalise_identifier(record.contract_id)
+    version_key = _normalise_identifier(record.contract_version)
+    if contract_key and version_key:
+        match = _pick_single_candidate(contract_version_index.get((contract_key, version_key)))
+        if match:
+            return match
+    if contract_key:
+        match = _pick_single_candidate(contract_index.get(contract_key))
+        if match:
+            return match
+    return ""
+
+
+def _records_by_data_product(
+    records: Iterable[DatasetRecord],
+    *,
+    products: Iterable[OpenDataProductStandard] | None = None,
+) -> Dict[str, List[DatasetRecord]]:
+    product_docs = list(products) if products is not None else load_data_products()
+    dataset_index, contract_version_index, contract_index = _data_product_port_index(
+        product_docs
+    )
     grouped: Dict[str, List[DatasetRecord]] = {}
     for record in records:
-        if record.data_product_id:
-            grouped.setdefault(record.data_product_id, []).append(record)
+        product_id = record.data_product_id or _infer_data_product_id(
+            record, dataset_index, contract_version_index, contract_index
+        )
+        if product_id:
+            grouped.setdefault(product_id, []).append(record)
     for entries in grouped.values():
         entries.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
     return grouped
 
 
 def data_product_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
-    grouped = _records_by_data_product(records)
+    products = load_data_products()
+    grouped = _records_by_data_product(records, products=products)
     summaries: List[Dict[str, Any]] = []
-    for product in load_data_products():
+    for product in products:
         product_records = list(grouped.get(product.id, []))
         latest_record = product_records[-1] if product_records else None
         inputs: List[Dict[str, Any]] = []
@@ -9663,11 +10034,12 @@ def describe_data_product(
     product_id: str,
     records: Iterable[DatasetRecord],
 ) -> Dict[str, Any] | None:
-    products = {doc.id: doc for doc in load_data_products()}
+    product_docs = list(load_data_products())
+    products = {doc.id: doc for doc in product_docs}
     product = products.get(product_id)
     if product is None:
         return None
-    grouped = _records_by_data_product(records)
+    grouped = _records_by_data_product(records, products=product_docs)
     product_records = list(grouped.get(product.id, []))
     product_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
     input_ports: List[Dict[str, Any]] = []
@@ -9721,8 +10093,9 @@ def describe_data_product(
 
 def data_products_for_contract(contract_id: str, records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
     matches: List[Dict[str, Any]] = []
-    grouped_records = _records_by_data_product(records)
-    for product in load_data_products():
+    products = load_data_products()
+    grouped_records = _records_by_data_product(records, products=products)
+    for product in products:
         for port in list(product.input_ports) + list(product.output_ports):
             if port.contract_id != contract_id:
                 continue
@@ -9744,21 +10117,123 @@ def data_products_for_contract(contract_id: str, records: Iterable[DatasetRecord
 
 
 def data_products_for_dataset(dataset_name: str, records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
-    associations: List[Dict[str, Any]] = []
-    for record in records:
-        if record.dataset_name != dataset_name or not record.data_product_id:
-            continue
-        associations.append(
-            {
-                "product_id": record.data_product_id,
-                "port_name": record.data_product_port,
-                "role": record.data_product_role,
-                "status": record.status,
-                "dataset_version": record.dataset_version,
-            }
+    relevant_records = [r for r in records if r.dataset_name == dataset_name]
+    if not relevant_records:
+        return []
+
+    by_contract: Dict[str, List[DatasetRecord]] = {}
+    for record in relevant_records:
+        if record.contract_id:
+            by_contract.setdefault(record.contract_id, []).append(record)
+    for contract_records in by_contract.values():
+        contract_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
+
+    products = list(load_data_products())
+    product_map = {doc.id: doc for doc in products if doc.id}
+    summaries: Dict[tuple[str, str, str, str, str], Dict[str, Any]] = {}
+
+    def _status_payload(record: DatasetRecord) -> tuple[str, str, str]:
+        status_value = _normalise_record_status(record.status)
+        return (
+            status_value,
+            status_value.replace("_", " ").title(),
+            _DQ_STATUS_BADGES.get(status_value, "bg-secondary"),
         )
-    associations.sort(key=lambda item: _version_sort_key(item.get("dataset_version") or ""))
-    return associations
+
+    def _update_summary(key: tuple[str, str, str, str, str], payload: Dict[str, Any]) -> None:
+        existing = summaries.get(key)
+        if existing is None:
+            summaries[key] = payload
+            return
+        current_version = str(existing.get("latest_dataset_version") or "")
+        candidate_version = str(payload.get("latest_dataset_version") or "")
+        if _version_sort_key(candidate_version) >= _version_sort_key(current_version):
+            summaries[key] = payload
+
+    def _register_port(
+        product: OpenDataProductStandard,
+        port: DataProductInputPort | DataProductOutputPort,
+        direction: str,
+    ) -> None:
+        contract_id = port.contract_id or ""
+        if not contract_id:
+            return
+        contract_records = by_contract.get(contract_id)
+        if not contract_records:
+            return
+        port_version = str(port.version or "")
+        matching = [
+            rec
+            for rec in contract_records
+            if not port_version or not rec.contract_version or rec.contract_version == port_version
+        ]
+        if not matching:
+            matching = list(contract_records)
+        latest = matching[-1]
+        status_value, status_label, status_badge = _status_payload(latest)
+        key = (
+            product.id or "",
+            port.name or "",
+            direction,
+            contract_id,
+            port_version,
+        )
+        summaries[key] = {
+            "product_id": product.id or "",
+            "product_name": product.name or product.id or "",
+            "direction": direction,
+            "port_name": port.name or "",
+            "port_version": port_version,
+            "contract_id": contract_id,
+            "contract_version": port_version or latest.contract_version or "",
+            "latest_dataset_version": latest.dataset_version,
+            "latest_status": status_value,
+            "latest_status_label": status_label,
+            "latest_status_badge": status_badge,
+        }
+
+    for product in products:
+        for port in product.input_ports:
+            _register_port(product, port, "input")
+        for port in product.output_ports:
+            _register_port(product, port, "output")
+
+    for record in relevant_records:
+        if not record.data_product_id:
+            continue
+        product_info = product_map.get(record.data_product_id)
+        key = (
+            record.data_product_id,
+            record.data_product_port or "",
+            record.data_product_role or "",
+            record.contract_id or "",
+            record.contract_version or "",
+        )
+        status_value, status_label, status_badge = _status_payload(record)
+        payload = {
+            "product_id": record.data_product_id,
+            "product_name": (product_info.name if product_info and product_info.name else record.data_product_id),
+            "direction": record.data_product_role or "",
+            "port_name": record.data_product_port or "",
+            "port_version": record.contract_version or "",
+            "contract_id": record.contract_id or "",
+            "contract_version": record.contract_version or "",
+            "latest_dataset_version": record.dataset_version,
+            "latest_status": status_value,
+            "latest_status_label": status_label,
+            "latest_status_badge": status_badge,
+        }
+        _update_summary(key, payload)
+
+    ordered = list(summaries.values())
+    ordered.sort(
+        key=lambda item: (
+            str(item.get("product_id") or ""),
+            str(item.get("port_name") or ""),
+            str(item.get("direction") or ""),
+        )
+    )
+    return ordered
 
 
 
@@ -9766,6 +10241,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
     """Summarise known datasets and associated contract information."""
 
     grouped: Dict[str, Dict[str, Any]] = {}
+    contract_datasets: Dict[str, set[str]] = {}
     for record in records:
         if not record.dataset_name:
             continue
@@ -9774,33 +10250,45 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
             {"dataset_name": record.dataset_name, "records": []},
         )
         bucket["records"].append(record)
+        if record.contract_id:
+            contract_datasets.setdefault(record.contract_id, set()).add(
+                record.dataset_name
+            )
 
     for contract_id in list_contract_ids():
+        observed_dataset_names = sorted(
+            name for name in contract_datasets.get(contract_id, set()) if name
+        )
         for version in contract_versions(contract_id):
             try:
                 contract = get_contract(contract_id, version)
             except FileNotFoundError:
                 continue
             server_info = _server_details(contract) or {}
-            dataset_id = (
-                server_info.get("dataset_id")
-                or server_info.get("dataset")
-                or contract.id
-                or contract_id
-            )
-            bucket = grouped.setdefault(
-                dataset_id,
-                {"dataset_name": dataset_id, "records": []},
-            )
-            contracts_map = bucket.setdefault("contracts_by_id", {})
-            contracts = contracts_map.setdefault(contract_id, [])
-            contracts.append(
-                {
-                    "version": version,
-                    "status": contract.status or "",
-                    "server": server_info,
-                }
-            )
+            dataset_targets = list(observed_dataset_names)
+            if not dataset_targets:
+                dataset_id = (
+                    server_info.get("dataset_id")
+                    or server_info.get("dataset")
+                    or contract.id
+                    or contract_id
+                )
+                if dataset_id:
+                    dataset_targets = [dataset_id]
+            for dataset_id in dataset_targets:
+                bucket = grouped.setdefault(
+                    dataset_id,
+                    {"dataset_name": dataset_id, "records": []},
+                )
+                contracts_map = bucket.setdefault("contracts_by_id", {})
+                contracts = contracts_map.setdefault(contract_id, [])
+                contracts.append(
+                    {
+                        "version": version,
+                        "status": contract.status or "",
+                        "server": server_info,
+                    }
+                )
 
     catalog: List[Dict[str, Any]] = []
     for dataset_name, payload in grouped.items():
@@ -9808,42 +10296,24 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
         dataset_records.sort(key=lambda item: _version_sort_key(item.dataset_version or ""))
         latest_record: Optional[DatasetRecord] = dataset_records[-1] if dataset_records else None
 
-        product_associations = data_products_for_dataset(dataset_name, dataset_records)
-        product_summary_map: Dict[tuple[str, str], Dict[str, Any]] = {}
-        for association in product_associations:
-            if not isinstance(association, Mapping):
-                continue
-            product_id = str(association.get("product_id") or "")
-            port_name = str(association.get("port_name") or "")
-            product_summary_map[(product_id, port_name)] = dict(association)
-        product_summaries: List[Dict[str, Any]] = []
-        for summary in product_summary_map.values():
-            product_summaries.append(
-                {
-                    "product_id": summary.get("product_id"),
-                    "port_name": summary.get("port_name"),
-                    "role": summary.get("role"),
-                    "latest_status": summary.get("status"),
-                    "latest_dataset_version": summary.get("dataset_version"),
-                }
-            )
-        product_summaries.sort(
-            key=lambda item: (
-                str(item.get("product_id") or ""),
-                str(item.get("port_name") or ""),
-            )
-        )
-
         latest_status_value: Optional[str] = None
         latest_status_label: str = ""
         latest_status_badge: str = ""
         latest_reason: Optional[str] = None
+        latest_observation_label: str = ""
+        latest_observation_scope: str = ""
+        latest_observation_operation: str = ""
         if latest_record:
             status_raw = str(latest_record.status or "unknown")
             latest_status_value = status_raw.lower()
             latest_status_label = status_raw.replace("_", " ").title()
             latest_status_badge = _DQ_STATUS_BADGES.get(latest_status_value, "bg-secondary")
             latest_reason = latest_record.reason or None
+            latest_observation_label = getattr(latest_record, "observation_label", "") or ""
+            latest_observation_scope = getattr(latest_record, "observation_scope", "") or ""
+            latest_observation_operation = (
+                getattr(latest_record, "observation_operation", "") or ""
+            )
 
         run_drafts = sorted(
             {rec.draft_contract_version for rec in dataset_records if rec.draft_contract_version},
@@ -9884,8 +10354,10 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
                 "latest_status_label": latest_status_label,
                 "latest_status_badge": latest_status_badge,
                 "latest_record_reason": latest_reason,
+                "latest_observation_label": latest_observation_label,
+                "latest_observation_scope": latest_observation_scope,
+                "latest_observation_operation": latest_observation_operation,
                 "contract_summaries": contracts_summary,
-                "data_products": product_summaries,
                 "run_drafts_count": len(run_drafts),
                 "run_latest_draft_version": run_drafts[-1] if run_drafts else None,
             }
@@ -9897,7 +10369,7 @@ def dataset_catalog(records: Iterable[DatasetRecord]) -> List[Dict[str, Any]]:
 
 @router.get("/datasets/{dataset_name}/{dataset_version}", response_class=HTMLResponse)
 async def dataset_detail(request: Request, dataset_name: str, dataset_version: str) -> HTMLResponse:
-    records = load_records()
+    records = load_records(dataset_id=dataset_name)
     associations = data_products_for_dataset(dataset_name, records)
     for r in records:
         if r.dataset_name == dataset_name and r.dataset_version == dataset_version:
@@ -9913,21 +10385,32 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
 
             if r.dataset_name:
 
-                def _load_metrics() -> Sequence[Mapping[str, object]]:
+                def _load_metrics(
+                    include_contract_filters: bool = True,
+                ) -> Sequence[Mapping[str, object]]:
                     _, _, governance_client = _thread_service_clients()
                     kwargs: dict[str, object] = {
                         "dataset_id": r.dataset_name,
                     }
                     if r.dataset_version:
                         kwargs["dataset_version"] = r.dataset_version
-                    if r.contract_id:
-                        kwargs["contract_id"] = r.contract_id
-                    if r.contract_version:
-                        kwargs["contract_version"] = r.contract_version
+                    if include_contract_filters:
+                        if r.contract_id:
+                            kwargs["contract_id"] = r.contract_id
+                        if r.contract_version:
+                            kwargs["contract_version"] = r.contract_version
                     return governance_client.get_metrics(**kwargs)
 
                 try:
                     metrics_records = await run_in_threadpool(_load_metrics)
+                    if (
+                        not metrics_records
+                        and r.dataset_version
+                        and (r.contract_id or r.contract_version)
+                    ):
+                        metrics_records = await run_in_threadpool(
+                            partial(_load_metrics, include_contract_filters=False)
+                        )
                 except Exception as exc:  # pragma: no cover - defensive fallback when backend fails
                     metrics_error = str(exc)
                     logger.exception(
@@ -9945,6 +10428,12 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 "data_products": associations,
                 "metrics_summary": metrics_summary,
                 "metrics_error": metrics_error,
+                "show_metrics_history": False,
+                "metrics_panel_title": "Dataset metrics",
+                "metrics_panel_scope_label": (
+                    f"Dataset {dataset_name} {dataset_version}".strip()
+                ),
+                "metrics_empty_message": "No metrics recorded for this dataset version.",
             }
             return templates.TemplateResponse("dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")
