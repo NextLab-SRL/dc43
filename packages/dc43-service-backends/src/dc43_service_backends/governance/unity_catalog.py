@@ -3,12 +3,15 @@ from __future__ import annotations
 """Unity Catalog synchronisation helpers for governance backends."""
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, MutableMapping, Optional, Protocol, Sequence
 import warnings
+from typing import Any, Callable, Mapping, MutableMapping, Optional, Protocol, Sequence
+
+from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
 from dc43_service_backends.config import ServiceBackendsConfig, UnityCatalogConfig
 
 from .hooks import DatasetContractLinkHook
+from .bootstrap import LinkHookContext
 
 
 class TablePropertyUpdater(Protocol):
@@ -18,9 +21,27 @@ class TablePropertyUpdater(Protocol):
         ...
 
 
+class TableTagUpdater(Protocol):
+    """Callable that applies Unity Catalog tags to a table."""
+
+    def __call__(
+        self,
+        table_name: str,
+        tags: Mapping[str, str],
+        unset_tags: Sequence[str] = (),
+    ) -> None:
+        ...
+
+
 MetadataProvider = Callable[[str, str, str, str], Mapping[str, object]]
 DatasetToTable = Callable[[str], Optional[str]]
-WorkspaceBuilder = Callable[[UnityCatalogConfig], Any]
+EngineBuilder = Callable[[str], Any]
+ContractLoader = Callable[[str, str], OpenDataContractStandard | None]
+ContractTableResolver = Callable[[OpenDataContractStandard], Sequence[str]]
+
+
+_RESERVED_PROPERTY_KEYS = frozenset({"owner"})
+_INVALID_TAG_CHARACTERS = frozenset({".", ",", "-", "=", "/", ":"})
 
 
 def _default_metadata(
@@ -53,23 +74,157 @@ def prefix_table_resolver(prefix: str = "table:") -> DatasetToTable:
     return _resolve
 
 
-def _serialise(metadata: Mapping[str, object], extra: Mapping[str, str]) -> Mapping[str, str]:
-    serialised: dict[str, str] = dict(extra)
-    for key, value in metadata.items():
-        if value is None:
-            continue
-        serialised[str(key)] = str(value)
+def _normalise_property_key(key: str) -> str | None:
+    text = str(key).strip()
+    if not text:
+        return None
+    if text.lower() in _RESERVED_PROPERTY_KEYS:
+        warnings.warn(
+            f"Unity Catalog property '{text}' is reserved and will be ignored.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return None
+    return text
+
+
+def _normalise_tag_key(key: str) -> str | None:
+    text = str(key).strip()
+    if not text:
+        return None
+    replaced = False
+    cleaned = []
+    for char in text:
+        if char in _INVALID_TAG_CHARACTERS:
+            cleaned.append("_")
+            replaced = True
+        else:
+            cleaned.append(char)
+    normalised = "".join(cleaned)
+    if not normalised:
+        return None
+    if replaced:
+        warnings.warn(
+            f"Unity Catalog tag '{text}' contains reserved characters; converted to '{normalised}'.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    if normalised.lower() in _RESERVED_PROPERTY_KEYS:
+        warnings.warn(
+            f"Unity Catalog tag '{text}' resolves to a reserved name and will be ignored.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return None
+    return normalised
+
+
+def _build_properties(
+    metadata: Mapping[str, object],
+    extra: Mapping[str, str],
+) -> Mapping[str, str]:
+    serialised: dict[str, str] = {}
+    for source in (extra, metadata):
+        for key, value in source.items():
+            if value is None:
+                continue
+            normalised = _normalise_property_key(key)
+            if not normalised:
+                continue
+            serialised[normalised] = str(value)
     return serialised
+
+
+def _build_tags(
+    metadata: Mapping[str, object],
+    extra: Mapping[str, str],
+) -> tuple[Mapping[str, str], set[str]]:
+    serialised: dict[str, str] = {}
+    keys: set[str] = set()
+    for source in (extra, metadata):
+        for key, value in source.items():
+            normalised = _normalise_tag_key(key)
+            if not normalised:
+                continue
+            keys.add(normalised)
+            if value is None:
+                continue
+            serialised[normalised] = str(value)
+    return serialised, keys
+
+
+def _normalise_table_identifier(value: str | None) -> str | None:
+    """Return a canonical representation of ``value`` for skip-table checks."""
+
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    cleaned = text.replace("`", "")
+    lowered = cleaned.lower()
+    if not lowered:
+        return None
+    return lowered
+
+
+def _server_attribute(server: object, *names: str) -> str | None:
+    """Return the first non-empty attribute from ``names`` for ``server``."""
+
+    for name in names:
+        candidate = getattr(server, name, None)
+        if candidate:
+            text = str(candidate).strip()
+            if text:
+                return text
+    return None
+
+
+def _table_identifier_from_server(server: object) -> str | None:
+    """Return a Unity Catalog table identifier derived from ``server``."""
+
+    dataset = _server_attribute(server, "dataset")
+    if not dataset:
+        return None
+    catalog = _server_attribute(server, "catalog")
+    schema = _server_attribute(server, "schema_", "schema", "database")
+    parts = [part for part in (catalog, schema, dataset) if part]
+    if not parts:
+        return None
+    return ".".join(parts)
+
+
+def contract_servers_table_resolver(contract: OpenDataContractStandard) -> Sequence[str]:
+    """Return Unity Catalog table identifiers from ``contract.servers``."""
+
+    tables: list[str] = []
+    seen: set[str] = set()
+    for server in contract.servers or []:
+        table = _table_identifier_from_server(server)
+        if not table:
+            continue
+        canonical = _normalise_table_identifier(table)
+        if canonical and canonical in seen:
+            continue
+        if canonical:
+            seen.add(canonical)
+        tables.append(table)
+    return tuple(tables)
 
 
 @dataclass(slots=True)
 class UnityCatalogLinker:
     """Apply Unity Catalog table properties after governance link operations."""
 
-    apply_table_properties: TablePropertyUpdater
+    apply_table_properties: TablePropertyUpdater | None = None
+    apply_table_tags: TableTagUpdater | None = None
     table_resolver: DatasetToTable = prefix_table_resolver()
+    contract_loader: ContractLoader | None = None
+    contract_table_resolver: ContractTableResolver | None = None
     metadata_provider: MetadataProvider = _default_metadata
     static_properties: Mapping[str, str] = field(default_factory=dict)
+    static_tags: Mapping[str, str] = field(default_factory=dict)
+    skip_tables: frozenset[str] = field(default_factory=frozenset)
 
     def link_dataset_contract(
         self,
@@ -79,8 +234,45 @@ class UnityCatalogLinker:
         contract_id: str,
         contract_version: str,
     ) -> None:
-        table_name = self.table_resolver(dataset_id)
-        if table_name is None or not table_name:
+        contract: OpenDataContractStandard | None = None
+        if self.contract_loader is not None:
+            try:
+                contract = self.contract_loader(contract_id, contract_version)
+            except Exception as exc:  # pragma: no cover - runtime guard
+                warnings.warn(
+                    f"Unity Catalog could not load contract '{contract_id}:{contract_version}': {exc}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+        targets: list[str] = []
+        seen: set[str] = set()
+
+        def _add_table(table: Optional[str]) -> None:
+            if not table:
+                return
+            canonical = _normalise_table_identifier(table)
+            if canonical and canonical in self.skip_tables:
+                warnings.warn(
+                    f"Unity Catalog sync skipped reserved table '{table}'.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                return
+            if canonical and canonical in seen:
+                return
+            if canonical:
+                seen.add(canonical)
+            targets.append(table)
+
+        if contract and self.contract_table_resolver:
+            for table_name in self.contract_table_resolver(contract):
+                _add_table(table_name)
+
+        if not targets:
+            table_name = self.table_resolver(dataset_id)
+            _add_table(table_name)
+
+        if not targets:
             return
         metadata = self.metadata_provider(
             dataset_id,
@@ -88,73 +280,206 @@ class UnityCatalogLinker:
             contract_id,
             contract_version,
         )
-        properties = _serialise(metadata, dict(self.static_properties))
-        if properties:
-            self.apply_table_properties(table_name, properties)
+        properties = _build_properties(metadata, dict(self.static_properties))
+        tags: Mapping[str, str] = {}
+        tag_keys: Sequence[str] = ()
+        if self.apply_table_tags:
+            tags, keys = _build_tags(metadata, dict(self.static_tags))
+            tag_keys = tuple(sorted(keys))
+
+        for table_name in targets:
+            if properties and self.apply_table_properties:
+                try:
+                    self.apply_table_properties(table_name, properties)
+                except Exception as exc:  # pragma: no cover - runtime guard
+                    warnings.warn(
+                        f"Unity Catalog property sync failed for '{table_name}': {exc}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+            if self.apply_table_tags:
+                unset: tuple[str, ...] = ()
+                if not tags and tag_keys:
+                    unset = tuple(tag_keys)
+                try:
+                    self.apply_table_tags(table_name, tags, unset)
+                except Exception as exc:  # pragma: no cover - runtime guard
+                    warnings.warn(
+                        f"Unity Catalog tag sync failed for '{table_name}': {exc}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
 
 
-def workspace_table_property_updater(workspace: Any) -> TablePropertyUpdater:
-    """Build a table-property updater backed by the Databricks workspace client.
+def _quote_identifier(identifier: str) -> str:
+    segments = [segment.strip() for segment in identifier.split(".") if segment.strip()]
+    if not segments:
+        raise ValueError("Unity Catalog table name is empty")
+    escaped = [f"`{segment.replace('`', '``')}`" for segment in segments]
+    return ".".join(escaped)
 
-    The updater expects an instance compatible with
-    :class:`databricks.sdk.WorkspaceClient` and forwards property updates to
-    ``workspace.tables.update`` so Unity Catalog reflects the latest contract
-    linkage metadata.
-    """
+
+def _quote_literal(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def sql_table_property_updater(engine: Any) -> TablePropertyUpdater:
+    """Build a table-property updater backed by a SQLAlchemy engine."""
+
+    try:  # pragma: no cover - optional import when SQL is unused
+        from sqlalchemy import text
+    except ModuleNotFoundError as exc:  # pragma: no cover - defensive guard
+        raise RuntimeError("sqlalchemy is required for SQL-based Unity Catalog tagging") from exc
+
+    def _render_statement(table_name: str, properties: Mapping[str, str]) -> str:
+        identifier = _quote_identifier(table_name)
+        assignments = ", ".join(
+            f"'{_quote_literal(key)}'='{_quote_literal(value)}'"
+            for key, value in sorted(properties.items())
+        )
+        return f"ALTER TABLE {identifier} SET TBLPROPERTIES ({assignments})"
 
     def _update(table_name: str, properties: Mapping[str, str]) -> None:
-        workspace.tables.update(name=table_name, properties=dict(properties))
+        if not properties:
+            return
+        statement = text(_render_statement(table_name, properties))
+        with engine.begin() as conn:
+            conn.execute(statement)
 
     return _update
 
 
-def _default_workspace_builder(config: UnityCatalogConfig) -> Any:
-    try:  # pragma: no cover - optional dependency
-        from databricks.sdk import WorkspaceClient
-    except ModuleNotFoundError:  # pragma: no cover - fallback when SDK absent
-        warnings.warn(
-            "databricks-sdk is not installed; Unity Catalog synchronisation is disabled",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return None
+def sql_table_tag_updater(engine: Any) -> TableTagUpdater:
+    """Build a Unity Catalog tag updater backed by a SQLAlchemy engine."""
 
-    kwargs: dict[str, Any] = {}
-    if config.workspace_profile:
-        kwargs["profile"] = config.workspace_profile
-    if config.workspace_url:
-        kwargs["host"] = config.workspace_url
-    if config.workspace_token:
-        kwargs["token"] = config.workspace_token
-    return WorkspaceClient(**kwargs)
+    try:  # pragma: no cover - optional import when SQL is unused
+        from sqlalchemy import text
+    except ModuleNotFoundError as exc:  # pragma: no cover - defensive guard
+        raise RuntimeError("sqlalchemy is required for SQL-based Unity Catalog tagging") from exc
+
+    def _render_set_statement(table_name: str, tags: Mapping[str, str]) -> str:
+        identifier = _quote_identifier(table_name)
+        assignments = ", ".join(
+            f"'{_quote_literal(key)}'='{_quote_literal(value)}'" for key, value in sorted(tags.items())
+        )
+        return f"ALTER TABLE {identifier} SET TAGS ({assignments})"
+
+    def _render_unset_statement(table_name: str, tag_names: Sequence[str]) -> str:
+        identifier = _quote_identifier(table_name)
+        assignments = ", ".join(f"'{_quote_literal(name)}'" for name in sorted(tag_names))
+        return f"ALTER TABLE {identifier} UNSET TAGS ({assignments})"
+
+    def _update(table_name: str, tags: Mapping[str, str], unset_tags: Sequence[str] = ()) -> None:
+        statements = []
+        if unset_tags:
+            statements.append(text(_render_unset_statement(table_name, unset_tags)))
+        if tags:
+            statements.append(text(_render_set_statement(table_name, tags)))
+        if not statements:
+            return
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(statement)
+
+    return _update
+
+
+def _default_engine_builder(dsn: str) -> Any:
+    from sqlalchemy import create_engine  # pragma: no cover - exercised via tests
+
+    return create_engine(dsn)
 
 
 def build_linker_from_config(
     config: UnityCatalogConfig,
+    engine_builder: EngineBuilder = _default_engine_builder,
     *,
-    workspace_builder: WorkspaceBuilder = _default_workspace_builder,
+    contract_loader: ContractLoader | None = None,
+    contract_table_resolver: ContractTableResolver | None = None,
+    skip_tables: Sequence[str] | None = None,
 ) -> UnityCatalogLinker | None:
     """Return a Unity Catalog linker configured from backend settings."""
 
     if not config.enabled:
         return None
 
-    workspace = workspace_builder(config)
-    if workspace is None:
-        return None
+    updater: TablePropertyUpdater | None = None
+    tag_updater: TableTagUpdater | None = None
+    property_engine: Any | None = None
 
-    updater = workspace_table_property_updater(workspace)
+    if config.sql_dsn:
+        try:
+            property_engine = engine_builder(config.sql_dsn)
+        except Exception as exc:  # pragma: no cover - runtime guard
+            warnings.warn(
+                f"Unity Catalog SQL engine could not be created: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        else:
+            updater = sql_table_property_updater(property_engine)
+    else:
+        warnings.warn(
+            "Unity Catalog property propagation is disabled because unity_catalog.sql_dsn was not provided.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    if config.tags_enabled:
+        tags_dsn = config.tags_sql_dsn or config.sql_dsn
+        tag_engine: Any | None = None
+        if tags_dsn:
+            reuse_property_engine = property_engine is not None and tags_dsn == config.sql_dsn
+            if reuse_property_engine:
+                tag_engine = property_engine
+            else:
+                try:
+                    tag_engine = engine_builder(tags_dsn)
+                except Exception as exc:  # pragma: no cover - runtime guard
+                    warnings.warn(
+                        f"Unity Catalog tag SQL engine could not be created: {exc}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+        else:
+            warnings.warn(
+                "Unity Catalog tag propagation is enabled but no sql_dsn/tags_sql_dsn was provided.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        if tag_engine is not None:
+            tag_updater = sql_table_tag_updater(tag_engine)
+
     resolver = prefix_table_resolver(config.dataset_prefix)
     static_properties = dict(config.static_properties)
+    static_tags = dict(config.static_tags)
+
+    if updater is None and tag_updater is None:
+        warnings.warn(
+            "Unity Catalog integration is enabled but neither property nor tag engines could be initialised.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None
+
+    skip: frozenset[str] = frozenset(
+        filter(None, (_normalise_table_identifier(item) for item in skip_tables or ())))
+
     return UnityCatalogLinker(
         apply_table_properties=updater,
+        apply_table_tags=tag_updater,
         table_resolver=resolver,
+        contract_loader=contract_loader,
+        contract_table_resolver=contract_table_resolver or contract_servers_table_resolver,
         static_properties=static_properties,
+        static_tags=static_tags,
+        skip_tables=skip,
     )
 
 
 def build_link_hooks(
     config: ServiceBackendsConfig,
+    context: LinkHookContext | None = None,
 ) -> Sequence[DatasetContractLinkHook] | None:
     """Return Unity Catalog link hooks derived from ``config``.
 
@@ -162,8 +487,20 @@ def build_link_hooks(
     can keep Databricks-specific concerns outside of the core web application.
     """
 
+    reserved_tables = _collect_reserved_tables(config)
+    contract_loader: ContractLoader | None = None
+    if context is not None and context.contract_service is not None:
+        loader = getattr(context.contract_service, "get", None)
+        if callable(loader):
+            contract_loader = loader
+
     try:
-        linker = build_linker_from_config(config.unity_catalog)
+        linker = build_linker_from_config(
+            config.unity_catalog,
+            contract_loader=contract_loader,
+            contract_table_resolver=contract_servers_table_resolver,
+            skip_tables=reserved_tables,
+        )
     except Exception as exc:  # pragma: no cover - defensive guard
         warnings.warn(
             f"Unity Catalog integration disabled due to error: {exc}",
@@ -178,10 +515,36 @@ def build_link_hooks(
     return (linker.link_dataset_contract,)
 
 
+def _collect_reserved_tables(config: ServiceBackendsConfig) -> frozenset[str]:
+    """Return tables that must never receive Unity Catalog annotations."""
+
+    tables: set[str] = set()
+
+    def _add(value: Optional[str]) -> None:
+        normalised = _normalise_table_identifier(value)
+        if normalised:
+            tables.add(normalised)
+
+    _add(config.contract_store.table)
+    _add(config.data_product_store.table)
+
+    store = config.governance_store
+    _add(store.table)
+    _add(store.status_table)
+    _add(store.activity_table)
+    _add(store.link_table)
+    _add(store.metrics_table)
+
+    return frozenset(tables)
+
+
 __all__ = [
     "UnityCatalogLinker",
     "TablePropertyUpdater",
-    "workspace_table_property_updater",
+    "TableTagUpdater",
+    "contract_servers_table_resolver",
+    "sql_table_property_updater",
+    "sql_table_tag_updater",
     "build_linker_from_config",
     "prefix_table_resolver",
     "build_link_hooks",

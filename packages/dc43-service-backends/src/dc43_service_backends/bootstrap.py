@@ -44,7 +44,10 @@ from .data_quality.backend.engines import (
     SodaEngine,
 )
 from .governance.backend import GovernanceServiceBackend, LocalGovernanceServiceBackend
-from .governance.bootstrap import build_dataset_contract_link_hooks
+from .governance.bootstrap import (
+    LinkHookContext,
+    build_dataset_contract_link_hooks,
+)
 from .governance.hooks import DatasetContractLinkHook
 from .governance.backend.stores import (
     GovernanceStore,
@@ -431,6 +434,28 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
         )
 
     if store_type == "delta":
+        if config.dsn:
+            try:
+                from sqlalchemy import create_engine
+            except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+                raise RuntimeError(
+                    "sqlalchemy is required when governance_store.type is 'delta' with dsn configured.",
+                ) from exc
+            engine = create_engine(config.dsn, echo=bool(config.log_sql))
+            status_table = config.status_table or "dq_status"
+            activity_table = config.activity_table or "dq_activity"
+            link_table = config.link_table or "dq_dataset_contract_links"
+            metrics_table = config.metrics_table
+            if not metrics_table and status_table:
+                metrics_table = derive_related_table_name(status_table, "metrics")
+            return SQLGovernanceStore(
+                engine,
+                schema=config.schema,
+                status_table=status_table,
+                activity_table=activity_table,
+                link_table=link_table,
+                metrics_table=metrics_table,
+            )
         if DeltaGovernanceStore is None:
             raise RuntimeError(
                 "pyspark is required when governance_store.type is 'delta'.",
@@ -491,7 +516,8 @@ def build_backends(config: ServiceBackendsConfig) -> BackendSuite:
     data_product_backend = build_data_product_backend(config.data_product_store)
     dq_backend = build_data_quality_backend(config.data_quality)
     governance_store = build_governance_store(config.governance_store)
-    link_hooks = build_dataset_contract_link_hooks(config)
+    link_context = LinkHookContext(contract_service=contract_backend)
+    link_hooks = build_dataset_contract_link_hooks(config, context=link_context)
     governance_backend = LocalGovernanceServiceBackend(
         contract_client=contract_backend,
         dq_client=dq_backend,

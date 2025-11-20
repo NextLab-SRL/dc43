@@ -11,6 +11,11 @@
   returns deduplicated dataset run metadata (contract, product port, latest
   status) so portals and automation no longer replay pipeline activity to build
   dataset histories.
+- Unity Catalog tagging can now emit Unity Catalog tags in addition to table
+  properties. Set `unity_catalog.tags_enabled = true` (and optionally
+  `tags_sql_dsn`) to have the backend execute `ALTER TABLE … SET/UNSET TAGS`
+  whenever datasets link to contracts, and configure `[unity_catalog.static_tags]`
+  for custom ownership labels.
 
 ### Changed
 - Core ODCS/ODPS helpers now live in the shared `dc43-core` package and this
@@ -31,6 +36,18 @@
 - Governance stores now expose `load_status_matrix_entries` so batched status
   lookups reuse a single SQL/Delta query instead of issuing one request per
   dataset/contract combination.
+- Unity Catalog tagging now relies on `unity_catalog.sql_dsn` and the Databricks
+  SQLAlchemy driver to issue `ALTER TABLE … SET/UNSET TBLPROPERTIES`, replacing
+  the unsupported workspace `tables.update` call and documenting the new
+  configuration knobs plus cleanup steps.
+- The Unity Catalog linker now removes the unused workspace/Spark pathway,
+  sanitises Unity tag keys (replacing reserved characters with underscores),
+  drops reserved property names such as `owner`, and catches permission errors
+  so failed catalog updates only emit warnings instead of interrupting
+  governance flows.
+- Unity Catalog hooks now treat contract, data product, and governance tables declared in the backend configuration as reserved, guaranteeing that only dataset identifiers passed to `link_dataset_contract` receive properties or tags even if a client forwards the wrong table name.
+- Unity Catalog tagging now resolves target tables directly from each contract's `servers` block (falling back to dataset identifiers only when no Unity metadata exists) and the hook builders receive a `LinkHookContext` with the active contract backend so catalog updates can safely load contracts while continuing on permission failures.
+- Delta governance stores can now specify a `dsn`; when present, the builder reuses the SQL implementation so Databricks SQL warehouses handle every insert/update and remote FastAPI deployments no longer need to start a Spark session purely to persist governance metadata in Delta tables.
 - Local governance backends now expose contract resolution helpers and include
   underlying validation payloads when returning `QualityAssessment` objects so
   clients relying solely on the governance layer retain access to detailed data

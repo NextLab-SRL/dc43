@@ -2,15 +2,32 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from importlib import import_module
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable, Sequence, TYPE_CHECKING
 import warnings
 
 from dc43_service_backends.config import ServiceBackendsConfig
 
 from .hooks import DatasetContractLinkHook
 
-LinkHookBuilder = Callable[[ServiceBackendsConfig], Sequence[DatasetContractLinkHook] | None]
+if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
+    from dc43_service_backends.contracts.backend.interface import ContractServiceBackend
+else:  # pragma: no cover - keep runtime deps minimal
+    ContractServiceBackend = object  # type: ignore[assignment]
+
+
+@dataclass(slots=True)
+class LinkHookContext:
+    """Runtime services exposed to link-hook builders."""
+
+    contract_service: "ContractServiceBackend | None" = None
+
+
+LinkHookBuilder = Callable[
+    [ServiceBackendsConfig, LinkHookContext | None],
+    Sequence[DatasetContractLinkHook] | None,
+]
 LinkHookBuilderSpec = str
 
 DEFAULT_LINK_HOOK_BUILDER_SPECS: tuple[LinkHookBuilderSpec, ...] = (
@@ -97,6 +114,7 @@ def build_dataset_contract_link_hooks(
     *,
     include_defaults: bool = True,
     extra_builders: Iterable[LinkHookBuilder] | None = None,
+    context: LinkHookContext | None = None,
 ) -> tuple[DatasetContractLinkHook, ...]:
     """Assemble dataset-contract link hooks for the active configuration."""
 
@@ -119,7 +137,7 @@ def build_dataset_contract_link_hooks(
     hooks: list[DatasetContractLinkHook] = []
     for builder in builders:
         try:
-            result = builder(config)
+            result = builder(config, context)
         except Exception as exc:  # pragma: no cover - defensive guard
             warnings.warn(
                 f"Dataset-contract link hook builder failed: {exc}",
@@ -141,5 +159,6 @@ __all__ = [
     "DEFAULT_LINK_HOOK_BUILDER_SPECS",
     "LinkHookBuilder",
     "LinkHookBuilderSpec",
+    "LinkHookContext",
     "load_link_hook_builder",
 ]
