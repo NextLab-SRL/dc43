@@ -123,19 +123,36 @@ catalog metadata shared between contract, product, and governance stores:
 | Key | Type | Description |
 | --- | ---- | ----------- |
 | `enabled` | bool | Toggle Unity Catalog synchronisation. Exported by the setup wizard when any Delta backend is selected. |
-| `workspace_url` | string | Databricks workspace URL (for example `https://adb-<workspace>.azuredatabricks.net`). Populates from the wizard's *workspace URL* field when using the Delta modules. |
-| `workspace_profile` | string | Optional Databricks CLI profile loaded from `~/.databrickscfg`. Useful when authentication is handled by the CLI rather than a static token. |
-| `workspace_token` | string | Personal access token used when connecting via the REST APIs. Store the token outside version control and inject it as an environment variable in production. |
-| `dataset_prefix` | string | Prefix applied to dataset identifiers synchronised to Unity Catalog (defaults to `table:`). |
-| `static_properties` | table | Additional catalog metadata (for example `{ catalog = "main", schema = "contracts" }`). |
+| `workspace_url` | string | **Legacy.** Databricks workspace URL recorded for compatibility. The Unity Catalog linker ignores this value now that Databricks no longer exposes a properties-aware workspace API. |
+| `workspace_profile` | string | **Legacy.** Databricks CLI profile retained for backwards compatibility. |
+| `workspace_token` | string | **Legacy.** Personal access token stored for historical exports. |
+| `sql_dsn` | string | SQLAlchemy DSN pointing at a Databricks SQL warehouse (for example `databricks://token:abc@adb-123.azuredatabricks.net?http_path=/sql/1.0/warehouses/xyz`). The DSN may omit `catalog`/`schema` hints because the hook resolves Unity tables from each contract's `servers` entries and only falls back to dataset identifiers when no catalog metadata exists. |
+| `tags_enabled` | bool | Enable Unity Catalog tag propagation (disabled by default). |
+| `tags_sql_dsn` | string | Optional SQLAlchemy DSN used specifically for `ALTER TABLE … SET/UNSET TAGS`; defaults to `sql_dsn` when omitted. |
+| `dataset_prefix` | string | Prefix applied to dataset identifiers when the linker needs to fall back because a contract lacks Unity `servers` metadata (defaults to `table:`). |
+| `static_properties` | table | Additional catalog metadata (for example `{ catalog = "main", schema = "contracts" }`). Unity Catalog reserves property names such as `owner`, so the backend ignores those keys and emits a warning. |
+| `static_tags` | table | Optional tag key/value pairs that always accompany the dynamic `dc43.*` metadata. Tag names automatically replace Unity-reserved characters (`.`, `-`, `/`, `=`, `:`, `,`) with underscores before statements run. |
 
-Environment overrides include `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, and
-`DATABRICKS_CONFIG_PROFILE`. When the setup wizard exports a Delta-based
-configuration it also records the same values in `dc43-setup/config/modules/*.toml`
-so automation pipelines can hydrate secrets before launching the services.
-Existing deployments that still rely on the legacy `workspace_host` key remain
-compatible, but new exports and documentation use `workspace_url` everywhere to
-align with the setup wizard terminology.
+The Unity Catalog linker automatically ignores the contract, data product, and governance tables declared elsewhere in the configuration. It looks up the contract referenced by `link_dataset_contract` and tags every Unity table declared under `servers`. Dataset identifiers only act as a fallback (using `dataset_prefix`) so governance control tables never receive catalog metadata even if a client forwards their names.
+
+Environment overrides include the legacy `DATABRICKS_HOST`/`DATABRICKS_TOKEN`/`DATABRICKS_CONFIG_PROFILE` triplet (retained for backwards compatibility) and the active `DC43_UNITY_CATALOG_SQL_DSN`, `DC43_UNITY_CATALOG_TAGS_ENABLED`, and `DC43_UNITY_CATALOG_TAGS_SQL_DSN`. When the setup wizard exports a Delta-based configuration it also records the same values in `dc43-setup/config/modules/*.toml` so automation pipelines can hydrate secrets before launching the services.
+
+The hook prefers the SQL DSN when present because Databricks' REST client no
+longer exposes table-property updates. Configure the DSN with credentials that
+can reach your Unity Catalog metastore (typically through a serverless or
+classic Databricks SQL warehouse) and grant the token or service principal
+`USE CATALOG`, `USE SCHEMA`, and `ALTER` privileges on the governed tables so
+`ALTER TABLE … SET TBLPROPERTIES` statements succeed. Set `tags_enabled = true`
+when you also want Unity Catalog tags to mirror the same metadata. The tag
+helper reuses `sql_dsn` (or the dedicated `tags_sql_dsn`) to issue `ALTER TABLE
+… SET/UNSET TAGS`, so the service principal needs the same privileges as the
+property updater. Use `[unity_catalog.static_tags]` to bake in ownership or
+classification labels that should accompany the built-in `dc43.contract_id`
+tags, and remove the tags later with `ALTER TABLE … UNSET TAGS ('dc43.contract_id', …)`
+through the same DSN when cleaning up demos. If Unity Catalog rejects a
+property or tag update (for example, due to reserved names or insufficient
+privileges) the backend logs a `RuntimeWarning` and continues processing the
+governance request.
 
 #### SQL contract store
 
@@ -274,6 +291,8 @@ pipeline activity are persisted. Supported types are:
 | `sql` | Uses a relational database via `SQLGovernanceStore`. Requires `sqlalchemy`. |
 | `delta` | Writes governance artefacts to Delta tables using Spark. Requires `pyspark`. |
 | `http` | Delegates persistence to an external HTTP service implementing the governance store API. |
+
+When `type = "delta"` and a `dsn` is supplied, the backend falls back to the SQL implementation and issues every insert/update through the Databricks SQL warehouse referenced by that DSN. This keeps remote FastAPI deployments compatible with Unity Catalog tables without bootstrapping a Spark session next to the service.
 
 Common keys include `root`/`base_path` (filesystem and Delta), `dsn` and
 `schema` (SQL), `status_table`/`activity_table`/`link_table`/`metrics_table`
