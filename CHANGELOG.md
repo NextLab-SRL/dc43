@@ -44,6 +44,17 @@
   Enable `unity_catalog.tags_enabled` (optionally pointing `tags_sql_dsn` at a
   dedicated warehouse) to have the governance backend run `ALTER TABLE … SET/UNSET
   TAGS` automatically whenever datasets are linked to contracts.
+- Added `scripts/generate_governance_demo_data.py` to seed multiple contracts,
+  datasets, product bindings, and varied governance runs against the API for
+  demos and screenshots.
+- Governance demo seeding now accepts configurable product, contract, and run
+  counts so UI screenshots can be densely populated without manual editing.
+- Governance demo generation now uses Faker to craft fresh product names,
+  contract identifiers, and recent run timelines so seeded UIs feel fuller and
+  closer to real-world datasets.
+- Governance demo seeding no longer depends on fixed base scenarios; contract
+  fields, run histories, datasets, and bindings are generated end to end for a
+  richer and more generic demo surface.
 
 ### Changed
 - `dc43-integrations` now treats Spark as an optional dependency, so
