@@ -12,8 +12,9 @@ import argparse
 import math
 import random
 from dataclasses import dataclass
+from itertools import cycle
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 from faker import Faker
 
@@ -55,6 +56,13 @@ class DemoRun:
 
 
 @dataclass(frozen=True)
+class DemoBinding:
+    data_product_id: str
+    data_product_version: str
+    port_name: str
+
+
+@dataclass(frozen=True)
 class DemoContract:
     contract_id: str
     contract_version: str
@@ -64,9 +72,8 @@ class DemoContract:
     server_path: str
     schema_version: str
     fields: Sequence[tuple[str, str, bool]]  # (name, type, required)
-    data_product_id: str | None
-    data_product_version: str | None
-    port_name: str | None
+    input_bindings: Sequence[DemoBinding]
+    output_bindings: Sequence[DemoBinding]
     runs: Sequence[DemoRun]
 
 
@@ -113,23 +120,21 @@ def _pipeline_context(label: str, stage: str) -> Mapping[str, object]:
     ).as_dict()
 
 
-def _binding(spec: DemoContract) -> tuple[DataProductInputBinding | None, DataProductOutputBinding | None]:
-    if not spec.data_product_id or not spec.port_name:
-        return None, None
-
-    input_binding = DataProductInputBinding(
-        data_product=spec.data_product_id,
-        port_name=spec.port_name,
-        custom_properties={"demo": True, "port": spec.port_name},
-        data_product_version=spec.data_product_version,
+def _binding(binding: DemoBinding) -> tuple[DataProductInputBinding, DataProductOutputBinding]:
+    return (
+        DataProductInputBinding(
+            data_product=binding.data_product_id,
+            port_name=binding.port_name,
+            custom_properties={"demo": True, "port": binding.port_name},
+            data_product_version=binding.data_product_version,
+        ),
+        DataProductOutputBinding(
+            data_product=binding.data_product_id,
+            port_name=binding.port_name,
+            custom_properties={"demo": True, "port": binding.port_name},
+            data_product_version=binding.data_product_version,
+        ),
     )
-    output_binding = DataProductOutputBinding(
-        data_product=spec.data_product_id,
-        port_name=spec.port_name,
-        custom_properties={"demo": True, "port": spec.port_name},
-        data_product_version=spec.data_product_version,
-    )
-    return input_binding, output_binding
 
 
 def _draft_contract(client: RemoteGovernanceServiceClient, spec: DemoContract) -> None:
@@ -203,11 +208,23 @@ def _register_read(
 
 
 def _seed_contract(client: RemoteGovernanceServiceClient, spec: DemoContract) -> None:
-    input_binding, output_binding = _binding(spec)
     _draft_contract(client, spec)
     for run in spec.runs:
-        _register_write(client, spec, run, output_binding)
-        _register_read(client, spec, run, input_binding)
+        output_bindings = [None]
+        if spec.output_bindings:
+            output_bindings = [
+                _binding(binding)[1] for binding in spec.output_bindings
+            ]
+
+        for binding in output_bindings:
+            _register_write(client, spec, run, binding)
+
+        input_bindings = [None]
+        if spec.input_bindings:
+            input_bindings = [_binding(binding)[0] for binding in spec.input_bindings]
+
+        for binding in input_bindings:
+            _register_read(client, spec, run, binding)
 
 
 def _semver_variant(base_version: str, offset: int) -> str:
@@ -218,10 +235,6 @@ def _semver_variant(base_version: str, offset: int) -> str:
     return f"{major}.{minor}.{patch}"
 
 
-def _make_products(fake: Faker, num_products: int) -> Sequence[str]:
-    return [f"demo.{fake.word()}-{idx:02d}" for idx in range(num_products)]
-
-
 def _random_fields(fake: Faker) -> Sequence[tuple[str, str, bool]]:
     field_types = ("integer", "string", "number", "boolean")
     count = random.randint(4, 8)
@@ -229,7 +242,7 @@ def _random_fields(fake: Faker) -> Sequence[tuple[str, str, bool]]:
     return tuple((name.replace("-", "_"), random.choice(field_types), bool(random.getrandbits(1))) for name in names)
 
 
-def _random_metrics(fake: Faker, base_rows: int) -> Mapping[str, object]:
+def _metric_profile(fake: Faker) -> tuple[tuple[str, Callable[[], object]], ...]:
     quality_metric = random.choice(
         [
             ("null_rate", lambda: round(random.random() * 0.02, 4)),
@@ -238,19 +251,31 @@ def _random_metrics(fake: Faker, base_rows: int) -> Mapping[str, object]:
             ("schema_violations", lambda: random.randint(0, 3)),
         ]
     )
-    secondary_metric = random.choice(
+    freshness_metric = ("freshness_minutes", lambda: random.randint(5, 720))
+    shape_metric = random.choice(
         [
-            ("freshness_minutes", lambda: random.randint(5, 720)),
             ("new_columns", lambda: random.randint(0, 4)),
             ("removed_columns", lambda: random.randint(0, 3)),
+            ("column_drift", lambda: round(random.random() * 0.1, 3)),
         ]
     )
-    return {
-        "row_count": max(0, base_rows + random.randint(-50, 150)),
-        quality_metric[0]: quality_metric[1](),
-        secondary_metric[0]: secondary_metric[1](),
-        "notes": fake.sentence(nb_words=6),
-    }
+    return (
+        ("row_count", lambda: random.randint(500, 5000)),
+        quality_metric,
+        freshness_metric,
+        shape_metric,
+        ("notes", lambda: fake.sentence(nb_words=6)),
+    )
+
+
+def _random_metrics(metric_profile: tuple[tuple[str, Callable[[], object]], ...], base_rows: int) -> Mapping[str, object]:
+    metrics = {}
+    for name, fn in metric_profile:
+        if name == "row_count":
+            metrics[name] = max(0, base_rows + random.randint(-50, 150))
+        else:
+            metrics[name] = fn()
+    return metrics
 
 
 def _generate_runs(
@@ -259,6 +284,7 @@ def _generate_runs(
     fake: Faker,
     start_day: date,
     run_seed: str,
+    metric_profile: tuple[tuple[str, Callable[[], object]], ...],
 ) -> Sequence[DemoRun]:
     stages = ("bronze", "silver", "gold", "platinum")
     statuses = ("ok", "ok", "warn", "warn", "block")
@@ -266,7 +292,7 @@ def _generate_runs(
     base_rows = random.randint(500, 5000) + contract_idx * 5
     for idx in range(count):
         run_day = start_day - timedelta(days=idx + contract_idx)
-        metrics = _random_metrics(fake, base_rows + idx * random.randint(5, 15))
+        metrics = _random_metrics(metric_profile, base_rows + idx * random.randint(5, 15))
         runs.append(
             DemoRun(
                 dataset_version=f"{run_day:%Y-%m-%d}-{run_seed}-r{idx:03d}",
@@ -281,36 +307,100 @@ def _generate_runs(
 
 def _demo_contracts(
     num_contracts: int,
-    num_products: int,
-    runs_per_contract: int,
+    pipeline: Sequence["PipelineProduct"],
+    base_runs_per_contract: int,
     fake: Faker,
     start_day: date,
 ) -> Iterable[DemoContract]:
-    products = _make_products(fake, num_products)
-    for idx in range(num_contracts):
-        base_version = f"{(idx % 4) + 1}.{(idx % 7)}.{fake.random_int(min=0, max=9)}"
+    contract_idx = 0
+    pipeline_cycle = cycle(pipeline)
+
+    while contract_idx < num_contracts:
+        product = next(pipeline_cycle)
+        remaining = num_contracts - contract_idx
+        versions = min(random.randint(1, 3), remaining)
+        base_version = f"{(contract_idx % 4) + 1}.{(contract_idx % 7)}.{fake.random_int(min=0, max=9)}"
         descriptor = fake.word().replace("_", "-")
         contract_root = fake.word().replace("_", "-")
         dataset_root = fake.word().replace("_", "-")
-        product_id = products[idx % len(products)]
-        product_version = f"{(idx % 3) + 1}.0.{fake.random_int(min=0, max=9)}"
         dataset_format = random.choice(["delta", "parquet", "csv"])
-        port_name = f"port-{fake.word()}" if idx % 5 else None
-        run_seed = f"c{idx:03d}"
-        yield DemoContract(
-            contract_id=f"demo.{contract_root}.{descriptor}.{idx + 1:03d}",
-            contract_version=_semver_variant(base_version, idx % 10),
-            dataset_id=f"{dataset_root}.demo.{descriptor}-{idx + 1:03d}",
-            dataset_format=dataset_format,
-            display_name=f"{fake.catch_phrase()} #{idx + 1}",
-            server_path=f"datalake/demo/{dataset_root}/{descriptor}/{idx + 1:03d}",
-            schema_version=f"{start_day:%Y-%m}-{(idx % 5) + 1}",
-            fields=_random_fields(fake),
-            data_product_id=product_id if idx % 3 else None,
-            data_product_version=product_version if idx % 3 else None,
-            port_name=port_name,
-            runs=_generate_runs(runs_per_contract, idx + 1, fake, start_day, run_seed),
+        run_seed = f"c{contract_idx:03d}"
+        metric_profile = _metric_profile(fake)
+        contract_id = f"demo.{contract_root}.{descriptor}.{contract_idx + 1:03d}"
+        dataset_id = f"{dataset_root}.demo.{descriptor}-{contract_idx + 1:03d}"
+
+        for version_offset in range(versions):
+            runs_per_contract = max(5, base_runs_per_contract + random.randint(-2, 4))
+            runs = _generate_runs(
+                runs_per_contract,
+                contract_idx + 1,
+                fake,
+                start_day,
+                f"{run_seed}-v{version_offset}",
+                metric_profile,
+            )
+            versioned_contract = DemoContract(
+                contract_id=contract_id,
+                contract_version=_semver_variant(base_version, version_offset),
+                dataset_id=dataset_id,
+                dataset_format=dataset_format,
+                display_name=f"{fake.catch_phrase()} #{contract_idx + 1} v{version_offset + 1}",
+                server_path=f"datalake/demo/{dataset_root}/{descriptor}/{contract_idx + 1:03d}",
+                schema_version=f"{start_day:%Y-%m}-{(contract_idx % 5) + 1}",
+                fields=_random_fields(fake),
+                input_bindings=list(product.upstreams),
+                output_bindings=[
+                    DemoBinding(
+                        data_product_id=product.product_id,
+                        data_product_version=product.version,
+                        port_name=port,
+                    )
+                    for port in product.output_ports
+                ],
+                runs=runs,
+            )
+            yield versioned_contract
+            contract_idx += 1
+            if contract_idx >= num_contracts:
+                break
+
+
+@dataclass(frozen=True)
+class PipelineProduct:
+    product_id: str
+    version: str
+    output_ports: Sequence[str]
+    upstreams: Sequence[DemoBinding]
+
+
+def _build_pipeline(fake: Faker, num_products: int) -> Sequence[PipelineProduct]:
+    products: list[PipelineProduct] = []
+    for idx in range(num_products):
+        product_id = f"demo.{fake.word()}-{idx:02d}"
+        version = f"{(idx % 3) + 1}.0.{fake.random_int(min=0, max=9)}"
+        output_ports = [f"main-{fake.word()}", f"audit-{fake.word()}"]
+        upstream_count = min(len(products), random.randint(1, 2)) if products else 0
+        upstreams = []
+        if upstream_count:
+            for upstream in random.sample(products, upstream_count):
+                upstream_port = random.choice(upstream.output_ports)
+                upstreams.append(
+                    DemoBinding(
+                        data_product_id=upstream.product_id,
+                        data_product_version=upstream.version,
+                        port_name=upstream_port,
+                    )
+                )
+
+        products.append(
+            PipelineProduct(
+                product_id=product_id,
+                version=version,
+                output_ports=output_ports,
+                upstreams=upstreams,
+            )
         )
+    return products
 
 
 def _data_products(
@@ -319,43 +409,42 @@ def _data_products(
 ) -> Sequence[OpenDataProductStandard]:
     products: dict[tuple[str, str], OpenDataProductStandard] = {}
     for spec in contracts:
-        if not spec.data_product_id or not spec.port_name or not spec.data_product_version:
-            continue
-        key = (spec.data_product_id, spec.data_product_version)
-        product = products.get(key)
-        if product is None:
-            product = OpenDataProductStandard(
-                id=spec.data_product_id,
-                status="active",
-                version=spec.data_product_version,
-                name=fake.catch_phrase(),
-                description={
-                    "en": f"Demo data product {spec.data_product_id} for UI screenshots",
-                },
-                tags=[spec.dataset_format, "demo"],
-            )
-            products[key] = product
-
-        if not any(port.name == spec.port_name for port in product.output_ports):
-            product.output_ports.append(
-                DataProductOutputPort(
-                    name=spec.port_name,
-                    version=spec.contract_version,
-                    contract_id=spec.contract_id,
-                    description=fake.bs(),
-                    type="dataset",
+        for binding in (*spec.output_bindings, *spec.input_bindings):
+            key = (binding.data_product_id, binding.data_product_version)
+            product = products.get(key)
+            if product is None:
+                product = OpenDataProductStandard(
+                    id=binding.data_product_id,
+                    status="active",
+                    version=binding.data_product_version,
+                    name=fake.catch_phrase(),
+                    description={
+                        "en": f"Demo data product {binding.data_product_id} for UI screenshots",
+                    },
+                    tags=["demo"],
                 )
-            )
+                products[key] = product
 
-        if not any(port.name == spec.port_name for port in product.input_ports):
-            product.input_ports.append(
-                DataProductInputPort(
-                    name=spec.port_name,
-                    version=spec.contract_version,
-                    contract_id=spec.contract_id,
-                    custom_properties=[{"source": "demo"}],
+            if binding in spec.output_bindings and not any(port.name == binding.port_name for port in product.output_ports):
+                product.output_ports.append(
+                    DataProductOutputPort(
+                        name=binding.port_name,
+                        version=spec.contract_version,
+                        contract_id=spec.contract_id,
+                        description=fake.bs(),
+                        type="dataset",
+                    )
                 )
-            )
+
+            if binding in spec.input_bindings and not any(port.name == binding.port_name for port in product.input_ports):
+                product.input_ports.append(
+                    DataProductInputPort(
+                        name=binding.port_name,
+                        version=spec.contract_version,
+                        contract_id=spec.contract_id,
+                        custom_properties=[{"source": "demo"}],
+                    )
+                )
 
     return list(products.values())
 
@@ -419,11 +508,12 @@ def main() -> None:
         token_scheme=args.token_scheme,
     )
 
+    pipeline = _build_pipeline(fake, args.products)
     contracts = list(
         _demo_contracts(
             num_contracts=args.contracts,
-            num_products=args.products,
-            runs_per_contract=runs_per_contract,
+            pipeline=pipeline,
+            base_runs_per_contract=runs_per_contract,
             fake=fake,
             start_day=datetime.now(tz=timezone.utc).date(),
         )

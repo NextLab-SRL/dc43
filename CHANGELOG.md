@@ -70,6 +70,10 @@
 - Spark governance reads now always recompute validations through the
   governance service instead of reusing cached statuses so every run reflects
   the freshest recorded metrics, even when historical snapshots exist.
+- The governance demo data generator now builds multi-input/output product
+  pipelines with varied run histories and consistent metric series so demo UIs
+  can showcase branching dependencies, denser timelines, and datasets linked to
+  multiple contract versions without manual tweaking.
 - Unity Catalog hooks now treat the contract, data product, and governance tables declared in the backend configuration as reserved so only actual datasets receive `dc43.*` properties and tags even if a misconfigured client forwards those control-table identifiers.
 - Unity Catalog tagging now resolves tables from each contract's `servers` block and only falls back to dataset identifiers when no Unity metadata exists. Hook builders receive the active contract backend via `LinkHookContext`, enabling the Unity integration to load contracts safely while still skipping reserved control tables and continuing when catalog updates fail due to permissions.
 - Delta governance stores can now specify a `dsn`; when present, the backend reuses the SQL implementation and issues all persistence statements through the referenced Databricks SQL warehouse so remote FastAPI deployments no longer require an embedded Spark session just to update Unity-backed Delta tables.
