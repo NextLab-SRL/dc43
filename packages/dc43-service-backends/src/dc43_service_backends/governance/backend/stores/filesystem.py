@@ -52,8 +52,11 @@ class FilesystemGovernanceStore(GovernanceStore):
         folder.mkdir(parents=True, exist_ok=True)
         return folder / f"{self._safe(dataset_id)}.json"
 
+    def _activity_dir(self) -> Path:
+        return self.base_path / "pipeline_activity"
+
     def _activity_path(self, dataset_id: str) -> Path:
-        folder = self.base_path / "pipeline_activity"
+        folder = self._activity_dir()
         folder.mkdir(parents=True, exist_ok=True)
         return folder / f"{self._safe(dataset_id)}.json"
 

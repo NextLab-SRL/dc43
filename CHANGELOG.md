@@ -214,6 +214,12 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Governance demo seeding now publishes generated contracts to the contracts
+  service before registering governance runs, preventing write context
+  resolution failures when the contract store is empty.
+- Filesystem governance stores now expose the pipeline activity directory
+  helper used by dataset listings so the `/governance/dataset-records`
+  endpoint no longer raises attribute errors.
 - Governance write telemetry spans now prefer dataset identifiers and versions
   from resolved governance plans, keeping OpenTelemetry attributes aligned with
   pipeline metadata and avoiding contract-id fallbacks in tests.

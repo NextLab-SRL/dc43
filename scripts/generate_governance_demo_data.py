@@ -29,6 +29,7 @@ from dc43_service_clients.data_products.models import (
     DataProductInputBinding,
     DataProductOutputBinding,
 )
+from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
 from dc43_service_clients.governance.models import (
     ContractReference,
@@ -352,6 +353,12 @@ def main() -> None:
         token_header=args.token_header,
         token_scheme=args.token_scheme,
     )
+    contract_client = RemoteContractServiceClient(
+        base_url=args.base_url,
+        token=args.token,
+        token_header=args.token_header,
+        token_scheme=args.token_scheme,
+    )
 
     contracts = list(
         _demo_contracts(
@@ -364,6 +371,7 @@ def main() -> None:
     )
 
     for spec in contracts:
+        contract_client.put(_build_contract(spec))
         _seed_contract(client, spec)
 
     print("Seeded demo contracts:")
