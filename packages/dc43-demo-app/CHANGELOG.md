@@ -23,4 +23,7 @@
 - The demo record loader now accepts ``dataset_id``/``dataset_version`` filters
   so the contracts UI and demo helpers can request a single dataset run without
   re-reading the entire JSON registry.
+- Running ``python -m dc43_demo_app.runner`` now launches the demo backend,
+  contracts app, and UI with clear startup logs so local module execution keeps
+  the full stack online for seeding and screenshots.
 

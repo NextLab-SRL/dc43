@@ -251,6 +251,16 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - conve
 
     env = os.environ.copy()
 
+    logger.info(
+        "Starting demo stack (backend=%s:%s, contracts=%s:%s, ui=%s:%s)",
+        backend_host,
+        backend_port,
+        contracts_host,
+        contracts_port,
+        pipeline_host,
+        pipeline_port,
+    )
+
     backend_cmd = [
         sys.executable,
         "-m",
@@ -349,6 +359,10 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - conve
             os.environ["DC43_CONTRACT_STORE"] = previous_contract_store
         else:
             os.environ.pop("DC43_CONTRACT_STORE", None)
+
+
+if __name__ == "__main__":  # pragma: no cover - convenience entrypoint
+    main()
 
 
 __all__ = ["main"]

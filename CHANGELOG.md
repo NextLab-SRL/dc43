@@ -44,6 +44,20 @@
   Enable `unity_catalog.tags_enabled` (optionally pointing `tags_sql_dsn` at a
   dedicated warehouse) to have the governance backend run `ALTER TABLE … SET/UNSET
   TAGS` automatically whenever datasets are linked to contracts.
+- Added `scripts/generate_governance_demo_data.py` to seed multiple contracts,
+  datasets, product bindings, and varied governance runs against the API for
+  demos and screenshots.
+- Governance demo seeding now accepts configurable product, contract, and run
+  counts so UI screenshots can be densely populated without manual editing.
+- Governance demo generation now uses Faker to craft fresh product names,
+  contract identifiers, and recent run timelines so seeded UIs feel fuller and
+  closer to real-world datasets.
+- Governance demo seeding no longer depends on fixed base scenarios; contract
+  fields, run histories, datasets, and bindings are generated end to end for a
+  richer and more generic demo surface.
+- Governance demo seeding now materialises matching data products and ports
+  before registering runs so governance write bindings resolve cleanly against
+  fresh stores.
 
 ### Changed
 - `dc43-integrations` now treats Spark as an optional dependency, so
@@ -56,6 +70,10 @@
 - Spark governance reads now always recompute validations through the
   governance service instead of reusing cached statuses so every run reflects
   the freshest recorded metrics, even when historical snapshots exist.
+- The governance demo data generator now builds multi-input/output product
+  pipelines with varied run histories and consistent metric series so demo UIs
+  can showcase branching dependencies, denser timelines, and datasets linked to
+  multiple contract versions without manual tweaking.
 - Unity Catalog hooks now treat the contract, data product, and governance tables declared in the backend configuration as reserved so only actual datasets receive `dc43.*` properties and tags even if a misconfigured client forwards those control-table identifiers.
 - Unity Catalog tagging now resolves tables from each contract's `servers` block and only falls back to dataset identifiers when no Unity metadata exists. Hook builders receive the active contract backend via `LinkHookContext`, enabling the Unity integration to load contracts safely while still skipping reserved control tables and continuing when catalog updates fail due to permissions.
 - Delta governance stores can now specify a `dsn`; when present, the backend reuses the SQL implementation and issues all persistence statements through the referenced Databricks SQL warehouse so remote FastAPI deployments no longer require an embedded Spark session just to update Unity-backed Delta tables.
@@ -111,6 +129,9 @@
   contract revisions are missing, and service backends preserve textual metric
   payloads while still populating ``metric_numeric_value`` so chart data remains
   consistent across SQL, Delta, and filesystem stores.
+- The demo runner now starts when invoked as a module (``python -m
+  dc43_demo_app.runner``) and logs the backend, contracts app, and UI endpoints
+  it booted so local quickstarts keep the full stack online in one terminal.
 - Dataset overview metric panels now reuse dataset history metadata to keep the
   contract-version dropdown enabled even when metric rows omit revision fields
   and surface a clear “No numeric metrics” message whenever the backend only
@@ -200,6 +221,12 @@
   duplicate runs alongside the PR build.
 
 ### Fixed
+- Governance demo seeding now publishes generated contracts to the contracts
+  service before registering governance runs, preventing write context
+  resolution failures when the contract store is empty.
+- Filesystem governance stores now expose the pipeline activity directory
+  helper used by dataset listings so the `/governance/dataset-records`
+  endpoint no longer raises attribute errors.
 - Governance write telemetry spans now prefer dataset identifiers and versions
   from resolved governance plans, keeping OpenTelemetry attributes aligned with
   pipeline metadata and avoiding contract-id fallbacks in tests.
