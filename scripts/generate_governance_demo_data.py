@@ -25,9 +25,15 @@ from open_data_contract_standard.model import (  # type: ignore
 )
 
 from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
+from dc43_service_clients.data_products.client.remote import RemoteDataProductServiceClient
 from dc43_service_clients.data_products.models import (
     DataProductInputBinding,
     DataProductOutputBinding,
+)
+from dc43_service_clients.odps import (
+    DataProductInputPort,
+    DataProductOutputPort,
+    OpenDataProductStandard,
 )
 from dc43_service_clients.contracts.client.remote import RemoteContractServiceClient
 from dc43_service_clients.governance.client.remote import RemoteGovernanceServiceClient
@@ -307,6 +313,53 @@ def _demo_contracts(
         )
 
 
+def _data_products(
+    contracts: Sequence[DemoContract],
+    fake: Faker,
+) -> Sequence[OpenDataProductStandard]:
+    products: dict[tuple[str, str], OpenDataProductStandard] = {}
+    for spec in contracts:
+        if not spec.data_product_id or not spec.port_name or not spec.data_product_version:
+            continue
+        key = (spec.data_product_id, spec.data_product_version)
+        product = products.get(key)
+        if product is None:
+            product = OpenDataProductStandard(
+                id=spec.data_product_id,
+                status="active",
+                version=spec.data_product_version,
+                name=fake.catch_phrase(),
+                description={
+                    "en": f"Demo data product {spec.data_product_id} for UI screenshots",
+                },
+                tags=[spec.dataset_format, "demo"],
+            )
+            products[key] = product
+
+        if not any(port.name == spec.port_name for port in product.output_ports):
+            product.output_ports.append(
+                DataProductOutputPort(
+                    name=spec.port_name,
+                    version=spec.contract_version,
+                    contract_id=spec.contract_id,
+                    description=fake.bs(),
+                    type="dataset",
+                )
+            )
+
+        if not any(port.name == spec.port_name for port in product.input_ports):
+            product.input_ports.append(
+                DataProductInputPort(
+                    name=spec.port_name,
+                    version=spec.contract_version,
+                    contract_id=spec.contract_id,
+                    custom_properties=[{"source": "demo"}],
+                )
+            )
+
+    return list(products.values())
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True, help="Governance service base URL")
@@ -359,6 +412,12 @@ def main() -> None:
         token_header=args.token_header,
         token_scheme=args.token_scheme,
     )
+    data_product_client = RemoteDataProductServiceClient(
+        base_url=args.base_url,
+        token=args.token,
+        token_header=args.token_header,
+        token_scheme=args.token_scheme,
+    )
 
     contracts = list(
         _demo_contracts(
@@ -369,6 +428,9 @@ def main() -> None:
             start_day=datetime.now(tz=timezone.utc).date(),
         )
     )
+
+    for product in _data_products(contracts, fake):
+        data_product_client.put(product)
 
     for spec in contracts:
         contract_client.put(_build_contract(spec))

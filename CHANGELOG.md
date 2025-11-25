@@ -55,6 +55,9 @@
 - Governance demo seeding no longer depends on fixed base scenarios; contract
   fields, run histories, datasets, and bindings are generated end to end for a
   richer and more generic demo surface.
+- Governance demo seeding now materialises matching data products and ports
+  before registering runs so governance write bindings resolve cleanly against
+  fresh stores.
 
 ### Changed
 - `dc43-integrations` now treats Spark as an optional dependency, so
