@@ -31,6 +31,9 @@ pip install --no-cache-dir -e ".[demo]"
 #    The runner wires the configs under a temporary workspace and keeps everything on localhost.
 python -m dc43_demo_app.runner
 
+#    The module runner now starts uvicorn for the governance backend, contracts app, and demo UI in the same
+#    terminal session. Leave it running so the services stay available while you seed data or browse the UI.
+
 # 3) In a second terminal, populate the governance API with high-volume demo data.
 #    Adjust counts or add --token if you configured DC43_BACKEND_TOKEN for the backend auth guard.
 python scripts/generate_governance_demo_data.py \

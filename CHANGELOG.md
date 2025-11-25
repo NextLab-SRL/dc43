@@ -122,6 +122,9 @@
   contract revisions are missing, and service backends preserve textual metric
   payloads while still populating ``metric_numeric_value`` so chart data remains
   consistent across SQL, Delta, and filesystem stores.
+- The demo runner now starts when invoked as a module (``python -m
+  dc43_demo_app.runner``) and logs the backend, contracts app, and UI endpoints
+  it booted so local quickstarts keep the full stack online in one terminal.
 - Dataset overview metric panels now reuse dataset history metadata to keep the
   contract-version dropdown enabled even when metric rows omit revision fields
   and surface a clear “No numeric metrics” message whenever the backend only
