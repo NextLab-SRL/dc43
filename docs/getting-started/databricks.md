@@ -167,11 +167,9 @@ pipeline events predate the dedicated product metadata fields.
 
 ```python
 from pyspark.sql import functions as F
-from dc43_integrations.spark.io import (
-    ContractVersionLocator,
-    GovernanceSparkWriteRequest,
-    write_with_governance,
-)
+from dc43_integrations.spark.io import GovernanceSparkWriteRequest, write_with_governance
+from dc43_service_clients.data_products import DataProductOutputBinding
+from dc43_service_clients.governance.models import GovernanceWriteContext
 
 orders_df = spark.createDataFrame(
     [
@@ -185,18 +183,12 @@ orders_df = spark.createDataFrame(
 validation, _ = write_with_governance(
     df=orders_df,
     request=GovernanceSparkWriteRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": ">=0.1.0",
-            },
-            "output_binding": {
-                "data_product": "dp.analytics.orders",
-                "port_name": "primary",
-            },
-        },
-        dataset_locator=ContractVersionLocator(dataset_version="latest"),
-        path="dbfs:/mnt/dc43-demo/delta/orders",
+        context=GovernanceWriteContext(
+            output_binding=DataProductOutputBinding(
+                data_product="dp.analytics.orders",
+                port_name="primary",
+            ),
+        ),
         mode="overwrite",
     ),
     governance_service=suite.governance,

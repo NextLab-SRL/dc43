@@ -7018,8 +7018,13 @@ def _spark_stub_for_selection(
         )
 
     io_imports = [
+        "ContractReference",
+        "DataProductInputBinding",
+        "DataProductOutputBinding",
+        "GovernanceReadContext",
         "GovernanceSparkReadRequest",
         "GovernanceSparkWriteRequest",
+        "GovernanceWriteContext",
         "read_with_governance",
         "write_with_governance",
     ]
@@ -7158,6 +7163,7 @@ def _spark_stub_for_selection(
         )
         fmt = server.get("format")
         binding = entry.get("data_product") or {}
+        has_product_binding = bool(binding.get("product_id") or binding.get("port_name"))
         base_name = _sanitise_identifier(summary["id"], f"input{index}")
         df_var = f"{base_name}_df"
         status_var = f"{base_name}_status"
@@ -7199,53 +7205,40 @@ def _spark_stub_for_selection(
         lines.append(f"{df_var}, {status_var} = read_with_governance(")
         lines.append("    spark,")
         lines.append("    GovernanceSparkReadRequest(")
-        lines.append("        context={")
-        lines.append("            \"contract\": {")
-        lines.append(f"                \"contract_id\": {summary['id']!r},")
-        lines.append(f"                \"contract_version\": {summary['version']!r},")
-        lines.append("            },")
-
-        if binding.get("product_id") or binding.get("port_name"):
-            lines.append("            \"input_binding\": {")
-            lines.append(
-                f"                \"data_product\": {binding.get('product_id')!r},"
-            )
-            if binding.get("port_name"):
+        lines.append("        context=GovernanceReadContext(")
+        if has_product_binding:
+            lines.append("            input_binding=DataProductInputBinding(")
+            if binding.get("product_id"):
                 lines.append(
-                    f"                \"port_name\": {binding.get('port_name')!r},"
+                    f"                data_product={binding.get('product_id')!r},"
                 )
             if binding.get("product_version"):
                 lines.append(
-                    f"                \"data_product_version\": {binding.get('product_version')!r},"
+                    f"                data_product_version={binding.get('product_version')!r},"
+                )
+            if binding.get("port_name"):
+                lines.append(
+                    f"                port_name={binding.get('port_name')!r},"
                 )
             if binding.get("source_data_product"):
                 lines.append(
-                    f"                \"source_data_product\": {binding.get('source_data_product')!r},"
+                    f"                source_data_product={binding.get('source_data_product')!r},"
                 )
             if binding.get("source_output_port"):
                 lines.append(
-                    f"                \"source_output_port\": {binding.get('source_output_port')!r},"
+                    f"                source_output_port={binding.get('source_output_port')!r},"
                 )
-            lines.append("            },")
+            lines.append("            ),")
+        else:
+            lines.append("            contract=ContractReference(")
+            lines.append(f"                contract_id={summary['id']!r},")
+            lines.append(f"                contract_version={summary['version']!r},")
+            lines.append("            ),")
 
         for key_name, value in read_context_overrides:
-            lines.append(f"            \"{key_name}\": {value},")
+            lines.append(f"            {key_name}={value},")
 
-        dataset_id_value = binding.get("dataset_id") or summary.get("datasetId")
-        if dataset_id_value:
-            lines.append(f"            \"dataset_id\": {dataset_id_value!r},")
-        if fmt:
-            lines.append(f"            \"dataset_format\": {fmt!r},")
-
-        lines.append("        },")
-        table_value = server.get("dataset") or server.get("table")
-        path_value = server.get("path") if not table_value else None
-        if table_value:
-            lines.append(f"        table={table_value!r},")
-        if path_value:
-            lines.append(f"        path={path_value!r},")
-        if fmt:
-            lines.append(f"        format={fmt!r},")
+        lines.append("        ),")
         lines.append("    ),")
         lines.append("    governance_service=governance_client,")
         lines.append("    enforce=True,")
@@ -7320,6 +7313,8 @@ def _spark_stub_for_selection(
             lines.append(f"#   Format: {fmt}")
         if entry.get("version_selector"):
             lines.append(f"#   Version selector: {entry['version_selector']}")
+        binding = entry.get("data_product") or {}
+        has_product_binding = bool(binding.get("product_id") or binding.get("port_name"))
         if binding:
             product_id = binding.get("product_id")
             port_name = binding.get("port_name")
@@ -7341,27 +7336,28 @@ def _spark_stub_for_selection(
             f"{validation_var}, {status_var} = write_with_governance(",
             "    df=transformed_df,  # TODO: replace with dataframe for this output",
             "    request=GovernanceSparkWriteRequest(",
-            "        context={",
-            "            \"contract\": {",
-            f"                \"contract_id\": {summary['id']!r},",
-            f"                \"contract_version\": {summary['version']!r},",
-            "            },",
+            "        context=GovernanceWriteContext(",
         ]
-        binding = entry.get("data_product") or {}
-        if binding.get("product_id") or binding.get("port_name"):
-            write_lines.append("            \"output_binding\": {")
-            write_lines.append(
-                f"                \"data_product\": {binding.get('product_id')!r},"
-            )
-            if binding.get("port_name"):
+        if has_product_binding:
+            write_lines.append("            output_binding=DataProductOutputBinding(")
+            if binding.get("product_id"):
                 write_lines.append(
-                    f"                \"port_name\": {binding.get('port_name')!r},"
+                    f"                data_product={binding.get('product_id')!r},"
                 )
             if binding.get("product_version"):
                 write_lines.append(
-                    f"                \"data_product_version\": {binding.get('product_version')!r},"
+                    f"                data_product_version={binding.get('product_version')!r},"
                 )
-            write_lines.append("            },")
+            if binding.get("port_name"):
+                write_lines.append(
+                    f"                port_name={binding.get('port_name')!r},"
+                )
+            write_lines.append("            ),")
+        else:
+            write_lines.append("            contract=ContractReference(")
+            write_lines.append(f"                contract_id={summary['id']!r},")
+            write_lines.append(f"                contract_version={summary['version']!r},")
+            write_lines.append("            ),")
 
         write_context_overrides: List[tuple[str, str]] = []
         if write_strategy.get("draft_on_violation"):
@@ -7406,21 +7402,8 @@ def _spark_stub_for_selection(
                     )
                 )
         for key_name, value in write_context_overrides:
-            write_lines.append(f"            \"{key_name}\": {value},")
-        dataset_id_value = binding.get("dataset_id") or summary.get("datasetId")
-        if dataset_id_value:
-            write_lines.append(f"            \"dataset_id\": {dataset_id_value!r},")
-        if fmt:
-            write_lines.append(f"            \"dataset_format\": {fmt!r},")
-        write_lines.append("        },")
-        table_value = server.get("dataset") or server.get("table")
-        path_value = server.get("path") if not table_value else None
-        if table_value:
-            write_lines.append(f"        table={table_value!r},")
-        if path_value:
-            write_lines.append(f"        path={path_value!r},")
-        if fmt:
-            write_lines.append(f"        format={fmt!r},")
+            write_lines.append(f"            {key_name}={value},")
+        write_lines.append("        ),")
         write_lines.extend(
             [
                 "    ),",

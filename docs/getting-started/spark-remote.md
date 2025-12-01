@@ -61,22 +61,18 @@ governance_service = load_governance_client("/path/to/dc43-service-backends.toml
 Once the governance client is initialised, the IO helpers behave the same way as in the local guide:
 
 ```python
-from dc43_integrations.spark.io import (
-    ContractVersionLocator,
-    GovernanceSparkWriteRequest,
-    write_with_governance,
-)
+from dc43_integrations.spark.io import GovernanceSparkWriteRequest, write_with_governance
+from dc43_service_clients.governance.models import ContractReference, GovernanceWriteContext
 
 write_with_governance(
     df=orders_df,
     request=GovernanceSparkWriteRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": ">=0.1.0",
-            }
-        },
-        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        context=GovernanceWriteContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=0.1.0",
+            )
+        ),
         mode="append",
     ),
     governance_service=governance_service,

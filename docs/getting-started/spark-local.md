@@ -58,6 +58,7 @@ your business logic.
 ```python
 from dc43_service_clients import load_governance_client
 from dc43_service_clients.governance import GovernanceReadContext
+from dc43_service_clients.governance.models import ContractReference, GovernanceWriteContext
 from dc43_integrations.spark.io import (
     ContractVersionLocator,
     DefaultReadStatusStrategy,
@@ -76,10 +77,10 @@ orders_df, status = read_with_governance(
     spark,
     GovernanceSparkReadRequest(
         context=GovernanceReadContext(
-            contract={
-                "contract_id": "sales.orders",
-                "version_selector": ">=0.1.0",
-            }
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=0.1.0",
+            )
         ),
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
@@ -104,13 +105,12 @@ orchestrator (for example Databricks Jobs) needs the metadata.
 write_with_governance(
     df=orders_df,
     request=GovernanceSparkWriteRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": ">=0.1.0",
-            }
-        },
-        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        context=GovernanceWriteContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=0.1.0",
+            )
+        ),
     ),
     governance_service=governance_client,
     enforce=True,
