@@ -84,7 +84,7 @@ Each request contains a `context` (governance metadata) and Spark-specific overr
 | `context` | A `GovernanceReadContext` / `GovernanceWriteContext` that names the contract (`contract.contract_id` + `version_selector`), optional data-product binding, dataset identifiers, and governance options such as `bump` (how revisions advance) or `draft_on_violation` (whether to open a draft when checks fail). Input/output bindings already point at a registered port, so governance resolves the contract from the binding when present. |
 | `format`, `path`, `table`, `options` | Spark reader/writer hints. When absent, dc43 derives them from the contract server definition. Options are merged with contract-level hints such as Delta time-travel properties. |
 | `dataset_locator` | Strategy controlling how dataset IDs, versions, and paths are derived for the operation (see below). |
-| `status_strategy` (read) | Hook that inspects the validation result before returning the DataFrame. Defaults to contract/data-product status checks plus optional blocking on governance verdicts. |
+| `status_strategy` (read) | Hook that inspects the validation result before returning the DataFrame. Defaults to contract/data-product status checks plus optional blocking on governance verdicts (see **Status strategies (reads)**). |
 | `pipeline_context` | Extra metadata injected into the governance payload and merged with the context provided by the governance service. Use this to thread run identifiers, job names, or lineage tags into the recorded activity without mutating the base governance configuration. |
 | `publication_mode` | Override the governance publication behaviour for a single call. Accepts the same modes as the global configuration (`legacy`, `open_data_lineage`, `open_telemetry`) so pipelines can opt into lineage/telemetry emission or fall back to dry-run behaviour without editing shared settings. |
 
@@ -166,20 +166,58 @@ implementations honour the `DatasetLocatorStrategy` protocol and can be combined
 
 Custom locators can implement the protocol directly when a platform requires bespoke path or table mapping.
 
-### Status and violation strategies
+### Status strategies (reads)
 
-Reads and writes expose hooks so pipelines can tailor how violations are handled without re-implementing the IO wrapper logic:
+Status strategies intercept validation results before returning a governed read, letting orchestration enforce contract or data-product readiness without re-implementing the IO wrapper:
 
-* **Read status strategies** inspect the validation output before returning the DataFrame. The default strategy enforces contract
-  and data-product statuses and raises when governance returns a blocking verdict. Custom strategies can, for example, downgrade
-  specific failures to warnings.
-* **Write violation strategies** control how invalid rows are persisted:
-  * `NoOpWriteViolationStrategy` (default) keeps existing behaviour and surfaces validation warnings alongside the write.
-  * `SplitWriteViolationStrategy` splits the aligned DataFrame into valid/reject subsets using governance predicates, writing
-    each subset to a suffixed dataset/table. This is helpful when downstream consumers want to inspect rejects without blocking
-    the happy path.
-  * `StrictWriteViolationStrategy` decorates another strategy and forces a failed result (optionally on warnings) even when data
-    lands, letting orchestrators halt the pipeline while still keeping the rejects/valid outputs created by the base strategy.
+* `DefaultReadStatusStrategy` validates contract statuses (default: `"active"`) and, when a data-product binding is present, data-product statuses (default: `"active"`). When `enforce=True` the strategy raises if governance returns a blocking verdict.
+* Strategies that implement `SupportsDataProductStatusPolicy` can supply defaults for `allowed_data_product_statuses`, `allow_missing_data_product_status`, case sensitivity, and custom failure messages when the request context leaves those fields `None`.
+
+Example: allow reads while a contract is in maintenance, require a data product to be active, and forward a custom message when the product is paused:
+
+```python
+from dc43_integrations.spark.io import (
+    DefaultReadStatusStrategy,
+    GovernanceSparkReadRequest,
+    read_with_governance,
+)
+from dc43_service_clients.governance import ContractReference, GovernanceReadContext
+
+status_strategy = DefaultReadStatusStrategy(
+    allowed_contract_statuses=("active", "maintenance"),
+    allow_missing_contract_status=False,
+    allowed_data_product_statuses=("active",),
+    data_product_status_failure_message="Data product is paused",
+)
+
+df, status = read_with_governance(
+    spark,
+    GovernanceSparkReadRequest(
+        context=GovernanceReadContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=1.5.0",
+            ),
+            enforce_data_product_status=True,
+        ),
+        status_strategy=status_strategy,
+    ),
+    governance_service=governance,
+    enforce=True,
+    return_status=True,
+)
+```
+
+### Violation strategies (writes)
+
+Write violation strategies control how invalid rows are persisted:
+
+* `NoOpWriteViolationStrategy` (default) keeps existing behaviour and surfaces validation warnings alongside the write.
+* `SplitWriteViolationStrategy` splits the aligned DataFrame into valid/reject subsets using governance predicates, writing
+  each subset to a suffixed dataset/table. This is helpful when downstream consumers want to inspect rejects without blocking
+  the happy path.
+* `StrictWriteViolationStrategy` decorates another strategy and forces a failed result (optionally on warnings) even when data
+  lands, letting orchestrators halt the pipeline while still keeping the rejects/valid outputs created by the base strategy.
 
 Example: send rejects to a side table while failing the run whenever any contract violation is detected:
 

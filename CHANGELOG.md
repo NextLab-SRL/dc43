@@ -53,6 +53,8 @@
   `publication_mode`) and annotated the split-write strategy example so
   orchestrators can see how suffixes shape table names, dataset ids, and
   lineage metadata.
+- Documented Spark governance read status strategies so data-product policy
+  defaults and contract readiness checks mirror the write-strategy guidance.
 - Clarified how Spark governance requests resolve contracts from data-product
   bindings and when to include explicit contract selectors alongside the
   binding examples.
