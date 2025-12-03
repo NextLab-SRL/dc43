@@ -42,23 +42,24 @@ records activity on behalf of the pipeline:
 
 ```python
 from dc43_integrations.spark.io import (
-    read_with_governance,
-    write_with_governance,
     ContractVersionLocator,
     GovernanceSparkReadRequest,
+    read_with_governance,
+    write_with_governance,
 )
 from dc43_service_clients import load_governance_client
+from dc43_service_clients.governance import ContractReference, GovernanceReadContext
 
 governance = load_governance_client()
 validated_df, status = read_with_governance(
     spark,
     GovernanceSparkReadRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": ">=1.0.0",
-            }
-        },
+        context=GovernanceReadContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=1.0.0",
+            )
+        ),
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
     governance_service=governance,
@@ -95,18 +96,20 @@ from dc43_integrations.spark.io import (
     GovernanceSparkReadRequest,
     read_with_governance,
 )
+from dc43_service_clients.data_products import DataProductInputBinding
+from dc43_service_clients.governance import GovernanceReadContext
 
 validated_df, status = read_with_governance(
     spark,
     GovernanceSparkReadRequest(
-        context={
-            "input_binding": {
-                "data_product": "dp.analytics.orders",
-                "port_name": "source",
-            },
-            "draft_on_violation": True,
-            "bump": "patch",
-        },
+        context=GovernanceReadContext(
+            input_binding=DataProductInputBinding(
+                data_product="dp.analytics.orders",
+                port_name="source",
+            ),
+            draft_on_violation=True,
+            bump="patch",
+        ),
         dataset_locator=ContractVersionLocator(dataset_version="2024-01-01T00:00:00Z"),
         options={"mergeSchema": "true"},
     ),
@@ -124,21 +127,23 @@ from dc43_integrations.spark.io import (
     StrictWriteViolationStrategy,
     write_with_governance,
 )
+from dc43_service_clients.data_products import DataProductOutputBinding
+from dc43_service_clients.governance import ContractReference, GovernanceWriteContext
 
 validation, result = write_with_governance(
     df,
     GovernanceSparkWriteRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": ">=1.0.0",
-            },
-            "output_binding": {
-                "data_product": "dp.analytics.orders",
-                "port_name": "primary",
-            },
-            "draft_on_violation": True,
-        },
+        context=GovernanceWriteContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=1.0.0",
+            ),
+            output_binding=DataProductOutputBinding(
+                data_product="dp.analytics.orders",
+                port_name="primary",
+            ),
+            draft_on_violation=True,
+        ),
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
         mode="overwrite",
     ),
@@ -173,8 +178,8 @@ Reads and writes expose hooks so pipelines can tailor how violations are handled
   * `SplitWriteViolationStrategy` splits the aligned DataFrame into valid/reject subsets using governance predicates, writing
     each subset to a suffixed dataset/table. This is helpful when downstream consumers want to inspect rejects without blocking
     the happy path.
-  * `StrictWriteViolationStrategy` decorates another strategy and forces a failed result (optionally on warnings) so orchestrators
-    can stop the job even when the write succeeded.
+  * `StrictWriteViolationStrategy` decorates another strategy and forces a failed result (optionally on warnings) even when data
+    lands, letting orchestrators halt the pipeline while still keeping the rejects/valid outputs created by the base strategy.
 
 Example: send rejects to a side table while failing the run whenever any contract violation is detected:
 
@@ -184,6 +189,7 @@ from dc43_integrations.spark.violation_strategy import (
     SplitWriteViolationStrategy,
     StrictWriteViolationStrategy,
 )
+from dc43_service_clients.governance import ContractReference, GovernanceWriteContext
 
 strategy = StrictWriteViolationStrategy(
     base=SplitWriteViolationStrategy(
@@ -197,7 +203,9 @@ strategy = StrictWriteViolationStrategy(
 validation, status = write_with_governance(
     df,
     GovernanceSparkWriteRequest(
-        context={"contract": {"contract_id": "sales.orders", "version_selector": "latest"}},
+        context=GovernanceWriteContext(
+            contract=ContractReference(contract_id="sales.orders", version_selector="latest")
+        ),
         table="governed.analytics.orders",
     ),
     governance_service=governance,
