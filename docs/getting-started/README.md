@@ -19,6 +19,34 @@ material when you want to dive deeper.
 The guides assume you have a working Python 3.11 environment. When you work from a source checkout run `pip install -e .` from the
 repository root so editable installs pick up sibling packages.
 
+## Run the demo app locally (no Docker)
+
+Launch the full demo stack and pre-seed governance data directly from your checkout:
+
+```bash
+# 1) Install the demo extras so the FastAPI services and UI dependencies are available.
+pip install --no-cache-dir -e ".[demo]"
+
+# 2) Start the demo application (governance/backend on :8001, contracts app on :8002, UI on :8000).
+#    The runner wires the configs under a temporary workspace and keeps everything on localhost.
+python -m dc43_demo_app.runner
+
+#    The module runner now starts uvicorn for the governance backend, contracts app, and demo UI in the same
+#    terminal session. Leave it running so the services stay available while you seed data or browse the UI.
+
+# 3) In a second terminal, populate the governance API with high-volume demo data.
+#    Adjust counts or add --token if you configured DC43_BACKEND_TOKEN for the backend auth guard.
+python scripts/generate_governance_demo_data.py \
+  --base-url http://127.0.0.1:8001 \
+  --contracts 75 \
+  --products 10 \
+  --total-runs 500
+```
+
+The launcher waits for the bundled FastAPI services to become responsive before starting the UI, so you can run the seeding
+script immediately after it prints the startup logs. Visit `http://127.0.0.1:8000` for the demo UI or `http://127.0.0.1:8002`
+for the contracts app catalog once the seed completes.
+
 ## Documentation assistant
 
 The dc43 app can expose a docs-first chat experience using LangChain and Gradio. Install the optional

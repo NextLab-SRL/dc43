@@ -71,6 +71,9 @@
   optional dependency.
 
 ### Fixed
+- Filesystem governance stores once again expose the pipeline activity
+  directory helper so dataset listings and `/governance/dataset-records`
+  responses no longer crash with missing attributes.
 - Delta governance stores now supply explicit schemas when persisting status,
   link, and activity records so Spark no longer fails to infer field types when
   optional values (such as lineage payloads) are null.
