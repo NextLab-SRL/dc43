@@ -16,6 +16,9 @@
   governed versioning walkthrough without adapting the Spark jobs manually.
 
 ### Changed
+- Expanded the Spark/Databricks integration guide with governance request
+  payloads, dataset locator strategies, and violation-handling examples so
+  pipelines can reuse the documented patterns directly.
 - Made the Spark runtime optional by moving `pyspark` into the `spark` extra so
   runtimes that already ship PySpark are not forced to reinstall it when
   installing the integration helpers.

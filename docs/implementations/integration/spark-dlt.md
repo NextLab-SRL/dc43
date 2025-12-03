@@ -23,7 +23,7 @@ flowchart TD
     Governance --> Steward["Governance tooling"]
 ```
 
-## Spark & Delta Helpers
+## Spark & Delta helpers
 
 The canonical implementation lives in [`src/dc43_integrations/spark`](../../packages/dc43-integrations/src/dc43_integrations/spark):
 
@@ -62,6 +62,146 @@ validated_df, status = read_with_governance(
         dataset_locator=ContractVersionLocator(dataset_version="latest"),
     ),
     governance_service=governance,
+    return_status=True,
+)
+```
+
+### Governance request payloads
+
+Governed IO calls wrap the governance model in a single payload so orchestration code stays declarative. Both read and write
+helpers accept a request object plus a governance client:
+
+| Request | Purpose |
+| --- | --- |
+| `GovernanceSparkReadRequest` | Resolves a contract (or data-product input binding), loads the dataset coordinates, and forwards the resulting validation plan into a Spark read. |
+| `GovernanceSparkWriteRequest` | Resolves the contract/output binding, aligns the incoming DataFrame, and records the governance activity while writing to Delta or files. |
+
+Each request contains a `context` (governance metadata) and Spark-specific overrides:
+
+| Field | Meaning |
+| --- | --- |
+| `context` | A `GovernanceReadContext` / `GovernanceWriteContext` that names the contract (`contract.contract_id` + `version_selector`), optional data-product binding, dataset identifiers, and governance options such as `bump` (how revisions advance) or `draft_on_violation` (whether to open a draft when checks fail). |
+| `format`, `path`, `table`, `options` | Spark reader/writer hints. When absent, dc43 derives them from the contract server definition. Options are merged with contract-level hints such as Delta time-travel properties. |
+| `dataset_locator` | Strategy controlling how dataset IDs, versions, and paths are derived for the operation (see below). |
+| `status_strategy` (read) | Hook that inspects the validation result before returning the DataFrame. Defaults to contract/data-product status checks plus optional blocking on governance verdicts. |
+| `pipeline_context` | Extra metadata injected into the governance payload; merges with the context provided by the governance service. |
+| `publication_mode` | Override the governance publication behaviour (for example, to run in dry-run mode). |
+
+Example: pin a contract via an input binding, ask governance to draft on violation, and force a Delta time-travel read through a locator:
+
+```python
+from dc43_integrations.spark.io import (
+    ContractVersionLocator,
+    GovernanceSparkReadRequest,
+    read_with_governance,
+)
+
+validated_df, status = read_with_governance(
+    spark,
+    GovernanceSparkReadRequest(
+        context={
+            "input_binding": {
+                "data_product": "dp.analytics.orders",
+                "port_name": "source",
+            },
+            "draft_on_violation": True,
+            "bump": "patch",
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="2024-01-01T00:00:00Z"),
+        options={"mergeSchema": "true"},
+    ),
+    governance_service=governance,
+    return_status=True,
+)
+```
+
+Writes use the same shape, swapping in `GovernanceSparkWriteRequest` and an output binding:
+
+```python
+from dc43_integrations.spark.io import (
+    ContractVersionLocator,
+    GovernanceSparkWriteRequest,
+    StrictWriteViolationStrategy,
+    write_with_governance,
+)
+
+validation, result = write_with_governance(
+    df,
+    GovernanceSparkWriteRequest(
+        context={
+            "contract": {
+                "contract_id": "sales.orders",
+                "version_selector": ">=1.0.0",
+            },
+            "output_binding": {
+                "data_product": "dp.analytics.orders",
+                "port_name": "primary",
+            },
+            "draft_on_violation": True,
+        },
+        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        mode="overwrite",
+    ),
+    governance_service=governance,
+    write_strategy=StrictWriteViolationStrategy(),
+    return_status=True,
+)
+```
+
+### Dataset locator strategies
+
+Dataset locators decide how dataset IDs, versions, and storage coordinates are derived before Spark touches storage. All
+implementations honour the `DatasetLocatorStrategy` protocol and can be combined via composition:
+
+| Strategy | Behaviour | Example |
+| --- | --- | --- |
+| `ContractFirstDatasetLocator` | Default; prefer `servers[0]` from the contract to fill in `format`, `path`/`table`, and optional custom properties (for example, Delta time-travel hints). Falls back to caller-provided overrides. | Use a contract’s Unity Catalog coordinates automatically when the caller passes only a contract reference. |
+| `ContractVersionLocator` | Extends a base locator with explicit dataset versions. Numeric strings map to `versionAsOf`, ISO timestamps map to `timestampAsOf`, and the sentinel `latest` disables time travel. Supports folder templates and globbing via `dc43.core.versioning` server properties. | `dataset_locator=ContractVersionLocator(dataset_version="v1.2.3", subpath="{safeVersion}")` writes into `.../v1.2.3` and stamps the governance payload with the same version. |
+| `StaticDatasetLocator` | Overwrites specific fields (path/table/format/dataset identifiers) while delegating everything else to a base locator. Useful when an orchestration layer owns the physical layout. | `StaticDatasetLocator(dataset_id="jobs.orders", path="/mnt/raw/orders", base=ContractVersionLocator(dataset_version="latest"))` keeps governance IDs stable while reusing contract-derived defaults. |
+
+Custom locators can implement the protocol directly when a platform requires bespoke path or table mapping.
+
+### Status and violation strategies
+
+Reads and writes expose hooks so pipelines can tailor how violations are handled without re-implementing the IO wrapper logic:
+
+* **Read status strategies** inspect the validation output before returning the DataFrame. The default strategy enforces contract
+  and data-product statuses and raises when governance returns a blocking verdict. Custom strategies can, for example, downgrade
+  specific failures to warnings.
+* **Write violation strategies** control how invalid rows are persisted:
+  * `NoOpWriteViolationStrategy` (default) keeps existing behaviour and surfaces validation warnings alongside the write.
+  * `SplitWriteViolationStrategy` splits the aligned DataFrame into valid/reject subsets using governance predicates, writing
+    each subset to a suffixed dataset/table. This is helpful when downstream consumers want to inspect rejects without blocking
+    the happy path.
+  * `StrictWriteViolationStrategy` decorates another strategy and forces a failed result (optionally on warnings) so orchestrators
+    can stop the job even when the write succeeded.
+
+Example: send rejects to a side table while failing the run whenever any contract violation is detected:
+
+```python
+from dc43_integrations.spark.io import GovernanceSparkWriteRequest, write_with_governance
+from dc43_integrations.spark.violation_strategy import (
+    SplitWriteViolationStrategy,
+    StrictWriteViolationStrategy,
+)
+
+strategy = StrictWriteViolationStrategy(
+    base=SplitWriteViolationStrategy(
+        valid_suffix="ok",
+        reject_suffix="violations",
+        dataset_suffix_separator="__",
+    ),
+    failure_message="Rejects detected in governed write",
+)
+
+validation, status = write_with_governance(
+    df,
+    GovernanceSparkWriteRequest(
+        context={"contract": {"contract_id": "sales.orders", "version_selector": "latest"}},
+        table="governed.analytics.orders",
+    ),
+    governance_service=governance,
+    write_strategy=strategy,
     return_status=True,
 )
 ```
