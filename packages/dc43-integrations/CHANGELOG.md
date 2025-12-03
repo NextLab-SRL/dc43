@@ -19,6 +19,10 @@
 - Expanded the Spark/Databricks integration guide with governance request
   payloads, dataset locator strategies, and violation-handling examples so
   pipelines can reuse the documented patterns directly.
+- Clarified the Spark governance payload options (`pipeline_context`,
+  `publication_mode`) and the split-write example parameters so callers know
+  how suffixes alter table names, dataset identifiers, and emitted lineage
+  metadata.
 - Clarified that data-product bindings already resolve the associated contract
   port and that explicit contract selectors are only needed when bootstrapping
   or overriding the binding’s revision target.

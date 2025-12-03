@@ -49,6 +49,10 @@
 - Reworked the Spark/Databricks integration guide to document governance
   payloads, dataset locators, and violation strategies with end-to-end
   examples.
+- Clarified Spark governance payload fields (`pipeline_context`,
+  `publication_mode`) and annotated the split-write strategy example so
+  orchestrators can see how suffixes shape table names, dataset ids, and
+  lineage metadata.
 - Clarified how Spark governance requests resolve contracts from data-product
   bindings and when to include explicit contract selectors alongside the
   binding examples.

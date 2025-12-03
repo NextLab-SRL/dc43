@@ -85,8 +85,8 @@ Each request contains a `context` (governance metadata) and Spark-specific overr
 | `format`, `path`, `table`, `options` | Spark reader/writer hints. When absent, dc43 derives them from the contract server definition. Options are merged with contract-level hints such as Delta time-travel properties. |
 | `dataset_locator` | Strategy controlling how dataset IDs, versions, and paths are derived for the operation (see below). |
 | `status_strategy` (read) | Hook that inspects the validation result before returning the DataFrame. Defaults to contract/data-product status checks plus optional blocking on governance verdicts. |
-| `pipeline_context` | Extra metadata injected into the governance payload; merges with the context provided by the governance service. |
-| `publication_mode` | Override the governance publication behaviour (for example, to run in dry-run mode). |
+| `pipeline_context` | Extra metadata injected into the governance payload and merged with the context provided by the governance service. Use this to thread run identifiers, job names, or lineage tags into the recorded activity without mutating the base governance configuration. |
+| `publication_mode` | Override the governance publication behaviour for a single call. Accepts the same modes as the global configuration (`legacy`, `open_data_lineage`, `open_telemetry`) so pipelines can opt into lineage/telemetry emission or fall back to dry-run behaviour without editing shared settings. |
 
 Example: pin a contract via an input binding, ask governance to draft on violation, and force a Delta time-travel read through a locator:
 
@@ -193,9 +193,9 @@ from dc43_service_clients.governance import ContractReference, GovernanceWriteCo
 
 strategy = StrictWriteViolationStrategy(
     base=SplitWriteViolationStrategy(
-        valid_suffix="ok",
-        reject_suffix="violations",
-        dataset_suffix_separator="__",
+        valid_suffix="ok",  # append "_ok" to the base table/path for valid rows
+        reject_suffix="violations",  # append "_violations" to store rejected rows separately
+        dataset_suffix_separator="__",  # join suffixes to dataset ids as "{dataset}__violations"
     ),
     failure_message="Rejects detected in governed write",
 )
