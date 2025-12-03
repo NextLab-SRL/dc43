@@ -29,12 +29,20 @@ from dc43_integrations.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
 )
 from dc43_service_clients.data_quality.client.local import LocalDataQualityServiceClient
-from dc43_service_clients.governance import (
+from dc43_service_clients.governance import build_local_governance_service
+from dc43_service_clients.governance.models import (
+    ContractReference,
     GovernanceReadContext,
-    build_local_governance_service,
+    GovernanceWriteContext,
+    ResolvedReadPlan,
+    ResolvedWritePlan,
 )
-from dc43_service_clients.governance.models import ResolvedReadPlan, ResolvedWritePlan
-from dc43_service_clients.data_products import DataProductInputBinding, DataProductOutputBinding
+from dc43_service_clients.data_products import (
+    DataProductInputBinding,
+    DataProductOutputBinding,
+    normalise_input_binding,
+    normalise_output_binding,
+)
 from dc43_service_clients.odps import OpenDataProductStandard
 from dc43_service_backends.data_products import DataProductRegistrationResult
 from dc43_service_backends.core.odps import (
@@ -69,14 +77,19 @@ def _gov_read_request(
     context_overrides: Optional[Mapping[str, Any]] = None,
     **overrides: Any,
 ) -> GovernanceSparkReadRequest:
-    context: dict[str, Any] = {}
+    context = GovernanceReadContext()
+    if contract is not None:
+        context.contract = ContractReference(
+            contract_id=contract.id,
+            contract_version=contract.version,
+        )
     if context_overrides:
-        context.update(context_overrides)
-    if contract is not None and "contract" not in context:
-        context["contract"] = {
-            "contract_id": contract.id,
-            "contract_version": contract.version,
-        }
+        if "contract" in context_overrides:
+            context.contract = ContractReference(**dict(context_overrides["contract"]))
+        if "input_binding" in context_overrides:
+            context.input_binding = normalise_input_binding(context_overrides["input_binding"])
+        if "pipeline_context" in context_overrides:
+            context.pipeline_context = context_overrides["pipeline_context"]
     return GovernanceSparkReadRequest(context=context, **overrides)
 
 
@@ -86,14 +99,19 @@ def _gov_write_request(
     context_overrides: Optional[Mapping[str, Any]] = None,
     **overrides: Any,
 ) -> GovernanceSparkWriteRequest:
-    context: dict[str, Any] = {}
+    context = GovernanceWriteContext()
+    if contract is not None:
+        context.contract = ContractReference(
+            contract_id=contract.id,
+            contract_version=contract.version,
+        )
     if context_overrides:
-        context.update(context_overrides)
-    if contract is not None and "contract" not in context:
-        context["contract"] = {
-            "contract_id": contract.id,
-            "contract_version": contract.version,
-        }
+        if "contract" in context_overrides:
+            context.contract = ContractReference(**dict(context_overrides["contract"]))
+        if "output_binding" in context_overrides:
+            context.output_binding = normalise_output_binding(context_overrides["output_binding"])
+        if "pipeline_context" in context_overrides:
+            context.pipeline_context = context_overrides["pipeline_context"]
     return GovernanceSparkWriteRequest(context=context, **overrides)
 
 
@@ -112,12 +130,12 @@ def test_governance_wrappers_require_only_governance_client(
     validation, status = write_with_governance(
         df=df,
         request=GovernanceSparkWriteRequest(
-            context={
-                "contract": {
-                    "contract_id": contract.id,
-                    "contract_version": contract.version,
-                }
-            },
+            context=GovernanceWriteContext(
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
+            ),
             path=str(contract_path),
             format="parquet",
         ),
@@ -135,10 +153,10 @@ def test_governance_wrappers_require_only_governance_client(
         spark,
         GovernanceSparkReadRequest(
             context=GovernanceReadContext(
-                contract={
-                    "contract_id": contract.id,
-                    "contract_version": contract.version,
-                }
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
             ),
             path=str(contract_path),
             format="parquet",
