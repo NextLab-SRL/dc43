@@ -81,7 +81,7 @@ Each request contains a `context` (governance metadata) and Spark-specific overr
 
 | Field | Meaning |
 | --- | --- |
-| `context` | A `GovernanceReadContext` / `GovernanceWriteContext` that names the contract (`contract.contract_id` + `version_selector`), optional data-product binding, dataset identifiers, and governance options such as `bump` (how revisions advance) or `draft_on_violation` (whether to open a draft when checks fail). |
+| `context` | A `GovernanceReadContext` / `GovernanceWriteContext` that names the contract (`contract.contract_id` + `version_selector`), optional data-product binding, dataset identifiers, and governance options such as `bump` (how revisions advance) or `draft_on_violation` (whether to open a draft when checks fail). Input/output bindings already point at a registered port, so governance resolves the contract from the binding when present. |
 | `format`, `path`, `table`, `options` | Spark reader/writer hints. When absent, dc43 derives them from the contract server definition. Options are merged with contract-level hints such as Delta time-travel properties. |
 | `dataset_locator` | Strategy controlling how dataset IDs, versions, and paths are derived for the operation (see below). |
 | `status_strategy` (read) | Hook that inspects the validation result before returning the DataFrame. Defaults to contract/data-product status checks plus optional blocking on governance verdicts. |
@@ -107,6 +107,10 @@ validated_df, status = read_with_governance(
                 data_product="dp.analytics.orders",
                 port_name="source",
             ),
+            # The binding already carries the contract reference for this port;
+            # include an explicit contract only when the binding is being
+            # registered during bootstrap or you need to override the port's
+            # current revision selector.
             draft_on_violation=True,
             bump="patch",
         ),
@@ -118,7 +122,7 @@ validated_df, status = read_with_governance(
 )
 ```
 
-Writes use the same shape, swapping in `GovernanceSparkWriteRequest` and an output binding:
+Writes use the same shape, swapping in `GovernanceSparkWriteRequest` and an output binding. Because the output binding already references a registered contract port, omitting a separate `contract` block keeps the governance request aligned with the port metadata unless you intentionally override it (for example, when bootstrapping a new port alongside a contract draft):
 
 ```python
 from dc43_integrations.spark.io import (
@@ -128,16 +132,12 @@ from dc43_integrations.spark.io import (
     write_with_governance,
 )
 from dc43_service_clients.data_products import DataProductOutputBinding
-from dc43_service_clients.governance import ContractReference, GovernanceWriteContext
+from dc43_service_clients.governance import GovernanceWriteContext
 
 validation, result = write_with_governance(
     df,
     GovernanceSparkWriteRequest(
         context=GovernanceWriteContext(
-            contract=ContractReference(
-                contract_id="sales.orders",
-                version_selector=">=1.0.0",
-            ),
             output_binding=DataProductOutputBinding(
                 data_product="dp.analytics.orders",
                 port_name="primary",

@@ -49,6 +49,9 @@
 - Reworked the Spark/Databricks integration guide to document governance
   payloads, dataset locators, and violation strategies with end-to-end
   examples.
+- Clarified how Spark governance requests resolve contracts from data-product
+  bindings and when to include explicit contract selectors alongside the
+  binding examples.
 - `dc43-integrations` now treats Spark as an optional dependency, so
   environments that already provide PySpark can install the integrations
   without pulling in a duplicate runtime; opt into the `spark` extra to
