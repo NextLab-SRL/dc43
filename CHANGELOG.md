@@ -60,6 +60,18 @@
   fresh stores.
 
 ### Changed
+- Reworked the Spark/Databricks integration guide to document governance
+  payloads, dataset locators, and violation strategies with end-to-end
+  examples.
+- Clarified Spark governance payload fields (`pipeline_context`,
+  `publication_mode`) and annotated the split-write strategy example so
+  orchestrators can see how suffixes shape table names, dataset ids, and
+  lineage metadata.
+- Documented Spark governance read status strategies so data-product policy
+  defaults and contract readiness checks mirror the write-strategy guidance.
+- Clarified how Spark governance requests resolve contracts from data-product
+  bindings and when to include explicit contract selectors alongside the
+  binding examples.
 - `dc43-integrations` now treats Spark as an optional dependency, so
   environments that already provide PySpark can install the integrations
   without pulling in a duplicate runtime; opt into the `spark` extra to

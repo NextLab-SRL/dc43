@@ -16,6 +16,18 @@
   governed versioning walkthrough without adapting the Spark jobs manually.
 
 ### Changed
+- Expanded the Spark/Databricks integration guide with governance request
+  payloads, dataset locator strategies, and violation-handling examples so
+  pipelines can reuse the documented patterns directly.
+- Clarified the Spark governance payload options (`pipeline_context`,
+  `publication_mode`) and the split-write example parameters so callers know
+  how suffixes alter table names, dataset identifiers, and emitted lineage
+  metadata.
+- Added guidance for Spark read status strategies so contract readiness checks
+  and data-product policies mirror the documented write-strategy controls.
+- Clarified that data-product bindings already resolve the associated contract
+  port and that explicit contract selectors are only needed when bootstrapping
+  or overriding the binding’s revision target.
 - Made the Spark runtime optional by moving `pyspark` into the `spark` extra so
   runtimes that already ship PySpark are not forced to reinstall it when
   installing the integration helpers.
