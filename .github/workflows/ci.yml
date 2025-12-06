@@ -92,6 +92,27 @@ jobs:
       - name: Run tests
         run: ${{ matrix.test_command }}
 
+  autofix:
+    name: Autofix
+    needs: tests
+    if: >-
+      ${{ needs.tests.result == 'failure' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Autofix
+        uses: openai/openai-autofix@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+
   publish-test-pypi:
     name: Publish packages to Test PyPI
     needs: tests
