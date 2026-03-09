@@ -223,7 +223,7 @@ def test_open_telemetry_read_emits_span(
     )
     request.context.pipeline_context = normalise_pipeline_context({"run_id": "otel-read"})
 
-    df = read_with_governance(
+    df, _ = read_with_governance(
         spark,
         request,
         governance_service=governance,
@@ -291,6 +291,6 @@ def test_open_telemetry_write_emits_span(
     span = tracer.spans[-1]
     assert span.name.endswith(".write")
     assert span.attributes["dc43.governance.operation"] == "write"
-    assert span.attributes["dc43.governance.dataset.id"] == "otel.orders.curated"
+    assert span.attributes["dc43.governance.dataset.id"] == "test.orders"
     assert span.attributes["dc43.governance.pipeline.run_id"] == "otel-write"
     assert any(name == "dc43.validation" for name, _ in span.events)

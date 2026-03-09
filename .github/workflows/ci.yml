@@ -65,7 +65,6 @@ jobs:
               pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
               pip install -e "packages/dc43-contracts-app[spark,test]"
             test_command: "pytest packages/dc43-contracts-app/tests -q"
-            test_command: "pytest packages/dc43-contracts-app/tests -q"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,7 +72,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -140,7 +139,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
         if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
 
       - name: Prepare build tooling
@@ -314,4 +313,3 @@ jobs:
 
           build_and_push "contracts-app" "deploy/contracts-app/Dockerfile" "$CONTRACTS_REPOSITORY"
           build_and_push "http-backend" "deploy/http-backend/Dockerfile" "$BACKEND_REPOSITORY"
-

@@ -256,6 +256,21 @@ class BaseReadExecutor:
                 dataset_version=dataset_version,
             ),
         )
+
+        if self.open_telemetry_only:
+            record_telemetry_span(
+                operation="read",
+                plan=self.plan,
+                pipeline_context=self.pipeline_context,
+                contract_id=contract.id if contract else None,
+                contract_version=contract.version if contract else None,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+                validation=validation,
+                status=status,
+                expectation_plan=expectation_plan,
+            )
+
         return dataframe, status
 
     def _resolve_contract(self) -> Optional[OpenDataContractStandard]:
@@ -686,7 +701,7 @@ class BaseWriteExecutor:
                 self.warnings.append(msg)
 
 
-        dataset_id = resolution.dataset_id or dataset_id_from_ref(table=table, path=path) or (governance_plan.dataset_id if governance_plan else None)
+        dataset_id = resolution.dataset_id or (governance_plan.dataset_id if governance_plan else None) or dataset_id_from_ref(table=table, path=path)
         dataset_version = resolution.dataset_version or (governance_plan.dataset_version if governance_plan else None)
         
         is_streaming = False
@@ -792,6 +807,20 @@ class BaseWriteExecutor:
         if self.open_data_lineage_only and governance_client:
             event = build_lineage_run_event(operation="write", plan=governance_plan, pipeline_context=pipeline_context, contract_id=contract_id, contract_version=expected_contract_version, dataset_id=dataset_id, dataset_version=dataset_version, validation=result, status=primary_status, expectation_plan=expectation_plan)
             governance_client.publish_lineage_event(event=event)
+            
+        if self.open_telemetry_only:
+            record_telemetry_span(
+                operation="write",
+                plan=governance_plan,
+                pipeline_context=pipeline_context,
+                contract_id=contract_id,
+                contract_version=expected_contract_version,
+                dataset_id=dataset_id,
+                dataset_version=dataset_version,
+                validation=result,
+                status=primary_status,
+                expectation_plan=expectation_plan,
+            )
             
         gov_status = assessment.status if assessment else None
         if result and self.warnings:

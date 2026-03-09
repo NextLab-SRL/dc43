@@ -34,8 +34,8 @@ def test_spark_pipeline_stub_includes_runtime_hints() -> None:
     project_paths = {file.path for file in stub.project.files}
     assert {"README.md", "main.py", "io.py", "transformations.py"}.issubset(project_paths)
     main_file = next(file for file in stub.project.files if file.path == "main.py")
-    assert "read_contract_dataset" in main_file.content
-    assert "write_contract_outputs" in main_file.content
+    assert "read_data_product_input" in main_file.content
+    assert "write_data_product_output" in main_file.content
 
 
 def test_dlt_pipeline_stub_exposes_workspace_details() -> None:

@@ -148,19 +148,7 @@ class BackendConfig:
     process: BackendProcessConfig = field(default_factory=BackendProcessConfig)
 
 
-@dataclass(slots=True)
-    """Configuration for the documentation chat assistant."""
 
-    enabled: bool = False
-    provider: str = "openai"
-    model: str = "gpt-4o-mini"
-    embedding_provider: str = "huggingface"
-    embedding_model: str = "text-embedding-3-small"
-    api_key: str | None = None
-    docs_path: Path | None = None
-    index_path: Path | None = None
-    code_paths: tuple[Path, ...] = ()
-    reasoning_effort: str | None = None
 
 
 @dataclass(slots=True)
@@ -307,28 +295,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
     process_log_level_raw = process_section.get("log_level") if isinstance(process_section, MutableMapping) else None
     process_log_level = str(process_log_level_raw).strip() or None if process_log_level_raw is not None else None
 
-        else "openai"
-    ) or "openai"
-        else "gpt-4o-mini"
-    ) or "gpt-4o-mini"
-        else "huggingface"
-    ) or "huggingface"
-        else "text-embedding-3-small"
-    ) or "text-embedding-3-small"
-        else "OPENAI_API_KEY"
-    ) or "OPENAI_API_KEY"
-        if raw_value is not None:
-            value_text = str(raw_value).strip()
-
-        else None
-    )
-        else None
-    )
-        if raw_code_paths is None:
-            for legacy_key in ("code-paths", "code-path"):
-                    break
-        if raw_reasoning is not None:
-            value_text = str(raw_reasoning).strip()
 
     if allow_env_overrides:
         env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv("DC43_DEMO_WORK_DIR")
@@ -355,39 +321,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         if env_log:
             process_log_level = env_log.strip() or process_log_level
 
-        env_docs_enabled = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED")
-        if env_docs_enabled is not None:
-
-        env_docs_provider = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER")
-        if env_docs_provider:
-
-        env_docs_model = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_MODEL")
-        if env_docs_model:
-
-        env_docs_embedding_provider = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER")
-        if env_docs_embedding_provider:
-
-        env_docs_embedding = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL")
-        if env_docs_embedding:
-
-
-        env_docs_api_key = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY")
-        if env_docs_api_key is not None:
-
-        env_docs_path = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_PATH")
-        if env_docs_path:
-
-        env_docs_index = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_INDEX")
-        if env_docs_index:
-
-        env_docs_code = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS")
-        if env_docs_code:
-
-        env_docs_reasoning = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT")
-        if env_docs_reasoning is not None:
-            value_text = env_docs_reasoning.strip()
-
-
 
     backend_config = BackendConfig(
         mode="remote" if backend_mode == "remote" else "embedded",
@@ -397,8 +330,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
             port=process_port,
             log_level=process_log_level,
         ),
-    )
-
     )
 
     return ContractsAppConfig(
@@ -444,30 +375,7 @@ def _backend_mapping(config: BackendConfig) -> dict[str, Any]:
     return mapping
 
 
-    mapping: dict[str, Any] = {}
-    if config.enabled:
-        mapping["enabled"] = True
-    if config.provider != "openai":
-        mapping["provider"] = config.provider
-    if config.model != "gpt-4o-mini":
-        mapping["model"] = config.model
-    if config.embedding_provider != "huggingface":
-        mapping["embedding_provider"] = config.embedding_provider
-    if config.embedding_model != "text-embedding-3-small":
-        mapping["embedding_model"] = config.embedding_model
-    if config.api_key is not None:
-        mapping["api_key"] = config.api_key
-    if config.docs_path:
-        mapping["docs_path"] = _stringify_path(config.docs_path)
-    if config.index_path:
-        mapping["index_path"] = _stringify_path(config.index_path)
-    if config.code_paths:
-        mapping["code_paths"] = [
-            _stringify_path(path) for path in config.code_paths if path is not None
-        ]
-    if config.reasoning_effort:
-        mapping["reasoning_effort"] = config.reasoning_effort
-    return mapping
+
 
 
 def config_to_mapping(config: ContractsAppConfig) -> dict[str, Any]:
