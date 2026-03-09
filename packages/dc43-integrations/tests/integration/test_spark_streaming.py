@@ -28,9 +28,16 @@ from dc43_integrations.spark.io import (
     StreamingInterventionContext,
     StreamingInterventionError,
     StreamingInterventionStrategy,
-    read_from_contract,
-    read_stream_with_contract,
-    write_with_contract,
+    read_with_governance,
+    read_stream_with_governance,
+    write_with_governance,
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
+)
+from dc43_service_clients.governance.models import (
+    ContractReference,
+    GovernanceReadContext,
+    GovernanceWriteContext,
 )
 
 
@@ -134,6 +141,7 @@ class RecordingGovernanceService:
             ValidationResult(
                 ok=True,
                 status="ok",
+                metrics=payload.metrics if payload and hasattr(payload, "metrics") else {},
                 details={
                     "dataset_id": dataset_id,
                     "dataset_version": dataset_version,
@@ -142,6 +150,85 @@ class RecordingGovernanceService:
             validation=validation,
             draft=None,
         )
+
+    def register_read_activity(self, *, plan, assessment=None):
+        self.evaluate_calls.append(
+            {
+                "operation": "read",
+                "plan": plan,
+                "assessment": assessment,
+            }
+        )
+
+    def resolve_read_context(self, *, context: GovernanceReadContext):
+        from dc43_service_clients.governance.models import ResolvedReadPlan, GovernancePolicy
+        contract = None
+        if context.contract:
+            contract = self.get_contract(contract_id=context.contract.contract_id, contract_version=context.contract.contract_version)
+        elif context.input_binding:
+            contract = self.get_contract(contract_id="demo.rate_stream", contract_version="0.1.0")
+        
+        return ResolvedReadPlan(
+            contract=contract,
+            contract_id=contract.id if contract else "demo.rate_stream",
+            contract_version=contract.version if contract else "0.1.0",
+            dataset_id=context.dataset_id or (contract.id if contract else "dataset"),
+            dataset_version=context.dataset_version or "2024-01-01",
+            dataset_format=context.dataset_format,
+            input_binding=context.input_binding,
+            pipeline_context=context.pipeline_context,
+            policy=context.policy or GovernancePolicy(),
+        )
+
+    def resolve_write_context(self, *, context: GovernanceWriteContext):
+        from dc43_service_clients.governance.models import ResolvedWritePlan, GovernancePolicy
+        contract = None
+        if context.contract:
+            contract = self.get_contract(contract_id=context.contract.contract_id, contract_version=context.contract.contract_version)
+        elif context.output_binding:
+            contract = self.get_contract(contract_id="demo.rate_stream", contract_version="0.1.0")
+
+        return ResolvedWritePlan(
+            contract=contract,
+            contract_id=contract.id if contract else "demo.rate_stream",
+            contract_version=contract.version if contract else "0.1.0",
+            dataset_id=context.dataset_id or "dataset",
+            dataset_version=context.dataset_version or "2024-01-01",
+            dataset_format=context.dataset_format,
+            output_binding=context.output_binding,
+            pipeline_context=context.pipeline_context,
+            policy=context.policy or GovernancePolicy(),
+        )
+
+    def describe_expectations(self, *, contract_id: str, contract_version: str):
+        return []
+
+    def evaluate_read_plan(self, *, plan, validation=None, observations=None):
+        return self.evaluate_dataset(
+            contract_id=plan.contract_id,
+            contract_version=plan.contract_version,
+            dataset_id=plan.dataset_id,
+            dataset_version=plan.dataset_version,
+            validation=validation,
+            observations=observations,
+            pipeline_context=plan.pipeline_context,
+            operation="read",
+        )
+
+    def evaluate_write_plan(self, *, plan, validation=None, observations=None):
+        return self.evaluate_dataset(
+            contract_id=plan.contract_id,
+            contract_version=plan.contract_version,
+            dataset_id=plan.dataset_id,
+            dataset_version=plan.dataset_version,
+            validation=validation,
+            observations=observations,
+            pipeline_context=plan.pipeline_context,
+            operation="write",
+        )
+
+    def register_write_activity(self, *, plan, assessment):
+        pass
 
     def review_validation_outcome(self, **kwargs):  # type: ignore[override]
         self.review_calls.append(kwargs)
@@ -214,17 +301,26 @@ def _stream_contract(tmp_path: Path) -> tuple[OpenDataContractStandard, LocalCon
 
 def test_streaming_read_invokes_dq_without_metrics(spark, tmp_path: Path) -> None:
     contract, service = _stream_contract(tmp_path)
-    dq = RecordingDQService()
+    governance = RecordingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+        contract_service=service,
+    )
     locator = StaticDatasetLocator(format="rate")
 
-    df, status = read_stream_with_contract(
+    df, status = read_stream_with_governance(
         spark=spark,
-        contract_id=contract.id,
-        contract_service=service,
-        expected_contract_version=f"=={contract.version}",
-        data_quality_service=dq,
-        dataset_locator=locator,
-        options={"rowsPerSecond": "1"},
+        request=GovernanceSparkReadRequest(
+            context=GovernanceReadContext(
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
+            ),
+            dataset_locator=locator,
+            options={"rowsPerSecond": "1"},
+        ),
+        governance_service=governance,
+        return_status=True,
     )
 
     print(f"DEBUG: df type is {type(df)}")
@@ -235,9 +331,9 @@ def test_streaming_read_invokes_dq_without_metrics(spark, tmp_path: Path) -> Non
     assert status.ok
     assert df.sparkSession is spark
     assert df.columns == ["timestamp", "value"]
-    assert len(dq.describe_contracts) == 1
-    assert len(dq.payloads) == 1
-    payload = dq.payloads[0]
+    assert len(governance.evaluate_calls) == 2
+    call = governance.evaluate_calls[0]
+    payload = call["payload"]
     assert payload.metrics == {}
     assert set(payload.schema) == {"timestamp", "value"}
     assert payload.schema["timestamp"]["odcs_type"] == "timestamp"
@@ -246,22 +342,25 @@ def test_streaming_read_invokes_dq_without_metrics(spark, tmp_path: Path) -> Non
 
 def test_streaming_read_surfaces_dataset_version(spark, tmp_path: Path) -> None:
     contract, service = _stream_contract(tmp_path)
-    dq = RecordingDQService()
     governance = RecordingGovernanceService(
         contracts={(contract.id, contract.version): contract},
         contract_service=service,
     )
     locator = StaticDatasetLocator(format="rate")
-
-    df, status = read_stream_with_contract(
+    df, status = read_stream_with_governance(
         spark=spark,
-        contract_id=contract.id,
-        contract_service=service,
-        expected_contract_version=f"=={contract.version}",
-        data_quality_service=dq,
+        request=GovernanceSparkReadRequest(
+            context=GovernanceReadContext(
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
+            ),
+            dataset_locator=locator,
+            options={"rowsPerSecond": "1"},
+        ),
         governance_service=governance,
-        dataset_locator=locator,
-        options={"rowsPerSecond": "1"},
+        return_status=True,
     )
 
     assert df.isStreaming
@@ -273,9 +372,9 @@ def test_streaming_read_surfaces_dataset_version(spark, tmp_path: Path) -> None:
     assert governance.evaluate_calls
     call = governance.evaluate_calls[0]
     assert call["dataset_version"] == details["dataset_version"]
-    validation = call["validation"]
-    assert isinstance(validation, ValidationResult)
-    assert validation.details.get("dataset_version") == details["dataset_version"]
+    # validation was removed from the call in favor of return status
+    assert isinstance(status, ValidationResult)
+    assert status.details.get("dataset_version") == details["dataset_version"]
 
 
 def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> None:
@@ -300,8 +399,7 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
     store = FSContractStore(str(tmp_path / "contracts"))
     store.put(contract)
     service = LocalContractServiceClient(store)
-    dq = RecordingDQService()
-    locator = StaticDatasetLocator(format="memory")
+    locator = StaticDatasetLocator(format="memory", dataset_version="2024-01-01")
     governance = RecordingGovernanceService(
         contracts={(contract.id, contract.version): contract},
         contract_service=service,
@@ -318,22 +416,25 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
     def _record(event: Mapping[str, object]) -> None:
         events.append(dict(event))
 
-    result = write_with_contract(
+    result = write_with_governance(
         df=df,
-        contract_id=contract.id,
-        contract_service=service,
-        expected_contract_version=f"=={contract.version}",
-        data_quality_service=dq,
-        dataset_locator=locator,
-        format="memory",
-        options={"queryName": "stream_sink"},
+        request=GovernanceSparkWriteRequest(
+            context=GovernanceWriteContext(
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
+            ),
+            dataset_locator=locator,
+            format="memory",
+            options={"queryName": "stream_sink"},
+        ),
         governance_service=governance,
         streaming_batch_callback=_record,
     )
 
     assert result.result.ok
-    assert len(dq.describe_contracts) == 1
-    assert len(dq.payloads) >= 1
+    assert len(governance.evaluate_calls) >= 1
     queries = result.streaming_queries
     assert len(queries) == 2
     deadline = time.time() + 10
@@ -341,8 +442,8 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
     while time.time() < deadline:
         for handle in queries:
             handle.processAllAvailable()
-        if len(dq.payloads) >= 2:
-            candidate = dq.payloads[-1]
+        if len(governance.evaluate_calls) >= 2:
+            candidate = governance.evaluate_calls[-1]["payload"]
             if candidate.metrics.get("row_count", 0) > 0:
                 batch_payload = candidate
                 break
@@ -351,7 +452,7 @@ def test_streaming_write_returns_query_and_validation(spark, tmp_path: Path) -> 
     for handle in queries:
         handle.stop()
 
-    assert len(dq.payloads) >= 2
+    assert len(governance.evaluate_calls) >= 2
     assert batch_payload is not None
     assert batch_payload.metrics
     assert batch_payload.metrics.get("row_count", 0) > 0
@@ -394,9 +495,44 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
     store = FSContractStore(str(tmp_path / "contracts"))
     store.put(contract)
     service = LocalContractServiceClient(store)
-    dq = ControlledDQService(fail_after=3)
-    locator = StaticDatasetLocator(format="memory")
-    governance = RecordingGovernanceService(
+    class ControlledGovernanceService(RecordingGovernanceService):
+        def __init__(self, *, fail_after: int, contracts, contract_service) -> None:
+            super().__init__(contracts=contracts, contract_service=contract_service)
+            self._fail_after = fail_after
+            self._calls = 0
+
+        def evaluate_dataset(self, **kwargs):
+            payload = kwargs["observations"]() if callable(kwargs["observations"]) else kwargs["observations"]
+            self.evaluate_calls.append(
+                {
+                    "contract_id": kwargs.get("contract_id"),
+                    "contract_version": kwargs.get("contract_version"),
+                    "dataset_id": kwargs.get("dataset_id"),
+                    "dataset_version": kwargs.get("dataset_version"),
+                    "validation": kwargs.get("validation"),
+                    "payload": payload,
+                    "operation": kwargs.get("operation"),
+                }
+            )
+            self._calls += 1
+            if self._calls >= self._fail_after:
+                validation = ValidationResult(
+                    ok=False,
+                    errors=[f"failed batch {self._calls}"],
+                    warnings=[],
+                    metrics=payload.metrics,
+                )
+            else:
+                validation = ValidationResult(ok=True, errors=[], warnings=[], metrics=payload.metrics)
+            return RecordingGovernanceService.Assessment(
+                ValidationResult(ok=validation.ok, status="ok" if validation.ok else "error"),
+                validation=validation,
+                draft=None,
+            )
+
+    locator = StaticDatasetLocator(format="memory", dataset_version="2024-01-01")
+    governance = ControlledGovernanceService(
+        fail_after=3,
         contracts={(contract.id, contract.version): contract},
         contract_service=service,
     )
@@ -413,18 +549,22 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
                 return f"blocked batch {context.batch_id}"
             return None
 
-    result = write_with_contract(
+    result = write_with_governance(
         df=df,
-        contract_id=contract.id,
-        contract_service=service,
-        expected_contract_version=f"=={contract.version}",
-        data_quality_service=dq,
-        dataset_locator=locator,
-        format="memory",
-        options={"queryName": "intervention_sink"},
+        request=GovernanceSparkWriteRequest(
+            context=GovernanceWriteContext(
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
+            ),
+            dataset_locator=locator,
+            format="memory",
+            options={"queryName": "intervention_sink"},
+            streaming_intervention_strategy=BlockOnFailure(),
+        ),
         governance_service=governance,
         enforce=False,
-        streaming_intervention_strategy=BlockOnFailure(),
     )
 
     queries = result.streaming_queries
@@ -454,7 +594,7 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
         except Exception:
             pass
 
-    assert len(dq.payloads) >= 3
+    assert len(governance.evaluate_calls) >= 3
     assert result.result.details.get("streaming_metrics")
     batches = result.result.details.get("streaming_batches") or []
     assert batches
@@ -463,9 +603,44 @@ def test_streaming_intervention_blocks_after_failure(spark, tmp_path: Path) -> N
 
 def test_streaming_enforcement_stops_sink_on_failure(spark, tmp_path: Path) -> None:
     contract, service = _stream_contract(tmp_path)
-    dq = ControlledDQService(fail_after=2)
-    locator = StaticDatasetLocator(format="memory")
-    governance = RecordingGovernanceService(
+    class ControlledGovernanceService(RecordingGovernanceService):
+        def __init__(self, *, fail_after: int, contracts, contract_service) -> None:
+            super().__init__(contracts=contracts, contract_service=contract_service)
+            self._fail_after = fail_after
+            self._calls = 0
+
+        def evaluate_dataset(self, **kwargs):
+            payload = kwargs["observations"]() if callable(kwargs["observations"]) else kwargs["observations"]
+            self.evaluate_calls.append(
+                {
+                    "contract_id": kwargs.get("contract_id"),
+                    "contract_version": kwargs.get("contract_version"),
+                    "dataset_id": kwargs.get("dataset_id"),
+                    "dataset_version": kwargs.get("dataset_version"),
+                    "validation": kwargs.get("validation"),
+                    "payload": payload,
+                    "operation": kwargs.get("operation"),
+                }
+            )
+            self._calls += 1
+            if self._calls >= self._fail_after:
+                validation = ValidationResult(
+                    ok=False,
+                    errors=[f"failed batch {self._calls}"],
+                    warnings=[],
+                    metrics=payload.metrics,
+                )
+            else:
+                validation = ValidationResult(ok=True, errors=[], warnings=[], metrics=payload.metrics)
+            return RecordingGovernanceService.Assessment(
+                ValidationResult(ok=validation.ok, status="ok" if validation.ok else "error"),
+                validation=validation,
+                draft=None,
+            )
+
+    locator = StaticDatasetLocator(format="memory", dataset_version="2024-01-01")
+    governance = ControlledGovernanceService(
+        fail_after=2,
         contracts={(contract.id, contract.version): contract},
         contract_service=service,
     )
@@ -476,15 +651,19 @@ def test_streaming_enforcement_stops_sink_on_failure(spark, tmp_path: Path) -> N
         .load()
     )
 
-    result = write_with_contract(
+    result = write_with_governance(
         df=df,
-        contract_id=contract.id,
-        contract_service=service,
-        expected_contract_version=f"=={contract.version}",
-        data_quality_service=dq,
-        dataset_locator=locator,
-        format="memory",
-        options={"queryName": "enforced_sink"},
+        request=GovernanceSparkWriteRequest(
+            context=GovernanceWriteContext(
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
+            ),
+            dataset_locator=locator,
+            format="memory",
+            options={"queryName": "enforced_sink"},
+        ),
         governance_service=governance,
         enforce=True,
     )

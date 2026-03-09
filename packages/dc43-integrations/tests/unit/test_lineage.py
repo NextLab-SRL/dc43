@@ -221,7 +221,7 @@ def test_lineage_emitted_for_governed_read(
     )
     request.context.pipeline_context = normalise_pipeline_context({"run_id": "read-run"})
 
-    df = read_with_governance(
+    df, _ = read_with_governance(
         spark,
         request,
         governance_service=governance,
