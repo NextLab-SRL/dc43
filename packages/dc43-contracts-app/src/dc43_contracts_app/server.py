@@ -81,7 +81,6 @@ from .config import (
     BackendConfig,
     BackendProcessConfig,
     ContractsAppConfig,
-    DocsChatConfig,
     WorkspaceConfig,
     dumps as dump_contracts_app_config,
     load_config,
