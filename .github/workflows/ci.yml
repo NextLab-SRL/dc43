@@ -65,15 +65,7 @@ jobs:
               pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
               pip install -e "packages/dc43-contracts-app[spark,test]"
             test_command: "pytest packages/dc43-contracts-app/tests -q"
-          - display: demo-app
-            install: |
-              pip install -e packages/dc43-core
-              pip install -e "packages/dc43-service-clients[lineage,test]"
-              pip install -e "packages/dc43-service-backends[sql,test]"
-              pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
-              pip install -e "packages/dc43-contracts-app[spark,test]"
-              pip install -e packages/dc43-demo-app
-            test_command: "pytest packages/dc43-demo-app/tests -q"
+            test_command: "pytest packages/dc43-contracts-app/tests -q"
     steps:
       - uses: actions/checkout@v4
         with:

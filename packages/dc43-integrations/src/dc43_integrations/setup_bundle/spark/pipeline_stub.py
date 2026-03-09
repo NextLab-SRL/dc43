@@ -44,11 +44,10 @@ def _spark_readme(hints: Mapping[str, object]) -> str:
 
             - load service backends via ``bootstrap_pipeline.load_backends``
             - build a Spark session with ``build_spark_context``
-            - read contract-bound datasets with automatic casting and
+            - read governed product inputs with automatic casting and
               validation
-            - apply a simple transformation and quality evaluation
-            - publish results through the data-product backend and governance
-              store
+            - apply a simple transformation
+            - publish results through the data-product governance helpers
 
             Update the placeholder constants in ``main.py`` before running the
             pipeline and remove or replace the demo transformation with your
@@ -70,19 +69,13 @@ def _spark_main_script() -> str:
         from __future__ import annotations
 
         from bootstrap_pipeline import build_spark_context, load_backends
-        from spark_pipeline import governance as spark_governance
         from spark_pipeline import io as spark_io
-        from spark_pipeline import quality as spark_quality
         from spark_pipeline import transformations as spark_transformations
 
 
-        CONTRACT_ID = "replace-with-contract-id"
-        CONTRACT_VERSION = "replace-with-contract-version"
         DATA_PRODUCT_ID = "replace-with-data-product-id"
-        DATA_PRODUCT_VERSION = "replace-with-dataset-version"
+        INPUT_PORT = "replace-with-input-port"
         OUTPUT_PORT = "replace-with-output-port"
-        SOURCE_TABLE = "replace-with-source-table"
-        TARGET_TABLE = "replace-with-target-table"
 
 
         def main() -> None:
@@ -97,21 +90,15 @@ def _spark_main_script() -> str:
 
             print("[spark] Spark session initialised:", spark)
 
-            contract_backend = context.get("contract_backend", suite.contract)
-            dq_backend = context.get("data_quality_backend", suite.data_quality)
-            governance_store = context.get(
-                "governance_store", suite.governance_store
-            )
             governance_service = context.get(
                 "governance_service", suite.governance
             )
 
-            source_df, status = spark_io.read_contract_dataset(
+            source_df, status = spark_io.read_data_product_input(
                 spark=spark,
                 governance_service=governance_service,
-                contract_id=CONTRACT_ID,
-                contract_version=CONTRACT_VERSION,
-                table_hint=SOURCE_TABLE,
+                data_product=DATA_PRODUCT_ID,
+                input_port=INPUT_PORT,
             )
             if status is not None:
                 print(
@@ -122,32 +109,11 @@ def _spark_main_script() -> str:
 
             enriched_df = spark_transformations.build_output_frame(source_df)
 
-            validation = spark_quality.run_quality_evaluation(
-                dataframe=enriched_df,
-                contract_backend=contract_backend,
-                data_quality_backend=dq_backend,
-                contract_id=CONTRACT_ID,
-                contract_version=CONTRACT_VERSION,
-            )
-
-            write_validation = spark_io.write_contract_outputs(
+            write_validation = spark_io.write_data_product_output(
                 dataframe=enriched_df,
                 governance_service=governance_service,
-                contract_id=CONTRACT_ID,
-                contract_version=CONTRACT_VERSION,
-                dataset_id=DATA_PRODUCT_ID,
-                dataset_version=DATA_PRODUCT_VERSION,
                 output_port=OUTPUT_PORT,
-                output_table=TARGET_TABLE,
-            )
-
-            spark_governance.publish_governance_updates(
-                governance_store=governance_store,
-                contract_id=CONTRACT_ID,
-                contract_version=CONTRACT_VERSION,
-                dataset_id=DATA_PRODUCT_ID,
-                dataset_version=DATA_PRODUCT_VERSION,
-                validation=write_validation,
+                data_product=DATA_PRODUCT_ID,
             )
 
             print(
@@ -178,29 +144,32 @@ def _spark_io_module() -> str:
             write_with_governance,
         )
         from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
+        from dc43_service_clients.data_products import (
+            DataProductInputBinding,
+            DataProductOutputBinding,
+        )
         from dc43_service_clients.data_quality import ValidationResult
         from dc43_service_clients.governance.client.interface import GovernanceServiceClient
+        from dc43_service_clients.governance.models import GovernanceReadContext, GovernanceWriteContext
         from pyspark.sql import DataFrame, SparkSession
 
 
-        def read_contract_dataset(
+        def read_data_product_input(
             *,
             spark: SparkSession,
             governance_service: GovernanceServiceClient,
-            contract_id: str,
-            contract_version: str,
-            table_hint: str | None,
+            data_product: str,
+            input_port: str,
         ) -> Tuple[DataFrame, Optional[ValidationResult]]:
-            """Load a dataset enforced by ``contract_id`` through governance."""
+            """Load a product input port enforced through governance."""
 
             request = GovernanceSparkReadRequest(
-                context={
-                    "contract": {
-                        "contract_id": contract_id,
-                        "contract_version": contract_version,
-                    }
-                },
-                table=table_hint or None,
+                context=GovernanceReadContext(
+                    input_binding=DataProductInputBinding(
+                        data_product=data_product,
+                        port_name=input_port,
+                    )
+                ),
             )
             df, status = read_with_governance(
                 spark,
@@ -213,33 +182,22 @@ def _spark_io_module() -> str:
             return df, status
 
 
-        def write_contract_outputs(
+        def write_data_product_output(
             *,
             dataframe: DataFrame,
             governance_service: GovernanceServiceClient,
-            contract_id: str,
-            contract_version: str,
-            dataset_id: str,
-            dataset_version: str,
             output_port: str,
-            output_table: str | None,
+            data_product: str,
         ) -> ValidationResult:
             """Persist pipeline results relying solely on governance."""
 
             request = GovernanceSparkWriteRequest(
-                context={
-                    "contract": {
-                        "contract_id": contract_id,
-                        "contract_version": contract_version,
-                    },
-                    "output_binding": {
-                        "data_product": dataset_id,
-                        "port_name": output_port,
-                    },
-                    "dataset_id": dataset_id,
-                    "dataset_version": dataset_version,
-                },
-                table=output_table or None,
+                context=GovernanceWriteContext(
+                    output_binding=DataProductOutputBinding(
+                        data_product=data_product,
+                        port_name=output_port,
+                    ),
+                ),
                 mode="overwrite",
             )
 
@@ -264,40 +222,6 @@ def _spark_io_module() -> str:
                 )
 
             return validation
-        '''
-    ).strip() + "\n"
-
-
-def _spark_quality_module() -> str:
-    return dedent(
-        '''
-        """Quality helpers for the Spark pipeline example."""
-
-        from __future__ import annotations
-
-        from dc43_integrations.spark.data_quality import collect_observations
-        from dc43_service_clients.data_quality import ObservationPayload, ValidationResult
-        from dc43_service_clients.contracts.client.interface import ContractServiceClient
-        from dc43_service_clients.data_quality.client.interface import DataQualityServiceClient
-        from pyspark.sql import DataFrame
-
-
-        def run_quality_evaluation(
-            *,
-            dataframe: DataFrame,
-            contract_backend: ContractServiceClient,
-            data_quality_backend: DataQualityServiceClient,
-            contract_id: str,
-            contract_version: str,
-        ) -> ValidationResult:
-            """Evaluate ``dataframe`` against the stored contract and metrics."""
-
-            contract = contract_backend.get(contract_id, contract_version)
-            schema, metrics = collect_observations(dataframe, contract)
-            payload = ObservationPayload(schema=schema, metrics=metrics)
-            result = data_quality_backend.evaluate(contract=contract, payload=payload)
-            print("[data_quality] Output validation status:", result.status)
-            return result
         '''
     ).strip() + "\n"
 
@@ -333,47 +257,6 @@ def _spark_transformations_module() -> str:
     ).strip() + "\n"
 
 
-def _spark_governance_module() -> str:
-    return dedent(
-        '''
-        """Governance helpers for the Spark pipeline example."""
-
-        from __future__ import annotations
-
-        from typing import Any
-
-
-        def publish_governance_updates(
-            *,
-            governance_store,
-            contract_id: str,
-            contract_version: str,
-            dataset_id: str,
-            dataset_version: str,
-            validation: Any,
-        ) -> None:
-            """Record lineage and validation metrics in the governance store."""
-
-            status = getattr(validation, "status", "unknown")
-            metrics = getattr(validation, "metrics", {}) or {}
-
-            governance_store.link_dataset_contract(
-                dataset_id=dataset_id,
-                dataset_version=dataset_version,
-                contract_id=contract_id,
-                contract_version=contract_version,
-            )
-            governance_store.record_pipeline_event(
-                dataset_id=dataset_id,
-                dataset_version=dataset_version,
-                contract_id=contract_id,
-                contract_version=contract_version,
-                event={"status": status, "metrics": metrics},
-            )
-        '''
-    ).strip() + "\n"
-
-
 def _spark_project(hints: Mapping[str, object]) -> PipelineProject:
     return PipelineProject(
         root="spark_pipeline",
@@ -386,9 +269,7 @@ def _spark_project(hints: Mapping[str, object]) -> PipelineProject:
             ),
             PipelineFile(path="main.py", content=_spark_main_script(), executable=True),
             PipelineFile(path="io.py", content=_spark_io_module()),
-            PipelineFile(path="quality.py", content=_spark_quality_module()),
             PipelineFile(path="transformations.py", content=_spark_transformations_module()),
-            PipelineFile(path="governance.py", content=_spark_governance_module()),
         ),
     )
 
@@ -403,12 +284,8 @@ def _spark_pipeline_stub(
     workspace_hint = json_literal(hints.get("spark_workspace_url"))
     profile_hint = json_literal(hints.get("spark_workspace_profile"))
     cluster_hint = json_literal(hints.get("spark_cluster"))
-    source_table = json_literal("replace-with-source-table")
-    target_table = json_literal("replace-with-target-table")
-    contract_id = json_literal("replace-with-contract-id")
-    contract_version = json_literal("replace-with-contract-version")
-    dataset_id = json_literal("replace-with-data-product-id")
-    dataset_version = json_literal("replace-with-dataset-version")
+    data_product_id = json_literal("replace-with-data-product-id")
+    input_port = json_literal("replace-with-input-port")
     output_port = json_literal("replace-with-output-port")
 
     main_lines = (
@@ -430,52 +307,26 @@ def _spark_pipeline_stub(
         f"        cluster_hint = {cluster_hint}",
         "        if cluster_hint:",
         "            print(\"[spark] Cluster reference:\", cluster_hint)",
-        "        contract_backend = context.get('contract_backend', contract_backend)",
-        "        data_quality_backend = context.get('data_quality_backend', data_quality_backend)",
-        "        governance_store = context.get('governance_store', governance_store)",
         "        governance_service = context.get('governance_service', governance_service)",
-        f"        source_table = {source_table}",
-        f"        target_table = {target_table}",
-        f"        contract_id = {contract_id}",
-        f"        contract_version = {contract_version}",
-        f"        dataset_id = {dataset_id}",
-        f"        dataset_version = {dataset_version}",
+        f"        data_product_id = {data_product_id}",
+        f"        input_port = {input_port}",
         f"        output_port = {output_port}",
-        "        source_df, input_status = spark_io.read_contract_dataset(",
+        "        source_df, input_status = spark_io.read_data_product_input(",
         "            spark=spark,",
         "            governance_service=governance_service,",
-        "            contract_id=contract_id,",
-        "            contract_version=contract_version,",
-        "            table_hint=source_table,",
+        "            data_product=data_product_id,",
+        "            input_port=input_port,",
         "        )",
         "        if input_status:",
         "            print(\"[spark] Input status:\", input_status.status, input_status.reason or \"\")",
         "        enriched_df = spark_transformations.build_output_frame(source_df)",
-        "        validation = spark_quality.run_quality_evaluation(",
-        "            dataframe=enriched_df,",
-        "            contract_backend=contract_backend,",
-        "            data_quality_backend=data_quality_backend,",
-        "            contract_id=contract_id,",
-        "            contract_version=contract_version,",
-        "        )",
-        "        write_validation = spark_io.write_contract_outputs(",
+        "        write_validation = spark_io.write_data_product_output(",
         "            dataframe=enriched_df,",
         "            governance_service=governance_service,",
-        "            contract_id=contract_id,",
-        "            contract_version=contract_version,",
-        "            dataset_id=dataset_id,",
-        "            dataset_version=dataset_version,",
         "            output_port=output_port,",
-        "            output_table=target_table,",
+        "            data_product=data_product_id,",
         "        )",
-        "        spark_governance.publish_governance_updates(",
-        "            governance_store=governance_store,",
-        "            contract_id=contract_id,",
-        "            contract_version=contract_version,",
-        "            dataset_id=dataset_id,",
-        "            dataset_version=dataset_version,",
-        "            validation=write_validation,",
-        "        )",
+        "        print(\"[spark] Output validation status:\", write_validation.status)",
     )
 
     tail_lines = (
@@ -486,9 +337,7 @@ def _spark_pipeline_stub(
     return PipelineStub(
         bootstrap_imports=("build_spark_context",),
         additional_imports=(
-            "from spark_pipeline import governance as spark_governance",
             "from spark_pipeline import io as spark_io",
-            "from spark_pipeline import quality as spark_quality",
             "from spark_pipeline import transformations as spark_transformations",
         ),
         main_lines=main_lines,

@@ -26,7 +26,6 @@ from dc43_integrations.spark.io import (
     ContractFirstDatasetLocator,
     ContractVersionLocator,
     GovernanceSparkWriteRequest,
-    write_stream_with_governance,
     write_with_governance,
 )
 from dc43_service_clients.data_products import DataProductServiceClient
@@ -466,7 +465,7 @@ def write_streaming_dataset_version(
     if data_product_version:
         binding["data_product_version"] = data_product_version
 
-    validation, status = write_stream_with_governance(
+    execution = write_with_governance(
         df=df,
         request=GovernanceSparkWriteRequest(
             context={
@@ -493,4 +492,4 @@ def write_streaming_dataset_version(
         return_status=True,
     )
 
-    return validation, status
+    return execution.result, execution.status

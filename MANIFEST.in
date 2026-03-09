@@ -10,5 +10,3 @@ include packages/dc43-integrations/pyproject.toml
 include packages/dc43-integrations/VERSION
 include packages/dc43-contracts-app/pyproject.toml
 include packages/dc43-contracts-app/VERSION
-include packages/dc43-demo-app/pyproject.toml
-include packages/dc43-demo-app/VERSION

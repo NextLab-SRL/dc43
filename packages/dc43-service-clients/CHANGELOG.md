@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - Introduced `load_service_clients` and `load_governance_client` helpers to
   provision local or remote service clients directly from backend

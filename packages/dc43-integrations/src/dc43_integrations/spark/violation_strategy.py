@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 try:  # pragma: no cover - optional dependency at runtime
     from pyspark.sql import DataFrame
@@ -139,6 +139,7 @@ class WriteStrategyContext:
         )
 
 
+@runtime_checkable
 class WriteViolationStrategy(Protocol):
     """Plan how a write should proceed when validation discovers violations."""
 
@@ -166,7 +167,7 @@ class NoOpWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_contract_status  # local import to avoid cycles
+        from .io.validation import _validate_contract_status  # local import to avoid cycles
 
         _validate_contract_status(
             contract=contract,
@@ -185,7 +186,7 @@ class NoOpWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_data_product_status  # local import to avoid cycles
+        from .io.validation import _validate_data_product_status  # local import to avoid cycles
 
         _validate_data_product_status(
             data_product=data_product,
@@ -227,7 +228,7 @@ class SplitWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_contract_status  # local import to avoid cycles
+        from .io.validation import _validate_contract_status  # local import to avoid cycles
 
         _validate_contract_status(
             contract=contract,
@@ -246,7 +247,7 @@ class SplitWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_data_product_status  # local import to avoid cycles
+        from .io.validation import _validate_data_product_status  # local import to avoid cycles
 
         _validate_data_product_status(
             data_product=data_product,
@@ -445,7 +446,7 @@ class StrictWriteViolationStrategy:
             validator(contract=contract, enforce=enforce, operation=operation)
             return
 
-        from .io import _validate_contract_status  # local import to avoid cycles
+        from .io.validation import _validate_contract_status  # local import to avoid cycles
 
         _validate_contract_status(
             contract=contract,

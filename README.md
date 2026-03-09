@@ -220,9 +220,12 @@ contract = OpenDataContractStandard(
 
 ```python
 from dc43_service_clients import load_governance_client
+from dc43_service_clients.governance.models import (
+    ContractReference,
+    GovernanceWriteContext,
+)
 from dc43_integrations.spark.io import (
     write_with_governance,
-    ContractVersionLocator,
     GovernanceSparkWriteRequest,
 )
 
@@ -231,13 +234,12 @@ governance = load_governance_client("/path/to/dc43.toml")
 write_with_governance(
     df=orders_df,
     request=GovernanceSparkWriteRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": ">=0.1.0",
-            }
-        },
-        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        context=GovernanceWriteContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=0.1.0",
+            )
+        ),
         mode="append",
     ),
     governance_service=governance,
@@ -256,18 +258,19 @@ the contract (or future data product binding).
 import dlt
 from dc43_integrations.spark.dlt import governed_table
 from dc43_service_clients import load_governance_client
+from dc43_service_clients.governance.models import ContractReference, GovernanceWriteContext
 
 governance = load_governance_client()
 
 
 @governed_table(
     dlt,
-    context={
-        "contract": {
-            "contract_id": "sales.orders",
-            "version_selector": ">=0.1.0",
-        }
-    },
+    context=GovernanceWriteContext(
+        contract=ContractReference(
+            contract_id="sales.orders",
+            version_selector=">=0.1.0",
+        )
+    ),
     governance_service=governance,
     name="orders",
 )
@@ -300,22 +303,21 @@ latest = store.latest("sales.orders")
 ```python
 from dc43_integrations.spark.io import (
     read_with_governance,
-    ContractVersionLocator,
     GovernanceSparkReadRequest,
 )
 from dc43_service_clients import load_governance_client
+from dc43_service_clients.governance.models import ContractReference, GovernanceReadContext
 
 governance = load_governance_client("/path/to/dc43.toml")
 df, status = read_with_governance(
     spark,
     GovernanceSparkReadRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": "==0.1.0",
-            }
-        },
-        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        context=GovernanceReadContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector="==0.1.0",
+            )
+        ),
     ),
     governance_service=governance,
     return_status=True,
@@ -328,22 +330,21 @@ print(status.status, status.reason)
 ```python
 from dc43_integrations.spark.io import (
     write_with_governance,
-    ContractVersionLocator,
     GovernanceSparkWriteRequest,
 )
 from dc43_service_clients import load_governance_client
+from dc43_service_clients.governance.models import ContractReference, GovernanceWriteContext
 
 governance = load_governance_client("/path/to/dc43.toml")
 vr, status = write_with_governance(
     df=orders_df,
     request=GovernanceSparkWriteRequest(
-        context={
-            "contract": {
-                "contract_id": "sales.orders",
-                "version_selector": ">=0.1.0",
-            }
-        },
-        dataset_locator=ContractVersionLocator(dataset_version="latest"),
+        context=GovernanceWriteContext(
+            contract=ContractReference(
+                contract_id="sales.orders",
+                version_selector=">=0.1.0",
+            )
+        ),
     ),
     governance_service=governance,
     enforce=False,  # continue writing

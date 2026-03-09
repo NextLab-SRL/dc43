@@ -21,7 +21,6 @@ __all__ = [
     "BackendProcessConfig",
     "BackendConfig",
     "ContractsAppConfig",
-    "DocsChatConfig",
     "load_config",
     "config_to_mapping",
     "mapping_to_toml",
@@ -150,7 +149,6 @@ class BackendConfig:
 
 
 @dataclass(slots=True)
-class DocsChatConfig:
     """Configuration for the documentation chat assistant."""
 
     enabled: bool = False
@@ -158,7 +156,6 @@ class DocsChatConfig:
     model: str = "gpt-4o-mini"
     embedding_provider: str = "huggingface"
     embedding_model: str = "text-embedding-3-small"
-    api_key_env: str = "OPENAI_API_KEY"
     api_key: str | None = None
     docs_path: Path | None = None
     index_path: Path | None = None
@@ -172,7 +169,6 @@ class ContractsAppConfig:
 
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     backend: BackendConfig = field(default_factory=BackendConfig)
-    docs_chat: DocsChatConfig = field(default_factory=DocsChatConfig)
 
 
 def _first_existing_path(paths: list[str | os.PathLike[str] | None]) -> Path | None:
@@ -291,7 +287,6 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
 
     workspace_section = payload.get("workspace") if isinstance(payload, MutableMapping) else {}
     backend_section = payload.get("backend") if isinstance(payload, MutableMapping) else {}
-    docs_chat_section = payload.get("docs_chat") if isinstance(payload, MutableMapping) else {}
     process_section: Mapping[str, Any]
     if isinstance(backend_section, MutableMapping):
         process_section = backend_section.get("process", {})  # type: ignore[assignment]
@@ -312,64 +307,28 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
     process_log_level_raw = process_section.get("log_level") if isinstance(process_section, MutableMapping) else None
     process_log_level = str(process_log_level_raw).strip() or None if process_log_level_raw is not None else None
 
-    docs_chat_enabled = _coerce_bool(docs_chat_section.get("enabled"), False) if isinstance(docs_chat_section, MutableMapping) else False
-    docs_chat_provider = (
-        str(docs_chat_section.get("provider", "openai")).strip()
-        if isinstance(docs_chat_section, MutableMapping)
         else "openai"
     ) or "openai"
-    docs_chat_model = (
-        str(docs_chat_section.get("model", "gpt-4o-mini")).strip()
-        if isinstance(docs_chat_section, MutableMapping)
         else "gpt-4o-mini"
     ) or "gpt-4o-mini"
-    docs_chat_embedding_provider = (
-        str(docs_chat_section.get("embedding_provider", "huggingface")).strip()
-        if isinstance(docs_chat_section, MutableMapping)
         else "huggingface"
     ) or "huggingface"
-    docs_chat_embedding_model = (
-        str(docs_chat_section.get("embedding_model", "text-embedding-3-small")).strip()
-        if isinstance(docs_chat_section, MutableMapping)
         else "text-embedding-3-small"
     ) or "text-embedding-3-small"
-    docs_chat_api_key_env = (
-        str(docs_chat_section.get("api_key_env", "OPENAI_API_KEY")).strip()
-        if isinstance(docs_chat_section, MutableMapping)
         else "OPENAI_API_KEY"
     ) or "OPENAI_API_KEY"
-    docs_chat_api_key = None
-    if isinstance(docs_chat_section, MutableMapping):
-        raw_value = docs_chat_section.get("api_key")
         if raw_value is not None:
             value_text = str(raw_value).strip()
-            docs_chat_api_key = value_text or None
 
-    docs_chat_docs_path = (
-        _coerce_path(docs_chat_section.get("docs_path"))
-        if isinstance(docs_chat_section, MutableMapping)
         else None
     )
-    docs_chat_index_path = (
-        _coerce_path(docs_chat_section.get("index_path"))
-        if isinstance(docs_chat_section, MutableMapping)
         else None
     )
-    docs_chat_code_paths: tuple[Path, ...] = ()
-    if isinstance(docs_chat_section, MutableMapping):
-        raw_code_paths = docs_chat_section.get("code_paths")
         if raw_code_paths is None:
             for legacy_key in ("code-paths", "code-path"):
-                if legacy_key in docs_chat_section:
-                    raw_code_paths = docs_chat_section.get(legacy_key)
                     break
-        docs_chat_code_paths = _coerce_path_list(raw_code_paths)
-    docs_chat_reasoning_effort = None
-    if isinstance(docs_chat_section, MutableMapping):
-        raw_reasoning = docs_chat_section.get("reasoning_effort")
         if raw_reasoning is not None:
             value_text = str(raw_reasoning).strip()
-            docs_chat_reasoning_effort = value_text or None
 
     if allow_env_overrides:
         env_root = os.getenv("DC43_CONTRACTS_APP_WORK_DIR") or os.getenv("DC43_DEMO_WORK_DIR")
@@ -398,57 +357,37 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
 
         env_docs_enabled = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_ENABLED")
         if env_docs_enabled is not None:
-            docs_chat_enabled = _coerce_bool(env_docs_enabled, docs_chat_enabled)
 
         env_docs_provider = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_PROVIDER")
         if env_docs_provider:
-            docs_chat_provider = env_docs_provider.strip() or docs_chat_provider
 
         env_docs_model = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_MODEL")
         if env_docs_model:
-            docs_chat_model = env_docs_model.strip() or docs_chat_model
 
         env_docs_embedding_provider = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_PROVIDER")
         if env_docs_embedding_provider:
-            docs_chat_embedding_provider = env_docs_embedding_provider.strip() or docs_chat_embedding_provider
 
         env_docs_embedding = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_EMBEDDING_MODEL")
         if env_docs_embedding:
-            docs_chat_embedding_model = env_docs_embedding.strip() or docs_chat_embedding_model
 
-        env_docs_api_key_env = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY_ENV")
-        if env_docs_api_key_env:
-            docs_chat_api_key_env = env_docs_api_key_env.strip() or docs_chat_api_key_env
 
         env_docs_api_key = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_API_KEY")
         if env_docs_api_key is not None:
-            docs_chat_api_key = env_docs_api_key.strip() or None
 
         env_docs_path = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_PATH")
         if env_docs_path:
-            docs_chat_docs_path = _coerce_path(env_docs_path)
 
         env_docs_index = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_INDEX")
         if env_docs_index:
-            docs_chat_index_path = _coerce_path(env_docs_index)
 
         env_docs_code = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_CODE_PATHS")
         if env_docs_code:
-            docs_chat_code_paths = _coerce_path_list(env_docs_code)
 
         env_docs_reasoning = os.getenv("DC43_CONTRACTS_APP_DOCS_CHAT_REASONING_EFFORT")
         if env_docs_reasoning is not None:
             value_text = env_docs_reasoning.strip()
-            docs_chat_reasoning_effort = value_text or None
 
-    embedding_provider_normalized = docs_chat_embedding_provider.lower()
-    if embedding_provider_normalized != "openai" and docs_chat_embedding_model == "text-embedding-3-small":
-        docs_chat_embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 
-    if docs_chat_api_key is None and docs_chat_api_key_env:
-        if not _looks_like_env_var_name(docs_chat_api_key_env):
-            docs_chat_api_key = docs_chat_api_key_env
-            docs_chat_api_key_env = "OPENAI_API_KEY"
 
     backend_config = BackendConfig(
         mode="remote" if backend_mode == "remote" else "embedded",
@@ -460,24 +399,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ContractsAppConfi
         ),
     )
 
-    docs_chat_config = DocsChatConfig(
-        enabled=docs_chat_enabled,
-        provider=docs_chat_provider,
-        model=docs_chat_model,
-        embedding_provider=docs_chat_embedding_provider,
-        embedding_model=docs_chat_embedding_model,
-        api_key_env=docs_chat_api_key_env,
-        api_key=docs_chat_api_key,
-        docs_path=docs_chat_docs_path,
-        index_path=docs_chat_index_path,
-        code_paths=docs_chat_code_paths,
-        reasoning_effort=docs_chat_reasoning_effort,
     )
 
     return ContractsAppConfig(
         workspace=WorkspaceConfig(root=workspace_root),
         backend=backend_config,
-        docs_chat=docs_chat_config,
     )
 
 
@@ -518,7 +444,6 @@ def _backend_mapping(config: BackendConfig) -> dict[str, Any]:
     return mapping
 
 
-def _docs_chat_mapping(config: DocsChatConfig) -> dict[str, Any]:
     mapping: dict[str, Any] = {}
     if config.enabled:
         mapping["enabled"] = True
@@ -530,8 +455,6 @@ def _docs_chat_mapping(config: DocsChatConfig) -> dict[str, Any]:
         mapping["embedding_provider"] = config.embedding_provider
     if config.embedding_model != "text-embedding-3-small":
         mapping["embedding_model"] = config.embedding_model
-    if config.api_key_env != "OPENAI_API_KEY":
-        mapping["api_key_env"] = config.api_key_env
     if config.api_key is not None:
         mapping["api_key"] = config.api_key
     if config.docs_path:
@@ -557,9 +480,6 @@ def config_to_mapping(config: ContractsAppConfig) -> dict[str, Any]:
     backend_mapping = _backend_mapping(config.backend)
     if backend_mapping:
         payload["backend"] = backend_mapping
-    docs_chat_mapping = _docs_chat_mapping(config.docs_chat)
-    if docs_chat_mapping:
-        payload["docs_chat"] = docs_chat_mapping
     return payload
 
 
