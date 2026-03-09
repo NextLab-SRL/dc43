@@ -44,3 +44,35 @@ df = read_with_governance(
 The unified `read_with_governance` function also handles Structured Streaming seamlessly. If your `format` requires streaming (or you pass specific streaming options via `request.options`), the returned DataFrame will be a streaming `DataFrame`. 
 
 Observations are published to governance just like in batch mode, ensuring your catalogue always knows when a stream starts consuming a dataset. 
+
+## Reading Split / Derivative Datasets
+
+If an upstream pipeline writes data using the `SplitWriteViolationStrategy` (routing clean data to a `valid` subset and bad data to a `reject` subset), you must explicitly target the derivative dataset when reading. The contract identity remains exactly the same, but the physical location and dataset identities change.
+
+There are two supported patterns to target these subsets:
+
+### 1. Via Dataset Suffix (Direct Contract Resolution)
+Target the base contract, but explicitly bind the read request to the suffixed dataset identifier:
+
+```python
+request = GovernanceSparkReadRequest(
+    context=GovernanceReadContext(
+        contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
+        dataset_id="base_dataset_name::valid" # Explicitly read the valid subset
+    )
+)
+```
+
+### 2. Via Data Product Ports (ODPS Standard)
+If your organization leverages the Open Data Product Standard, the upstream split strategy usually binds the `valid` and `reject` subsets to distinct output ports. You can read them directly by referencing the data product port:
+
+```python
+request = GovernanceSparkReadRequest(
+    context=GovernanceReadContext.from_port(
+        product="sales_domain.orders_product",
+        port="valid" # Target the clean data port
+    )
+)
+```
+
+Targeting split datasets explicitly ensures that your Data Governance catalog accurately maps your lineage to the clean or quarantined derivatives rather than falsely tracing dependencies to the entire unsplit pipeline.
