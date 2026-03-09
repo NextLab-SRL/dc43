@@ -17,3 +17,4 @@ release-artifacts/
 .ignored
 /contracts/
 dc43_docs_chat/
+test_logs

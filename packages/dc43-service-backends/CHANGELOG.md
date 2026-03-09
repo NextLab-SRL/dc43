@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - Contract, data product, and governance stores now expose `log_sql` toggles
   plus matching `DC43_*_LOG_SQL` environment overrides so Delta and SQL

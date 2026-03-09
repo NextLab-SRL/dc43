@@ -27,6 +27,11 @@ def _ensure_local_src_on_path() -> None:
         src_str = str(src_dir)
         if src_dir.exists() and src_str not in sys.path:
             sys.path.insert(0, src_str)
+            
+    # Also add tests directory to path so tests.integration... imports work
+    tests_dir = here.parent
+    if str(tests_dir) not in sys.path:
+        sys.path.insert(0, str(tests_dir.parent))
 
 
 _ensure_local_src_on_path()

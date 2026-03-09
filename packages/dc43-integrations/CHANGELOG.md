@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - Added `draft_contract_from_dataframe` to capture schema/metric observations
   from Spark DataFrames and return ready-to-review ODCS draft contracts using

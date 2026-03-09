@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - Integration helper pipeline now surfaces governed data products alongside
   contracts so you can add product nodes, wire their ports into transformations,

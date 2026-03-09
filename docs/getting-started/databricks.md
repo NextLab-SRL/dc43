@@ -169,7 +169,7 @@ pipeline events predate the dedicated product metadata fields.
 from pyspark.sql import functions as F
 from dc43_integrations.spark.io import GovernanceSparkWriteRequest, write_with_governance
 from dc43_service_clients.data_products import DataProductOutputBinding
-from dc43_service_clients.governance.models import GovernanceWriteContext
+from dc43_service_clients.governance.models import GovernanceReadContext, GovernanceWriteContext
 
 orders_df = spark.createDataFrame(
     [
@@ -183,7 +183,7 @@ orders_df = spark.createDataFrame(
 validation, _ = write_with_governance(
     df=orders_df,
     request=GovernanceSparkWriteRequest(
-        context=GovernanceWriteContext(
+        context=GovernanceReadContext(
             output_binding=DataProductOutputBinding(
                 data_product="dp.analytics.orders",
                 port_name="primary",

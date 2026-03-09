@@ -111,7 +111,6 @@ from .services import (
     thread_service_clients,
 )
 from .hints import get_workspace_hints
-from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
 from open_data_contract_standard.model import (
     CustomProperty,
@@ -657,13 +656,7 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
 
     config = config or load_config()
     configure_backend(config=config.backend)
-    base_dir = config.workspace.root
-    docs_chat.configure(config.docs_chat, base_dir=base_dir)
-
-    def _log_warmup(detail: str) -> None:
-        logger.info("Docs chat warm-up: %s", detail)
-
-    docs_chat.warm_up(progress=_log_warmup)
+    
     return _set_active_config(config)
 
 
@@ -704,46 +697,6 @@ async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[st
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-
-@router.get("/docs-chat", response_class=HTMLResponse)
-async def docs_chat_view(request: Request) -> HTMLResponse:
-    status_payload = docs_chat.status()
-    context = {
-        "request": request,
-        "docs_chat_status": status_payload,
-        "gradio_path": docs_chat.GRADIO_MOUNT_PATH,
-    }
-    return templates.TemplateResponse("docs_chat.html", context)
-
-
-@router.post("/api/docs-chat/messages")
-async def docs_chat_message(payload: dict[str, Any]) -> JSONResponse:
-    message = payload.get("message") if isinstance(payload, Mapping) else None
-    if not isinstance(message, str) or not message.strip():
-        raise HTTPException(status_code=422, detail="Provide a question so the assistant can help.")
-
-    history_raw = payload.get("history") if isinstance(payload, Mapping) else None
-    history: list[Any]
-    if isinstance(history_raw, list):
-        history = history_raw
-    else:
-        history = []
-
-    status_payload = docs_chat.status()
-    if not status_payload.enabled:
-        detail = status_payload.message or "Docs chat is disabled in the current configuration."
-        raise HTTPException(status_code=400, detail=detail)
-    if not status_payload.ready:
-        detail = status_payload.message or "Docs chat is not ready yet."
-        raise HTTPException(status_code=400, detail=detail)
-
-    try:
-        reply = await run_in_threadpool(docs_chat.generate_reply, message, history)
-    except docs_chat.DocsChatError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return JSONResponse({"message": reply.answer, "sources": reply.sources, "steps": reply.steps})
 
 
 SETUP_MODULES: Dict[str, Dict[str, Any]] = {
@@ -4007,62 +3960,9 @@ def _contracts_app_config_from_state(
         process=BackendProcessConfig(),
     )
 
-    docs_option = selected.get("docs_assistant")
-    docs_chat_cfg = DocsChatConfig()
-    if docs_option == "openai_embedded":
-        docs_module = configuration.get("docs_assistant", {})
-        if not isinstance(docs_module, Mapping):
-            docs_module = {}
-
-        provider = _clean_str(docs_module.get("provider")) or "openai"
-        model = _clean_str(docs_module.get("model")) or "gpt-4o-mini"
-        embedding_provider = _clean_str(docs_module.get("embedding_provider")) or "openai"
-        embedding_model = _clean_str(docs_module.get("embedding_model")) or "text-embedding-3-small"
-        api_key_env = _clean_str(docs_module.get("api_key_env")) or "OPENAI_API_KEY"
-        api_key_value = _clean_str(docs_module.get("api_key"))
-
-        docs_path_text = _clean_str(docs_module.get("docs_path"))
-        index_path_text = _clean_str(docs_module.get("index_path"))
-
-        docs_path = Path(docs_path_text).expanduser() if docs_path_text else None
-        index_path = Path(index_path_text).expanduser() if index_path_text else None
-
-        code_paths_value = docs_module.get("code_paths")
-        code_path_entries: list[str] = []
-        if isinstance(code_paths_value, (list, tuple, set)):
-            for item in code_paths_value:
-                if not isinstance(item, str):
-                    item = str(item)
-                item = item.strip()
-                if item:
-                    code_path_entries.append(item)
-        elif isinstance(code_paths_value, str):
-            candidate = code_paths_value.strip()
-            if candidate:
-                parts = [part.strip() for part in candidate.replace(";", ",").split(",")]
-                code_path_entries.extend(part for part in parts if part)
-
-        code_paths = tuple(Path(entry).expanduser() for entry in code_path_entries)
-        reasoning_effort = _clean_str(docs_module.get("reasoning_effort")) or None
-
-        docs_chat_cfg = DocsChatConfig(
-            enabled=True,
-            provider=provider,
-            model=model,
-            embedding_provider=embedding_provider,
-            embedding_model=embedding_model,
-            api_key_env=api_key_env,
-            api_key=api_key_value,
-            docs_path=docs_path,
-            index_path=index_path,
-            code_paths=code_paths,
-            reasoning_effort=reasoning_effort,
-        )
-
     return ContractsAppConfig(
         workspace=workspace_cfg,
         backend=backend_cfg,
-        docs_chat=docs_chat_cfg,
     )
 
 
@@ -10429,11 +10329,6 @@ def create_app() -> FastAPI:
 
     @application.middleware("http")
     async def setup_guard(request: Request, call_next):  # type: ignore[override]
-        docs_status = docs_chat.status()
-        request.state.docs_chat_status = docs_status
-        request.state.docs_chat_enabled = docs_status.enabled
-        request.state.docs_chat_ready = docs_status.ready
-        request.state.docs_chat_message = docs_status.message
 
         path = request.url.path
         exempt_paths = {"/openapi.json"}
@@ -10454,7 +10349,6 @@ def create_app() -> FastAPI:
         name="static",
     )
     application.include_router(router)
-    docs_chat.mount_gradio_app(application, path=docs_chat.GRADIO_MOUNT_PATH)
     return application
 
 

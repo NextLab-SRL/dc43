@@ -18,7 +18,6 @@ def _pythonpath_entries() -> list[str]:
     return [
         str(root / "src"),
         str(root / "packages" / "dc43-contracts-app" / "src"),
-        str(root / "packages" / "dc43-demo-app" / "src"),
     ]
 
 

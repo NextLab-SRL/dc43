@@ -62,12 +62,12 @@ Once the governance client is initialised, the IO helpers behave the same way as
 
 ```python
 from dc43_integrations.spark.io import GovernanceSparkWriteRequest, write_with_governance
-from dc43_service_clients.governance.models import ContractReference, GovernanceWriteContext
+from dc43_service_clients.governance.models import ContractReference, GovernanceReadContext, GovernanceWriteContext
 
 write_with_governance(
     df=orders_df,
     request=GovernanceSparkWriteRequest(
-        context=GovernanceWriteContext(
+        context=GovernanceReadContext(
             contract=ContractReference(
                 contract_id="sales.orders",
                 version_selector=">=0.1.0",

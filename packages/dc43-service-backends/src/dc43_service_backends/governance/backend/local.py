@@ -942,13 +942,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_format=context.dataset_format,
             input_binding=context.input_binding,
             pipeline_context=pipeline,
-            bump=context.bump,
-            draft_on_violation=context.draft_on_violation,
-            allowed_data_product_statuses=status_options["allowed_statuses"],
-            allow_missing_data_product_status=status_options["allow_missing"],
-            data_product_status_case_insensitive=status_options["case_insensitive"],
-            data_product_status_failure_message=status_options["failure_message"],
-            enforce_data_product_status=status_options["enforce"],
+            policy=context.policy,
         )
 
     def resolve_write_context(
@@ -977,13 +971,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_format=context.dataset_format,
             output_binding=context.output_binding,
             pipeline_context=pipeline,
-            bump=context.bump,
-            draft_on_violation=context.draft_on_violation,
-            allowed_data_product_statuses=status_options["allowed_statuses"],
-            allow_missing_data_product_status=status_options["allow_missing"],
-            data_product_status_case_insensitive=status_options["case_insensitive"],
-            data_product_status_failure_message=status_options["failure_message"],
-            enforce_data_product_status=status_options["enforce"],
+            policy=context.policy,
         )
 
     def evaluate_read_plan(
@@ -993,6 +981,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         validation: ValidationResult | None,
         observations: Callable[[], ObservationPayload],
     ) -> QualityAssessment:
+        bump = getattr(plan.policy, "bump", None) if plan.policy else None
+        draft_on_violation = getattr(plan.policy, "draft_on_violation", False) if plan.policy else False
         return self.evaluate_dataset(
             contract_id=plan.contract_id,
             contract_version=plan.contract_version,
@@ -1000,10 +990,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_version=plan.dataset_version,
             validation=validation,
             observations=observations,
-            bump=plan.bump,
+            bump=bump,
             pipeline_context=plan.pipeline_context,
             operation="read",
-            draft_on_violation=plan.draft_on_violation,
+            draft_on_violation=draft_on_violation,
         )
 
     def evaluate_write_plan(
@@ -1013,6 +1003,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         validation: ValidationResult | None,
         observations: Callable[[], ObservationPayload],
     ) -> QualityAssessment:
+        bump = getattr(plan.policy, "bump", None) if plan.policy else None
+        draft_on_violation = getattr(plan.policy, "draft_on_violation", False) if plan.policy else False
         return self.evaluate_dataset(
             contract_id=plan.contract_id,
             contract_version=plan.contract_version,
@@ -1020,10 +1012,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_version=plan.dataset_version,
             validation=validation,
             observations=observations,
-            bump=plan.bump,
+            bump=bump,
             pipeline_context=plan.pipeline_context,
             operation="write",
-            draft_on_violation=plan.draft_on_violation,
+            draft_on_violation=draft_on_violation,
         )
 
     def register_read_activity(
@@ -1639,24 +1631,26 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         self,
         context: GovernanceReadContext | GovernanceWriteContext,
     ) -> Mapping[str, object]:
+        policy = context.policy
         return {
-            "allowed_statuses": context.allowed_data_product_statuses,
-            "allow_missing": context.allow_missing_data_product_status,
-            "case_insensitive": context.data_product_status_case_insensitive,
-            "failure_message": context.data_product_status_failure_message,
-            "enforce": context.enforce_data_product_status,
+            "allowed_statuses": policy.allowed_data_product_statuses if policy else ("active",),
+            "allow_missing": policy.allow_missing_data_product_status if policy else True,
+            "case_insensitive": policy.data_product_status_case_insensitive if policy else True,
+            "failure_message": policy.data_product_status_failure_message if policy else None,
+            "enforce": policy.enforce_data_product_status if policy else True,
         }
 
     def _status_options_from_plan(
         self,
         plan: ResolvedReadPlan | ResolvedWritePlan,
     ) -> Mapping[str, object]:
+        policy = plan.policy
         return {
-            "allowed_statuses": plan.allowed_data_product_statuses,
-            "allow_missing": plan.allow_missing_data_product_status,
-            "case_insensitive": plan.data_product_status_case_insensitive,
-            "failure_message": plan.data_product_status_failure_message,
-            "enforce": plan.enforce_data_product_status,
+            "allowed_statuses": policy.allowed_data_product_statuses if policy else ("active",),
+            "allow_missing": policy.allow_missing_data_product_status if policy else True,
+            "case_insensitive": policy.data_product_status_case_insensitive if policy else True,
+            "failure_message": policy.data_product_status_failure_message if policy else None,
+            "enforce": policy.enforce_data_product_status if policy else True,
         }
 
     def _normalise_status_options(

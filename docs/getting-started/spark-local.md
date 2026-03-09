@@ -57,8 +57,7 @@ your business logic.
 
 ```python
 from dc43_service_clients import load_governance_client
-from dc43_service_clients.governance import GovernanceReadContext
-from dc43_service_clients.governance.models import ContractReference, GovernanceWriteContext
+from dc43_service_clients.governance.models import ContractReference, GovernanceReadContext, GovernanceWriteContext
 from dc43_integrations.spark.io import (
     ContractVersionLocator,
     DefaultReadStatusStrategy,
