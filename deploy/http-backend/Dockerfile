@@ -16,7 +16,8 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
     && /opt/venv/bin/pip install /tmp/dc43-core \
     && /opt/venv/bin/pip install /tmp/dc43-service-clients \
-    && /opt/venv/bin/pip install "/tmp/dc43-service-backends[http]"
+    && /opt/venv/bin/pip install "/tmp/dc43-service-backends[http]" \
+    && /opt/venv/bin/pip install "uvicorn[standard]>=0.24"
 
 
 FROM python:3.11-slim AS runtime
@@ -42,6 +43,6 @@ USER dc43
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8001/openapi.json || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/openapi.json')" || exit 1
 
-CMD ["uvicorn", "dc43_service_backends.webapp:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["/opt/venv/bin/uvicorn", "dc43_service_backends.webapp:app", "--host", "0.0.0.0", "--port", "8001"]

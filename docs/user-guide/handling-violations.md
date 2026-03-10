@@ -23,6 +23,28 @@ policy = GovernancePolicy(
 
 If `draft_on_violation=True`, when the framework detects a new column injected by a data producer, it will automatically propose a "draft" bump of the contract and notify data stewards for review, instead of just flatly rejecting the pipeline.
 
+## Advanced Write Strategies (Splitting Data)
+
+Contract enforcement often needs to react differently depending on the severity of the issues or the downstream consumer. Instead of a simple pass/fail, you can pass a `violation_strategy` to `write_with_governance` to orchestrate advanced remediation:
+
+- **`SplitWriteViolationStrategy`**: Filters the aligned rows based on the data-quality expectations. It automatically splits the data and creates two derivative datasets: a `valid` subset (clean records) and a `reject` subset (bad records). Data stewards can triage the discarded records without blocking the entire run from flowing downstream.
+- **`StrictWriteViolationStrategy`**: Wraps another strategy (like split) and forcefully flips the final validation result to `ok=False` if any violations occurred, ensuring that job orchestrators (like Airflow or Databricks) mark the run as failed, even though the data was correctly written and split into remediation queues.
+
+```python
+from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy, StrictWriteViolationStrategy
+
+# Inside write_with_governance
+violation_strategy=StrictWriteViolationStrategy(
+    strategy=SplitWriteViolationStrategy(
+        valid_suffix="valid",
+        reject_suffix="reject"
+    )
+)
+```
+
+> [!NOTE]
+> When using a split strategy, the integration layer automatically reports the `valid` and `reject` subsets as distinct pipeline observations back to the Governance Service. Ensure these derivative datasets are correctly registered in your Data Product definitions or Metadata Catalog.
+
 ## Streaming Intervention
 
 For streaming queries, continuous micro-batch failures require strategic interventions to prevent data poisoning or silent outages.
