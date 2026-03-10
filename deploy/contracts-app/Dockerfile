@@ -11,6 +11,7 @@ WORKDIR /build
 COPY packages/dc43-core /tmp/dc43-core
 COPY packages/dc43-service-clients /tmp/dc43-service-clients
 COPY packages/dc43-service-backends /tmp/dc43-service-backends
+COPY packages/dc43-integrations /tmp/dc43-integrations
 COPY packages/dc43-contracts-app /tmp/dc43-contracts-app
 
 RUN python -m venv /opt/venv \
@@ -18,6 +19,7 @@ RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install /tmp/dc43-core \
     && /opt/venv/bin/pip install "/tmp/dc43-service-clients[http]" \
     && /opt/venv/bin/pip install "/tmp/dc43-service-backends[http]" \
+    && /opt/venv/bin/pip install /tmp/dc43-integrations \
     && /opt/venv/bin/pip install /tmp/dc43-contracts-app \
     && /opt/venv/bin/pip install "uvicorn[standard]>=0.24"
 
