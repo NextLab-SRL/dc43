@@ -15,7 +15,7 @@ COPY packages/dc43-service-backends /tmp/dc43-service-backends
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
     && /opt/venv/bin/pip install /tmp/dc43-core \
-    && /opt/venv/bin/pip install /tmp/dc43-service-clients \
+    && /opt/venv/bin/pip install "/tmp/dc43-service-clients[http]" \
     && /opt/venv/bin/pip install "/tmp/dc43-service-backends[http]" \
     && /opt/venv/bin/pip install "uvicorn[standard]>=0.24"
 

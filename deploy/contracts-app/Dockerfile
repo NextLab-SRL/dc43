@@ -16,7 +16,7 @@ COPY packages/dc43-contracts-app /tmp/dc43-contracts-app
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
     && /opt/venv/bin/pip install /tmp/dc43-core \
-    && /opt/venv/bin/pip install /tmp/dc43-service-clients \
+    && /opt/venv/bin/pip install "/tmp/dc43-service-clients[http]" \
     && /opt/venv/bin/pip install "/tmp/dc43-service-backends[http]" \
     && /opt/venv/bin/pip install /tmp/dc43-contracts-app \
     && /opt/venv/bin/pip install "uvicorn[standard]>=0.24"
