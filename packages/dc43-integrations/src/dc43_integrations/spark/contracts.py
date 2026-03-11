@@ -7,6 +7,24 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping
 
 from pyspark.sql import DataFrame
+from pyspark.sql.types import (
+    ArrayType,
+    BinaryType,
+    BooleanType,
+    ByteType,
+    DataType,
+    DateType,
+    DecimalType,
+    DoubleType,
+    FloatType,
+    IntegerType,
+    LongType,
+    ShortType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
+)
 
 from open_data_contract_standard.model import (  # type: ignore
     CustomProperty,
@@ -172,5 +190,68 @@ def draft_contract_from_dataframe(
 
     return DraftContractResult(contract=draft, schema=schema, metrics=metrics)
 
+def _property_to_spark_type(prop: SchemaProperty) -> DataType:
+    if prop.properties:
+        fields = [
+            StructField(
+                p.name or "UNKNOWN",
+                _property_to_spark_type(p),
+                not getattr(p, "required", False),
+            )
+            for p in prop.properties
+        ]
+        return StructType(fields)
+    elif prop.items:
+        return ArrayType(
+            _property_to_spark_type(prop.items),
+            not getattr(prop.items, "required", False),
+        )
 
-__all__ = ["DraftContractResult", "draft_contract_from_dataframe"]
+    odcs_type = str(
+        getattr(prop, "logicalType", None)
+        or getattr(prop, "physicalType", None)
+        or "string"
+    ).lower()
+
+    if odcs_type in ("long", "bigint"):
+        return LongType()
+    elif odcs_type in ("int", "integer"):
+        return IntegerType()
+    elif odcs_type in ("short", "smallint"):
+        return ShortType()
+    elif odcs_type in ("byte", "tinyint"):
+        return ByteType()
+    elif odcs_type in ("float", "real"):
+        return FloatType()
+    elif odcs_type in ("double",):
+        return DoubleType()
+    elif odcs_type in ("boolean", "bool"):
+        return BooleanType()
+    elif odcs_type == "date":
+        return DateType()
+    elif odcs_type == "timestamp":
+        return TimestampType()
+    elif odcs_type == "binary":
+        return BinaryType()
+    elif odcs_type.startswith("decimal") or odcs_type == "numeric":
+        return DecimalType()
+
+    return StringType()
+
+
+def dataframe_schema_from_contract(contract: OpenDataContractStandard) -> StructType:
+    schema_objects = list(getattr(contract, "schema_", []) or [])
+    fields = []
+    for obj in schema_objects:
+        for prop in (obj.properties or []):
+            fields.append(
+                StructField(
+                    prop.name or "UNKNOWN",
+                    _property_to_spark_type(prop),
+                    not getattr(prop, "required", False),
+                )
+            )
+    return StructType(fields)
+
+
+__all__ = ["DraftContractResult", "draft_contract_from_dataframe", "dataframe_schema_from_contract"]

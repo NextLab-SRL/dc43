@@ -22,6 +22,9 @@ request = GovernanceSparkWriteRequest(
     # Explicit sink paths are only required if you are overriding standard convention:
     # path="s3://lake/orders_output", 
     # format="parquet",
+    
+    # Advanced: Use a modifier function to apply Spark-specific configurations (like partitionBy or trigger)
+    # writer_modifier=lambda w: w.partitionBy("date").trigger(availableNow=True)
 )
 
 # df is your Spark DataFrame
