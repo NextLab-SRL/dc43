@@ -138,6 +138,17 @@ class StreamingObservationWriter:
         """Whether the observation writer has already started its query."""
         return self._active
 
+    def __getstate__(self) -> Dict[str, Any]:
+        state = self.__dict__.copy()
+        # Remove objects that cannot be pickled (e.g. Spark queries, callbacks)
+        state['_sink_queries'] = []
+        state['_progress_callback'] = None
+        # self._validation might also contain issues if it's large, but typically it's a dataclass.
+        return state
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        self.__dict__.update(state)
+
     def attach_validation(self, validation: ValidationResult) -> None:
         """Attach the validation object that should receive streaming metrics."""
         if self._validation is not None and self._validation is not validation:
