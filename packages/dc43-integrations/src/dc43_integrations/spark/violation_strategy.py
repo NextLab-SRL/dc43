@@ -67,6 +67,7 @@ class WriteRequest:
     warnings: tuple[str, ...] = field(default_factory=tuple)
     pipeline_context: Optional[Mapping[str, Any]] = None
     streaming_observation_writer: Optional["StreamingObservationWriter"] = None
+    writer_modifier: Optional[Callable[[Any], Any]] = None
 
 
 @dataclass
@@ -98,6 +99,7 @@ class WriteStrategyContext:
     pipeline_context: Optional[Mapping[str, Any]] = None
     streaming: bool = False
     streaming_observation_writer: Optional["StreamingObservationWriter"] = None
+    writer_modifier: Optional[Callable[[Any], Any]] = None
 
     def base_request(
         self,
@@ -136,6 +138,7 @@ class WriteStrategyContext:
                 pipeline_context,
             ),
             streaming_observation_writer=self.streaming_observation_writer,
+            writer_modifier=self.writer_modifier,
         )
 
 
@@ -312,6 +315,7 @@ class SplitWriteViolationStrategy:
                         {"subset": self.valid_suffix},
                     ),
                     streaming_observation_writer=context.streaming_observation_writer,
+                    writer_modifier=context.writer_modifier,
                 )
 
         if self.include_reject:
@@ -339,6 +343,7 @@ class SplitWriteViolationStrategy:
                         {"subset": self.reject_suffix},
                     ),
                     streaming_observation_writer=context.streaming_observation_writer,
+                    writer_modifier=context.writer_modifier,
                 )
 
         for message in warnings:

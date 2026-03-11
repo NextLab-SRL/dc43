@@ -635,6 +635,7 @@ class BaseWriteExecutor:
              self.strategy, self.data_product_status_enforce = _apply_plan_data_product_policy(self.strategy, plan, default_enforce=enforce)
         
         self.streaming_intervention_strategy = getattr(self.request, 'streaming_intervention_strategy', None)
+        self.writer_modifier = getattr(self.request, 'writer_modifier', None)
         self.streaming_batch_callback = streaming_batch_callback
         self.pipeline_context = getattr(self.request.context, 'pipeline_context', None) or (plan.pipeline_context if plan else None)
 
@@ -785,7 +786,8 @@ class BaseWriteExecutor:
             validation=result, dataset_id=dataset_id, dataset_version=dataset_version,
             revalidate=revalidator,
             expectation_predicates=expectation_predicates, pipeline_context=normalise_pipeline_context(pipeline_context),
-            streaming=streaming_active, streaming_observation_writer=observation_writer
+            streaming=streaming_active, streaming_observation_writer=observation_writer,
+            writer_modifier=self.writer_modifier
         )
         violation_plan = strategy.plan(context)
         requests = ([violation_plan.primary] if violation_plan.primary else []) + list(violation_plan.additional)
@@ -850,6 +852,7 @@ def _execute_write_request(
         writer = df.writeStream.outputMode(request.mode or "append")
         if request.format: writer = writer.format(request.format)
         if request.options: writer = writer.options(**request.options)
+        if request.writer_modifier: writer = request.writer_modifier(writer)
         query = writer.toTable(request.table) if request.table else writer.start(request.path)
         streaming_handles.append(query)
         
@@ -865,6 +868,7 @@ def _execute_write_request(
         writer = df.write.mode(request.mode)
         if request.format: writer = writer.format(request.format)
         if request.options: writer = writer.options(**request.options)
+        if request.writer_modifier: writer = request.writer_modifier(writer)
         if request.table: writer.saveAsTable(request.table)
         else: writer.save(request.path)
     if governance_client and request.contract and request.dataset_id:

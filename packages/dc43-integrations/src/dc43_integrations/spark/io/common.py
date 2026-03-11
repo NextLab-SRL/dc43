@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import (
     Any,
+    Callable,
     Dict,
     Iterable,
     Mapping,
@@ -84,6 +85,7 @@ class GovernanceSparkWriteRequest:
     publication_mode: GovernancePublicationMode | str | None = None
     violation_strategy: Optional[Any] = None  # Typed as Any to avoid circular import
     streaming_intervention_strategy: Optional[Any] = None
+    writer_modifier: Optional[Callable[[Any], Any]] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceWriteContext):
