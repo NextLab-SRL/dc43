@@ -143,7 +143,9 @@ class StreamingObservationWriter:
         # Remove objects that cannot be pickled (e.g. Spark queries, callbacks)
         state['_sink_queries'] = []
         state['_progress_callback'] = None
-        # self._validation might also contain issues if it's large, but typically it's a dataclass.
+        # Drop governance_service to prevent httpx weakref PicklingError on Spark Connect.
+        # Fallback evaluation will be used in the worker.
+        state['governance_service'] = None
         return state
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
@@ -301,17 +303,24 @@ class StreamingObservationWriter:
 
         cid, cver = contract_identity(self.contract)
         def _obs(): return ObservationPayload(metrics=dict(metrics or {}), schema=dict(schema or {}), reused=False)
-        assessment = self.governance_service.evaluate_dataset(
-            contract_id=cid,
-            contract_version=cver,
-            dataset_id=self.dataset_id,
-            dataset_version=self.dataset_version,
-            validation=None,
-            observations=_obs,
-            pipeline_context=None,
-            operation="write",
-        )
-        result = assessment.validation or assessment.status
+        
+        result = None
+        if self.governance_service is not None:
+            try:
+                assessment = self.governance_service.evaluate_dataset(
+                    contract_id=cid,
+                    contract_version=cver,
+                    dataset_id=self.dataset_id,
+                    dataset_version=self.dataset_version,
+                    validation=None,
+                    observations=_obs,
+                    pipeline_context=None,
+                    operation="write",
+                )
+                result = assessment.validation or assessment.status
+            except Exception as e:
+                logger.warning("Streaming observation service evaluation failed, falling back to offline: %s", e)
+                
         if result is None:
             result = self._evaluate_without_service(schema=schema, metrics=metrics)
         self._latest_batch_id = batch_id
