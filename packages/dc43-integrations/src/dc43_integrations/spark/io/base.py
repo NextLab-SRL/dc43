@@ -791,7 +791,7 @@ class BaseWriteExecutor:
 
         context = WriteStrategyContext(
             df=self.df, aligned_df=df, contract=contract, path=path, table=table, format=format, options=options, mode=mode,
-            validation=result, dataset_id=dataset_id, dataset_version=dataset_version,
+            validation=result, dataset_id=dataset_id, dataset_version=preflight_version,
             revalidate=revalidator,
             expectation_predicates=expectation_predicates, pipeline_context=normalise_pipeline_context(pipeline_context),
             streaming=streaming_active, streaming_observation_writer=observation_writer,
