@@ -419,7 +419,34 @@ class SplitWriteViolationStrategy:
 
 @dataclass
 class FlagWriteViolationStrategy:
-    """Flag invalid rows with an array of broken expectations."""
+    """Flag invalid rows with an array of broken expectations.
+
+    This strategy evaluates each row against the defined data quality
+    expectations. If a row fails one or more expectations, the names of
+    the failed expectations are collected into an array and stored in a
+    dedicated metadata column (by default `_corrupted_data`). Valid rows
+    will have `None` (null) in this column to save space.
+
+    Attributes:
+        column_name: The name of the column to append containing the failed
+            expectation names. Defaults to `_corrupted_data`.
+        allowed_contract_statuses: Tuple of acceptable contract statuses.
+            Writes are blocked if the contract status is not in this list.
+        allow_missing_contract_status: Whether to allow writes if the
+            contract status is undefined.
+        contract_status_case_insensitive: Whether contract status checks
+            should ignore case.
+        contract_status_failure_message: Custom message to raise when the
+            contract status is unacceptable.
+        allowed_data_product_statuses: Tuple of acceptable data product
+            statuses (if applicable).
+        allow_missing_data_product_status: Whether to allow writes if the
+            data product status is undefined.
+        data_product_status_case_insensitive: Whether data product status
+            checks should ignore case.
+        data_product_status_failure_message: Custom message to raise when the
+            data product status is unacceptable.
+    """
 
     column_name: str = "_corrupted_data"
     allowed_contract_statuses: tuple[str, ...] = ("active",)
