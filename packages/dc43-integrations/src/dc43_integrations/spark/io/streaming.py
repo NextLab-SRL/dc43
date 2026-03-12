@@ -146,13 +146,33 @@ class StreamingObservationWriter:
         # Remove objects that cannot be pickled (e.g. Spark queries, callbacks)
         state['_sink_queries'] = []
         state['_progress_callback'] = None
+        
+        # Try to serialize RemoteGovernanceServiceClient configuration to reconstruct on worker
+        gov = state.get('governance_service')
+        if gov is not None and type(gov).__name__ == "RemoteGovernanceServiceClient":
+            state["_gov_base_url"] = getattr(gov, "_base_url", None)
+            client = getattr(gov, "_client", None)
+            if client is not None and hasattr(client, "headers"):
+                state["_gov_headers"] = dict(client.headers)
+                
         # Drop governance_service to prevent httpx weakref PicklingError on Spark Connect.
-        # Fallback evaluation will be used in the worker.
+        # Fallback evaluation will be used in the worker if reconstruction fails.
         state['governance_service'] = None
         return state
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
         self.__dict__.update(state)
+        base_url = state.get("_gov_base_url")
+        if base_url and self.governance_service is None:
+            try:
+                from dc43_service_clients.governance import RemoteGovernanceServiceClient
+                headers = state.get("_gov_headers") or {}
+                self.governance_service = RemoteGovernanceServiceClient(
+                    base_url=base_url,
+                    headers=headers,
+                )
+            except Exception:
+                pass
 
     def attach_validation(self, validation: ValidationResult) -> None:
         """Attach the validation object that should receive streaming metrics."""
