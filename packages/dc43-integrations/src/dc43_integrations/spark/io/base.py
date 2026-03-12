@@ -722,6 +722,8 @@ class BaseWriteExecutor:
         expectation_plan: list[Mapping[str, Any]] = []
         
         preflight_version = resolve_dataset_version(dataset_version)
+        if governance_plan:
+            governance_plan.dataset_version = preflight_version
         
         if contract:
             cid, cver = contract_identity(contract)
