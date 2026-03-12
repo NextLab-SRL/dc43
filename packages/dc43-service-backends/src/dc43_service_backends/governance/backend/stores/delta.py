@@ -391,6 +391,13 @@ class DeltaGovernanceStore(GovernanceStore):
         if not self._metrics_table and not metrics_folder:
             return
 
+        self._purge_status_entries(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            table=self._metrics_table,
+            folder=metrics_folder,
+        )
+
         metrics_df = self._spark.createDataFrame(metrics_records, self._METRIC_SCHEMA)
         self._write(metrics_df, table=self._metrics_table, folder=metrics_folder)
 
@@ -492,6 +499,14 @@ class DeltaGovernanceStore(GovernanceStore):
         }
         df = self._spark.createDataFrame([payload], schema=self._LINK_SCHEMA)
         folder = self._table_path("links") if self._base_path else None
+        
+        self._purge_status_entries(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            table=self._link_table,
+            folder=folder,
+        )
+        
         self._write(df, table=self._link_table, folder=folder)
 
     def get_linked_contract_version(
