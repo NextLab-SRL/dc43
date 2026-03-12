@@ -41,6 +41,28 @@ PipelineContextLike = Union[
 ]
 
 
+def resolve_dataset_version(
+    version_template: Optional[str],
+    batch_id: Union[int, str] = "init",
+    timestamp: Optional[datetime] = None,
+) -> str:
+    """Resolve a dynamic dataset version template with execution metrics."""
+    if not version_template:
+        return "unknown"
+    if "{" not in version_template:
+        return version_template
+
+    ts = timestamp or datetime.now(timezone.utc)
+    try:
+        return version_template.format(
+            batch_id=batch_id,
+            timestamp=ts.strftime("%Y%m%d%H%M%S"),
+            unix_timestamp=int(ts.timestamp()),
+        )
+    except KeyError:
+        return version_template
+
+
 @dataclass(slots=True)
 class GovernanceSparkReadRequest:
     """Wrapper aggregating governance context and Spark-specific overrides."""

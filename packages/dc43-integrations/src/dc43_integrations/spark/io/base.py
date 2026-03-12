@@ -62,6 +62,7 @@ from dc43_integrations.spark.io.common import (
     get_delta_version,
     _as_governance_service,
     _evaluate_with_service,
+    resolve_dataset_version,
 )
 from dc43_integrations.spark.io.resolution import (
     DatasetResolution,
@@ -720,6 +721,8 @@ class BaseWriteExecutor:
         assessment: Optional[QualityAssessment] = None
         expectation_plan: list[Mapping[str, Any]] = []
         
+        preflight_version = resolve_dataset_version(dataset_version)
+        
         if contract:
             cid, cver = contract_identity(contract)
             expectation_plan = list(governance_client.describe_expectations(contract_id=cid, contract_version=cver))
@@ -728,10 +731,11 @@ class BaseWriteExecutor:
             dq_validation = None
             
             def _obs(): return ObservationPayload(metrics=dict(metrics or {}), schema=dict(schema or {}), reused=True)
+            
             if governance_plan:
                 assessment = governance_client.evaluate_write_plan(plan=governance_plan, validation=dq_validation, observations=_obs)
             else:
-                assessment = governance_client.evaluate_dataset(contract_id=cid, contract_version=cver, dataset_id=dataset_id, dataset_version=dataset_version or "", validation=dq_validation, observations=_obs, pipeline_context=normalise_pipeline_context(pipeline_context), operation="write")
+                assessment = governance_client.evaluate_dataset(contract_id=cid, contract_version=cver, dataset_id=dataset_id, dataset_version=preflight_version, validation=dq_validation, observations=_obs, pipeline_context=normalise_pipeline_context(pipeline_context), operation="write")
             result = assessment.validation or assessment.status or dq_validation or result
 
             if result:
@@ -810,7 +814,7 @@ class BaseWriteExecutor:
             governance_client.register_write_activity(plan=governance_plan, assessment=assessment)
         
         if self.open_data_lineage_only and governance_client:
-            event = build_lineage_run_event(operation="write", plan=governance_plan, pipeline_context=pipeline_context, contract_id=contract_id, contract_version=expected_contract_version, dataset_id=dataset_id, dataset_version=dataset_version, validation=result, status=primary_status, expectation_plan=expectation_plan)
+            event = build_lineage_run_event(operation="write", plan=governance_plan, pipeline_context=pipeline_context, contract_id=contract_id, contract_version=expected_contract_version, dataset_id=dataset_id, dataset_version=preflight_version, validation=result, status=primary_status, expectation_plan=expectation_plan)
             governance_client.publish_lineage_event(event=event)
             
         if self.open_telemetry_only:
@@ -821,7 +825,7 @@ class BaseWriteExecutor:
                 contract_id=contract_id,
                 contract_version=expected_contract_version,
                 dataset_id=dataset_id,
-                dataset_version=dataset_version,
+                dataset_version=preflight_version,
                 validation=result,
                 status=primary_status,
                 expectation_plan=expectation_plan,

@@ -25,6 +25,7 @@ from open_data_contract_standard.model import OpenDataContractStandard
 from dc43_integrations.spark.data_quality import collect_observations
 from dc43_integrations.spark.io.common import (
     _safe_fs_name,
+    resolve_dataset_version,
 )
 from dc43_service_backends.core.odcs import contract_identity
 
@@ -266,23 +267,10 @@ class StreamingObservationWriter:
         else:
             self._validation = result
 
-    def _resolve_dataset_version(self, batch_id: int, timestamp: datetime) -> str:
-        """Resolve a dynamic dataset version template with current batch metrics."""
-        if not self.dataset_version:
-            return "unknown"
-        if "{" not in self.dataset_version:
-            return self.dataset_version
-            
-        return self.dataset_version.format(
-            batch_id=batch_id,
-            timestamp=timestamp.strftime("%Y%m%d%H%M%S"),
-            unix_timestamp=int(timestamp.timestamp()),
-        )
-
     def process_batch(self, batch_df: DataFrame, batch_id: int) -> ValidationResult:
         """Validate a micro-batch and update the attached validation."""
         timestamp = datetime.now(timezone.utc)
-        effective_version = self._resolve_dataset_version(batch_id, timestamp)
+        effective_version = resolve_dataset_version(self.dataset_version, batch_id, timestamp)
         
         schema, metrics = collect_observations(
             batch_df,
