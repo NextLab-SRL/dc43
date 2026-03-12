@@ -545,17 +545,47 @@ class DeltaGovernanceStore(GovernanceStore):
         event: Mapping[str, object],
         lineage_event: Mapping[str, object] | None = None,
     ) -> None:
+        folder = self._table_path("activity") if self._base_path else None
+        
+        # Merge logic to avoid storing one row per streaming event and breaking load_pipeline_activity
+        existing_records = self.load_pipeline_activity(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+        )
+        record: dict[str, Any] = {"events": []}
+        if existing_records:
+            record = dict(existing_records[-1])
+            
+        events = list(record.get("events") or [])
+        events.append(dict(event))
+        if len(events) > 100:
+            events = events[-100:]
+        record["events"] = events
+        
+        if lineage_event is not None:
+            record["lineage_event"] = dict(lineage_event)
+        record["contract_id"] = contract_id
+        record["contract_version"] = contract_version
+
         payload = {
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
             "contract_id": contract_id,
             "contract_version": contract_version,
             "recorded_at": self._now(),
-            "payload": json.dumps(dict(event)),
+            "payload": json.dumps(record),
             "lineage_event": json.dumps(dict(lineage_event)) if lineage_event is not None else None,
         }
         df = self._spark.createDataFrame([payload], schema=self._ACTIVITY_SCHEMA)
         folder = self._table_path("activity") if self._base_path else None
+        
+        self._purge_status_entries(
+            dataset_id=dataset_id,
+            dataset_version=dataset_version,
+            table=self._activity_table,
+            folder=folder,
+        )
+        
         self._write(df, table=self._activity_table, folder=folder)
 
     def list_datasets(self) -> Sequence[str]:
