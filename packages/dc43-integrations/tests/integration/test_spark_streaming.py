@@ -698,3 +698,82 @@ def test_streaming_enforcement_stops_sink_on_failure(spark, tmp_path: Path) -> N
         sink_query.stop()
     if metrics_query.isActive:
         metrics_query.stop()
+
+def test_streaming_dataset_version_resolves_templates(spark, tmp_path: Path) -> None:
+    contract, service = _stream_contract(tmp_path)
+    
+    class InspectingGovernanceService(RecordingGovernanceService):
+        def __init__(self, *, contracts, contract_service) -> None:
+            super().__init__(contracts=contracts, contract_service=contract_service)
+            self.dataset_versions_seen = []
+
+        def evaluate_dataset(self, **kwargs):
+            self.dataset_versions_seen.append(kwargs.get("dataset_version"))
+            return RecordingGovernanceService.Assessment(
+                ValidationResult(ok=True, status="ok"),
+                validation=ValidationResult(ok=True, status="ok"),
+                draft=None,
+            )
+
+        def evaluate_write_plan(self, **kwargs):
+            plan = kwargs.get("plan")
+            self.dataset_versions_seen.append(f"plan:{plan.dataset_version}")
+            return RecordingGovernanceService.Assessment(
+                ValidationResult(ok=True, status="ok"),
+                validation=ValidationResult(ok=True, status="ok"),
+                draft=None,
+            )
+
+    locator = StaticDatasetLocator(format="memory", dataset_version="{batch_id}")
+    governance = InspectingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+        contract_service=service,
+    )
+
+    df = (
+        spark.readStream.format("rate")
+        .options(rowsPerSecond="5", numPartitions="1")
+        .load()
+    )
+
+    result = write_with_governance(
+        df=df,
+        request=GovernanceSparkWriteRequest(
+            context=GovernanceWriteContext(
+                contract=ContractReference(
+                    contract_id=contract.id,
+                    contract_version=contract.version,
+                )
+            ),
+            dataset_locator=locator,
+            format="memory",
+            options={"queryName": "version_template_test"},
+        ),
+        governance_service=governance,
+        enforce=False,
+    )
+
+    queries = result.streaming_queries
+    assert len(queries) == 2
+    metrics_query = next(q for q in queries if "dc43_metrics" in (q.name or ""))
+    sink_query = next(q for q in queries if q is not metrics_query)
+
+    deadline = time.time() + 10
+    while time.time() < deadline and len([v for v in governance.dataset_versions_seen if not str(v).startswith("plan:")]) < 2:
+        if sink_query.isActive:
+            sink_query.processAllAvailable()
+        metrics_query.processAllAvailable()
+        time.sleep(0.5)
+
+    if sink_query.isActive:
+        sink_query.stop()
+    if metrics_query.isActive:
+        metrics_query.stop()
+
+    print("DATASET VERSIONS SEEN:", governance.dataset_versions_seen)
+    assert "plan:init" in governance.dataset_versions_seen, "preflight evaluation should resolve '{batch_id}' to 'init' before streaming starts"
+    batch_evals = [v for v in governance.dataset_versions_seen if str(v) != "plan:init"]
+    assert len(batch_evals) >= 2, f"metrics loop should evaluate at least 2 distinct batches, got {batch_evals}"
+    assert all(str(v).isdigit() for v in batch_evals), f"batch dataset_version templates should properly resolve to integers: {batch_evals}"
+
+
