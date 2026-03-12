@@ -86,6 +86,7 @@ class GovernanceSparkWriteRequest:
     violation_strategy: Optional[Any] = None  # Typed as Any to avoid circular import
     streaming_intervention_strategy: Optional[Any] = None
     writer_modifier: Optional[Callable[[Any], Any]] = None
+    observation_writer_modifier: Optional[Callable[[Any], Any]] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceWriteContext):

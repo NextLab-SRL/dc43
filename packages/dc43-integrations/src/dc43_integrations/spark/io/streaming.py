@@ -378,7 +378,7 @@ class StreamingObservationWriter:
 
         return result
 
-    def start(self, df: DataFrame, *, output_mode: str) -> "StreamingQuery":
+    def start(self, df: DataFrame, *, output_mode: str, modifier: Optional[Callable[[Any], Any]] = None) -> "StreamingQuery":
         """Start the observation writer for ``df`` and return its query handle."""
         if self._active:
             raise RuntimeError("StreamingObservationWriter can only be started once")
@@ -391,6 +391,8 @@ class StreamingObservationWriter:
         writer = writer.option("checkpointLocation", self.checkpoint_location)
         if self.query_name:
             writer = writer.queryName(self.query_name)
+        if modifier:
+            writer = modifier(writer)
         query = writer.start()
         try:
             query_name = query.name  # type: ignore[attr-defined]

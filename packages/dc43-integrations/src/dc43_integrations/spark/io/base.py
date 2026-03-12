@@ -636,6 +636,7 @@ class BaseWriteExecutor:
         
         self.streaming_intervention_strategy = getattr(self.request, 'streaming_intervention_strategy', None)
         self.writer_modifier = getattr(self.request, 'writer_modifier', None)
+        self.observation_writer_modifier = getattr(self.request, 'observation_writer_modifier', None)
         self.streaming_batch_callback = streaming_batch_callback
         self.pipeline_context = getattr(self.request.context, 'pipeline_context', None) or (plan.pipeline_context if plan else None)
 
@@ -787,7 +788,8 @@ class BaseWriteExecutor:
             revalidate=revalidator,
             expectation_predicates=expectation_predicates, pipeline_context=normalise_pipeline_context(pipeline_context),
             streaming=streaming_active, streaming_observation_writer=observation_writer,
-            writer_modifier=self.writer_modifier
+            writer_modifier=self.writer_modifier,
+            observation_writer_modifier=self.observation_writer_modifier
         )
         violation_plan = strategy.plan(context)
         requests = ([violation_plan.primary] if violation_plan.primary else []) + list(violation_plan.additional)
@@ -861,6 +863,7 @@ def _execute_write_request(
             metrics_query = observation_writer.start(
                 df,
                 output_mode=metrics_mode,
+                modifier=request.observation_writer_modifier,
             )
             streaming_handles.append(metrics_query)
             observation_writer.watch_sink_query(query)
