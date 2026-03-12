@@ -804,6 +804,10 @@ class BaseWriteExecutor:
         violation_plan = strategy.plan(context)
         requests = ([violation_plan.primary] if violation_plan.primary else []) + list(violation_plan.additional)
         
+        if streaming_active:
+            if governance_plan and governance_client and assessment and not self._skip_governance_activity:
+                governance_client.register_write_activity(plan=governance_plan, assessment=assessment)
+
         streaming_queries = []
         primary_status = None
         for i, req in enumerate(requests):
@@ -815,8 +819,10 @@ class BaseWriteExecutor:
             streaming_queries.extend(handles)
             if i == 0: primary_status = status
 
-        if governance_plan and governance_client and assessment and not self._skip_governance_activity:
-            governance_client.register_write_activity(plan=governance_plan, assessment=assessment)
+        if not streaming_active:
+            if governance_plan and governance_client and assessment and not self._skip_governance_activity:
+                governance_client.register_write_activity(plan=governance_plan, assessment=assessment)
+
         
         if self.open_data_lineage_only and governance_client:
             event = build_lineage_run_event(operation="write", plan=governance_plan, pipeline_context=pipeline_context, contract_id=contract_id, contract_version=expected_contract_version, dataset_id=dataset_id, dataset_version=preflight_version, validation=result, status=primary_status, expectation_plan=expectation_plan)
@@ -865,6 +871,23 @@ def _execute_write_request(
         if request.format: writer = writer.format(request.format)
         if request.options: writer = writer.options(**request.options)
         if request.writer_modifier: writer = request.writer_modifier(writer)
+        
+        if governance_client and request.contract and request.dataset_id:
+            try:
+                governance_client.link_dataset_contract(
+                    dataset_id=request.dataset_id,
+                    dataset_version=request.dataset_version or "",
+                    contract_id=request.contract.id,
+                    contract_version=request.contract.version,
+                )
+            except Exception:
+                # Defensive logging for linkage failure
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Failed to link dataset %s to contract %s",
+                    request.dataset_id, request.contract.id
+                )
+
         query = writer.toTable(request.table) if request.table else writer.start(request.path)
         streaming_handles.append(query)
         
@@ -884,21 +907,22 @@ def _execute_write_request(
         if request.writer_modifier: writer = request.writer_modifier(writer)
         if request.table: writer.saveAsTable(request.table)
         else: writer.save(request.path)
-    if governance_client and request.contract and request.dataset_id:
-        try:
-            governance_client.link_dataset_contract(
-                dataset_id=request.dataset_id,
-                dataset_version=request.dataset_version or "",
-                contract_id=request.contract.id,
-                contract_version=request.contract.version,
-            )
-        except Exception:
-            # Defensive logging for linkage failure
-            import logging
-            logging.getLogger(__name__).exception(
-                "Failed to link dataset %s to contract %s",
-                request.dataset_id, request.contract.id
-            )
+        
+        if governance_client and request.contract and request.dataset_id:
+            try:
+                governance_client.link_dataset_contract(
+                    dataset_id=request.dataset_id,
+                    dataset_version=request.dataset_version or "",
+                    contract_id=request.contract.id,
+                    contract_version=request.contract.version,
+                )
+            except Exception:
+                # Defensive logging for linkage failure
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Failed to link dataset %s to contract %s",
+                    request.dataset_id, request.contract.id
+                )
 
     return None, validation, streaming_handles
 
