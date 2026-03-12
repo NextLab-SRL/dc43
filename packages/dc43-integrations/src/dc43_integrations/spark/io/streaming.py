@@ -298,10 +298,11 @@ class StreamingObservationWriter:
             expectations=self.expectation_plan,
             collect_metrics=True,
         )
+        
         row_count = metrics.get("row_count")
         if isinstance(row_count, (int, float)) and row_count <= 0:
-            logger.debug(
-                "Skipping empty streaming batch %s for %s@%s",
+            logger.info(
+                "Skipping empty streaming batch %s for %s@%s. (Check your Spark stream checkpoint, 0 rows were read in this micro-batch)",
                 batch_id,
                 self.dataset_id,
                 effective_version,
