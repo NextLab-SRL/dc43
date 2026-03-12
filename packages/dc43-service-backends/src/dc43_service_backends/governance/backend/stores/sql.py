@@ -65,8 +65,12 @@ class SQLGovernanceStore(GovernanceStore):
             metadata,
             Column("dataset_id", String, primary_key=True),
             Column("dataset_version", String, primary_key=True),
+            Column("contract_id", String, nullable=True),
+            Column("contract_version", String, nullable=True),
             Column("payload", Text, nullable=False),
             Column("updated_at", String, nullable=False),
+            Column("recorded_at", String, nullable=True),
+            Column("lineage_event", Text, nullable=True),
         )
         self._links = Table(
             link_table,
