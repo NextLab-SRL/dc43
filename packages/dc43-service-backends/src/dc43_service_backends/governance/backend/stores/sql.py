@@ -70,6 +70,7 @@ class SQLGovernanceStore(GovernanceStore):
             Column("payload", Text, nullable=False),
             Column("updated_at", String, nullable=False),
             Column("recorded_at", String, nullable=True),
+            Column("pipeline_context", Text, nullable=True),
             Column("lineage_event", Text, nullable=True),
         )
         self._links = Table(
@@ -500,12 +501,14 @@ class SQLGovernanceStore(GovernanceStore):
         record["events"] = events
         if lineage_event is not None:
             record["lineage_event"] = dict(lineage_event)
+        record["pipeline_context"] = dict(event.get("pipeline_context") or {})
         record["contract_id"] = contract_id
         record["contract_version"] = contract_version
         extra: dict[str, object] = {
             "contract_id": contract_id,
             "contract_version": contract_version,
             "recorded_at": self._now(),
+            "pipeline_context": json.dumps(record["pipeline_context"]),
         }
         if lineage_event is not None:
             extra["lineage_event"] = json.dumps(dict(lineage_event))

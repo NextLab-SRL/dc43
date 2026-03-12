@@ -139,6 +139,7 @@ class DeltaGovernanceStore(GovernanceStore):
             StructField("contract_version", StringType(), True),
             StructField("recorded_at", StringType(), False),
             StructField("payload", StringType(), False),
+            StructField("pipeline_context", StringType(), True),
             StructField("lineage_event", StringType(), True),
         ]
     )
@@ -564,6 +565,7 @@ class DeltaGovernanceStore(GovernanceStore):
         
         if lineage_event is not None:
             record["lineage_event"] = dict(lineage_event)
+        record["pipeline_context"] = dict(event.get("pipeline_context") or {})
         record["contract_id"] = contract_id
         record["contract_version"] = contract_version
 
@@ -574,6 +576,7 @@ class DeltaGovernanceStore(GovernanceStore):
             "contract_version": contract_version,
             "recorded_at": self._now(),
             "payload": json.dumps(record),
+            "pipeline_context": json.dumps(record["pipeline_context"]),
             "lineage_event": json.dumps(dict(lineage_event)) if lineage_event is not None else None,
         }
         df = self._spark.createDataFrame([payload], schema=self._ACTIVITY_SCHEMA)
