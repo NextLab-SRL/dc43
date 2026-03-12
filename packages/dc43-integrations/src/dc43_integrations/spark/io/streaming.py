@@ -31,6 +31,8 @@ from dc43_service_backends.core.odcs import contract_identity
 
 logger = logging.getLogger(__name__)
 
+_unpicklable_registry: Dict[int, Dict[str, Any]] = {}
+
 
 def _derive_metrics_checkpoint(
     base: Optional[str],
@@ -143,9 +145,21 @@ class StreamingObservationWriter:
 
     def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()
+
+        global _unpicklable_registry
+        _original_id = id(self)
+        _unpicklable_registry[_original_id] = {
+            '_sink_queries': state.get('_sink_queries', []),
+            '_progress_callback': state.get('_progress_callback'),
+            'governance_service': state.get('governance_service'),
+            '_validation': state.get('_validation'),
+            '_batches': state.get('_batches', []),
+        }
+
         # Remove objects that cannot be pickled (e.g. Spark queries, callbacks)
         state['_sink_queries'] = []
         state['_progress_callback'] = None
+        state['_original_id'] = _original_id
         
         # Try to serialize RemoteGovernanceServiceClient configuration to reconstruct on worker
         gov = state.get('governance_service')
@@ -162,6 +176,20 @@ class StreamingObservationWriter:
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
         self.__dict__.update(state)
+        
+        global _unpicklable_registry
+        original_id = state.get('_original_id')
+        if original_id is not None and original_id in _unpicklable_registry:
+            restored = _unpicklable_registry[original_id]
+            self._sink_queries = restored.get('_sink_queries', [])
+            self._progress_callback = restored.get('_progress_callback')
+            self.governance_service = restored.get('governance_service')
+            
+            if restored.get('_validation') is not None:
+                self._validation = restored['_validation']
+            if restored.get('_batches') is not None:
+                self._batches = restored['_batches']
+
         base_url = state.get("_gov_base_url")
         if base_url and self.governance_service is None:
             try:
