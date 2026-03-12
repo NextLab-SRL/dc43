@@ -240,10 +240,11 @@ class StreamingObservationWriter:
         result: ValidationResult,
         *,
         batch_id: int,
+        effective_dataset_version: str,
     ) -> None:
         details = {
             "dataset_id": self.dataset_id,
-            "dataset_version": self.dataset_version,
+            "dataset_version": effective_dataset_version,
             "streaming_batch_id": batch_id,
         }
         if result.metrics:
@@ -265,9 +266,24 @@ class StreamingObservationWriter:
         else:
             self._validation = result
 
+    def _resolve_dataset_version(self, batch_id: int, timestamp: datetime) -> str:
+        """Resolve a dynamic dataset version template with current batch metrics."""
+        if not self.dataset_version:
+            return "unknown"
+        if "{" not in self.dataset_version:
+            return self.dataset_version
+            
+        return self.dataset_version.format(
+            batch_id=batch_id,
+            timestamp=timestamp.strftime("%Y%m%d%H%M%S"),
+            unix_timestamp=int(timestamp.timestamp()),
+        )
+
     def process_batch(self, batch_df: DataFrame, batch_id: int) -> ValidationResult:
         """Validate a micro-batch and update the attached validation."""
         timestamp = datetime.now(timezone.utc)
+        effective_version = self._resolve_dataset_version(batch_id, timestamp)
+        
         schema, metrics = collect_observations(
             batch_df,
             self.contract,
@@ -280,7 +296,7 @@ class StreamingObservationWriter:
                 "Skipping empty streaming batch %s for %s@%s",
                 batch_id,
                 self.dataset_id,
-                self.dataset_version,
+                effective_version,
             )
             self._latest_batch_id = batch_id
             validation = self._validation
@@ -289,7 +305,7 @@ class StreamingObservationWriter:
             validation.merge_details(
                 {
                     "dataset_id": self.dataset_id,
-                    "dataset_version": self.dataset_version,
+                    "dataset_version": effective_version,
                     "streaming_batch_id": batch_id,
                 }
             )
@@ -313,7 +329,7 @@ class StreamingObservationWriter:
                     contract_id=cid,
                     contract_version=cver,
                     dataset_id=self.dataset_id,
-                    dataset_version=self.dataset_version,
+                    dataset_version=effective_version,
                     validation=None,
                     observations=_obs,
                     pipeline_context=self.pipeline_context,
@@ -340,7 +356,7 @@ class StreamingObservationWriter:
             errors=result.errors if result.errors else None,
             warnings=result.warnings if result.warnings else None,
         )
-        self._merge_batch_details(result, batch_id=batch_id)
+        self._merge_batch_details(result, batch_id=batch_id, effective_dataset_version=effective_version)
 
         if self.enforce and not result.ok:
             self._stop_sink_queries()
@@ -354,7 +370,7 @@ class StreamingObservationWriter:
                 batch_id=batch_id,
                 validation=result,
                 dataset_id=self.dataset_id,
-                dataset_version=self.dataset_version,
+                dataset_version=effective_version,
             )
         )
         if decision:
