@@ -757,6 +757,7 @@ class BaseWriteExecutor:
                 checkpoint_location=checkpoint_option,
                 intervention=streaming_intervention_strategy,
                 progress_callback=self.streaming_batch_callback,
+                pipeline_context=pipeline_context,
             )
         expectation_predicates: Mapping[str, str] = {}
         predicates = result.details.get("expectation_predicates")

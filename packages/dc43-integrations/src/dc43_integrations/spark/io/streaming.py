@@ -106,12 +106,14 @@ class StreamingObservationWriter:
         checkpoint_location: Optional[str] = None,
         intervention: Optional[StreamingInterventionStrategy] = None,
         progress_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
+        pipeline_context: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self.contract = contract
         self.expectation_plan = list(expectation_plan)
         self.governance_service = governance_service
         self.dataset_id = dataset_id or "unknown"
         self.dataset_version = dataset_version or "unknown"
+        self.pipeline_context = pipeline_context
         self.enforce = enforce
         self._validation: Optional[ValidationResult] = None
         self._latest_batch_id: Optional[int] = None
@@ -314,7 +316,7 @@ class StreamingObservationWriter:
                     dataset_version=self.dataset_version,
                     validation=None,
                     observations=_obs,
-                    pipeline_context=None,
+                    pipeline_context=self.pipeline_context,
                     operation="write",
                 )
                 result = assessment.validation or assessment.status
