@@ -876,6 +876,23 @@ def _execute_write_request(
         if request.writer_modifier: writer = request.writer_modifier(writer)
         
         if governance_client and request.contract and request.dataset_id:
+            # Pre-create streaming sink to avoid TABLE_OR_VIEW_NOT_FOUND during property sync
+            try:
+                spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+                if spark is not None:
+                    empty_df = spark.createDataFrame([], getattr(df, "schema", None))
+                    tgt_fmt = request.format or "delta"
+                    if request.table:
+                        try:
+                            if not spark.catalog.tableExists(request.table):
+                                empty_df.write.format(tgt_fmt).mode("ignore").saveAsTable(request.table)
+                        except Exception:
+                            empty_df.write.format(tgt_fmt).mode("ignore").saveAsTable(request.table)
+                    elif not request.table and request.path and tgt_fmt.lower() == "delta":
+                        empty_df.write.format("delta").mode("ignore").save(request.path)
+            except Exception:
+                pass
+
             try:
                 governance_client.link_dataset_contract(
                     dataset_id=request.dataset_id,
