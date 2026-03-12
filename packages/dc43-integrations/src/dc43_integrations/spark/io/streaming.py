@@ -345,8 +345,12 @@ class StreamingObservationWriter:
                     operation="write",
                 )
                 result = assessment.validation or assessment.status
+                logger.info(
+                    "Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
+                    batch_id, effective_version, len(result.errors if result else []), len(result.metrics if result else {})
+                )
             except Exception as e:
-                logger.warning("Streaming observation service evaluation failed, falling back to offline: %s", e)
+                logger.exception("Streaming observation service evaluation failed, falling back to offline:")
                 
         if result is None:
             result = self._evaluate_without_service(schema=schema, metrics=metrics)
