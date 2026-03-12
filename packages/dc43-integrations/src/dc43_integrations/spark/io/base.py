@@ -716,6 +716,9 @@ class BaseWriteExecutor:
         if streaming_active and not dataset_version:
             dataset_version = _timestamp()
 
+        # Render timestamps once for the run, but leave batch_id dynamic if present
+        dataset_version = resolve_dataset_version(dataset_version, batch_id=None)
+
         governance_client = _as_governance_service(governance_service)
         result = ValidationResult(ok=True, errors=[], warnings=[], metrics={})
         assessment: Optional[QualityAssessment] = None
@@ -761,7 +764,7 @@ class BaseWriteExecutor:
                 expectation_plan=expectation_plan,
                 governance_service=governance_service,
                 dataset_id=dataset_id,
-                dataset_version=preflight_version,
+                dataset_version=dataset_version,
                 enforce=enforce,
                 checkpoint_location=obs_checkpoint,
                 intervention=streaming_intervention_strategy,
