@@ -418,6 +418,85 @@ class SplitWriteViolationStrategy:
 
 
 @dataclass
+class FlagWriteViolationStrategy:
+    """Flag invalid rows with an array of broken expectations."""
+
+    column_name: str = "_corrupted_data"
+    allowed_contract_statuses: tuple[str, ...] = ("active",)
+    allow_missing_contract_status: bool = True
+    contract_status_case_insensitive: bool = True
+    contract_status_failure_message: str | None = None
+    allowed_data_product_statuses: tuple[str, ...] = ("active",)
+    allow_missing_data_product_status: bool = True
+    data_product_status_case_insensitive: bool = True
+    data_product_status_failure_message: str | None = None
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io.validation import _validate_contract_status
+
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_contract_statuses,
+            allow_missing=self.allow_missing_contract_status,
+            case_insensitive=self.contract_status_case_insensitive,
+            failure_message=self.contract_status_failure_message,
+        )
+
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io.validation import _validate_data_product_status
+
+        _validate_data_product_status(
+            data_product=data_product,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_data_product_statuses,
+            allow_missing=self.allow_missing_data_product_status,
+            case_insensitive=self.data_product_status_case_insensitive,
+            failure_message=self.data_product_status_failure_message,
+        )
+
+    def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401
+        from pyspark.sql import functions as F
+
+        predicates = context.expectation_predicates
+        if not predicates:
+            return WritePlan(primary=context.base_request())
+
+        df = context.aligned_df
+        flag_columns = []
+        for name, sql_expr in predicates.items():
+            flag_columns.append(
+                F.when(~F.expr(sql_expr), F.lit(name))
+            )
+
+        # Array of failed predicates for the row, dropping nulls
+        flag_array = F.array_compact(F.array(*flag_columns))
+        df_flagged = df.withColumn(
+            self.column_name,
+            F.when(F.size(flag_array) > 0, flag_array).otherwise(F.lit(None))
+        )
+
+        request = context.base_request()
+        request.df = df_flagged
+        return WritePlan(primary=request)
+
+
+
+@dataclass
 class StrictWriteViolationStrategy:
     """Decorate another strategy and fail the run when violations persist."""
 

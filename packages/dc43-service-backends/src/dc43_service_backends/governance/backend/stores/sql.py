@@ -272,6 +272,11 @@ class SQLGovernanceStore(GovernanceStore):
             )
         if metrics_entries:
             with self._engine.begin() as conn:
+                conn.execute(
+                    self._metrics.delete()
+                    .where(self._metrics.c.dataset_id == dataset_id)
+                    .where(self._metrics.c.dataset_version == dataset_version)
+                )
                 conn.execute(self._metrics.insert(), metrics_entries)
 
     def load_status(
@@ -486,14 +491,22 @@ class SQLGovernanceStore(GovernanceStore):
             }
         events = list(record.get("events") or [])
         events.append(dict(event))
+        if len(events) > 100:
+            events = events[-100:]
         record["events"] = events
         if lineage_event is not None:
             record["lineage_event"] = dict(lineage_event)
         record["contract_id"] = contract_id
         record["contract_version"] = contract_version
-        extra: Mapping[str, object] | None = None
+        extra: dict[str, object] = {
+            "contract_id": contract_id,
+            "contract_version": contract_version,
+            "recorded_at": self._now(),
+        }
+        if lineage_event is not None:
+            extra["lineage_event"] = json.dumps(dict(lineage_event))
         if self._activity_has_updated_at:
-            extra = {"updated_at": self._now()}
+            extra["updated_at"] = self._now()
         self._write_payload(
             self._activity,
             dataset_id=dataset_id,

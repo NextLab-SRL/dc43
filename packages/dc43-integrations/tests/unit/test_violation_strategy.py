@@ -119,3 +119,58 @@ def test_strict_strategy_inherits_contract_status_policy():
     # Using the decorator should honour the wrapped policy, so "draft" is accepted
     # instead of failing with the default "active" requirement.
     strict.validate_contract_status(contract=contract, enforce=True, operation="write")
+
+
+def test_flag_strategy_returns_base_request_when_no_predicates():
+    from dc43_integrations.spark.violation_strategy import FlagWriteViolationStrategy
+    context = make_context(rows=[FakeRow(False)], expectation_predicates={})
+    plan = FlagWriteViolationStrategy().plan(context)
+
+    assert plan.primary is not None
+    assert not plan.additional
+    assert plan.primary.df is context.aligned_df
+
+
+def test_flag_strategy_adds_corrupted_data_column(spark):
+    from dc43_integrations.spark.violation_strategy import FlagWriteViolationStrategy
+    import pyspark.sql.functions as F
+    
+    # We use a real dataframe to test the column addition
+    df = spark.createDataFrame(
+        [(1, 100), (2, -50), (3, 200)],
+        ["id", "amount"]
+    )
+    
+    validation = FakeValidation()
+    context = WriteStrategyContext(
+        df=df,
+        aligned_df=df,
+        contract=None,
+        path="/tmp/dataset",
+        table="analytics.orders",
+        format="delta",
+        options={},
+        mode="append",
+        validation=validation,
+        dataset_id="orders",
+        dataset_version="v1",
+        revalidate=lambda _: validation,
+        expectation_predicates={"amount_positive": "amount > 0", "id_positive": "id > 0"},
+        pipeline_context=None,
+    )
+    
+    strategy = FlagWriteViolationStrategy(column_name="_corrupted_data")
+    plan = strategy.plan(context)
+    
+    assert plan.primary is not None
+    assert plan.primary.df is not df
+    assert "_corrupted_data" in plan.primary.df.columns
+    
+    results = plan.primary.df.orderBy("id").collect()
+    # id 1: amount=100 -> valid (null)
+    assert results[0]["_corrupted_data"] is None
+    # id 2: amount=-50 -> invalid amount_positive
+    assert results[1]["_corrupted_data"] == ["amount_positive"]
+    # id 3: amount=200 -> valid (null)
+    assert results[2]["_corrupted_data"] is None
+

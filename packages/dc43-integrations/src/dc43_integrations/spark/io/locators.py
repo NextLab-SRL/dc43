@@ -192,7 +192,7 @@ class ContractFirstDatasetLocator:
             path=path,
             table=table,
             format=format,
-            include_timestamp=True,
+            include_timestamp=False,
         )
 
 

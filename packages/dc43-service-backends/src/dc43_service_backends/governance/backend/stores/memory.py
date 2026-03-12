@@ -185,6 +185,8 @@ class InMemoryGovernanceStore(GovernanceStore):
         payload = dict(event)
         payload.setdefault("recorded_at", recorded_at)
         events.append(payload)
+        if len(events) > 100:
+            events = events[-100:]
         entry["events"] = events
         if lineage_event is not None:
             entry["lineage_event"] = dict(lineage_event)

@@ -231,6 +231,8 @@ class FilesystemGovernanceStore(GovernanceStore):
             }
         events = list(record.get("events") or [])
         events.append(dict(event))
+        if len(events) > 100:
+            events = events[-100:]
         record["events"] = events
         if lineage_event is not None:
             record["lineage_event"] = dict(lineage_event)
