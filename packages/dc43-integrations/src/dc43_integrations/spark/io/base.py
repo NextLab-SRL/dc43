@@ -752,6 +752,9 @@ class BaseWriteExecutor:
 
         observation_writer: Optional[StreamingObservationWriter] = None
         checkpoint_option = options.get("checkpointLocation") if options else None
+        obs_checkpoint = None
+        if checkpoint_option:
+            obs_checkpoint = f"{checkpoint_option.rstrip('/')}/_dc43_obs"
         if streaming_active and contract:
             observation_writer = StreamingObservationWriter(
                 contract=contract,
@@ -760,7 +763,7 @@ class BaseWriteExecutor:
                 dataset_id=dataset_id,
                 dataset_version=dataset_version,
                 enforce=enforce,
-                checkpoint_location=checkpoint_option,
+                checkpoint_location=obs_checkpoint,
                 intervention=streaming_intervention_strategy,
                 progress_callback=self.streaming_batch_callback,
                 pipeline_context=pipeline_context,
