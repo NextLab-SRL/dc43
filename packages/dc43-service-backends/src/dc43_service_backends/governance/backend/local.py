@@ -1961,6 +1961,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     "warnings": list(validation.warnings),
                     "violations": violation_total or len(validation.errors),
                 },
+                metrics=validation.metrics,
             )
 
         if violation_total > 0:
@@ -1979,11 +1980,13 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     status="block",
                     reason=reason,
                     details=details,
+                    metrics=validation.metrics,
                 )
             return ValidationResult(
                 status="warn",
                 reason=reason,
                 details=details,
+                metrics=validation.metrics,
             )
 
         if validation.warnings:
@@ -1994,9 +1997,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     "warnings": list(validation.warnings),
                     "violations": violation_total,
                 },
+                metrics=validation.metrics,
             )
 
-        return ValidationResult(status="ok", details={"violations": 0})
+        return ValidationResult(status="ok", details={"violations": 0}, metrics=validation.metrics)
 
     def _record_pipeline_activity(
         self,
