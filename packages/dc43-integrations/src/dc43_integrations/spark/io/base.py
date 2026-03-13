@@ -860,6 +860,45 @@ def _execute_write_request(
         except RuntimeError:
             pass
 
+    if governance_client and request.contract and request.dataset_id:
+        # Pre-create streaming sink to avoid TABLE_OR_VIEW_NOT_FOUND during property sync
+        if request.streaming:
+            try:
+                # Need spark session to evaluate options and execute CREATE TABLE
+                spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+                if spark is not None:
+                    tgt_fmt = request.format or "delta"
+                    if tgt_fmt.lower() == "delta":
+                        if request.table:
+                            try:
+                                if not spark.catalog.tableExists(request.table):
+                                    fields_def = ", ".join([f"`{field.name}` {field.dataType.simpleString()}" for field in getattr(df, "schema", [])])
+                                    spark.sql(f"CREATE TABLE IF NOT EXISTS {request.table} ({fields_def}) USING {tgt_fmt}")
+                            except Exception:
+                                empty_df = spark.createDataFrame([], getattr(df, "schema", None))
+                                empty_df.write.format(tgt_fmt).mode("append").saveAsTable(request.table)
+                        elif request.path:
+                            empty_df = spark.createDataFrame([], getattr(df, "schema", None))
+                            empty_df.write.format(tgt_fmt).mode("append").save(request.path)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to pre-create streaming sink: %s", e)
+        
+        try:
+            governance_client.link_dataset_contract(
+                dataset_id=request.dataset_id,
+                dataset_version=request.dataset_version or "",
+                contract_id=request.contract.id,
+                contract_version=request.contract.version,
+            )
+        except Exception:
+            # Defensive logging for linkage failure
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to link dataset %s to contract %s",
+                request.dataset_id, request.contract.id
+            )
+
     if request.streaming:
         writer = df.writeStream.outputMode(request.mode or "append")
         if request.format: writer = writer.format(request.format)
@@ -884,21 +923,6 @@ def _execute_write_request(
         if request.writer_modifier: writer = request.writer_modifier(writer)
         if request.table: writer.saveAsTable(request.table)
         else: writer.save(request.path)
-    if governance_client and request.contract and request.dataset_id:
-        try:
-            governance_client.link_dataset_contract(
-                dataset_id=request.dataset_id,
-                dataset_version=request.dataset_version or "",
-                contract_id=request.contract.id,
-                contract_version=request.contract.version,
-            )
-        except Exception:
-            # Defensive logging for linkage failure
-            import logging
-            logging.getLogger(__name__).exception(
-                "Failed to link dataset %s to contract %s",
-                request.dataset_id, request.contract.id
-            )
 
     return None, validation, streaming_handles
 

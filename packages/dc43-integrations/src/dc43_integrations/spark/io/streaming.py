@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -130,6 +131,7 @@ class StreamingObservationWriter:
         self._batches: List[Dict[str, Any]] = []
         self._progress_callback = progress_callback
         self._sink_queries: List[Any] = []
+        self._debug_log_path = os.environ.get("DC43_STREAMING_DEBUG_LOG")
 
     @property
     def checkpoint_location(self) -> str:
@@ -154,6 +156,13 @@ class StreamingObservationWriter:
             client = getattr(gov, "_client", None)
             if client is not None and hasattr(client, "headers"):
                 state["_gov_headers"] = dict(client.headers)
+        elif gov is not None and type(gov).__name__ == "LocalGovernanceServiceBackend":
+            import os
+            # Capture relevant environment variables to re-bootstrap the local backend on the worker
+            state["_gov_env"] = {
+                k: v for k, v in os.environ.items() 
+                if k.startswith("DC43_") or k.startswith("DATABRICKS_")
+            }
                 
         # Drop governance_service to prevent httpx weakref PicklingError on Spark Connect.
         # Fallback evaluation will be used in the worker if reconstruction fails.
@@ -174,16 +183,44 @@ class StreamingObservationWriter:
             except Exception:
                 pass
 
+        gov_env = state.get("_gov_env")
+        if gov_env is not None and self.governance_service is None:
+            try:
+                import os
+                # Temporarily inject environment variables needed for configuration
+                original_env_values = {}
+                for k, v in gov_env.items():
+                    if k in os.environ:
+                        original_env_values[k] = os.environ[k]
+                    os.environ[k] = v
+                
+                from dc43_service_backends.config import load_config
+                from dc43_service_backends.bootstrap import build_backends
+                
+                config = load_config()
+                suite = build_backends(config)
+                self.governance_service = suite.governance
+                
+                # Restore original environment
+                for k in gov_env:
+                    if k in original_env_values:
+                        os.environ[k] = original_env_values[k]
+                    else:
+                        os.environ.pop(k, None)
+            except Exception:
+                pass
+
     def attach_validation(self, validation: ValidationResult) -> None:
         """Attach the validation object that should receive streaming metrics."""
         if self._validation is not None and self._validation is not validation:
             raise RuntimeError("StreamingObservationWriter already bound to a validation")
 
         self._validation = validation
+        effective_version = resolve_dataset_version(self.dataset_version, batch_id="init")
         validation.merge_details(
             {
                 "dataset_id": self.dataset_id,
-                "dataset_version": self.dataset_version,
+                "dataset_version": effective_version,
             }
         )
 
@@ -292,12 +329,61 @@ class StreamingObservationWriter:
         timestamp = datetime.now(timezone.utc)
         effective_version = resolve_dataset_version(self.dataset_version, batch_id, timestamp)
         
-        schema, metrics = collect_observations(
-            batch_df,
-            self.contract,
-            expectations=self.expectation_plan,
-            collect_metrics=True,
-        )
+        debug_log_path = getattr(self, "_debug_log_path", None)
+        if debug_log_path:
+            try:
+                import json
+                with open(debug_log_path, "a") as f:
+                    f.write(json.dumps({"event": "start_batch", "batch_id": batch_id, "dataset": f"{self.dataset_id}@{effective_version}", "timestamp": str(timestamp)}) + "\n")
+            except Exception:
+                pass
+
+        logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
+        
+        try:
+            from dc43_integrations.spark.data_quality import schema_snapshot, compute_metrics
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "calling_schema_snapshot", "batch_id": batch_id}) + "\n")
+                except Exception:
+                    pass
+                    
+            schema = schema_snapshot(batch_df)
+            
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "calling_compute_metrics", "batch_id": batch_id}) + "\n")
+                except Exception:
+                    pass
+                    
+            metrics = compute_metrics(
+                batch_df,
+                self.contract,
+                expectations=self.expectation_plan,
+            )
+            
+            logger.info(f"DC43: Extracted schema and metrics for batch {batch_id}: {metrics}")
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "metrics_collected", "batch_id": batch_id, "metrics": metrics}) + "\n")
+                except Exception:
+                    pass
+        except BaseException as e:
+            logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "metrics_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
+                except Exception:
+                    pass
+            schema, metrics = None, {}
         
         row_count = metrics.get("row_count")
         if isinstance(row_count, (int, float)) and row_count <= 0:
@@ -334,6 +420,7 @@ class StreamingObservationWriter:
         result = None
         if self.governance_service is not None:
             try:
+                logger.info(f"DC43: Using governance service '{type(self.governance_service).__name__}' to evaluate batch {batch_id}")
                 assessment = self.governance_service.evaluate_dataset(
                     contract_id=cid,
                     contract_version=cver,
@@ -346,14 +433,36 @@ class StreamingObservationWriter:
                 )
                 result = assessment.validation or assessment.status
                 logger.info(
-                    "Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
+                    "DC43: Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
                     batch_id, effective_version, len(result.errors if result else []), len(result.metrics if result else {})
                 )
+                if debug_log_path:
+                    try:
+                        import json
+                        with open(debug_log_path, "a") as f:
+                            f.write(json.dumps({
+                                "event": "governance_evaluation", 
+                                "batch_id": batch_id, 
+                                "backend": type(self.governance_service).__name__,
+                                "ok": result.ok if result else None,
+                                "violations": len(result.errors) if result and result.errors else 0
+                            }) + "\n")
+                    except Exception:
+                        pass
             except Exception as e:
-                logger.exception("Streaming observation service evaluation failed, falling back to offline:")
-                
+                logger.exception(f"DC43: Streaming observation service evaluation failed for batch {batch_id}, falling back to offline: {e}")
+                if debug_log_path:
+                    try:
+                        import json
+                        with open(debug_log_path, "a") as f:
+                            f.write(json.dumps({"event": "governance_error", "batch_id": batch_id, "error": str(e)}) + "\n")
+                    except Exception:
+                        pass
+
         if result is None:
+            logger.info(f"DC43: Falling back to offline evaluation for batch {batch_id}")
             result = self._evaluate_without_service(schema=schema, metrics=metrics)
+            logger.info(f"DC43: Offline fallback evaluation generated {len(result.errors if result else [])} errors, {len(result.metrics if result else {})} metrics.")
         self._latest_batch_id = batch_id
         status = "ok"
         if result.errors:
