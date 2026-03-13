@@ -761,7 +761,7 @@ class BaseWriteExecutor:
                 expectation_plan=expectation_plan,
                 governance_service=governance_service,
                 dataset_id=dataset_id,
-                dataset_version=preflight_version,
+                dataset_version=dataset_version,
                 enforce=enforce,
                 checkpoint_location=obs_checkpoint,
                 intervention=streaming_intervention_strategy,
