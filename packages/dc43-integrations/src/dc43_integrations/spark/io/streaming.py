@@ -326,6 +326,15 @@ class StreamingObservationWriter:
         timestamp = datetime.now(timezone.utc)
         effective_version = resolve_dataset_version(self.dataset_version, batch_id, timestamp)
         
+        debug_log_path = os.environ.get("DC43_STREAMING_DEBUG_LOG")
+        if debug_log_path:
+            try:
+                import json
+                with open(debug_log_path, "a") as f:
+                    f.write(json.dumps({"event": "start_batch", "batch_id": batch_id, "dataset": f"{self.dataset_id}@{effective_version}", "timestamp": str(timestamp)}) + "\n")
+            except Exception:
+                pass
+
         logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
         
         try:
@@ -336,8 +345,22 @@ class StreamingObservationWriter:
                 collect_metrics=True,
             )
             logger.info(f"DC43: Extracted schema and metrics for batch {batch_id}: {metrics}")
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "metrics_collected", "batch_id": batch_id, "metrics": metrics}) + "\n")
+                except Exception:
+                    pass
         except Exception as e:
             logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "metrics_error", "batch_id": batch_id, "error": str(e)}) + "\n")
+                except Exception:
+                    pass
             schema, metrics = None, {}
         
         row_count = metrics.get("row_count")
@@ -391,9 +414,29 @@ class StreamingObservationWriter:
                     "DC43: Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
                     batch_id, effective_version, len(result.errors if result else []), len(result.metrics if result else {})
                 )
+                if debug_log_path:
+                    try:
+                        import json
+                        with open(debug_log_path, "a") as f:
+                            f.write(json.dumps({
+                                "event": "governance_evaluation", 
+                                "batch_id": batch_id, 
+                                "backend": type(self.governance_service).__name__,
+                                "ok": result.ok if result else None,
+                                "violations": len(result.errors) if result and result.errors else 0
+                            }) + "\n")
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.exception(f"DC43: Streaming observation service evaluation failed for batch {batch_id}, falling back to offline: {e}")
-                
+                if debug_log_path:
+                    try:
+                        import json
+                        with open(debug_log_path, "a") as f:
+                            f.write(json.dumps({"event": "governance_error", "batch_id": batch_id, "error": str(e)}) + "\n")
+                    except Exception:
+                        pass
+
         if result is None:
             logger.info(f"DC43: Falling back to offline evaluation for batch {batch_id}")
             result = self._evaluate_without_service(schema=schema, metrics=metrics)
