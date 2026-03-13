@@ -168,7 +168,14 @@ class StreamingObservationWriter:
             client = getattr(gov, "_client", None)
             if client is not None and hasattr(client, "headers"):
                 state["_gov_headers"] = dict(client.headers)
-                
+        elif gov is not None and type(gov).__name__ == "LocalGovernanceServiceBackend":
+            import os
+            # Capture relevant environment variables to re-bootstrap the local backend on the worker
+            state["_gov_env"] = {
+                k: v for k, v in os.environ.items() 
+                if k.startswith("DC43_") or k.startswith("DATABRICKS_")
+            }
+
         # Drop governance_service to prevent httpx weakref PicklingError on Spark Connect.
         # Fallback evaluation will be used in the worker if reconstruction fails.
         state['governance_service'] = None
@@ -199,6 +206,27 @@ class StreamingObservationWriter:
                     base_url=base_url,
                     headers=headers,
                 )
+            except Exception:
+                pass
+
+        gov_env = state.get("_gov_env")
+        if gov_env is not None and self.governance_service is None:
+            try:
+                import os
+                # Temporarily inject environment variables needed for configuration
+                original_env = os.environ.copy()
+                os.environ.update(gov_env)
+                
+                from dc43_service_backends.config import load_config
+                from dc43_service_backends.bootstrap import build_backends
+                
+                config = load_config()
+                suite = build_backends(config)
+                self.governance_service = suite.governance
+                
+                # Restore original environment
+                os.environ.clear()
+                os.environ.update(original_env)
             except Exception:
                 pass
 
