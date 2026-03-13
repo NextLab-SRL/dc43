@@ -885,13 +885,14 @@ def _execute_write_request(
                     if request.table:
                         try:
                             if not spark.catalog.tableExists(request.table):
-                                empty_df.write.format(tgt_fmt).mode("ignore").saveAsTable(request.table)
+                                empty_df.write.format(tgt_fmt).mode("append").saveAsTable(request.table)
                         except Exception:
-                            empty_df.write.format(tgt_fmt).mode("ignore").saveAsTable(request.table)
+                            empty_df.write.format(tgt_fmt).mode("append").saveAsTable(request.table)
                     elif not request.table and request.path and tgt_fmt.lower() == "delta":
-                        empty_df.write.format("delta").mode("ignore").save(request.path)
-            except Exception:
-                pass
+                        empty_df.write.format("delta").mode("append").save(request.path)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to pre-create streaming sink: %s", e)
 
             try:
                 governance_client.link_dataset_contract(
