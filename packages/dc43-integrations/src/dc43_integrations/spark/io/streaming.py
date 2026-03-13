@@ -326,12 +326,19 @@ class StreamingObservationWriter:
         timestamp = datetime.now(timezone.utc)
         effective_version = resolve_dataset_version(self.dataset_version, batch_id, timestamp)
         
-        schema, metrics = collect_observations(
-            batch_df,
-            self.contract,
-            expectations=self.expectation_plan,
-            collect_metrics=True,
-        )
+        logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
+        
+        try:
+            schema, metrics = collect_observations(
+                batch_df,
+                self.contract,
+                expectations=self.expectation_plan,
+                collect_metrics=True,
+            )
+            logger.info(f"DC43: Extracted schema and metrics for batch {batch_id}: {metrics}")
+        except Exception as e:
+            logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
+            schema, metrics = None, {}
         
         row_count = metrics.get("row_count")
         if isinstance(row_count, (int, float)) and row_count <= 0:
@@ -368,6 +375,7 @@ class StreamingObservationWriter:
         result = None
         if self.governance_service is not None:
             try:
+                logger.info(f"DC43: Using governance service '{type(self.governance_service).__name__}' to evaluate batch {batch_id}")
                 assessment = self.governance_service.evaluate_dataset(
                     contract_id=cid,
                     contract_version=cver,
@@ -380,14 +388,16 @@ class StreamingObservationWriter:
                 )
                 result = assessment.validation or assessment.status
                 logger.info(
-                    "Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
+                    "DC43: Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
                     batch_id, effective_version, len(result.errors if result else []), len(result.metrics if result else {})
                 )
             except Exception as e:
-                logger.exception("Streaming observation service evaluation failed, falling back to offline:")
+                logger.exception(f"DC43: Streaming observation service evaluation failed for batch {batch_id}, falling back to offline: {e}")
                 
         if result is None:
+            logger.info(f"DC43: Falling back to offline evaluation for batch {batch_id}")
             result = self._evaluate_without_service(schema=schema, metrics=metrics)
+            logger.info(f"DC43: Offline fallback evaluation generated {len(result.errors if result else [])} errors, {len(result.metrics if result else {})} metrics.")
         self._latest_batch_id = batch_id
         status = "ok"
         if result.errors:

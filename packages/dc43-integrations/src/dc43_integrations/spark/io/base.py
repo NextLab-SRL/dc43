@@ -860,30 +860,6 @@ def _execute_write_request(
         except RuntimeError:
             pass
 
-    if request.streaming:
-        writer = df.writeStream.outputMode(request.mode or "append")
-        if request.format: writer = writer.format(request.format)
-        if request.options: writer = writer.options(**request.options)
-        if request.writer_modifier: writer = request.writer_modifier(writer)
-        query = writer.toTable(request.table) if request.table else writer.start(request.path)
-        streaming_handles.append(query)
-        
-        if observation_writer is not None and not observation_writer.active:
-            metrics_mode = request.mode or "append"
-            metrics_query = observation_writer.start(
-                df,
-                output_mode=metrics_mode,
-                modifier=request.observation_writer_modifier,
-            )
-            streaming_handles.append(metrics_query)
-            observation_writer.watch_sink_query(query)
-    else:
-        writer = df.write.mode(request.mode)
-        if request.format: writer = writer.format(request.format)
-        if request.options: writer = writer.options(**request.options)
-        if request.writer_modifier: writer = request.writer_modifier(writer)
-        if request.table: writer.saveAsTable(request.table)
-        else: writer.save(request.path)
     if governance_client and request.contract and request.dataset_id:
         # Pre-create streaming sink to avoid TABLE_OR_VIEW_NOT_FOUND during property sync
         if request.streaming:
@@ -922,6 +898,31 @@ def _execute_write_request(
                 "Failed to link dataset %s to contract %s",
                 request.dataset_id, request.contract.id
             )
+
+    if request.streaming:
+        writer = df.writeStream.outputMode(request.mode or "append")
+        if request.format: writer = writer.format(request.format)
+        if request.options: writer = writer.options(**request.options)
+        if request.writer_modifier: writer = request.writer_modifier(writer)
+        query = writer.toTable(request.table) if request.table else writer.start(request.path)
+        streaming_handles.append(query)
+        
+        if observation_writer is not None and not observation_writer.active:
+            metrics_mode = request.mode or "append"
+            metrics_query = observation_writer.start(
+                df,
+                output_mode=metrics_mode,
+                modifier=request.observation_writer_modifier,
+            )
+            streaming_handles.append(metrics_query)
+            observation_writer.watch_sink_query(query)
+    else:
+        writer = df.write.mode(request.mode)
+        if request.format: writer = writer.format(request.format)
+        if request.options: writer = writer.options(**request.options)
+        if request.writer_modifier: writer = request.writer_modifier(writer)
+        if request.table: writer.saveAsTable(request.table)
+        else: writer.save(request.path)
 
     return None, validation, streaming_handles
 
