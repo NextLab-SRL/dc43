@@ -216,10 +216,11 @@ class StreamingObservationWriter:
             raise RuntimeError("StreamingObservationWriter already bound to a validation")
 
         self._validation = validation
+        effective_version = resolve_dataset_version(self.dataset_version, batch_id="init")
         validation.merge_details(
             {
                 "dataset_id": self.dataset_id,
-                "dataset_version": self.dataset_version,
+                "dataset_version": effective_version,
             }
         )
 
