@@ -131,6 +131,7 @@ class StreamingObservationWriter:
         self._batches: List[Dict[str, Any]] = []
         self._progress_callback = progress_callback
         self._sink_queries: List[Any] = []
+        self._debug_log_path = os.environ.get("DC43_STREAMING_DEBUG_LOG")
 
     @property
     def checkpoint_location(self) -> str:
@@ -327,7 +328,7 @@ class StreamingObservationWriter:
         timestamp = datetime.now(timezone.utc)
         effective_version = resolve_dataset_version(self.dataset_version, batch_id, timestamp)
         
-        debug_log_path = os.environ.get("DC43_STREAMING_DEBUG_LOG")
+        debug_log_path = getattr(self, "_debug_log_path", None)
         if debug_log_path:
             try:
                 import json
