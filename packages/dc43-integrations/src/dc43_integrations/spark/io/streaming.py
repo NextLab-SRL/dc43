@@ -31,8 +31,6 @@ from dc43_service_backends.core.odcs import contract_identity
 
 logger = logging.getLogger(__name__)
 
-_unpicklable_registry: Dict[int, Dict[str, Any]] = {}
-
 
 def _derive_metrics_checkpoint(
     base: Optional[str],
@@ -145,21 +143,9 @@ class StreamingObservationWriter:
 
     def __getstate__(self) -> Dict[str, Any]:
         state = self.__dict__.copy()
-
-        global _unpicklable_registry
-        _original_id = id(self)
-        _unpicklable_registry[_original_id] = {
-            '_sink_queries': state.get('_sink_queries', []),
-            '_progress_callback': state.get('_progress_callback'),
-            'governance_service': state.get('governance_service'),
-            '_validation': state.get('_validation'),
-            '_batches': state.get('_batches', []),
-        }
-
         # Remove objects that cannot be pickled (e.g. Spark queries, callbacks)
         state['_sink_queries'] = []
         state['_progress_callback'] = None
-        state['_original_id'] = _original_id
         
         # Try to serialize RemoteGovernanceServiceClient configuration to reconstruct on worker
         gov = state.get('governance_service')
@@ -175,7 +161,7 @@ class StreamingObservationWriter:
                 k: v for k, v in os.environ.items() 
                 if k.startswith("DC43_") or k.startswith("DATABRICKS_")
             }
-
+                
         # Drop governance_service to prevent httpx weakref PicklingError on Spark Connect.
         # Fallback evaluation will be used in the worker if reconstruction fails.
         state['governance_service'] = None
@@ -183,20 +169,6 @@ class StreamingObservationWriter:
 
     def __setstate__(self, state: Dict[str, Any]) -> None:
         self.__dict__.update(state)
-        
-        global _unpicklable_registry
-        original_id = state.get('_original_id')
-        if original_id is not None and original_id in _unpicklable_registry:
-            restored = _unpicklable_registry[original_id]
-            self._sink_queries = restored.get('_sink_queries', [])
-            self._progress_callback = restored.get('_progress_callback')
-            self.governance_service = restored.get('governance_service')
-            
-            if restored.get('_validation') is not None:
-                self._validation = restored['_validation']
-            if restored.get('_batches') is not None:
-                self._batches = restored['_batches']
-
         base_url = state.get("_gov_base_url")
         if base_url and self.governance_service is None:
             try:
@@ -214,8 +186,11 @@ class StreamingObservationWriter:
             try:
                 import os
                 # Temporarily inject environment variables needed for configuration
-                original_env = os.environ.copy()
-                os.environ.update(gov_env)
+                original_env_values = {}
+                for k, v in gov_env.items():
+                    if k in os.environ:
+                        original_env_values[k] = os.environ[k]
+                    os.environ[k] = v
                 
                 from dc43_service_backends.config import load_config
                 from dc43_service_backends.bootstrap import build_backends
@@ -225,8 +200,11 @@ class StreamingObservationWriter:
                 self.governance_service = suite.governance
                 
                 # Restore original environment
-                os.environ.clear()
-                os.environ.update(original_env)
+                for k in gov_env:
+                    if k in original_env_values:
+                        os.environ[k] = original_env_values[k]
+                    else:
+                        os.environ.pop(k, None)
             except Exception:
                 pass
 

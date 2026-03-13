@@ -43,7 +43,7 @@ PipelineContextLike = Union[
 
 def resolve_dataset_version(
     version_template: Optional[str],
-    batch_id: Union[int, str, None] = "init",
+    batch_id: Union[int, str] = "init",
     timestamp: Optional[datetime] = None,
 ) -> str:
     """Resolve a dynamic dataset version template with execution metrics."""
@@ -53,13 +53,14 @@ def resolve_dataset_version(
         return version_template
 
     ts = timestamp or datetime.now(timezone.utc)
-    res = version_template.replace("{timestamp}", ts.strftime("%Y%m%d%H%M%S"))
-    res = res.replace("{unix_timestamp}", str(int(ts.timestamp())))
-    
-    if batch_id is not None:
-        res = res.replace("{batch_id}", str(batch_id))
-        
-    return res
+    try:
+        return version_template.format(
+            batch_id=batch_id,
+            timestamp=ts.strftime("%Y%m%d%H%M%S"),
+            unix_timestamp=int(ts.timestamp()),
+        )
+    except KeyError:
+        return version_template
 
 
 @dataclass(slots=True)
