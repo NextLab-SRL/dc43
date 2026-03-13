@@ -341,12 +341,31 @@ class StreamingObservationWriter:
         logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
         
         try:
-            schema, metrics = collect_observations(
+            from dc43_integrations.spark.data_quality import schema_snapshot, compute_metrics
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "calling_schema_snapshot", "batch_id": batch_id}) + "\n")
+                except Exception:
+                    pass
+                    
+            schema = schema_snapshot(batch_df)
+            
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "calling_compute_metrics", "batch_id": batch_id}) + "\n")
+                except Exception:
+                    pass
+                    
+            metrics = compute_metrics(
                 batch_df,
                 self.contract,
                 expectations=self.expectation_plan,
-                collect_metrics=True,
             )
+            
             logger.info(f"DC43: Extracted schema and metrics for batch {batch_id}: {metrics}")
             if debug_log_path:
                 try:
@@ -355,13 +374,13 @@ class StreamingObservationWriter:
                         f.write(json.dumps({"event": "metrics_collected", "batch_id": batch_id, "metrics": metrics}) + "\n")
                 except Exception:
                     pass
-        except Exception as e:
+        except BaseException as e:
             logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
             if debug_log_path:
                 try:
                     import json
                     with open(debug_log_path, "a") as f:
-                        f.write(json.dumps({"event": "metrics_error", "batch_id": batch_id, "error": str(e)}) + "\n")
+                        f.write(json.dumps({"event": "metrics_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
                 except Exception:
                     pass
             schema, metrics = None, {}
