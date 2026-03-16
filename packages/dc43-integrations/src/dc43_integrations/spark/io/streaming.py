@@ -115,6 +115,14 @@ class StreamingObservationWriter:
         self.governance_service = governance_service
         self.dataset_id = dataset_id or "unknown"
         self.dataset_version = dataset_version or "unknown"
+        
+        # Resolve any templates for the checkpoint location so that {timestamp} 
+        # based streams create fresh checkpoints for each notebook run.
+        checkpoint_version = self.dataset_version
+        if "{" in checkpoint_version:
+            timestamp = datetime.now(timezone.utc)
+            checkpoint_version = resolve_dataset_version(checkpoint_version, "init", timestamp)
+            
         self.pipeline_context = pipeline_context
         self.enforce = enforce
         self._validation: Optional[ValidationResult] = None
@@ -123,10 +131,10 @@ class StreamingObservationWriter:
         self._checkpoint_location = _derive_metrics_checkpoint(
             checkpoint_location,
             self.dataset_id,
-            self.dataset_version,
+            checkpoint_version,
         )
         default_name = f"dc43_metrics_{_safe_fs_name(self.dataset_id)}"
-        self.query_name = f"{default_name}_{_safe_fs_name(self.dataset_version)}"
+        self.query_name = f"{default_name}_{_safe_fs_name(checkpoint_version)}"
         self._intervention = intervention or NoOpStreamingInterventionStrategy()
         self._batches: List[Dict[str, Any]] = []
         self._progress_callback = progress_callback
