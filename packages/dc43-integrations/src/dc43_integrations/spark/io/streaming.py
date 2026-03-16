@@ -339,8 +339,24 @@ class StreamingObservationWriter:
                 pass
 
         try:
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "before_logger_info_1", "batch_id": batch_id}) + "\n")
+                except Exception:
+                    pass
+
             logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
-        except Exception as e:
+
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "after_logger_info_1", "batch_id": batch_id}) + "\n")
+                except Exception:
+                    pass
+        except BaseException as e:
             if debug_log_path:
                 try:
                     import json
@@ -352,7 +368,7 @@ class StreamingObservationWriter:
         try:
             try:
                 from dc43_integrations.spark.data_quality import schema_snapshot, compute_metrics
-            except Exception as e:
+            except BaseException as e:
                 if debug_log_path:
                     try:
                         import json
@@ -361,6 +377,7 @@ class StreamingObservationWriter:
                     except Exception:
                         pass
                 raise e
+
             if debug_log_path:
                 try:
                     import json
@@ -368,9 +385,9 @@ class StreamingObservationWriter:
                         f.write(json.dumps({"event": "calling_schema_snapshot", "batch_id": batch_id}) + "\n")
                 except Exception:
                     pass
-                    
+
             schema = schema_snapshot(batch_df)
-            
+
             if debug_log_path:
                 try:
                     import json
@@ -378,14 +395,18 @@ class StreamingObservationWriter:
                         f.write(json.dumps({"event": "calling_compute_metrics", "batch_id": batch_id}) + "\n")
                 except Exception:
                     pass
-                    
+
             metrics = compute_metrics(
                 batch_df,
                 self.contract,
                 expectations=self.expectation_plan,
             )
-            
-            logger.info(f"DC43: Extracted schema and metrics for batch {batch_id}: {metrics}")
+
+            try:
+                logger.info(f"DC43: Extracted schema and metrics for batch {batch_id}: {metrics}")
+            except BaseException:
+                pass
+
             if debug_log_path:
                 try:
                     import json
@@ -394,7 +415,10 @@ class StreamingObservationWriter:
                 except Exception:
                     pass
         except BaseException as e:
-            logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
+            try:
+                logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
+            except BaseException:
+                pass
             if debug_log_path:
                 try:
                     import json
