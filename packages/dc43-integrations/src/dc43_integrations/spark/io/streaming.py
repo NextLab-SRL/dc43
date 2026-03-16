@@ -338,10 +338,29 @@ class StreamingObservationWriter:
             except Exception:
                 pass
 
-        logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
-        
         try:
-            from dc43_integrations.spark.data_quality import schema_snapshot, compute_metrics
+            logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
+        except Exception as e:
+            if debug_log_path:
+                try:
+                    import json
+                    with open(debug_log_path, "a") as f:
+                        f.write(json.dumps({"event": "logger_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
+                except Exception:
+                    pass
+
+        try:
+            try:
+                from dc43_integrations.spark.data_quality import schema_snapshot, compute_metrics
+            except Exception as e:
+                if debug_log_path:
+                    try:
+                        import json
+                        with open(debug_log_path, "a") as f:
+                            f.write(json.dumps({"event": "import_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
+                    except Exception:
+                        pass
+                raise e
             if debug_log_path:
                 try:
                     import json
