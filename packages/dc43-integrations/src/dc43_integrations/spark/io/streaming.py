@@ -399,7 +399,7 @@ class StreamingObservationWriter:
             if debug_log_path:
                 try:
                     import json
-                    with open(debug_log_path, "a") as f:
+                    with open(f"{debug_log_path}.calling_compute_metrics", "w") as f:
                         f.write(json.dumps({"event": "calling_compute_metrics", "batch_id": batch_id}) + "\n")
                 except Exception:
                     pass
@@ -418,7 +418,7 @@ class StreamingObservationWriter:
             if debug_log_path:
                 try:
                     import json
-                    with open(debug_log_path, "a") as f:
+                    with open(f"{debug_log_path}.metrics_collected", "w") as f:
                         f.write(json.dumps({"event": "metrics_collected", "batch_id": batch_id, "metrics": metrics}) + "\n")
                 except Exception:
                     pass
@@ -430,8 +430,15 @@ class StreamingObservationWriter:
             if debug_log_path:
                 try:
                     import json
-                    with open(debug_log_path, "a") as f:
-                        f.write(json.dumps({"event": "metrics_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
+                    # Create a new file for the error to avoid DBFS append issues
+                    with open(f"{debug_log_path}.batch_{batch_id}.err", "w") as f:
+                        f.write(json.dumps({
+                            "event": "metrics_error", 
+                            "batch_id": batch_id, 
+                            "error": str(e), 
+                            "type": str(type(e)),
+                            "traceback": __import__('traceback').format_exc()
+                        }) + "\n")
                 except Exception:
                     pass
             schema, metrics = None, {}
@@ -490,7 +497,7 @@ class StreamingObservationWriter:
                 if debug_log_path:
                     try:
                         import json
-                        with open(debug_log_path, "a") as f:
+                        with open(f"{debug_log_path}.governance_evaluation", "w") as f:
                             f.write(json.dumps({
                                 "event": "governance_evaluation", 
                                 "batch_id": batch_id, 
@@ -505,8 +512,8 @@ class StreamingObservationWriter:
                 if debug_log_path:
                     try:
                         import json
-                        with open(debug_log_path, "a") as f:
-                            f.write(json.dumps({"event": "governance_error", "batch_id": batch_id, "error": str(e)}) + "\n")
+                        with open(f"{debug_log_path}.governance_error", "w") as f:
+                            f.write(json.dumps({"event": "governance_error", "batch_id": batch_id, "error": str(e), "traceback": __import__('traceback').format_exc()}) + "\n")
                     except Exception:
                         pass
 
