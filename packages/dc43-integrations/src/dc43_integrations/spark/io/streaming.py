@@ -350,7 +350,7 @@ class StreamingObservationWriter:
             if debug_log_path:
                 try:
                     import json
-                    with open(debug_log_path, "a") as f:
+                    with open(f"{debug_log_path}.before_logger_info_1", "w") as f:
                         f.write(json.dumps({"event": "before_logger_info_1", "batch_id": batch_id}) + "\n")
                 except Exception:
                     pass
@@ -360,7 +360,7 @@ class StreamingObservationWriter:
             if debug_log_path:
                 try:
                     import json
-                    with open(debug_log_path, "a") as f:
+                    with open(f"{debug_log_path}.after_logger_info_1", "w") as f:
                         f.write(json.dumps({"event": "after_logger_info_1", "batch_id": batch_id}) + "\n")
                 except Exception:
                     pass
@@ -368,7 +368,7 @@ class StreamingObservationWriter:
             if debug_log_path:
                 try:
                     import json
-                    with open(debug_log_path, "a") as f:
+                    with open(f"{debug_log_path}.logger_error", "w") as f:
                         f.write(json.dumps({"event": "logger_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
                 except Exception:
                     pass
@@ -380,7 +380,7 @@ class StreamingObservationWriter:
                 if debug_log_path:
                     try:
                         import json
-                        with open(debug_log_path, "a") as f:
+                        with open(f"{debug_log_path}.import_error", "w") as f:
                             f.write(json.dumps({"event": "import_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
                     except Exception:
                         pass
@@ -389,7 +389,7 @@ class StreamingObservationWriter:
             if debug_log_path:
                 try:
                     import json
-                    with open(debug_log_path, "a") as f:
+                    with open(f"{debug_log_path}.calling_schema_snapshot", "w") as f:
                         f.write(json.dumps({"event": "calling_schema_snapshot", "batch_id": batch_id}) + "\n")
                 except Exception:
                     pass
