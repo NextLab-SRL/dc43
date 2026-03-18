@@ -164,7 +164,7 @@ class StreamingObservationWriter:
             client = getattr(gov, "_client", None)
             if client is not None and hasattr(client, "headers"):
                 state["_gov_headers"] = dict(client.headers)
-        elif gov is not None and type(gov).__name__ == "LocalGovernanceServiceBackend":
+        elif gov is not None and type(gov).__name__ == "LocalGovernanceServiceClient":
             import os
             # Capture relevant environment variables to re-bootstrap the local backend on the worker
             state["_gov_env"] = {
