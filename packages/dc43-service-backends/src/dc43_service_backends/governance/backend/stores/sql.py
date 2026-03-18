@@ -283,13 +283,13 @@ class SQLGovernanceStore(GovernanceStore):
                 with self._engine.begin() as conn:
                     logger.debug(f"[DC43 SQLGovernanceStore] Deleting old metrics from '{self._metrics.fullname}'")
                     conn.execute(
-                    self._metrics.delete()
-                    .where(self._metrics.c.dataset_id == dataset_id)
-                    .where(self._metrics.c.dataset_version == dataset_version)
-                )
-                logger.debug(f"[DC43 SQLGovernanceStore] Inserting new metrics into '{self._metrics.fullname}'")
-                conn.execute(self._metrics.insert(), metrics_entries)
-                logger.info(f"[DC43 SQLGovernanceStore] Successfully inserted metrics into '{self._metrics.fullname}'")
+                        self._metrics.delete()
+                        .where(self._metrics.c.dataset_id == dataset_id)
+                        .where(self._metrics.c.dataset_version == dataset_version)
+                    )
+                    logger.debug(f"[DC43 SQLGovernanceStore] Inserting new metrics into '{self._metrics.fullname}'")
+                    conn.execute(self._metrics.insert(), metrics_entries)
+                    logger.info(f"[DC43 SQLGovernanceStore] Successfully inserted metrics into '{self._metrics.fullname}'")
             except Exception as e:
                 logger.exception(f"[DC43 SQLGovernanceStore] FAILED to insert metrics: {e}")
                 raise
