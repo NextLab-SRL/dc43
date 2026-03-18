@@ -103,15 +103,27 @@ def compute_metrics(
 ) -> Dict[str, Any]:
     """Compute quality metrics derived from expectation plans."""
 
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[DC43 compute_metrics] Starting metric computation for contract {contract.id} with df instance {id(df)}.")
+
     if F is None:  # pragma: no cover - runtime guard
+        logger.error("[DC43 compute_metrics] pyspark not found.")
         raise RuntimeError("pyspark is required to compute metrics")
 
     metrics: Dict[str, Any] = {}
-    total = df.count()
+    try:
+        total = df.count()
+        logger.info(f"[DC43 compute_metrics] Total row count evaluated: {total}.")
+    except Exception as e:
+        logger.exception(f"[DC43 compute_metrics] CRASH during df.count(): {e}")
+        raise
+
     metrics["row_count"] = total
 
     plan: Iterable[ExpectationPlanItem] = expectations or []
     available_columns = set(df.columns)
+    logger.info(f"[DC43 compute_metrics] Evaluating plan with {len(list(plan))} items on available columns: {available_columns}")
     for item in plan:
         if not isinstance(item, Mapping):
             continue
@@ -122,20 +134,29 @@ def compute_metrics(
         column = item.get("column")
         predicate = item.get("predicate")
         metric_key = f"violations.{key}"
-        if rule == "unique":
-            if not isinstance(column, str) or column not in available_columns:
+        try:
+            if rule == "unique":
+                if not isinstance(column, str) or column not in available_columns:
+                    logger.warning(f"[DC43 compute_metrics] Column '{column}' not in available columns. Skipping unique check.")
+                    metrics[metric_key] = total
+                    continue
+                distinct = df.select(column).distinct().count()
+                metrics[metric_key] = total - distinct
+                logger.debug(f"[DC43 compute_metrics] Unique check for '{column}' computed {metrics[metric_key]} violations.")
+                continue
+            if not isinstance(predicate, str):
+                logger.warning(f"[DC43 compute_metrics] Predicate for '{key}' is not a string. Skipping.")
+                continue
+            if isinstance(column, str) and column not in available_columns:
+                logger.warning(f"[DC43 compute_metrics] Column '{column}' not in available columns. Skipping predicate check.")
                 metrics[metric_key] = total
                 continue
-            distinct = df.select(column).distinct().count()
-            metrics[metric_key] = total - distinct
-            continue
-        if not isinstance(predicate, str):
-            continue
-        if isinstance(column, str) and column not in available_columns:
-            metrics[metric_key] = total
-            continue
-        failed = df.filter(f"NOT ({predicate})").count()
-        metrics[metric_key] = failed
+            failed = df.filter(f"NOT ({predicate})").count()
+            metrics[metric_key] = failed
+            logger.debug(f"[DC43 compute_metrics] Predicate check NOT({predicate}) computed {failed} violations.")
+        except Exception as e:
+            logger.exception(f"[DC43 compute_metrics] CRASH during standard metric check {key} (rule: {rule}): {e}")
+            raise
 
     for item in plan:
         if not isinstance(item, Mapping):
@@ -155,13 +176,23 @@ def compute_metrics(
         if engine and engine not in {"spark", "spark_sql"}:
             continue
         try:
+            logger.debug(f"[DC43 compute_metrics] Executing query expectation {key} ...")
             df.createOrReplaceTempView("_dc43_dq_tmp")
             row = df.sparkSession.sql(str(query)).collect()
             val = row[0][0] if row else None
-        except Exception:  # pragma: no cover - runtime only
-            val = None
-        metrics[f"query.{key}"] = val
+            if isinstance(val, (int, float)):
+                metrics[key] = val
+                logger.debug(f"[DC43 compute_metrics] Query {key} returned {val}")
+        except BaseException as e:  # catch parse exceptions gracefully
+            logger.exception(f"[DC43 compute_metrics] Parse exception during query evaluation for {key}: {e}")
+            continue
+        finally:
+            try:
+                df.sparkSession.catalog.dropTempView("_dc43_dq_tmp")
+            except Exception:
+                pass
 
+    logger.info(f"[DC43 compute_metrics] Metric computation finished with {len(metrics)} evaluated metrics.")
     return metrics
 
 

@@ -245,13 +245,23 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         draft_on_violation: bool = False,
     ) -> QualityAssessment:
         contract = self._contract_client.get(contract_id, contract_version)
+        logger.info(f"[DC43 evaluate_dataset] Resolved contract {contract_id}@{contract_version}")
 
         payload = observations()
-        validation = validation or self._dq_client.evaluate(
-            contract=contract,
-            payload=payload,
-        )
+        logger.info(f"[DC43 evaluate_dataset] Extracted observation payload. metrics={len(payload.metrics or {})}, schema={len(payload.schema or {})}")
+
+        if validation:
+            logger.info("[DC43 evaluate_dataset] Using provided validation result.")
+        else:
+            logger.info("[DC43 evaluate_dataset] Computing validation result via dq_client...")
+            validation = self._dq_client.evaluate(
+                contract=contract,
+                payload=payload,
+            )
+            logger.info(f"[DC43 evaluate_dataset] DQ client returned status: {validation.status if validation else 'None'}")
+
         status = self._status_from_validation(validation, operation=operation)
+        logger.info(f"[DC43 evaluate_dataset] Final status resolved as: {status.status if status else 'None'}")
 
         if status is not None:
             details = dict(status.details)
@@ -264,7 +274,9 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     details["schema"] = payload.schema
                 status.schema = dict(payload.schema)
             status.details = details
+            logger.debug(f"[DC43 evaluate_dataset] Hydrated status details with payload metrics & schema.")
 
+        logger.info(f"[DC43 evaluate_dataset] Calling _store.save_status for {dataset_id}@{dataset_version}")
         self._store.save_status(
             contract_id=contract_id,
             contract_version=contract_version,
@@ -272,6 +284,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_version=dataset_version,
             status=status,
         )
+        logger.info(f"[DC43 evaluate_dataset] Successfully saved status in store.")
 
         effective_pipeline = merge_pipeline_context(
             context.pipeline_context if context else None,
