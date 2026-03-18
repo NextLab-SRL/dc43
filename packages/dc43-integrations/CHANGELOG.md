@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.38.5.0] - 2026-03-18
+
+### Fixed
+- Fixed a Spark pickling bug in `StreamingObservationWriter` where the governance client failed to reconstruct on worker nodes. This resolves an issue where streaming micro-batches would silently bypass governance evaluation and omit metric publication.
+
+
 ## [0.35.0.0] - 2026-03-09
 
 ### Added
