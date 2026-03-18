@@ -139,9 +139,6 @@ class StreamingObservationWriter:
         self._batches: List[Dict[str, Any]] = []
         self._progress_callback = progress_callback
         self._sink_queries: List[Any] = []
-        self._debug_log_path = os.environ.get("DC43_STREAMING_DEBUG_LOG")
-
-    @property
     def checkpoint_location(self) -> str:
         """Location used to checkpoint the metrics query."""
         return self._checkpoint_location
@@ -353,72 +350,18 @@ class StreamingObservationWriter:
         timestamp = datetime.now(timezone.utc)
         effective_version = resolve_dataset_version(self.dataset_version, batch_id, timestamp)
         
-        debug_log_path = getattr(self, "_debug_log_path", None)
-        if debug_log_path:
-            try:
-                import json
-                with open(debug_log_path, "a") as f:
-                    f.write(json.dumps({"event": "start_batch", "batch_id": batch_id, "dataset": f"{self.dataset_id}@{effective_version}", "timestamp": str(timestamp)}) + "\n")
-            except Exception:
-                pass
-
         try:
-            if debug_log_path:
-                try:
-                    import json
-                    with open(f"{debug_log_path}.before_logger_info_1", "w") as f:
-                        f.write(json.dumps({"event": "before_logger_info_1", "batch_id": batch_id}) + "\n")
-                except Exception:
-                    pass
-
             logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
-
-            if debug_log_path:
-                try:
-                    import json
-                    with open(f"{debug_log_path}.after_logger_info_1", "w") as f:
-                        f.write(json.dumps({"event": "after_logger_info_1", "batch_id": batch_id}) + "\n")
-                except Exception:
-                    pass
-        except BaseException as e:
-            if debug_log_path:
-                try:
-                    import json
-                    with open(f"{debug_log_path}.logger_error", "w") as f:
-                        f.write(json.dumps({"event": "logger_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
-                except Exception:
-                    pass
+        except BaseException:
+            pass
 
         try:
             try:
                 from dc43_integrations.spark.data_quality import schema_snapshot, compute_metrics
             except BaseException as e:
-                if debug_log_path:
-                    try:
-                        import json
-                        with open(f"{debug_log_path}.import_error", "w") as f:
-                            f.write(json.dumps({"event": "import_error", "batch_id": batch_id, "error": str(e), "type": str(type(e))}) + "\n")
-                    except Exception:
-                        pass
                 raise e
 
-            if debug_log_path:
-                try:
-                    import json
-                    with open(f"{debug_log_path}.calling_schema_snapshot", "w") as f:
-                        f.write(json.dumps({"event": "calling_schema_snapshot", "batch_id": batch_id}) + "\n")
-                except Exception:
-                    pass
-
             schema = schema_snapshot(batch_df)
-
-            if debug_log_path:
-                try:
-                    import json
-                    with open(f"{debug_log_path}.calling_compute_metrics", "w") as f:
-                        f.write(json.dumps({"event": "calling_compute_metrics", "batch_id": batch_id}) + "\n")
-                except Exception:
-                    pass
 
             metrics = compute_metrics(
                 batch_df,
@@ -431,32 +374,11 @@ class StreamingObservationWriter:
             except BaseException:
                 pass
 
-            if debug_log_path:
-                try:
-                    import json
-                    with open(f"{debug_log_path}.metrics_collected", "w") as f:
-                        f.write(json.dumps({"event": "metrics_collected", "batch_id": batch_id, "metrics": metrics}) + "\n")
-                except Exception:
-                    pass
         except BaseException as e:
             try:
                 logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
             except BaseException:
                 pass
-            if debug_log_path:
-                try:
-                    import json
-                    # Create a new file for the error to avoid DBFS append issues
-                    with open(f"{debug_log_path}.batch_{batch_id}.err", "w") as f:
-                        f.write(json.dumps({
-                            "event": "metrics_error", 
-                            "batch_id": batch_id, 
-                            "error": str(e), 
-                            "type": str(type(e)),
-                            "traceback": __import__('traceback').format_exc()
-                        }) + "\n")
-                except Exception:
-                    pass
             schema, metrics = None, {}
         
         row_count = metrics.get("row_count")
@@ -510,28 +432,8 @@ class StreamingObservationWriter:
                     "DC43: Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
                     batch_id, effective_version, len(result.errors if result else []), len(result.metrics if result else {})
                 )
-                if debug_log_path:
-                    try:
-                        import json
-                        with open(f"{debug_log_path}.governance_evaluation", "w") as f:
-                            f.write(json.dumps({
-                                "event": "governance_evaluation", 
-                                "batch_id": batch_id, 
-                                "backend": type(self.governance_service).__name__,
-                                "ok": result.ok if result else None,
-                                "violations": len(result.errors) if result and result.errors else 0
-                            }) + "\n")
-                    except Exception:
-                        pass
             except Exception as e:
                 logger.exception(f"DC43: Streaming observation service evaluation failed for batch {batch_id}, falling back to offline: {e}")
-                if debug_log_path:
-                    try:
-                        import json
-                        with open(f"{debug_log_path}.governance_error", "w") as f:
-                            f.write(json.dumps({"event": "governance_error", "batch_id": batch_id, "error": str(e), "traceback": __import__('traceback').format_exc()}) + "\n")
-                    except Exception:
-                        pass
 
         if result is None:
             logger.info(f"DC43: Falling back to offline evaluation for batch {batch_id}")
