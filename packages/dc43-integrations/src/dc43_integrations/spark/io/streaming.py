@@ -139,6 +139,8 @@ class StreamingObservationWriter:
         self._batches: List[Dict[str, Any]] = []
         self._progress_callback = progress_callback
         self._sink_queries: List[Any] = []
+
+    @property
     def checkpoint_location(self) -> str:
         """Location used to checkpoint the metrics query."""
         return self._checkpoint_location
