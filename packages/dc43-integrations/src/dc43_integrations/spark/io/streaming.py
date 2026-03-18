@@ -159,18 +159,28 @@ class StreamingObservationWriter:
         
         # Try to serialize RemoteGovernanceServiceClient configuration to reconstruct on worker
         gov = state.get('governance_service')
-        if gov is not None and type(gov).__name__ == "RemoteGovernanceServiceClient":
-            state["_gov_base_url"] = getattr(gov, "_base_url", None)
-            client = getattr(gov, "_client", None)
-            if client is not None and hasattr(client, "headers"):
-                state["_gov_headers"] = dict(client.headers)
-        elif gov is not None and type(gov).__name__ == "LocalGovernanceServiceClient":
-            import os
-            # Capture relevant environment variables to re-bootstrap the local backend on the worker
-            state["_gov_env"] = {
-                k: v for k, v in os.environ.items() 
-                if k.startswith("DC43_") or k.startswith("DATABRICKS_")
-            }
+        
+        if gov is not None:
+            gov_type = type(gov).__name__
+            logger.debug(f"DC43: Serializing governance service of type: {gov_type}")
+            if gov_type == "RemoteGovernanceServiceClient":
+                state["_gov_base_url"] = getattr(gov, "_base_url", None)
+                client = getattr(gov, "_client", None)
+                if client is not None and hasattr(client, "headers"):
+                    state["_gov_headers"] = dict(client.headers)
+                logger.debug("DC43: Captured RemoteGovernanceServiceClient state for pickling")
+            elif gov_type == "LocalGovernanceServiceClient":
+                import os
+                # Capture relevant environment variables to re-bootstrap the local backend on the worker
+                state["_gov_env"] = {
+                    k: v for k, v in os.environ.items() 
+                    if k.startswith("DC43_") or k.startswith("DATABRICKS_")
+                }
+                logger.debug(f"DC43: Captured LocalGovernanceServiceClient state with {len(state['_gov_env'])} env vars for pickling")
+            else:
+                logger.debug(f"DC43: Unknown governance service type {gov_type}, cannot pickle state reliably")
+        else:
+            logger.debug("DC43: No governance service to serialize")
                 
         # Drop governance_service to prevent httpx weakref PicklingError on Spark Connect.
         # Fallback evaluation will be used in the worker if reconstruction fails.
@@ -188,13 +198,15 @@ class StreamingObservationWriter:
                     base_url=base_url,
                     headers=headers,
                 )
-            except Exception:
-                pass
+                logger.debug("DC43: Reconstructed RemoteGovernanceServiceClient on worker node")
+            except Exception as e:
+                logger.debug(f"DC43: Failed to reconstruct RemoteGovernanceServiceClient: {e}")
 
         gov_env = state.get("_gov_env")
         if gov_env is not None and self.governance_service is None:
             try:
                 import os
+                logger.debug(f"DC43: Reconstructing LocalGovernanceServiceClient on worker node with {len(gov_env)} env vars")
                 # Temporarily inject environment variables needed for configuration
                 original_env_values = {}
                 for k, v in gov_env.items():
@@ -208,6 +220,7 @@ class StreamingObservationWriter:
                 config = load_config()
                 suite = build_backends(config)
                 self.governance_service = suite.governance
+                logger.debug("DC43: Successfully reconstructed LocalGovernanceServiceClient")
                 
                 # Restore original environment
                 for k in gov_env:
@@ -215,8 +228,11 @@ class StreamingObservationWriter:
                         os.environ[k] = original_env_values[k]
                     else:
                         os.environ.pop(k, None)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"DC43: Failed to reconstruct LocalGovernanceServiceClient: {e}")
+                
+        if self.governance_service is None:
+            logger.debug("DC43: StreamingObservationWriter running with NO governance_service on worker")
 
     def attach_validation(self, validation: ValidationResult) -> None:
         """Attach the validation object that should receive streaming metrics."""
