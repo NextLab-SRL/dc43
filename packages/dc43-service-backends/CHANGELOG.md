@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.38.5.0] - 2026-03-18
+
+### Fixed
+- Fixed an indentation error in `SQLGovernanceStore.save_status` that triggered `ResourceClosedError`s and disrupted metric extraction during data quality evaluations.
+
+
 ## [0.35.0.0] - 2026-03-09
 
 ### Added

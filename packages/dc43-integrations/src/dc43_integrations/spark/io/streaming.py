@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -114,6 +115,14 @@ class StreamingObservationWriter:
         self.governance_service = governance_service
         self.dataset_id = dataset_id or "unknown"
         self.dataset_version = dataset_version or "unknown"
+        
+        # Resolve any templates for the checkpoint location so that {timestamp} 
+        # based streams create fresh checkpoints for each notebook run.
+        checkpoint_version = self.dataset_version
+        if "{" in checkpoint_version:
+            timestamp = datetime.now(timezone.utc)
+            checkpoint_version = resolve_dataset_version(checkpoint_version, "init", timestamp)
+            
         self.pipeline_context = pipeline_context
         self.enforce = enforce
         self._validation: Optional[ValidationResult] = None
@@ -122,16 +131,14 @@ class StreamingObservationWriter:
         self._checkpoint_location = _derive_metrics_checkpoint(
             checkpoint_location,
             self.dataset_id,
-            self.dataset_version,
+            checkpoint_version,
         )
         default_name = f"dc43_metrics_{_safe_fs_name(self.dataset_id)}"
-        self.query_name = f"{default_name}_{_safe_fs_name(self.dataset_version)}"
+        self.query_name = f"{default_name}_{_safe_fs_name(checkpoint_version)}"
         self._intervention = intervention or NoOpStreamingInterventionStrategy()
         self._batches: List[Dict[str, Any]] = []
         self._progress_callback = progress_callback
         self._sink_queries: List[Any] = []
-
-    @property
     def checkpoint_location(self) -> str:
         """Location used to checkpoint the metrics query."""
         return self._checkpoint_location
@@ -149,11 +156,28 @@ class StreamingObservationWriter:
         
         # Try to serialize RemoteGovernanceServiceClient configuration to reconstruct on worker
         gov = state.get('governance_service')
-        if gov is not None and type(gov).__name__ == "RemoteGovernanceServiceClient":
-            state["_gov_base_url"] = getattr(gov, "_base_url", None)
-            client = getattr(gov, "_client", None)
-            if client is not None and hasattr(client, "headers"):
-                state["_gov_headers"] = dict(client.headers)
+        
+        if gov is not None:
+            gov_type = type(gov).__name__
+            logger.debug(f"DC43: Serializing governance service of type: {gov_type}")
+            if gov_type == "RemoteGovernanceServiceClient":
+                state["_gov_base_url"] = getattr(gov, "_base_url", None)
+                client = getattr(gov, "_client", None)
+                if client is not None and hasattr(client, "headers"):
+                    state["_gov_headers"] = dict(client.headers)
+                logger.debug("DC43: Captured RemoteGovernanceServiceClient state for pickling")
+            elif gov_type == "LocalGovernanceServiceClient":
+                import os
+                # Capture relevant environment variables to re-bootstrap the local backend on the worker
+                state["_gov_env"] = {
+                    k: v for k, v in os.environ.items() 
+                    if k.startswith("DC43_") or k.startswith("DATABRICKS_")
+                }
+                logger.debug(f"DC43: Captured LocalGovernanceServiceClient state with {len(state['_gov_env'])} env vars for pickling")
+            else:
+                logger.debug(f"DC43: Unknown governance service type {gov_type}, cannot pickle state reliably")
+        else:
+            logger.debug("DC43: No governance service to serialize")
                 
         # Drop governance_service to prevent httpx weakref PicklingError on Spark Connect.
         # Fallback evaluation will be used in the worker if reconstruction fails.
@@ -171,8 +195,41 @@ class StreamingObservationWriter:
                     base_url=base_url,
                     headers=headers,
                 )
-            except Exception:
-                pass
+                logger.debug("DC43: Reconstructed RemoteGovernanceServiceClient on worker node")
+            except Exception as e:
+                logger.debug(f"DC43: Failed to reconstruct RemoteGovernanceServiceClient: {e}")
+
+        gov_env = state.get("_gov_env")
+        if gov_env is not None and self.governance_service is None:
+            try:
+                import os
+                logger.debug(f"DC43: Reconstructing LocalGovernanceServiceClient on worker node with {len(gov_env)} env vars")
+                # Temporarily inject environment variables needed for configuration
+                original_env_values = {}
+                for k, v in gov_env.items():
+                    if k in os.environ:
+                        original_env_values[k] = os.environ[k]
+                    os.environ[k] = v
+                
+                from dc43_service_backends.config import load_config
+                from dc43_service_backends.bootstrap import build_backends
+                
+                config = load_config()
+                suite = build_backends(config)
+                self.governance_service = suite.governance
+                logger.debug("DC43: Successfully reconstructed LocalGovernanceServiceClient")
+                
+                # Restore original environment
+                for k in gov_env:
+                    if k in original_env_values:
+                        os.environ[k] = original_env_values[k]
+                    else:
+                        os.environ.pop(k, None)
+            except Exception as e:
+                logger.debug(f"DC43: Failed to reconstruct LocalGovernanceServiceClient: {e}")
+                
+        if self.governance_service is None:
+            logger.debug("DC43: StreamingObservationWriter running with NO governance_service on worker")
 
     def attach_validation(self, validation: ValidationResult) -> None:
         """Attach the validation object that should receive streaming metrics."""
@@ -180,10 +237,11 @@ class StreamingObservationWriter:
             raise RuntimeError("StreamingObservationWriter already bound to a validation")
 
         self._validation = validation
+        effective_version = resolve_dataset_version(self.dataset_version, batch_id="init")
         validation.merge_details(
             {
                 "dataset_id": self.dataset_id,
-                "dataset_version": self.dataset_version,
+                "dataset_version": effective_version,
             }
         )
 
@@ -292,12 +350,36 @@ class StreamingObservationWriter:
         timestamp = datetime.now(timezone.utc)
         effective_version = resolve_dataset_version(self.dataset_version, batch_id, timestamp)
         
-        schema, metrics = collect_observations(
-            batch_df,
-            self.contract,
-            expectations=self.expectation_plan,
-            collect_metrics=True,
-        )
+        try:
+            logger.info(f"DC43: Starting to process streaming batch {batch_id} for dataset {self.dataset_id}@{effective_version}")
+        except BaseException:
+            pass
+
+        try:
+            try:
+                from dc43_integrations.spark.data_quality import schema_snapshot, compute_metrics
+            except BaseException as e:
+                raise e
+
+            schema = schema_snapshot(batch_df)
+
+            metrics = compute_metrics(
+                batch_df,
+                self.contract,
+                expectations=self.expectation_plan,
+            )
+
+            try:
+                logger.info(f"DC43: Extracted schema and metrics for batch {batch_id}: {metrics}")
+            except BaseException:
+                pass
+
+        except BaseException as e:
+            try:
+                logger.exception(f"DC43: Failed to collect observations for batch {batch_id}: {e}")
+            except BaseException:
+                pass
+            schema, metrics = None, {}
         
         row_count = metrics.get("row_count")
         if isinstance(row_count, (int, float)) and row_count <= 0:
@@ -334,6 +416,7 @@ class StreamingObservationWriter:
         result = None
         if self.governance_service is not None:
             try:
+                logger.info(f"DC43: Using governance service '{type(self.governance_service).__name__}' to evaluate batch {batch_id}")
                 assessment = self.governance_service.evaluate_dataset(
                     contract_id=cid,
                     contract_version=cver,
@@ -346,14 +429,16 @@ class StreamingObservationWriter:
                 )
                 result = assessment.validation or assessment.status
                 logger.info(
-                    "Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
+                    "DC43: Successfully evaluated streaming batch %s (effective_version=%s) on governance service. Got %d errors, %d metrics",
                     batch_id, effective_version, len(result.errors if result else []), len(result.metrics if result else {})
                 )
             except Exception as e:
-                logger.exception("Streaming observation service evaluation failed, falling back to offline:")
-                
+                logger.exception(f"DC43: Streaming observation service evaluation failed for batch {batch_id}, falling back to offline: {e}")
+
         if result is None:
+            logger.info(f"DC43: Falling back to offline evaluation for batch {batch_id}")
             result = self._evaluate_without_service(schema=schema, metrics=metrics)
+            logger.info(f"DC43: Offline fallback evaluation generated {len(result.errors if result else [])} errors, {len(result.metrics if result else {})} metrics.")
         self._latest_batch_id = batch_id
         status = "ok"
         if result.errors:

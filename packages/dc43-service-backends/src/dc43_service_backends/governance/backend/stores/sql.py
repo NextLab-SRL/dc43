@@ -247,6 +247,7 @@ class SQLGovernanceStore(GovernanceStore):
             "reason": status.reason,
             "details": details_payload,
         }
+        logger.info(f"[DC43 SQLGovernanceStore] Saving status '{status.status}' to '{self._status.fullname}' for {dataset_id}@{dataset_version}")
         self._write_payload(
             self._status,
             dataset_id=dataset_id,
@@ -275,14 +276,23 @@ class SQLGovernanceStore(GovernanceStore):
                     "metric_numeric_value": numeric_value,
                 }
             )
+        
+        logger.info(f"[DC43 SQLGovernanceStore] Prepared {len(metrics_entries)} metric entries for {dataset_id}@{dataset_version}")
         if metrics_entries:
-            with self._engine.begin() as conn:
-                conn.execute(
-                    self._metrics.delete()
-                    .where(self._metrics.c.dataset_id == dataset_id)
-                    .where(self._metrics.c.dataset_version == dataset_version)
-                )
-                conn.execute(self._metrics.insert(), metrics_entries)
+            try:
+                with self._engine.begin() as conn:
+                    logger.debug(f"[DC43 SQLGovernanceStore] Deleting old metrics from '{self._metrics.fullname}'")
+                    conn.execute(
+                        self._metrics.delete()
+                        .where(self._metrics.c.dataset_id == dataset_id)
+                        .where(self._metrics.c.dataset_version == dataset_version)
+                    )
+                    logger.debug(f"[DC43 SQLGovernanceStore] Inserting new metrics into '{self._metrics.fullname}'")
+                    conn.execute(self._metrics.insert(), metrics_entries)
+                    logger.info(f"[DC43 SQLGovernanceStore] Successfully inserted metrics into '{self._metrics.fullname}'")
+            except Exception as e:
+                logger.exception(f"[DC43 SQLGovernanceStore] FAILED to insert metrics: {e}")
+                raise
 
     def load_status(
         self,

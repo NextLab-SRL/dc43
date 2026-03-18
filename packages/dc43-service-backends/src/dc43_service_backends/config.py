@@ -646,6 +646,14 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_dp_table:
         dp_table_value = env_dp_table.strip() or dp_table_value
 
+    env_dp_dsn = os.getenv("DC43_DATA_PRODUCT_STORE_DSN")
+    if env_dp_dsn:
+        dp_dsn_value = env_dp_dsn.strip() or dp_dsn_value
+
+    env_dp_schema = os.getenv("DC43_DATA_PRODUCT_STORE_SCHEMA")
+    if env_dp_schema:
+        dp_schema_value = env_dp_schema.strip() or dp_schema_value
+
     env_dp_log_sql = os.getenv("DC43_DATA_PRODUCT_STORE_LOG_SQL")
     if env_dp_log_sql is not None:
         dp_log_sql = _parse_bool(env_dp_log_sql, dp_log_sql)
