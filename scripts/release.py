@@ -249,7 +249,7 @@ def build_plan(packages: Iterable[str], commit: str, skip_pypi: bool) -> List[Re
             existing = run_git("rev-parse", tag)
         except subprocess.CalledProcessError:
             existing = ""
-        if existing:
+        if existing and changed:
             plan.warnings.append(f"Tag {tag} already exists (commit {existing}). Bump the version before releasing.")
         if not skip_pypi:
             try:
@@ -258,7 +258,7 @@ def build_plan(packages: Iterable[str], commit: str, skip_pypi: bool) -> List[Re
                 plan.warnings.append(str(exc))
                 exists = None
             plan.pypi_exists = exists
-            if exists:
+            if exists and changed:
                 plan.warnings.append(f"Version {version} is already published on PyPI. Bump the version before releasing.")
         plans.append(plan)
     return plans
