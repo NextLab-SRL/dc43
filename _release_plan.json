@@ -1,0 +1,88 @@
+{
+  "commit": "f63659e28e7c2996a7c915d581c8ede24050807e",
+  "packages": [
+    {
+      "package": "dc43-core",
+      "version": "0.38.4.0",
+      "tag": "dc43-core-v0.38.4.0",
+      "commit": "f63659e28e7c2996a7c915d581c8ede24050807e",
+      "last_tag": "dc43-core-v0.38.4.0",
+      "changed_files": [],
+      "pypi_exists": true,
+      "needs_release": false,
+      "warnings": []
+    },
+    {
+      "package": "dc43",
+      "version": "0.38.4.0",
+      "tag": "dc43-v0.38.4.0",
+      "commit": "f63659e28e7c2996a7c915d581c8ede24050807e",
+      "last_tag": "dc43-v0.27.0.0",
+      "changed_files": [],
+      "pypi_exists": false,
+      "needs_release": false,
+      "warnings": []
+    },
+    {
+      "package": "dc43-service-clients",
+      "version": "0.38.4.0",
+      "tag": "dc43-service-clients-v0.38.4.0",
+      "commit": "f63659e28e7c2996a7c915d581c8ede24050807e",
+      "last_tag": "dc43-service-clients-v0.38.4.0",
+      "changed_files": [],
+      "pypi_exists": true,
+      "needs_release": false,
+      "warnings": []
+    },
+    {
+      "package": "dc43-service-backends",
+      "version": "0.38.5.0",
+      "tag": "dc43-service-backends-v0.38.5.0",
+      "commit": "f63659e28e7c2996a7c915d581c8ede24050807e",
+      "last_tag": "dc43-service-backends-v0.38.4.0",
+      "changed_files": [
+        "packages/dc43-service-backends/CHANGELOG.md",
+        "packages/dc43-service-backends/VERSION",
+        "packages/dc43-service-backends/src/dc43_service_backends/config.py",
+        "packages/dc43-service-backends/src/dc43_service_backends/data_quality/backend/predicates.py",
+        "packages/dc43-service-backends/src/dc43_service_backends/governance/backend/local.py",
+        "packages/dc43-service-backends/src/dc43_service_backends/governance/backend/stores/sql.py"
+      ],
+      "pypi_exists": true,
+      "needs_release": false,
+      "warnings": [
+        "Version 0.38.5.0 is already published on PyPI. Bump the version before releasing."
+      ]
+    },
+    {
+      "package": "dc43-integrations",
+      "version": "0.38.5.0",
+      "tag": "dc43-integrations-v0.38.5.0",
+      "commit": "f63659e28e7c2996a7c915d581c8ede24050807e",
+      "last_tag": "dc43-integrations-v0.38.4.0",
+      "changed_files": [
+        "packages/dc43-integrations/CHANGELOG.md",
+        "packages/dc43-integrations/VERSION",
+        "packages/dc43-integrations/src/dc43_integrations/spark/data_quality.py",
+        "packages/dc43-integrations/src/dc43_integrations/spark/io/base.py",
+        "packages/dc43-integrations/src/dc43_integrations/spark/io/streaming.py"
+      ],
+      "pypi_exists": true,
+      "needs_release": false,
+      "warnings": [
+        "Version 0.38.5.0 is already published on PyPI. Bump the version before releasing."
+      ]
+    },
+    {
+      "package": "dc43-contracts-app",
+      "version": "0.38.4.0",
+      "tag": "dc43-contracts-app-v0.38.4.0",
+      "commit": "f63659e28e7c2996a7c915d581c8ede24050807e",
+      "last_tag": "dc43-contracts-app-v0.38.4.0",
+      "changed_files": [],
+      "pypi_exists": true,
+      "needs_release": false,
+      "warnings": []
+    }
+  ]
+}

@@ -29,7 +29,8 @@ from open_data_contract_standard.model import (
 import open_data_contract_standard as _odcs_pkg  # type: ignore
 
 
-ODCS_REQUIRED = os.getenv("DC43_ODCS_REQUIRED", "3.0.2")
+ODCS_REQUIRED = os.getenv("DC43_ODCS_REQUIRED", "3.1.0")
+ODCS_SUPPORTED_VERSIONS = {"3.0.2", "3.1.0", ODCS_REQUIRED}
 BITOL_SCHEMA_URL = f"https://bitol.io/schema/{ODCS_REQUIRED}"
 
 
@@ -112,14 +113,15 @@ def to_model(doc: Dict[str, Any]) -> OpenDataContractStandard:
 
 
 def ensure_version(doc: OpenDataContractStandard) -> None:
-    """Validate that the ODCS document matches the required `$schema` version.
+    """Validate that the ODCS document matches one of the supported `$schema` versions.
 
     Raises ``ValueError`` if the schema URL is missing or mismatched.
     """
     # Prefer checking apiVersion directly on the model
     api_ver = doc.apiVersion
-    if api_ver and str(api_ver) != str(ODCS_REQUIRED):
-        raise ValueError(f"ODCS apiVersion mismatch. Required {ODCS_REQUIRED}, got {api_ver}")
+    if api_ver and str(api_ver) not in ODCS_SUPPORTED_VERSIONS:
+        supported = ", ".join(sorted(ODCS_SUPPORTED_VERSIONS))
+        raise ValueError(f"ODCS apiVersion mismatch. Supported versions: {supported}, got {api_ver}")
 
 
 def contract_identity(doc: OpenDataContractStandard) -> Tuple[str, str]:
@@ -224,6 +226,7 @@ def build_odcs(
 
 __all__ = [
     "ODCS_REQUIRED",
+    "ODCS_SUPPORTED_VERSIONS",
     "BITOL_SCHEMA_URL",
     "as_odcs_dict",
     "odcs_package_version",

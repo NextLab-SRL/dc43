@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.40.0.0] - 2026-03-19
+
+### Added
+- Added `merge_with_governance` to the Spark I/O integrations to support Delta Lake Merge operations with full governance resolution, schema injection, and telemetry.
+- Bumped Open Data Contract Standard (ODCS) support in `dc43-core` to `>=3.0.2,<4.0.0` with configurable API target defaulting to `3.1.0`.
+
 ## [0.39.0.0] - 2026-03-18
 
 ### Changed
