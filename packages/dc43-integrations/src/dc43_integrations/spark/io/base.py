@@ -806,14 +806,9 @@ class BaseWriteExecutor:
         
         streaming_queries = []
         primary_status = None
-        for i, req in enumerate(requests):
-            if req.warnings:
-                for w in req.warnings:
-                    if w not in result.warnings:
-                        result.warnings.append(w)
-            status, _, handles = _execute_write_request(req, governance_client=governance_client, enforce=enforce)
-            streaming_queries.extend(handles)
-            if i == 0: primary_status = status
+        primary_status, streaming_queries = self._perform_writes(
+            requests, governance_client, enforce, result, assessment
+        )
 
         if governance_plan and governance_client and assessment and not self._skip_governance_activity:
             governance_client.register_write_activity(plan=governance_plan, assessment=assessment)
@@ -842,6 +837,19 @@ class BaseWriteExecutor:
                 if w not in result.warnings:
                     result.warnings.append(w)
         return WriteExecutionResult(result, gov_status, streaming_queries)
+
+    def _perform_writes(self, requests, governance_client, enforce, result, assessment):
+        streaming_queries = []
+        primary_status = None
+        for i, req in enumerate(requests):
+            if req.warnings:
+                for w in req.warnings:
+                    if w not in result.warnings:
+                        result.warnings.append(w)
+            status, _, handles = _execute_write_request(req, governance_client=governance_client, enforce=enforce)
+            streaming_queries.extend(handles)
+            if i == 0: primary_status = status
+        return primary_status, streaming_queries
 
 def _execute_write_request(
     request: WriteRequest,

@@ -57,3 +57,25 @@ When a streaming write is executed, the helper launches a dedicated observation 
 ### Intervention Strategies
 
 For streaming workloads, you can provide a `StreamingInterventionStrategy` directly to the `write_with_governance` request via `streaming_intervention_strategy`. This allows you to block the pipeline, surface warnings, or trigger custom routing on repeated micro-batch failures.
+
+## Merging Data with Governance (Delta Lake)
+
+If your destination sink is a Delta Lake table and you need to perform Upserts (Merges), use the `merge_with_governance` API. It provides the exact same governance flow as `write_with_governance` but intercepts the Spark operation to perform a Delta merge instead.
+
+```python
+from dc43_integrations.spark.io import merge_with_governance
+
+def merge_modifier(builder):
+    return builder.whenMatchedUpdateAll().whenNotMatchedInsertAll()
+
+execution_result = merge_with_governance(
+    source_df=source_df,
+    condition="target.id = source.id",
+    request=request, # GovernanceSparkWriteRequest
+    governance_service=my_governance_client,
+    merge_builder_modifier=merge_modifier,
+    enforce=True,
+)
+```
+
+The data quality expectations are verified on the `source_df` prior to executing the merge operation on the target. The target table is automatically resolved from the contract.

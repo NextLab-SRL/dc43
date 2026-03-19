@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.40.0.0] - 2026-03-19
+
+### Changed
+- Relaxed the structured dependency `open-data-contract-standard` constraint from `==3.0.2` to `>=3.0.2,<4.0.0` to support ODCS 3.1.0 and future minor updates.
+
 ## [0.39.0.0] - 2026-03-18
 
 ### Changed

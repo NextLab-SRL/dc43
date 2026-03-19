@@ -84,7 +84,7 @@ install_requires = [
 install_requires += [
     "attrs>=20.0",
     "packaging>=21.0",
-    "open-data-contract-standard==3.0.2",
+    "open-data-contract-standard>=3.0.2,<4.0.0",
 ]
 
 extras_require = {

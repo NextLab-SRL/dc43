@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.40.0.0] - 2026-03-19
+
+### Added
+- Added `merge_with_governance` to the Spark IO module to support Delta Lake Upserts while enforcing data quality, contract resolution, and reporting telemetry exactly like `write_with_governance`.
+
 ## [0.39.0.0] - 2026-03-18
 
 ### Changed

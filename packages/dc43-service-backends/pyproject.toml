@@ -19,7 +19,7 @@ classifiers = [
 dependencies = [
   "dc43-core>=0.34.0.0",
   "dc43-service-clients>=0.0.3",
-  "open-data-contract-standard==3.0.2",
+  "open-data-contract-standard>=3.0.2,<4.0.0",
   "sqlalchemy>=2.0",
   "tomlkit>=0.12",
 ]

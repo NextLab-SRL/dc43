@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.40.0.0] - 2026-03-19
+
+### Added
+- Bumped Open Data Contract Standard (ODCS) support to `>=3.0.2,<4.0.0` permitting `3.1.0` documents, and exposed `ODCS_SUPPORTED_VERSIONS` for abstraction.
+
 ## [0.39.0.0] - 2026-03-18
 
 ### Changed
