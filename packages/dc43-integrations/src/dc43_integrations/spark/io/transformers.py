@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
+import inspect
 import importlib
 import logging
-from typing import Callable, Sequence, Protocol
+from typing import Callable, Sequence, Protocol, Any
 
-from pyspark.sql import DataFrame
+from pyspark.sql import SparkSession, DataFrame
 from open_data_contract_standard.model import OpenDataContractStandard
 
 
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ContractBasedTransformer(Protocol):
     """Protocol for callables that apply DataFrame transformations based on an ODCS contract."""
 
-    def __call__(self, df: DataFrame, contract: OpenDataContractStandard) -> DataFrame: ...
+    def __call__(self, df: DataFrame, contract: OpenDataContractStandard, **kwargs: Any) -> DataFrame: ...
 
 
 def resolve_transformer(ref: str | ContractBasedTransformer) -> ContractBasedTransformer:
@@ -49,27 +51,43 @@ def resolve_transformer(ref: str | ContractBasedTransformer) -> ContractBasedTra
     return func
 
 
-def get_global_transformers() -> tuple[str, ...]:
+def get_global_transformers(spark: SparkSession | None = None, operation: str | None = None) -> tuple[str, ...]:
     """Return the list of globally configured contract transformers.
 
-    This lazily loads the service backends configuration and extracts any transformers
-    defined in the ``[governance]`` section.
+    This resolves configurations in the following order of precedence:
+    1. Spark conf: `dc43.governance.transformers.{operation}` (e.g., read, write)
+    2. Spark conf: `dc43.governance.transformers`
+    3. OS Environment: `DC43_GOVERNANCE_CONTRACT_TRANSFORMERS`
+    4. Service backends configuration: `[governance] contract_transformers`
     """
+    transformers_str = ""
 
-    try:
-        from dc43_service_backends.config import load_config
-    except ImportError:
-        logger.debug("dc43-service-backends is not installed; skipping global transformer lookup.")
-        return ()
+    if spark and operation:
+        try:
+            transformers_str = spark.conf.get(f"dc43.governance.transformers.{operation}", "")
+        except Exception:
+            pass
 
-    config = load_config()
-    return config.governance.contract_transformers
+    if spark and not transformers_str:
+        try:
+            transformers_str = spark.conf.get("dc43.governance.transformers", "")
+        except Exception:
+            pass
+
+    if not transformers_str:
+        transformers_str = os.environ.get("DC43_GOVERNANCE_CONTRACT_TRANSFORMERS", "")
+
+    if transformers_str:
+        return tuple(t.strip() for t in transformers_str.split(",") if t.strip())
+
+    return ()
 
 
 def apply_contract_transformers(
     df: DataFrame,
     contract: OpenDataContractStandard,
     transformers: Sequence[ContractBasedTransformer | str] | None = None,
+    **kwargs: Any
 ) -> DataFrame:
     """Apply an ordered sequence of transformers to the DataFrame based on the contract."""
 
@@ -79,7 +97,12 @@ def apply_contract_transformers(
     for ref in transformers:
         func = resolve_transformer(ref)
         try:
-            df = func(df, contract)
+            sig = inspect.signature(func)
+            bound_kwargs = {}
+            for k, v in kwargs.items():
+                if k in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                    bound_kwargs[k] = v
+            df = func(df, contract, **bound_kwargs)
         except Exception as e:
             logger.error("Data contract transformer '%s' failed: %s", getattr(func, "__name__", str(ref)), e)
             raise RuntimeError(f"Data contract transformer failed: {e}") from e

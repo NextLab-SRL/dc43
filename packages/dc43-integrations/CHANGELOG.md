@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.41.0.0rc2] - 2026-03-26
+
+### Added
+- Added operation-aware data contract transformations (`operation="read" | "write"`) to allow transformers to apply conditionally.
+- Allowed Spark configurations (`dc43.governance.transformers.{read/write}`) to override or supply global transformers entirely within the integration layer.
+
 ## [0.41.0.0rc1] - 2026-03-26
 
 ## [0.40.0.0] - 2026-03-19

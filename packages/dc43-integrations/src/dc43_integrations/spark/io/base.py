@@ -223,7 +223,7 @@ class BaseReadExecutor:
         streaming_active = self._detect_streaming(dataframe)
         
         from dc43_integrations.spark.io.transformers import get_global_transformers
-        global_transformers = list(get_global_transformers())
+        global_transformers = list(get_global_transformers(spark=self.spark, operation="read"))
         user_transformers = list(getattr(self.request, "contract_transformers", []) or [])
         
         # On read, apply global restrictions first, then user logic
@@ -231,7 +231,7 @@ class BaseReadExecutor:
 
         if transformers and contract:
             from dc43_integrations.spark.io.transformers import apply_contract_transformers
-            dataframe = apply_contract_transformers(dataframe, contract, transformers)
+            dataframe = apply_contract_transformers(dataframe, contract, transformers, operation="read")
 
         dataset_id, dataset_version = self._dataset_identity(resolution, streaming_active)
         (
@@ -695,7 +695,7 @@ class BaseWriteExecutor:
             _enforce_contract_status(handler=strategy, contract=contract, enforce=enforce, operation="write")
 
             from dc43_integrations.spark.io.transformers import get_global_transformers
-            global_transformers = list(get_global_transformers())
+            global_transformers = list(get_global_transformers(spark=self.df.sparkSession, operation="write"))
             user_transformers = list(getattr(self.request, "contract_transformers", []) or [])
             
             # On write, apply user logic first, then enforce global restrictions before hitting the sink
@@ -703,7 +703,7 @@ class BaseWriteExecutor:
 
             if transformers:
                 from dc43_integrations.spark.io.transformers import apply_contract_transformers
-                df = apply_contract_transformers(df, contract, transformers)
+                df = apply_contract_transformers(df, contract, transformers, operation="write")
                 self.df = df
 
         resolution = locator.for_write(contract=contract, df=df, format=format, path=path, table=table)
