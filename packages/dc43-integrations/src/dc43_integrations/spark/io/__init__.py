@@ -49,9 +49,10 @@ from .merge import (
     merge_with_governance,
 )
 
-from .transformers import (
-    ContractBasedTransformer,
-    apply_contract_transformers,
+from .interceptors import (
+    GovernanceInterceptor,
+    InterceptorContext,
+    BaseGovernanceInterceptor,
 )
 
 __all__ = [
@@ -79,6 +80,7 @@ __all__ = [
     "WriteExecutionResult",
     "write_with_governance",
     "merge_with_governance",
-    "ContractBasedTransformer",
-    "apply_contract_transformers",
+    "GovernanceInterceptor",
+    "InterceptorContext",
+    "BaseGovernanceInterceptor",
 ]
