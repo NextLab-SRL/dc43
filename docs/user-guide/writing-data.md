@@ -25,6 +25,9 @@ request = GovernanceSparkWriteRequest(
     
     # Advanced: Use a modifier function to apply Spark-specific configurations (like partitionBy or trigger)
     # writer_modifier=lambda w: w.partitionBy("date").trigger(availableNow=True)
+    
+    # Optional: Apply an ordered sequence of contract-reactive DataFrame transformations
+    # contract_transformers=["utils.pii:apply_masking", "utils.enrichment:add_tags"]
 )
 
 # df is your Spark DataFrame
@@ -43,10 +46,12 @@ if not execution_result.validation.ok:
 
 ## How It Works
 
-1. **Alignment**: The DataFrame columns are re-ordered and cast to match the exact contract specification.
-2. **Quality Evaluation**: Spark computes metrics based on the data expectations defined in the Data Contract.
-3. **Governance Assessment**: The integration hands the metrics over to the `governance_service`. The service decides if the payload meets the contract standard.
-4. **Sink Writing**: If everything passes (or if `enforce=False`), the aligned data is written to the destination sink.
+1. **Transformations**: Any defined `contract_transformers` (either passed explicitly in the request or configured globally via `dc43-service-backends.toml` in the `[governance]` section) are applied to the DataFrame. These can interpret the contract to apply logic like PII masking.
+   * **Sequence Order**: For writes, `request.contract_transformers` (User Logic) are executed first, followed by the global defaults (Security/Compliance Policies).
+2. **Alignment**: The DataFrame columns are re-ordered and cast to match the exact contract specification.
+3. **Quality Evaluation**: Spark computes metrics based on the data expectations defined in the Data Contract.
+4. **Governance Assessment**: The integration hands the metrics over to the `governance_service`. The service decides if the payload meets the contract standard.
+5. **Sink Writing**: If everything passes (or if `enforce=False`), the aligned data is written to the destination sink.
 
 ## Streaming Writers
 

@@ -231,6 +231,7 @@ class GovernanceConfig:
     """Governance service extension wiring sourced from configuration."""
 
     dataset_contract_link_builders: tuple[str, ...] = field(default_factory=tuple)
+    contract_transformers: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(slots=True)
@@ -535,6 +536,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         unity_static_tags = _parse_str_dict(unity_section.get("static_tags"))
 
     link_builder_specs: list[str] = []
+    contract_transformer_specs: list[str] = []
     if isinstance(governance_section, MutableMapping):
         raw_builders = governance_section.get("dataset_contract_link_builders")
         if isinstance(raw_builders, (list, tuple, set)):
@@ -547,6 +549,18 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
                 text = chunk.strip()
                 if text:
                     link_builder_specs.append(text)
+
+        raw_transformers = governance_section.get("contract_transformers")
+        if isinstance(raw_transformers, (list, tuple, set)):
+            for entry in raw_transformers:
+                text = str(entry).strip()
+                if text:
+                    contract_transformer_specs.append(text)
+        elif isinstance(raw_transformers, str):
+            for chunk in raw_transformers.split(","):
+                text = chunk.strip()
+                if text:
+                    contract_transformer_specs.append(text)
 
     gov_store_type = "memory"
     gov_root_value = None
@@ -727,6 +741,13 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             if text:
                 link_builder_specs.append(text)
 
+    env_contract_transformers = os.getenv("DC43_GOVERNANCE_CONTRACT_TRANSFORMERS")
+    if env_contract_transformers:
+        for chunk in env_contract_transformers.split(","):
+            text = chunk.strip()
+            if text:
+                contract_transformer_specs.append(text)
+
     env_gov_store_type = os.getenv("DC43_GOVERNANCE_STORE_TYPE")
     if env_gov_store_type:
         gov_store_type = env_gov_store_type.strip().lower() or gov_store_type
@@ -792,6 +813,14 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_gov_timeout:
         gov_timeout_value = _coerce_float(env_gov_timeout, gov_timeout_value)
 
+    seen_transformers: set[str] = set()
+    ordered_transformers: list[str] = []
+    for spec in contract_transformer_specs:
+        if spec in seen_transformers:
+            continue
+        seen_transformers.add(spec)
+        ordered_transformers.append(spec)
+
     # Preserve configuration order while dropping duplicates that may arrive via
     # the configuration file and environment variables.
     seen_builders: set[str] = set()
@@ -855,6 +884,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         ),
         governance=GovernanceConfig(
             dataset_contract_link_builders=tuple(ordered_builders),
+            contract_transformers=tuple(ordered_transformers),
         ),
         governance_store=GovernanceStoreConfig(
             type=gov_store_type,

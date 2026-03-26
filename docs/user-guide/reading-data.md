@@ -19,7 +19,10 @@ request = GovernanceSparkReadRequest(
     ),
     # If the contract doesn't explicitly define a physical input port, 
     # you can fallback to providing a direct path here:
-    # path="s3://lake/orders"
+    # path="s3://lake/orders",
+    
+    # Optional: Apply contract-reactive DataFrame transformations
+    # contract_transformers=["my_custom_module:apply_pii_masking"]
 )
 
 # Returns a Spark DataFrame already aligned with the contract schema
@@ -36,8 +39,14 @@ df = read_with_governance(
 
 1. **Contract Resolution**: The `governance_service` looks up the `contract_id` and `contract_version` to find the active Data Contract. It automatically resolves the physical input port (the path).
 2. **Read Execution**: Spark reads the underlying data from the location specified by the contract.
-3. **Alignment & Observation**: The schema is validated against the resolved contract. If `enforce=True`, missing columns or incompatible types will raise an error (unless `auto_cast` succeeds). 
-4. **Governance Reporting**: The integration sends an Observation payload back to the `governance_service`, registering the read event and updating lineage.
+3. **Transformations**: If `contract_transformers` are defined (globally or passed in the request), they are executed sequentially on the incoming data, allowing for contract-reactive preprocessing.
+   * **Sequence Order**: For reads, global defaults (Masking/Restrictions) are executed first, followed by any custom `request.contract_transformers` (User formatting).
+4. **Alignment & Observation**: The schema is validated against the resolved contract. If `enforce=True`, missing columns or incompatible types will raise an error (unless `auto_cast` succeeds). 
+5. **Governance Reporting**: The integration sends an Observation payload back to the `governance_service`, registering the read event and updating lineage.
+
+> [!TIP]
+> **Writing Safe Transformers**
+> A `ContractBasedTransformer` takes a DataFrame and an `OpenDataContractStandard` model and returns a DataFrame. Since standard PySpark DataFrame operations (like `.withColumn()`, `.filter()`) run purely on the Driver, they are perfectly safe. However, if your transformer defines a PySpark User-Defined Function (UDF), be careful with Closures! Do not capture the `contract` object inside the UDF itself, as it is a large Pydantic model and may fail serialization when sent to Spark Executors. Instead, extract exactly the primitive values you need *before* defining the UDF.
 
 ## Streaming Data
 

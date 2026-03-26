@@ -109,6 +109,7 @@ class GovernanceSparkWriteRequest:
     streaming_intervention_strategy: Optional[Any] = None
     writer_modifier: Optional[Callable[[Any], Any]] = None
     observation_writer_modifier: Optional[Callable[[Any], Any]] = None
+    contract_transformers: Optional[Sequence[Any]] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceWriteContext):

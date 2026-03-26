@@ -221,6 +221,18 @@ class BaseReadExecutor:
         resolution = self._resolve_resolution(contract)
         dataframe = self._load_dataframe(resolution)
         streaming_active = self._detect_streaming(dataframe)
+        
+        from dc43_integrations.spark.io.transformers import get_global_transformers
+        global_transformers = list(get_global_transformers())
+        user_transformers = list(getattr(self.request, "contract_transformers", []) or [])
+        
+        # On read, apply global restrictions first, then user logic
+        transformers = global_transformers + user_transformers
+
+        if transformers and contract:
+            from dc43_integrations.spark.io.transformers import apply_contract_transformers
+            dataframe = apply_contract_transformers(dataframe, contract, transformers)
+
         dataset_id, dataset_version = self._dataset_identity(resolution, streaming_active)
         (
             dataframe,
@@ -681,6 +693,18 @@ class BaseWriteExecutor:
             ensure_version(contract)
             _check_contract_version(expected_contract_version, contract.version)
             _enforce_contract_status(handler=strategy, contract=contract, enforce=enforce, operation="write")
+
+            from dc43_integrations.spark.io.transformers import get_global_transformers
+            global_transformers = list(get_global_transformers())
+            user_transformers = list(getattr(self.request, "contract_transformers", []) or [])
+            
+            # On write, apply user logic first, then enforce global restrictions before hitting the sink
+            transformers = user_transformers + global_transformers
+
+            if transformers:
+                from dc43_integrations.spark.io.transformers import apply_contract_transformers
+                df = apply_contract_transformers(df, contract, transformers)
+                self.df = df
 
         resolution = locator.for_write(contract=contract, df=df, format=format, path=path, table=table)
         self._last_write_resolution = resolution
