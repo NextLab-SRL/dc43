@@ -7904,7 +7904,7 @@ async def setup_get(request: Request, step: Optional[int] = None, restart: bool 
         state = load_setup_state()
 
     context = _build_setup_context(request, state, step=step)
-    return templates.TemplateResponse("setup.html", context)
+    return templates.TemplateResponse(request, "setup.html", context)
 
 
 @router.post("/setup", response_class=HTMLResponse)
@@ -7961,7 +7961,7 @@ async def setup_post(request: Request) -> HTMLResponse:
             temp_state = dict(state)
             temp_state["selected_options"] = selections
             context = _build_setup_context(request, temp_state, step=1, errors=errors)
-            return templates.TemplateResponse("setup.html", context, status_code=422)
+            return templates.TemplateResponse(request, "setup.html", context, status_code=422)
 
         configuration = state.get("configuration") if isinstance(state, Mapping) else {}
         new_configuration: Dict[str, Any] = {}
@@ -7983,7 +7983,7 @@ async def setup_post(request: Request) -> HTMLResponse:
         selected_options = state.get("selected_options") if isinstance(state, Mapping) else {}
         if not isinstance(selected_options, Mapping) or not selected_options:
             context = _build_setup_context(request, state, step=1, errors=["Choose an implementation for each module first."])
-            return templates.TemplateResponse("setup.html", context, status_code=422)
+            return templates.TemplateResponse(request, "setup.html", context, status_code=422)
 
         configuration: Dict[str, Dict[str, Any]] = {}
         errors = []
@@ -8008,7 +8008,7 @@ async def setup_post(request: Request) -> HTMLResponse:
             temp_state = dict(state)
             temp_state["configuration"] = configuration
             context = _build_setup_context(request, temp_state, step=2, errors=errors)
-            return templates.TemplateResponse("setup.html", context, status_code=422)
+            return templates.TemplateResponse(request, "setup.html", context, status_code=422)
 
         updated_state = dict(state)
         updated_state["configuration"] = configuration
@@ -8030,7 +8030,7 @@ async def setup_post(request: Request) -> HTMLResponse:
         return RedirectResponse(url="/setup?step=1", status_code=303)
 
     context = _build_setup_context(request, state)
-    return templates.TemplateResponse("setup.html", context)
+    return templates.TemplateResponse(request, "setup.html", context)
 
 
 @router.get("/setup/export", response_class=StreamingResponse)
@@ -8070,7 +8070,7 @@ async def setup_export() -> StreamingResponse:
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html", {"request": request})
 
 
 @router.get("/integration-helper", response_class=HTMLResponse)
@@ -8085,14 +8085,14 @@ async def integration_helper(request: Request) -> HTMLResponse:
             {"value": "spark", "label": "Spark (PySpark / Delta Lake)"},
         ],
     }
-    return templates.TemplateResponse("integration_helper.html", context)
+    return templates.TemplateResponse(request, "integration_helper.html", context)
 
 
 @router.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
     contract_ids = list_contract_ids()
     return templates.TemplateResponse(
-        "contracts.html", {"request": request, "contracts": contract_ids}
+        request, "contracts.html", {"request": request, "contracts": contract_ids}
     )
 
 
@@ -8101,7 +8101,7 @@ async def new_contract_form(request: Request) -> HTMLResponse:
     editor_state = _contract_editor_state()
     editor_state["version"] = editor_state.get("version") or "1.0.0"
     context = _editor_context(request, editor_state=editor_state)
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 @router.post("/contracts/new", response_class=HTMLResponse)
@@ -8130,7 +8130,7 @@ async def create_contract(
         editor_state=editor_state,
         error=error,
     )
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 
@@ -8184,7 +8184,7 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
             }
         )
     context = {"request": request, "contract_id": cid, "contracts": contracts}
-    return templates.TemplateResponse("contract_versions.html", context)
+    return templates.TemplateResponse(request, "contract_versions.html", context)
 
 
 @router.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
@@ -8263,7 +8263,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "metrics_summary": metrics_summary,
         "metrics_error": metrics_error,
     }
-    return templates.TemplateResponse("contract_detail.html", context)
+    return templates.TemplateResponse(request, "contract_detail.html", context)
 
 
 def _next_version(ver: str) -> str:
@@ -9445,7 +9445,7 @@ async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLRespon
         baseline_state=baseline_state,
         baseline_contract=contract,
     )
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 @router.post("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
@@ -9499,7 +9499,7 @@ async def save_contract_edits(
         baseline_contract=baseline_contract,
         error=error,
     )
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 @router.post("/contracts/{cid}/{ver}/validate")
@@ -9512,7 +9512,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
     catalog = dataset_catalog(records)
     context = {"request": request, "datasets": catalog}
-    return templates.TemplateResponse("datasets.html", context)
+    return templates.TemplateResponse(request, "datasets.html", context)
 
 
 def _dataset_history_sort_key(record: Mapping[str, Any]) -> Tuple[str, str, str]:
@@ -9564,7 +9564,7 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
         "metrics_panel_scope_label": f"Dataset {dataset_name}",
         "metrics_empty_message": "No metrics recorded for this dataset yet.",
     }
-    return templates.TemplateResponse("dataset_versions.html", context)
+    return templates.TemplateResponse(request, "dataset_versions.html", context)
 
 
 @router.get("/data-products", response_class=HTMLResponse)
@@ -9576,7 +9576,7 @@ async def list_data_products(request: Request) -> HTMLResponse:
         "products": catalog,
         "can_manage_products": bool(data_product_service),
     }
-    return templates.TemplateResponse("data_products.html", context)
+    return templates.TemplateResponse(request, "data_products.html", context)
 
 
 @router.get("/data-products/new", response_class=HTMLResponse)
@@ -9587,7 +9587,7 @@ async def new_data_product_form(request: Request) -> HTMLResponse:
     editor_state["version"] = editor_state.get("version") or "0.1.0"
     editor_state["status"] = editor_state.get("status") or "draft"
     context = _data_product_editor_context(request, editor_state=editor_state)
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.post("/data-products/new", response_class=HTMLResponse)
@@ -9620,7 +9620,7 @@ async def create_data_product(
         editor_state=editor_state,
         error=error,
     )
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.get("/data-products/{product_id}/{version}/edit", response_class=HTMLResponse)
@@ -9646,7 +9646,7 @@ async def edit_data_product_form(
         baseline_state=baseline_state,
         baseline_product=baseline_product,
     )
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.post("/data-products/{product_id}/{version}/edit", response_class=HTMLResponse)
@@ -9698,7 +9698,7 @@ async def save_data_product_edits(
         baseline_product=baseline_product,
         error=error,
     )
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.get("/data-products/{product_id}", response_class=HTMLResponse)
@@ -9712,7 +9712,7 @@ async def data_product_detail_view(request: Request, product_id: str) -> HTMLRes
         "product": details,
         "can_manage_products": bool(data_product_service),
     }
-    return templates.TemplateResponse("data_product_detail.html", context)
+    return templates.TemplateResponse(request, "data_product_detail.html", context)
 
 
 def _dataset_preview(
@@ -10317,7 +10317,7 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 ),
                 "metrics_empty_message": "No metrics recorded for this dataset version.",
             }
-            return templates.TemplateResponse("dataset_detail.html", context)
+            return templates.TemplateResponse(request, "dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")
 
 
