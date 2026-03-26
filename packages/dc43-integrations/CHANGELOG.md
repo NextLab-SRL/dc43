@@ -3,8 +3,11 @@
 ## [Unreleased]
 
 ### Added
-- Added operation-aware data contract transformations (`operation="read" | "write"`) to allow transformers to apply conditionally.
-- Allowed Spark configurations (`dc43.governance.transformers.{read/write}`) to override or supply global transformers entirely within the integration layer.
+- Introduced the `GovernanceInterceptor` protocol in the Spark IO integration to unify both `pre_write` data mutations and `post_write` infrastructure side-effects (e.g., Unity Catalog tagging). 
+- Added dynamic configuration for interceptors via the `DC43_GOVERNANCE_INTERCEPTORS` environment variable or Spark configuration arrays.
+
+### Removed
+- Removed `ContractBasedTransformer` and its associated application logic to eliminate technical debt, intentionally favoring the new full-lifecycle Interceptor pattern over backward compatibility.
 
 ## [0.41.0.0] - 2026-03-26
 
