@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.41.0.0] - 2026-03-31
+
+### Added
+- Introduced the `GovernanceInterceptor` protocol in the Spark IO integration to unify both `pre_write` data mutations and `post_write` infrastructure side-effects (e.g., Unity Catalog tagging). 
+- Added dynamic configuration for interceptors via the `DC43_GOVERNANCE_INTERCEPTORS` environment variable or Spark configuration arrays.
+
+### Removed
+- Removed `ContractBasedTransformer` and its associated application logic to eliminate technical debt, intentionally favoring the new full-lifecycle Interceptor pattern over backward compatibility.
+
 ## [0.40.0.0] - 2026-03-19
 
 ### Added

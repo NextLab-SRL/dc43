@@ -49,6 +49,12 @@ from .merge import (
     merge_with_governance,
 )
 
+from .interceptors import (
+    GovernanceInterceptor,
+    InterceptorContext,
+    BaseGovernanceInterceptor,
+)
+
 __all__ = [
     "GovernanceSparkReadRequest",
     "GovernanceSparkWriteRequest",
@@ -74,4 +80,7 @@ __all__ = [
     "WriteExecutionResult",
     "write_with_governance",
     "merge_with_governance",
+    "GovernanceInterceptor",
+    "InterceptorContext",
+    "BaseGovernanceInterceptor",
 ]

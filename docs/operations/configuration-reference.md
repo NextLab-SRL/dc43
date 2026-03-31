@@ -514,6 +514,7 @@ Unity Catalog updates never target the contract, data product, or governance tab
 
 ### `[governance]`
 - `dataset_contract_link_builders` – Tuple of import paths used to build dataset→contract links. Override with `DC43_GOVERNANCE_LINK_BUILDERS` (comma-separated).
+- `interceptors` – Tuple of import paths to `GovernanceInterceptor` classes acting as full-lifecycle dataframe hooks. Override with `DC43_GOVERNANCE_INTERCEPTORS` (comma-separated).
 
 ### `[governance_store]`
 - `type` – Backend type (`memory`, `filesystem`, `sql`, `delta`, `http`). Override with `DC43_GOVERNANCE_STORE_TYPE`.

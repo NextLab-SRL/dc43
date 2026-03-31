@@ -219,8 +219,36 @@ class BaseReadExecutor:
 
         contract = self._resolve_contract()
         resolution = self._resolve_resolution(contract)
+        
+        from dc43_integrations.spark.io.interceptors import InterceptorContext, get_global_interceptors, resolve_interceptor
+        
+        ctx = InterceptorContext(
+            spark=self.spark,
+            contract=contract,
+            operation="read",
+            dataset_id=self.contract_id or "unknown",
+            dataset_version=self.expected_contract_version or "unknown",
+            dataset_format=self.user_format or "unknown",
+            pipeline_context=self.pipeline_context,
+            dataset_locator=self.locator,
+            request=self.request
+        )
+
+        global_interceptors = list(get_global_interceptors(spark=self.spark, operation="read"))
+        user_interceptors = list(getattr(self.request, "contract_interceptors", []) or [])
+        interceptors = [resolve_interceptor(r) for r in (global_interceptors + user_interceptors)]
+
+        if contract:
+            for interceptor in interceptors:
+                interceptor.pre_read(context=ctx)
+
         dataframe = self._load_dataframe(resolution)
         streaming_active = self._detect_streaming(dataframe)
+
+        if contract:
+            for interceptor in interceptors:
+                dataframe = interceptor.post_read(context=ctx, df=dataframe)
+
         dataset_id, dataset_version = self._dataset_identity(resolution, streaming_active)
         (
             dataframe,
@@ -677,10 +705,32 @@ class BaseWriteExecutor:
                 governance=_as_governance_service(governance_service),
             )
         
+        interceptors = []
+        ctx = None
         if contract:
             ensure_version(contract)
             _check_contract_version(expected_contract_version, contract.version)
             _enforce_contract_status(handler=strategy, contract=contract, enforce=enforce, operation="write")
+
+            from dc43_integrations.spark.io.interceptors import InterceptorContext, get_global_interceptors, resolve_interceptor
+            ctx = InterceptorContext(
+                spark=self.df.sparkSession,
+                contract=contract,
+                operation="write",
+                dataset_id=contract_id or "unknown",
+                dataset_version=expected_contract_version or "unknown",
+                dataset_format=format or "unknown",
+                pipeline_context=pipeline_context,
+                dataset_locator=locator,
+                request=self.request
+            )
+            global_interceptors = list(get_global_interceptors(spark=self.df.sparkSession, operation="write"))
+            user_interceptors = list(getattr(self.request, "contract_interceptors", []) or [])
+            interceptors = [resolve_interceptor(r) for r in (user_interceptors + global_interceptors)]
+            
+            for interceptor in interceptors:
+                df = interceptor.pre_write(context=ctx, df=df)
+            self.df = df
 
         resolution = locator.for_write(contract=contract, df=df, format=format, path=path, table=table)
         self._last_write_resolution = resolution
@@ -836,7 +886,14 @@ class BaseWriteExecutor:
             for w in self.warnings:
                 if w not in result.warnings:
                     result.warnings.append(w)
-        return WriteExecutionResult(result, gov_status, streaming_queries)
+                    
+        execution_result = WriteExecutionResult(result, gov_status, streaming_queries)
+        
+        if contract and ctx and interceptors:
+            for interceptor in interceptors:
+                interceptor.post_write(context=ctx, result=execution_result)
+                
+        return execution_result
 
     def _perform_writes(self, requests, governance_client, enforce, result, assessment):
         streaming_queries = []

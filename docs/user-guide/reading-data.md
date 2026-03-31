@@ -19,7 +19,10 @@ request = GovernanceSparkReadRequest(
     ),
     # If the contract doesn't explicitly define a physical input port, 
     # you can fallback to providing a direct path here:
-    # path="s3://lake/orders"
+    # path="s3://lake/orders",
+    
+    # Optional: Apply lifecycle interceptors for contract-reactive DataFrame mutations
+    # interceptors=["my_custom_module:MyGovernanceInterceptor"]
 )
 
 # Returns a Spark DataFrame already aligned with the contract schema
@@ -36,8 +39,14 @@ df = read_with_governance(
 
 1. **Contract Resolution**: The `governance_service` looks up the `contract_id` and `contract_version` to find the active Data Contract. It automatically resolves the physical input port (the path).
 2. **Read Execution**: Spark reads the underlying data from the location specified by the contract.
-3. **Alignment & Observation**: The schema is validated against the resolved contract. If `enforce=True`, missing columns or incompatible types will raise an error (unless `auto_cast` succeeds). 
-4. **Governance Reporting**: The integration sends an Observation payload back to the `governance_service`, registering the read event and updating lineage.
+3. **Interceptors**: If Governance Interceptors are defined via `DC43_GOVERNANCE_INTERCEPTORS` or passed in the request `interceptors`, their `pre_read` and `post_read` hooks are executed, allowing for contract-reactive preprocessing.
+   * **Sequence Order**: Global default interceptors execute their `pre_read` hooks first, followed by any custom `request.interceptors`.
+4. **Alignment & Observation**: The schema is validated against the resolved contract. If `enforce=True`, missing columns or incompatible types will raise an error (unless `auto_cast` succeeds). 
+5. **Governance Reporting**: The integration sends an Observation payload back to the `governance_service`, registering the read event and updating lineage.
+
+> [!TIP]
+> **Writing Safe Interceptors**
+> A `GovernanceInterceptor` defines hooks (`pre_read`, `post_read`, etc.) taking an `InterceptorContext` and a DataFrame. Since standard PySpark DataFrame operations (like `.withColumn()`, `.filter()`) run purely on the Driver, they are perfectly safe. However, if your interceptor defines a PySpark User-Defined Function (UDF), be careful with Closures! Do not capture the `context.contract` object inside the UDF itself, as it is a large Pydantic model and may fail serialization when sent to Spark Executors. Instead, extract exactly the primitive values you need *before* defining the UDF.
 
 ## Streaming Data
 
