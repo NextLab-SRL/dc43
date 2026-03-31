@@ -26,8 +26,8 @@ request = GovernanceSparkWriteRequest(
     # Advanced: Use a modifier function to apply Spark-specific configurations (like partitionBy or trigger)
     # writer_modifier=lambda w: w.partitionBy("date").trigger(availableNow=True)
     
-    # Optional: Apply an ordered sequence of contract-reactive DataFrame transformations
-    # contract_transformers=["utils.pii:apply_masking", "utils.enrichment:add_tags"]
+    # Optional: Apply an ordered sequence of lifecycle interceptors
+    # interceptors=["utils.pii:PrivacyInterceptor", "utils.enrichment:UnityCatalogInterceptor"]
 )
 
 # df is your Spark DataFrame
@@ -46,8 +46,8 @@ if not execution_result.validation.ok:
 
 ## How It Works
 
-1. **Transformations**: Any defined `contract_transformers` (either passed explicitly in the request or configured globally via `dc43-service-backends.toml` in the `[governance]` section) are applied to the DataFrame. These can interpret the contract to apply logic like PII masking.
-   * **Sequence Order**: For writes, `request.contract_transformers` (User Logic) are executed first, followed by the global defaults (Security/Compliance Policies).
+1. **Interceptors**: Any defined interceptors (passed explicitly via `interceptors` or configured globally via `DC43_GOVERNANCE_INTERCEPTORS`) are applied to the DataFrame lifecycle.
+   * **Sequence Order**: `pre_write` hooks (like PII masking) are executed before the schema alignment. After standard constraints are checked, data is written. Upon successful persist, `post_write` hooks (like Unity Catalog tagging) apply.
 2. **Alignment**: The DataFrame columns are re-ordered and cast to match the exact contract specification.
 3. **Quality Evaluation**: Spark computes metrics based on the data expectations defined in the Data Contract.
 4. **Governance Assessment**: The integration hands the metrics over to the `governance_service`. The service decides if the payload meets the contract standard.
