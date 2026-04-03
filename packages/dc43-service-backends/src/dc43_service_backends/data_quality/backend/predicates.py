@@ -47,6 +47,11 @@ def sql_predicate(spec: ExpectationSpec) -> str | None:
             return None
         pattern_str = str(pattern).replace("'", "\\'")
         return f"{col_ref} RLIKE '{pattern_str}'"
+    if spec.rule == "exact":
+        val = spec.params.get("value")
+        return f"{col_ref} = {_sql_literal(val)}"
+    if spec.rule == "is_null":
+        return f"{col_ref} IS NULL"
     return None
 
 

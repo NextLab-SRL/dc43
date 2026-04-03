@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Added `is_null` rule to Data Quality expectation specifications and predicate mappings.
+
 ## [0.41.0.0] - 2026-03-26
 
 ## [0.40.0.0] - 2026-03-19
