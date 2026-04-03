@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Added support for `is_null` data quality validation rule to natively assert column emptiness avoiding SQL Tri-Valued logic evaluation issues.
+
 ## [0.41.0.0] - 2026-03-31
 
 ## [0.40.0.0] - 2026-03-19

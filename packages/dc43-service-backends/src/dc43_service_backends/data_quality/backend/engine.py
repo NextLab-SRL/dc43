@@ -132,6 +132,32 @@ def expectation_specs(contract: OpenDataContractStandard) -> List[ExpectationSpe
                             optional=optional,
                         )
                     )
+                if (dq.rule or "").lower() == "is_null":
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"is_null_{field.name}",
+                            rule="is_null",
+                            column=field.name,
+                            optional=optional,
+                        )
+                    )
+                if (
+                    (dq.rule or "").lower() == "exact"
+                    or (
+                        (dq.rule or "").lower() not in {"regex", "enum", "query"}
+                        and dq.mustBe is not None
+                        and not isinstance(dq.mustBe, (list, tuple, set, dict))
+                    )
+                ):
+                    specs.append(
+                        ExpectationSpec(
+                            key=f"exact_{field.name}",
+                            rule="exact",
+                            column=field.name,
+                            params={"value": dq.mustBe},
+                            optional=optional,
+                        )
+                    )
                 if (dq.rule or "").lower() == "regex" and dq.mustBe:
                     specs.append(
                         ExpectationSpec(
@@ -178,6 +204,11 @@ def _format_expectation_violation(spec: ExpectationSpec, count: int) -> str:
         return f"column {column} contains {count} value(s) outside enum [{allowed_str}]"
     if spec.rule == "regex":
         return f"column {column} contains {count} value(s) not matching regex {spec.params.get('pattern')}"
+    if spec.rule == "exact":
+        val = spec.params.get("value")
+        return f"column {column} contains {count} value(s) different from {val}"
+    if spec.rule == "is_null":
+        return f"column {column} contains {count} non-null value(s)"
     if spec.rule == "gt":
         return f"column {column} contains {count} value(s) not greater than {spec.params.get('threshold')}"
     if spec.rule == "ge":
