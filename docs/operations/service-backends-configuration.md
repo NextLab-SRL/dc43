@@ -248,6 +248,41 @@ Environment overrides mirror other sections: `DC43_DATA_QUALITY_BACKEND_TYPE`,
 `DC43_DATA_QUALITY_DEFAULT_ENGINE` to override the engine selected when
 contracts do not specify one.
 
+#### Supported Data Quality Rules
+
+The native local execution engine parses Open Data Contract Standard (ODCS) rules and converts them into evaluating predicates (like Spark SQL assertions). The engine dynamically routes these based on the field specification or nested `quality` objects:
+
+| ODCS Property | Engine Rule | SQL Equivalent | Description |
+| ------------- | ----------- | -------------- | ----------- |
+| `required: true` | `not_null` | `col IS NOT NULL` | Ensures field presence. |
+| `unique: true` | `unique` | Evaluated at dataframe level | Enforces column uniqueness. |
+| `logicalTypeOptions.format` | `exact_format` | `to_timestamp(col, fmt) IS NOT NULL` | Verifies a string matches the specified date/time format. |
+| `quality[].mustBeGreaterThan` | `gt` | `col > threshold` | Strict greater than. |
+| `quality[].mustBeGreaterOrEqualTo` | `ge` | `col >= threshold` | Greater than or equal to. |
+| `quality[].mustBeLessThan` | `lt` | `col < threshold` | Strict less than. |
+| `quality[].mustBeLessOrEqualTo` | `le` | `col <= threshold` | Less than or equal to. |
+| `quality[].rule = "enum"` | `enum` | `col IN (values...)` | Ensures values adhere to the specified list. |
+| `quality[].rule = "regex"` | `regex` | `col RLIKE pattern` | Validates strings via regex. |
+| `quality[].rule = "exact"` | `exact` | `col = value` | Checks for an exact scalar match. |
+| `quality[].rule = "is_null"` | `is_null` | `col IS NULL` | Explicitly verifies the column contains only null values. |
+| `quality[].query` (Table level) | `query` | *Free SQL formulation* | Evaluates a custom SQL query; rows failing the predicate are flagged. |
+
+**Example configuration:**
+```yaml
+dataset:
+  - name: birth_date
+    type: string
+    logicalType: date
+    logicalTypeOptions:
+      format: "yyyy-MM-dd"
+    required: true
+    quality:
+      - rule: regex
+        mustBe: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+```
+
+The config above will trigger three discrete validation rules at runtime: `not_null` (from `required`), `exact_format` (from `logicalTypeOptions.format`, translated to `col IS NULL OR to_timestamp(col, 'yyyy-MM-dd') IS NOT NULL`), and `regex` (from the explicit quality array).
+
 #### Configuring execution engines
 
 Local deployments can register additional execution engines under

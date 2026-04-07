@@ -4,6 +4,10 @@
 
 ### Added
 - Added `is_null` rule to Data Quality expectation specifications and predicate mappings.
+- Added support for ODCS `logicalTypeOptions.format` date format validation via the `exact_format` rule and Spark `to_timestamp` predicates.
+
+### Changed
+- Refactored `dc43_service_backends.data_quality.backend.engine.expectation_specs` to use a Registry Pattern for dynamically dispatching and extracting ODCS quality validations into Spark/SQL ExpectationSpecs.
 
 ## [0.41.0.0] - 2026-03-26
 
