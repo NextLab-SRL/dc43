@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Literal, Mapping, Optional
+from typing import Any, Callable, Dict, Iterable, List, Literal, Mapping, Optional
 
-from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+from open_data_contract_standard.model import (  # type: ignore
+    DataQuality,
+    OpenDataContractStandard,
+    SchemaObject,
+    SchemaProperty,
+)
 
 from dc43_service_backends.core.odcs import list_properties
 from dc43_service_clients.data_quality import ValidationResult
@@ -45,141 +50,225 @@ class ExpectationSpec:
     optional: bool = False
 
 
+FieldExtractor = Callable[[SchemaProperty, bool], Iterable[ExpectationSpec]]
+QualityRuleExtractor = Callable[[SchemaProperty, DataQuality, bool], Optional[ExpectationSpec]]
+SchemaRuleExtractor = Callable[[SchemaObject, DataQuality], Optional[ExpectationSpec]]
+
+_FIELD_EXTRACTORS: List[FieldExtractor] = []
+_QUALITY_EXTRACTORS: List[QualityRuleExtractor] = []
+_SCHEMA_EXTRACTORS: List[SchemaRuleExtractor] = []
+
+
+def register_field_extractor(func: FieldExtractor) -> FieldExtractor:
+    _FIELD_EXTRACTORS.append(func)
+    return func
+
+
+def register_quality_extractor(func: QualityRuleExtractor) -> QualityRuleExtractor:
+    _QUALITY_EXTRACTORS.append(func)
+    return func
+
+
+def register_schema_extractor(func: SchemaRuleExtractor) -> SchemaRuleExtractor:
+    _SCHEMA_EXTRACTORS.append(func)
+    return func
+
+
+@register_field_extractor
+def _extract_required(field: SchemaProperty, optional: bool) -> Iterable[ExpectationSpec]:
+    if field.required:
+        yield ExpectationSpec(
+            key=f"not_null_{field.name}",
+            rule="not_null",
+            column=field.name,
+            optional=optional,
+        )
+
+
+@register_field_extractor
+def _extract_unique_field(field: SchemaProperty, optional: bool) -> Iterable[ExpectationSpec]:
+    if field.unique:
+        yield ExpectationSpec(
+            key=f"unique_{field.name}",
+            rule="unique",
+            column=field.name,
+            optional=optional,
+        )
+
+
+@register_field_extractor
+def _extract_exact_format(field: SchemaProperty, optional: bool) -> Iterable[ExpectationSpec]:
+    if getattr(field, "logicalTypeOptions", None) and (getattr(field, "type", "string") or "string").lower() in ("string", "varchar", "text", "char"):
+        logical_opts = dict(field.logicalTypeOptions)
+        fmt = logical_opts.get("format")
+        if fmt:
+            yield ExpectationSpec(
+                key=f"exact_format_{field.name}",
+                rule="exact_format",
+                column=field.name,
+                params={"format": str(fmt)},
+                optional=optional,
+            )
+
+
+@register_quality_extractor
+def _extract_gt(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if dq.mustBeGreaterThan is not None:
+        return ExpectationSpec(
+            key=f"gt_{field.name}",
+            rule="gt",
+            column=field.name,
+            params={"threshold": dq.mustBeGreaterThan},
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_ge(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if dq.mustBeGreaterOrEqualTo is not None:
+        return ExpectationSpec(
+            key=f"ge_{field.name}",
+            rule="ge",
+            column=field.name,
+            params={"threshold": dq.mustBeGreaterOrEqualTo},
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_lt(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if dq.mustBeLessThan is not None:
+        return ExpectationSpec(
+            key=f"lt_{field.name}",
+            rule="lt",
+            column=field.name,
+            params={"threshold": dq.mustBeLessThan},
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_le(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if dq.mustBeLessOrEqualTo is not None:
+        return ExpectationSpec(
+            key=f"le_{field.name}",
+            rule="le",
+            column=field.name,
+            params={"threshold": dq.mustBeLessOrEqualTo},
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_unique_quality(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if (dq.rule or "").lower() == "unique":
+        return ExpectationSpec(
+            key=f"unique_{field.name}",
+            rule="unique",
+            column=field.name,
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_enum(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if (dq.rule or "").lower() == "enum" and isinstance(dq.mustBe, list):
+        return ExpectationSpec(
+            key=f"enum_{field.name}",
+            rule="enum",
+            column=field.name,
+            params={"values": dq.mustBe},
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_is_null(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if (dq.rule or "").lower() == "is_null":
+        return ExpectationSpec(
+            key=f"is_null_{field.name}",
+            rule="is_null",
+            column=field.name,
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_exact(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if (
+        (dq.rule or "").lower() == "exact"
+        or (
+            (dq.rule or "").lower() not in {"regex", "enum", "query"}
+            and dq.mustBe is not None
+            and not isinstance(dq.mustBe, (list, tuple, set, dict))
+        )
+    ):
+        return ExpectationSpec(
+            key=f"exact_{field.name}",
+            rule="exact",
+            column=field.name,
+            params={"value": dq.mustBe},
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_regex(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    if (dq.rule or "").lower() == "regex" and dq.mustBe:
+        return ExpectationSpec(
+            key=f"regex_{field.name}",
+            rule="regex",
+            column=field.name,
+            params={"pattern": dq.mustBe},
+            optional=optional,
+        )
+    return None
+
+
+@register_schema_extractor
+def _extract_query(obj: SchemaObject, dq: DataQuality) -> Optional[ExpectationSpec]:
+    if dq.query:
+        return ExpectationSpec(
+            key=dq.name or dq.rule or (obj.name or "query"),
+            rule="query",
+            column=None,
+            params={"query": dq.query, "engine": dq.engine},
+        )
+    return None
+
+
 def expectation_specs(contract: OpenDataContractStandard) -> List[ExpectationSpec]:
     """Return metric specifications derived from the contract expectations."""
-
     specs: List[ExpectationSpec] = []
+    
     for obj in contract.schema_ or []:
         for field in obj.properties or []:
             if not field.name:
                 continue
             optional = not bool(field.required)
-            if field.required:
-                specs.append(
-                    ExpectationSpec(
-                        key=f"not_null_{field.name}",
-                        rule="not_null",
-                        column=field.name,
-                        optional=optional,
-                    )
-                )
-            if field.unique:
-                specs.append(
-                    ExpectationSpec(
-                        key=f"unique_{field.name}",
-                        rule="unique",
-                        column=field.name,
-                        optional=optional,
-                    )
-                )
+            
+            for f_extractor in _FIELD_EXTRACTORS:
+                specs.extend(f_extractor(field, optional))
+                
             for dq in field.quality or []:
-                if dq.mustBeGreaterThan is not None:
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"gt_{field.name}",
-                            rule="gt",
-                            column=field.name,
-                            params={"threshold": dq.mustBeGreaterThan},
-                            optional=optional,
-                        )
-                    )
-                if dq.mustBeGreaterOrEqualTo is not None:
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"ge_{field.name}",
-                            rule="ge",
-                            column=field.name,
-                            params={"threshold": dq.mustBeGreaterOrEqualTo},
-                            optional=optional,
-                        )
-                    )
-                if dq.mustBeLessThan is not None:
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"lt_{field.name}",
-                            rule="lt",
-                            column=field.name,
-                            params={"threshold": dq.mustBeLessThan},
-                            optional=optional,
-                        )
-                    )
-                if dq.mustBeLessOrEqualTo is not None:
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"le_{field.name}",
-                            rule="le",
-                            column=field.name,
-                            params={"threshold": dq.mustBeLessOrEqualTo},
-                            optional=optional,
-                        )
-                    )
-                if (dq.rule or "").lower() == "unique":
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"unique_{field.name}",
-                            rule="unique",
-                            column=field.name,
-                            optional=optional,
-                        )
-                    )
-                if (dq.rule or "").lower() == "enum" and isinstance(dq.mustBe, list):
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"enum_{field.name}",
-                            rule="enum",
-                            column=field.name,
-                            params={"values": dq.mustBe},
-                            optional=optional,
-                        )
-                    )
-                if (dq.rule or "").lower() == "is_null":
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"is_null_{field.name}",
-                            rule="is_null",
-                            column=field.name,
-                            optional=optional,
-                        )
-                    )
-                if (
-                    (dq.rule or "").lower() == "exact"
-                    or (
-                        (dq.rule or "").lower() not in {"regex", "enum", "query"}
-                        and dq.mustBe is not None
-                        and not isinstance(dq.mustBe, (list, tuple, set, dict))
-                    )
-                ):
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"exact_{field.name}",
-                            rule="exact",
-                            column=field.name,
-                            params={"value": dq.mustBe},
-                            optional=optional,
-                        )
-                    )
-                if (dq.rule or "").lower() == "regex" and dq.mustBe:
-                    specs.append(
-                        ExpectationSpec(
-                            key=f"regex_{field.name}",
-                            rule="regex",
-                            column=field.name,
-                            params={"pattern": dq.mustBe},
-                            optional=optional,
-                        )
-                    )
-
-    for obj in contract.schema_ or []:
+                for q_extractor in _QUALITY_EXTRACTORS:
+                    res = q_extractor(field, dq, optional)
+                    if res:
+                        specs.append(res)
+                        
         for dq in obj.quality or []:
-            if dq.query:
-                specs.append(
-                    ExpectationSpec(
-                        key=dq.name or dq.rule or (obj.name or "query"),
-                        rule="query",
-                        column=None,
-                        params={"query": dq.query, "engine": dq.engine},
-                    )
-                )
+            for s_extractor in _SCHEMA_EXTRACTORS:
+                res = s_extractor(obj, dq)
+                if res:
+                    specs.append(res)
 
     # Deduplicate specs keeping the first occurrence which matches column-level
     # required expectations before optional overrides.

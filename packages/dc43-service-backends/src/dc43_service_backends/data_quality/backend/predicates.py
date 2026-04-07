@@ -52,6 +52,12 @@ def sql_predicate(spec: ExpectationSpec) -> str | None:
         return f"{col_ref} = {_sql_literal(val)}"
     if spec.rule == "is_null":
         return f"{col_ref} IS NULL"
+    if spec.rule == "exact_format":
+        fmt = spec.params.get("format")
+        if not fmt:
+            return None
+        fmt_str = str(fmt).replace("'", "\\'")
+        return f"{col_ref} IS NULL OR to_timestamp({col_ref}, '{fmt_str}') IS NOT NULL"
     return None
 
 
