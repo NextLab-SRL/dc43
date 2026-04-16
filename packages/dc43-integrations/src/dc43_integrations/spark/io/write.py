@@ -61,6 +61,7 @@ def write_with_governance(
     if (
         context.policy.allowed_data_product_statuses is None
         and isinstance(violation_strategy, WriteViolationStrategy)
+        and hasattr(violation_strategy, 'allowed_data_product_statuses')
     ):
         allowed = violation_strategy.allowed_data_product_statuses
         if isinstance(allowed, str):
@@ -70,6 +71,7 @@ def write_with_governance(
     if (
         context.policy.allow_missing_data_product_status is None
         and isinstance(violation_strategy, WriteViolationStrategy)
+        and hasattr(violation_strategy, 'allow_missing_data_product_status')
     ):
         context.policy.allow_missing_data_product_status = bool(
             violation_strategy.allow_missing_data_product_status
@@ -77,6 +79,7 @@ def write_with_governance(
     if (
         context.policy.data_product_status_case_insensitive is None
         and isinstance(violation_strategy, WriteViolationStrategy)
+        and hasattr(violation_strategy, 'data_product_status_case_insensitive')
     ):
         context.policy.data_product_status_case_insensitive = bool(
             violation_strategy.data_product_status_case_insensitive
@@ -84,6 +87,7 @@ def write_with_governance(
     if (
         context.policy.data_product_status_failure_message is None
         and isinstance(violation_strategy, WriteViolationStrategy)
+        and hasattr(violation_strategy, 'data_product_status_failure_message')
     ):
         failure_message = violation_strategy.data_product_status_failure_message
         if failure_message is not None:
