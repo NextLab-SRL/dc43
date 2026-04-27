@@ -12,6 +12,7 @@ from pyspark.sql import DataFrame, SparkSession
 from dc43_integrations.spark.io.common import (
     GovernanceSparkDeclareRequest,
     GovernanceSparkReadRequest,
+    GovernanceDeclareContext,
 )
 from dc43_integrations.spark.violation_strategy import (
     NoOpWriteViolationStrategy,
@@ -22,7 +23,7 @@ from dc43_integrations.spark.io.base import (
     WriteExecutionResult,
 )
 from dc43_service_clients.governance.client.interface import GovernanceServiceClient
-from dc43_service_clients.governance.models import GovernanceDeclareContext, GovernancePolicy
+from dc43_service_clients.governance.models import GovernancePolicy
 
 logger = logging.getLogger(__name__)
 
