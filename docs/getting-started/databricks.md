@@ -208,7 +208,54 @@ USING DELTA
 LOCATION 'dbfs:/mnt/dc43-demo/delta/orders';
 ```
 
-## 6. Automate Unity Catalog metadata updates
+## 6. Declare a governed permanent View
+
+In addition to physical tables, you can declare permanent Databricks Views governed by the dc43 framework. The `declare_with_governance` helper evaluates your input contracts (and their data quality rules) before executing a `CREATE VIEW` statement.
+
+The framework automatically translates templated SQL placeholders, extracting the correct locations and time travel variants using the specified locators.
+
+```python
+from dc43_integrations.spark.io import (
+    declare_with_governance,
+    GovernanceSparkDeclareRequest,
+    GovernanceSparkReadRequest
+)
+from dc43_integrations.spark.io.locators import ContractVersionLocator
+
+sql_template = """
+    SELECT 
+        o.order_id, 
+        o.amount * 1.21 as amount_with_tax,
+        o.currency
+    FROM {orders_source} o
+    WHERE o.currency = 'EUR'
+"""
+
+validation = declare_with_governance(
+    spark=spark,
+    sql_template=sql_template,
+    inputs={
+        "orders_source": GovernanceSparkReadRequest(
+            dataset_locator=ContractVersionLocator(
+                dataset_id="sales.orders",
+                dataset_version="latest"
+            )
+        )
+    },
+    request=GovernanceSparkDeclareRequest(
+        dataset_id="sales.orders_taxed_view"
+    ),
+    governance_service=suite.governance,
+    enforce=True,
+    auto_cast=True
+)
+
+print("View validation status:", validation.status)
+```
+
+Just like physical tables, the result targets Unity Catalog. Ensure your target output contract specifies a standard table identifier (e.g. `catalog.schema.table`), as Databricks does not allow path-bound permanent views.
+
+## 7. Automate Unity Catalog metadata updates
 
 Most teams want catalog metadata to highlight whether a table is governed by a
 contract or belongs to a specific data product. Instead of sprinkling tagging
@@ -338,7 +385,7 @@ more hook builders to the `[governance]` configuration (or via the
 service code, which keeps alternative integrations—such as Azure Purview or
 custom auditing—completely pluggable.
 
-## 7. Next steps
+## 8. Next steps
 
 - Expose the contract and data product Delta stores through shared external
   locations so other workspaces can reuse the artefacts.

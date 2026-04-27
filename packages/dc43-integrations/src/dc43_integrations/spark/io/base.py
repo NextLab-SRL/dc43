@@ -1013,3 +1013,112 @@ def _execute_read(
     )
     res, status = executor.execute()
     return (res, status) if return_status else res
+
+
+class BaseDeclareExecutor(BaseWriteExecutor):
+    """Executes a templated SQL View Declaration while governing inputs and output."""
+
+    def __init__(
+        self,
+        *,
+        spark: SparkSession,
+        sql_template: str,
+        inputs: Mapping[str, Union['GovernanceSparkReadRequest', Mapping[str, object]]],
+        request: Union['GovernanceSparkWriteRequest', Mapping[str, object]],
+        governance_service: 'GovernanceServiceClient',
+        enforce: bool,
+        auto_cast: bool,
+        plan: Optional['ResolvedWritePlan'] = None,
+    ) -> None:
+        self.spark = spark
+        self.sql_template = sql_template
+        self.inputs = inputs
+
+        from dc43_integrations.spark.io.common import (
+            GovernanceSparkReadRequest,
+            GovernanceSparkWriteRequest,
+            build_spark_sql_ref,
+        )
+        
+        self._governance_req_type = GovernanceSparkReadRequest
+
+        # 1. Evaluate inputs to trigger read lineage and validations
+        self.pure_sql = self._evaluate_inputs(governance_service, enforce)
+
+        # 2. Convert templated SQL to a DataFrame to allow normal output validations
+        df = spark.sql(self.pure_sql)
+
+        # 3. Init BaseWriteExecutor logic
+        super().__init__(
+            df=df,
+            request=request,
+            governance_service=governance_service,
+            enforce=enforce,
+            auto_cast=auto_cast,
+            plan=plan,
+        )
+
+    def _evaluate_inputs(self, governance_service: 'GovernanceServiceClient', enforce: bool) -> str:
+        physical_map = {}
+        for key, input_req in self.inputs.items():
+            if not isinstance(input_req, self._governance_req_type):
+                input_req = self._governance_req_type(**dict(input_req))
+
+            plan = governance_service.resolve_read_context(context=input_req.context)
+            executor = BatchReadExecutor(
+                spark=self.spark,
+                request=input_req,
+                governance_service=governance_service,
+                enforce=enforce,
+                auto_cast=True,
+                plan=plan,
+            )
+            # Evaluate for side effects
+            executor.execute()
+
+            res = executor._last_read_resolution
+            if res is None:
+                raise ValueError(f"Could not resolve input {key}")
+            physical_map[key] = build_spark_sql_ref(res)
+
+        return self.sql_template.format(**physical_map)
+
+    def _perform_writes(self, requests, governance_client, enforce, result, assessment):
+        streaming_queries = []
+        primary_status = None
+        for i, req in enumerate(requests):
+            if req.warnings:
+                for w in req.warnings:
+                    if w not in result.warnings:
+                        result.warnings.append(w)
+            
+            try:
+                target = req.table
+                if not target:
+                    raise ValueError("Cannot create a permanent view without a valid table identifier in the Metastore. Ensure your contract sets a table, not just a path.")
+                self.spark.sql(f"CREATE OR REPLACE VIEW {target} AS {self.pure_sql}")
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to create view: %s", e)
+                if enforce:
+                    raise
+
+            validation = req.validation_factory() if getattr(req, "validation_factory", None) else None
+            status = validation
+
+            if governance_client and req.contract and req.dataset_id:
+                try:
+                    governance_client.link_dataset_contract(
+                        dataset_id=req.dataset_id,
+                        dataset_version=req.dataset_version or "",
+                        contract_id=req.contract.id,
+                        contract_version=req.contract.version,
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to link dataset contract: %s", e)
+
+            if i == 0:
+                primary_status = status
+            
+        return primary_status, streaming_queries
