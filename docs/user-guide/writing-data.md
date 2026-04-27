@@ -84,3 +84,40 @@ execution_result = merge_with_governance(
 ```
 
 The data quality expectations are verified on the `source_df` prior to executing the merge operation on the target. The target table is automatically resolved from the contract.
+
+## Declaring Governed Views
+
+In addition to writing physical data with DataFrames, the `dc43` Spark integration allows you to declare persistent Databricks views using the `declare_with_governance` API. This evaluates inputs dynamically and outputs SQL for robust, governed deployments.
+
+```python
+from dc43_integrations.spark.io import declare_with_governance, GovernanceSparkDeclareRequest
+from dc43_integrations.spark.io.common import GovernanceSparkReadRequest
+
+# The {input_dataset} acts as a placeholder that the framework will securely 
+# resolve into a Databricks catalog or delta path.
+sql_template = """
+    SELECT id, value * 100 as percentage 
+    FROM {input_dataset} 
+    WHERE status = 'active'
+"""
+
+execution_result = declare_with_governance(
+    spark=spark,
+    sql_template=sql_template,
+    inputs={
+        # Inputs undergo complete governance evaluation. Time travel is resolved automatically 
+        # generating queries executing e.g., \"my_table VERSION AS OF x\".
+        "input_dataset": GovernanceSparkReadRequest(dataset_id="source-dataset-id") 
+    },
+    request=GovernanceSparkDeclareRequest(
+        dataset_id="destination-view-id"
+    ),
+    governance_service=my_governance_client,
+    enforce=True, # Will block View creation if the input dataset breaches Data Quality rules!
+)
+```
+
+**Key Behaviors for Views:**
+* **Pre-flight Evaluation**: Unlike traditional tables where validation occurs *during* the write, view input dependencies are queried and validated *before* the `CREATE VIEW` statement executes. If an input breaches its quality or status policy, the view declaration aborts.
+* **Smart Translation**: `declare_with_governance` automatically translates `DatasetLocator` definitions (such as `ContractVersionLocator` alias resolutions) into pure Databricks SQL syntaxes, accurately injecting `VERSION AS OF` options directly into the SQL string.
+* **Metastore Enforcement**: Databricks prohibits permanent views anchored to pure filesystem paths. Ensure that the associated output contract provides a standard `catalog.schema.table` mapping.

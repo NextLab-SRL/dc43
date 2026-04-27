@@ -33,6 +33,37 @@ from dc43_service_clients.governance.models import (
 )
 from open_data_contract_standard.model import OpenDataContractStandard
 
+from dc43_integrations.spark.io.resolution import DatasetResolution
+
+GovernanceDeclareContext = GovernanceWriteContext
+
+def build_spark_sql_ref(resolution: DatasetResolution) -> str:
+    """Return a safely qualified Spark SQL reference from a resolution, interpreting time travel."""
+    target = resolution.table
+    
+    if not target:
+        if resolution.load_paths:
+            target = f"{resolution.format or 'delta'}.`{resolution.load_paths[0]}`"
+        elif resolution.path:
+            target = f"{resolution.format or 'delta'}.`{resolution.path}`"
+
+    if not target:
+        raise ValueError("Cannot resolve dataset location: both table and path are missing.")
+    
+    opts = []
+    if resolution.read_options:
+        v_as_of = resolution.read_options.get("versionAsOf")
+        t_as_of = resolution.read_options.get("timestampAsOf")
+        
+        if v_as_of is not None:
+            opts.append(f"VERSION AS OF {v_as_of}")
+        elif t_as_of is not None:
+            opts.append(f"TIMESTAMP AS OF '{t_as_of}'")
+        
+    suffix = " ".join(opts)
+    return f"{target} {suffix}".strip()
+
+
 PipelineContextLike = Union[
     PipelineContext,
     Mapping[str, object],
@@ -138,6 +169,9 @@ def _merge_pipeline_context(
     if extra:
         combined.update(extra)
     return combined or None
+
+
+GovernanceSparkDeclareRequest = GovernanceSparkWriteRequest
 
 
 def _normalise_path_ref(path: Optional[str | Iterable[str]]) -> Optional[str]:

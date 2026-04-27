@@ -1,0 +1,719 @@
+{
+  "openapi" : "3.0.3",
+  "info" : {
+    "title" : "Collibra Search API",
+    "description" : "<p>The Search API allows you to create your own integration with the Collibra Search Engine.<br /> Find your data!</p>",
+    "version" : "2.0",
+    "x-audience" : "public"
+  },
+  "servers" : [ {
+    "url" : "/rest/2.0",
+    "variables" : { }
+  } ],
+  "security" : [ {
+    "basicAuth" : [ ]
+  }, {
+    "jwtAuth" : [ ]
+  } ],
+  "paths" : {
+    "/search/views" : {
+      "get" : {
+        "tags" : [ "Search" ],
+        "summary" : "Lists search views.",
+        "description" : "Returns a list of all search views, also known as search filters, matching the given search criteria.<br /> Only search views the logged in user has access to are listed.",
+        "operationId" : "findViews",
+        "parameters" : [ {
+          "name" : "offset",
+          "in" : "query",
+          "description" : "The first result to retrieve. If not set (offset = <code>0</code>), results will be retrieved starting from row <code>0</code>.",
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "limit",
+          "in" : "query",
+          "description" : "The maximum number of results to retrieve. If not set (limit = <code>0</code>), the default limit will be used. The maximum allowed limit is 1000.",
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "name" : "countLimit",
+          "in" : "query",
+          "description" : "Allows to limit the number of elements that will be counted. -1 will count everything and 0 will cause the count to be skipped",
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : -1
+          }
+        }, {
+          "name" : "name",
+          "in" : "query",
+          "description" : "The search term for a search view to retrieve.<br /> The query is case sensitive and does not support wildcards.<br /> Use in conjunction with `nameMatchMode`.",
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "nameMatchMode",
+          "in" : "query",
+          "description" : "The match requirements for `name` queries.<br /> Works in conjunction with `name`. The search is case-sensitive.",
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "START", "END", "ANYWHERE", "EXACT" ],
+            "default" : "ANYWHERE"
+          },
+          "example" : "START"
+        }, {
+          "name" : "sortField",
+          "in" : "query",
+          "description" : "The reference field for sorting the results.",
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "NAME" ],
+            "default" : "NAME"
+          },
+          "example" : "NAME"
+        }, {
+          "name" : "sortOrder",
+          "in" : "query",
+          "description" : "The order in which the results are sorted.",
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "ASC", "DESC" ],
+            "default" : "ASC"
+          }
+        }, {
+          "name" : "location",
+          "in" : "query",
+          "description" : "The location for a search view to retrieve.",
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The list of returned search views.",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SearchViewPagedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search/views/{viewId}" : {
+      "get" : {
+        "tags" : [ "Search" ],
+        "summary" : "Returns the details of an existing search view.",
+        "description" : "Returns the details of a search view, also known as a search filter, identified by the given ID.",
+        "operationId" : "getView",
+        "parameters" : [ {
+          "name" : "viewId",
+          "in" : "path",
+          "description" : "The ID of the search view to be queried.",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "The details of the returned search view.",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SearchView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search" : {
+      "post" : {
+        "tags" : [ "Search" ],
+        "summary" : "Search.",
+        "description" : "Performs a search and returns a list of resources which meet the search criteria defined in the request body.",
+        "operationId" : "search",
+        "requestBody" : {
+          "description" : "The search criteria.",
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SearchRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "Search successfully performed.",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "SearchAggregation" : {
+        "type" : "object",
+        "properties" : {
+          "field" : {
+            "type" : "string",
+            "description" : "The reference field for aggregation. Distinct values of the field are counted in the search results, ignoring pagination, and the top most common are presented in the response.<br /> Possible values are `rootCommunity`, `resourceType`, `assetType`, `domainType`, `status`, `lastModifiedOn`, `createdOn`, `createdBy` and `tags`.",
+            "example" : "createdBy"
+          },
+          "limit" : {
+            "maximum" : 1000,
+            "minimum" : 0,
+            "type" : "integer",
+            "description" : "Optional limit for the number of top aggregated results to return. If not set, the default limit of `10` is used.<br /> The maximum possible value is 1000.",
+            "format" : "int32",
+            "nullable" : true,
+            "example" : 12,
+            "default" : 10
+          }
+        },
+        "description" : "The aggregation criteria for the search results.",
+        "nullable" : true
+      },
+      "SearchFilter" : {
+        "type" : "object",
+        "properties" : {
+          "field" : {
+            "type" : "string",
+            "description" : "The reference field for the filter. You must also provide at least a value for each reference field.<br /> Possible values are `community`, `domain`, `domainType`, `assetType`, `status`, `createdBy`, `lastModifiedOn`, `createdOn`, `tags`, `certified`, `rating`.<br /> Use in conjunction with `values`.",
+            "example" : "assetType"
+          },
+          "values" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "description" : "A list of values for the reference field. You must provide at least one value for each reference filed.<br /> Works in conjunction with `filed`.<br /> <br /> Possible values for `community`, `domain`, `domainType`, `assetType`, `status` and `createdBy` are one or more UUIDs.<br /> <br /> Possible values for `lastModifiedOn` and `createdOn` are `LAST_24H`, `LAST_7D`, `LAST_30D`, `LAST_365D`, `OLDER_THAN_365D`.<br /> <br /> Possible values for `tags` are one or more string values.<br /> <br /> Possible values for `certified` are `true` or `false`.<br /> <br /> Possible values for `rating` are `unrated`, `one_or_more_stars`, `two_or_more_stars`, `three_or_more_stars`, `four_or_more_stars`.",
+            "example" : [ "00000000-0000-0000-0000-000000031112" ],
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "description" : "A filter to refine the search results based on specific types, statuses, dates and tags of the returned resources.",
+        "nullable" : true
+      },
+      "SearchHighlight" : {
+        "type" : "object",
+        "properties" : {
+          "preTag" : {
+            "maxLength" : 1000,
+            "type" : "string",
+            "description" : "Optional string to insert before the highlighted fragment. If set, you must also provide a value for `postTag`.",
+            "nullable" : true,
+            "example" : "<strong>"
+          },
+          "postTag" : {
+            "maxLength" : 1000,
+            "type" : "string",
+            "description" : "Optional string to insert after the highlighted fragment. If set, you must also provide a value for `preTag`.",
+            "nullable" : true,
+            "example" : "</strong>"
+          }
+        },
+        "description" : "Highlight options for the content that matches the search criteria. If a `preTag` and `postTag` are not specified, the default tags `<B>` and `</B>` are used to enclose the highlighted text. However, the application of these default tags is deprecated. As of the next major version of Collibra Platform, if you define highlighting, you will also need to define the `preTag` and `postTag`.",
+        "nullable" : true
+      },
+      "SearchInFields" : {
+        "type" : "object",
+        "properties" : {
+          "resourceType" : {
+            "type" : "string",
+            "description" : "The reference resource type for the filter, also known as resource category. You must also provide at least one field for each resource type. When you include more than one resource type, you must provide the same fields (if available) for all resource types.<br /> Possible values are `Asset`, `Domain`, `Community`, `User` and `UserGroup`.<br /> Use in conjunction with `fields`.",
+            "example" : "Asset"
+          },
+          "fields" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "description" : "A list of fields for the reference resource type. Works in conjunction with `resourceType`.<br /> Possible values for `Asset` are  `name`, `displayName`, `comments`, `tags`, `dataClassification` and `attributes`. Note that `attributes` is a wildcard for all attribute types. To search in a specific attribute type, use the following notation: `resource_type:resource_uuid` where `resource_type` is the attribute resource type, such as `StringAttributeType` (or use the generic `attribute`) and `resource_uuid` is the UUID of the attribute type. <br/>Possible values for `Domain` and `Community` are `name` and `comments`.<br /> Possible values for `User` and `UserGroup` are `name`.",
+            "example" : [ "name", "StringAttribute:00000000-0000-0000-0000-000000007022" ],
+            "items" : {
+              "type" : "string"
+            }
+          }
+        },
+        "description" : "A filter to refine the search results based on the occurrence of the search term in specific fields of resource types.",
+        "nullable" : true
+      },
+      "SearchRequest" : {
+        "type" : "object",
+        "properties" : {
+          "keywords" : {
+            "maxLength" : 1000,
+            "minLength" : 1,
+            "type" : "string",
+            "description" : "The search term.<br /> The field is mandatory and cannot be empty. You can use optional wildcards and quotes. No asterisk \"*\" wildcard will be automatically added for REST calls.",
+            "example" : "issue"
+          },
+          "searchInFields" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "description" : "Optional set of fields to search in. By default, the search is performed in all the supported fields.",
+            "nullable" : true,
+            "items" : {
+              "$ref" : "#/components/schemas/SearchInFields"
+            }
+          },
+          "filters" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "description" : "Optional filters to apply to narrow down the search results.",
+            "nullable" : true,
+            "items" : {
+              "$ref" : "#/components/schemas/SearchFilter"
+            }
+          },
+          "aggregations" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "description" : "Optional set of aggregations to perform. Only results that match the search criteria (including all filters) are aggregated. Aggregation counts ignore pagination settings (limit and offset). Aggregations can be used to visualize a faceted search on frontend-related applications.",
+            "nullable" : true,
+            "items" : {
+              "$ref" : "#/components/schemas/SearchAggregation"
+            }
+          },
+          "sortField" : {
+            "type" : "string",
+            "description" : "The reference field for sorting the results.",
+            "nullable" : true,
+            "example" : "RELEVANCE",
+            "enum" : [ "RELEVANCE", "NAME", "LAST_MODIFIED_ON" ],
+            "default" : "RELEVANCE"
+          },
+          "sortOrder" : {
+            "type" : "string",
+            "description" : "The order in which the results are sorted. The default order when sorting by `NAME` is ascending (`ASC`). The default order when sorting by other fields is descending (`DESC`).",
+            "nullable" : true,
+            "example" : "DESC",
+            "enum" : [ "ASC", "DESC" ]
+          },
+          "highlights" : {
+            "$ref" : "#/components/schemas/SearchHighlight"
+          },
+          "limit" : {
+            "maximum" : 1000,
+            "minimum" : 0,
+            "type" : "integer",
+            "description" : "The number of search results to present in the response. If set to `0`, only aggregations are performed. Negative values are not possible. If not set, the default limit is used. The maximum possible value is `1000`. In conjunction with `offset`, this field provides a method to paginate the results. The sum of `limit` and `offset` cannot exceed `10000`.",
+            "format" : "int32",
+            "nullable" : true,
+            "example" : 50,
+            "default" : 20
+          },
+          "offset" : {
+            "maximum" : 10000,
+            "minimum" : 0,
+            "type" : "integer",
+            "description" : "The number of first search results to skip in the response. Negative values are not possible. If not set or set to `0`, no results are skipped. In conjunction with `limit`, this field provides a method to paginate the results. The sum of `limit` and `offset` cannot exceed `10000`.",
+            "format" : "int32",
+            "nullable" : true,
+            "example" : 0,
+            "default" : 0
+          },
+          "product" : {
+            "type" : "string",
+            "description" : "Optional criteria to apply on PRODUCT property of the document to narrow down the search results.",
+            "nullable" : true,
+            "enum" : [ "GLOSSARY", "CATALOG", "ALL" ]
+          }
+        },
+        "description" : "The search criteria."
+      },
+      "SearchView" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "description" : "The search view ID.",
+            "format" : "uuid",
+            "example" : "0534b012-651a-468a-bded-eb52c78216f1"
+          },
+          "name" : {
+            "type" : "string",
+            "description" : "The search view name."
+          },
+          "description" : {
+            "type" : "string",
+            "description" : "Optional search view description."
+          },
+          "searchRequest" : {
+            "$ref" : "#/components/schemas/SearchRequest"
+          }
+        },
+        "description" : "A response with search view details."
+      },
+      "SearchViewPagedResponse" : {
+        "type" : "object",
+        "properties" : {
+          "total" : {
+            "type" : "integer",
+            "description" : "The total number of results.",
+            "format" : "int64",
+            "example" : 1000
+          },
+          "offset" : {
+            "type" : "integer",
+            "description" : "The offset for the results.",
+            "format" : "int64",
+            "example" : 10
+          },
+          "limit" : {
+            "type" : "integer",
+            "description" : "The maximum number of results to be returned.",
+            "format" : "int64",
+            "example" : 100
+          },
+          "results" : {
+            "type" : "array",
+            "description" : "The list of results.",
+            "items" : {
+              "$ref" : "#/components/schemas/SearchView"
+            }
+          }
+        }
+      },
+      "FindSearchViewsRequest" : {
+        "type" : "object",
+        "properties" : {
+          "offset" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "limit" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "countLimit" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "nameMatchMode" : {
+            "type" : "string",
+            "enum" : [ "START", "END", "ANYWHERE", "EXACT" ]
+          },
+          "sortField" : {
+            "type" : "string",
+            "enum" : [ "NAME" ]
+          },
+          "sortOrder" : {
+            "type" : "string",
+            "enum" : [ "ASC", "DESC" ]
+          },
+          "location" : {
+            "type" : "string"
+          }
+        },
+        "description" : "The search criteria for views."
+      },
+      "PagedResponseSearchView" : {
+        "type" : "object",
+        "properties" : {
+          "total" : {
+            "type" : "integer",
+            "description" : "The total number of results.",
+            "format" : "int64",
+            "example" : 1000
+          },
+          "offset" : {
+            "type" : "integer",
+            "description" : "The offset for the results.",
+            "format" : "int64",
+            "example" : 10
+          },
+          "limit" : {
+            "type" : "integer",
+            "description" : "The maximum number of results to be returned.",
+            "format" : "int64",
+            "example" : 100
+          },
+          "results" : {
+            "type" : "array",
+            "description" : "The list of results.",
+            "items" : {
+              "$ref" : "#/components/schemas/SearchView"
+            }
+          }
+        },
+        "description" : "Response containing the paged information."
+      },
+      "SearchAssetResultResource" : {
+        "type" : "object",
+        "description" : "Details of the asset matching the search criteria.",
+        "allOf" : [ {
+          "$ref" : "#/components/schemas/SearchResultResource"
+        }, {
+          "type" : "object",
+          "properties" : {
+            "displayName" : {
+              "type" : "string",
+              "description" : "The display name of the asset. Note that `displayName` corresponds to the `Name` in the UI.",
+              "example" : "Simple display name"
+            },
+            "type" : {
+              "$ref" : "#/components/schemas/SearchResultType"
+            },
+            "tags" : {
+              "type" : "array",
+              "description" : "The tags assigned to the asset.",
+              "items" : {
+                "type" : "string"
+              }
+            },
+            "status" : {
+              "$ref" : "#/components/schemas/SearchResultStatus"
+            }
+          }
+        } ]
+      },
+      "SearchCommunityResultResource" : {
+        "type" : "object",
+        "description" : "Details of the community matching the search criteria.",
+        "allOf" : [ {
+          "$ref" : "#/components/schemas/SearchResultResource"
+        } ]
+      },
+      "SearchDomainResultResource" : {
+        "type" : "object",
+        "description" : "Details of the domain matching the search criteria.",
+        "allOf" : [ {
+          "$ref" : "#/components/schemas/SearchResultResource"
+        }, {
+          "type" : "object",
+          "properties" : {
+            "type" : {
+              "$ref" : "#/components/schemas/SearchResultType"
+            }
+          }
+        } ]
+      },
+      "SearchResponse" : {
+        "type" : "object",
+        "properties" : {
+          "total" : {
+            "minimum" : 0,
+            "type" : "integer",
+            "description" : "The total number of resources matching the search criteria, ignoring pagination (`limit` and `offset`).",
+            "format" : "int32",
+            "example" : 12983
+          },
+          "results" : {
+            "type" : "array",
+            "description" : "The list of search results ordered as per the search request.",
+            "items" : {
+              "$ref" : "#/components/schemas/SearchResult"
+            }
+          },
+          "aggregations" : {
+            "type" : "array",
+            "description" : "The aggregations performed on all the results matching the search criteria, ignoring pagination (`limit` and `offset`). Aggregations are only performed on the fields requested in the search request.",
+            "items" : {
+              "$ref" : "#/components/schemas/SearchResponseAggregation"
+            }
+          }
+        },
+        "description" : "The response with search query results."
+      },
+      "SearchResponseAggregation" : {
+        "type" : "object",
+        "properties" : {
+          "field" : {
+            "type" : "string",
+            "description" : "The reference field for aggregation.",
+            "example" : "status"
+          },
+          "values" : {
+            "type" : "array",
+            "description" : "The values of the field with the corresponding number of search results. This list is ordered by the number of search results found (descending). Zero-values are not presented.",
+            "items" : {
+              "$ref" : "#/components/schemas/SearchResponseAggregationValue"
+            }
+          }
+        },
+        "description" : "The result of an aggregation performed on a single field."
+      },
+      "SearchResponseAggregationValue" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "description" : "The resource ID.",
+            "example" : "4d123cc5-e583-4640-9874-b93d82c7a6cb"
+          },
+          "count" : {
+            "minimum" : 1,
+            "type" : "integer",
+            "description" : "The number of resources matching the search criteria.",
+            "format" : "int32",
+            "example" : 4
+          }
+        },
+        "description" : "The result of a single aggregation: the value of a field and its count."
+      },
+      "SearchResult" : {
+        "type" : "object",
+        "properties" : {
+          "resource" : {
+            "$ref" : "#/components/schemas/SearchResultResource"
+          },
+          "highlights" : {
+            "type" : "array",
+            "description" : "Highlights in related resource and its sub-entries (for example in asset and its attributes). This field has value only when highlights were defined in the search request.",
+            "nullable" : true,
+            "items" : {
+              "$ref" : "#/components/schemas/SearchResultHighlight"
+            }
+          }
+        },
+        "description" : "Details of a resource matching the search criteria."
+      },
+      "SearchResultHighlight" : {
+        "type" : "object",
+        "properties" : {
+          "field" : {
+            "type" : "string",
+            "description" : "The field the search term occurs."
+          },
+          "fragment" : {
+            "type" : "string",
+            "description" : "A fragment of the data where the search term occurs including the highlight tags if set.",
+            "example" : "Response to comment <b>Alpha</b>"
+          },
+          "id" : {
+            "type" : "string",
+            "description" : "The ID of the resource where the search term occurs. This ID is returned only if the search term occurs in the child of a resource, for example if the search term occurs in the attribute of an asset the attribute ID is returned.",
+            "format" : "uuid",
+            "nullable" : true,
+            "example" : "4d250cc5-e583-4640-9874-b93d82c7a6cb"
+          }
+        },
+        "description" : "Fragments of data where the search term occurs, including the highlight tags if set.",
+        "nullable" : true
+      },
+      "SearchResultResource" : {
+        "type" : "object",
+        "properties" : {
+          "resourceType" : {
+            "type" : "string",
+            "description" : "The resource type, also known as resource category.",
+            "example" : "Asset",
+            "enum" : [ "Asset", "Community", "Domain", "User", "UserGroup" ]
+          },
+          "id" : {
+            "type" : "string",
+            "description" : "The resource ID.",
+            "format" : "uuid",
+            "example" : "4d123cc5-e583-4640-9874-b93d82c7a6cb"
+          },
+          "createdBy" : {
+            "type" : "string",
+            "description" : "The ID of the user who created the resource.",
+            "format" : "uuid",
+            "example" : "4d250cc5-e583-4640-9874-b93d82c7a6cb"
+          },
+          "createdOn" : {
+            "type" : "integer",
+            "description" : "The timestamp (in UTC time standard) of the creation of this resource.",
+            "format" : "int64",
+            "example" : 1475503010320
+          },
+          "lastModifiedOn" : {
+            "type" : "integer",
+            "description" : "The timestamp (in UTC time standard) of the last modification of this resource.",
+            "format" : "int64",
+            "example" : 1476703764163
+          },
+          "name" : {
+            "type" : "string",
+            "description" : "The name of the resource.",
+            "example" : "Test name"
+          }
+        },
+        "description" : "Details of the resource that matches the search criteria.",
+        "discriminator" : {
+          "propertyName" : "resourceType"
+        }
+      },
+      "SearchResultStatus" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "description" : "The resource status ID.",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string",
+            "description" : "Text representation of the resource status.",
+            "example" : "\"Approved\""
+          }
+        },
+        "description" : "The status of the resource."
+      },
+      "SearchResultType" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "description" : "The resource type ID.",
+            "format" : "uuid"
+          },
+          "name" : {
+            "type" : "string",
+            "description" : "The resource type, also known as resource category."
+          }
+        },
+        "description" : "Details of the resource type."
+      },
+      "SearchUserGroupResultResource" : {
+        "type" : "object",
+        "description" : "Details of the group of users matching the search criteria.",
+        "allOf" : [ {
+          "$ref" : "#/components/schemas/SearchResultResource"
+        } ]
+      },
+      "SearchUserResultResource" : {
+        "type" : "object",
+        "description" : "Details of the user matching the search criteria.",
+        "allOf" : [ {
+          "$ref" : "#/components/schemas/SearchResultResource"
+        } ]
+      }
+    },
+    "securitySchemes" : {
+      "basicAuth" : {
+        "type" : "http",
+        "description" : "Collibra REST API authentication using Basic Authentication.",
+        "scheme" : "basic"
+      },
+      "jwtAuth" : {
+        "type" : "http",
+        "description" : "Collibra REST API authentication using JSON Web Token.",
+        "scheme" : "bearer",
+        "bearerFormat" : "JWT"
+      }
+    }
+  }
+}
