@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Native support for deploying permanent Databricks Views with input data quality evaluation and Dataset Resolution using `declare_with_governance` within the Spark integration helpers.
 - Added support for `is_null` data quality validation rule to natively assert column emptiness avoiding SQL Tri-Valued logic evaluation issues.
 
 ## [0.41.0.0] - 2026-03-31
