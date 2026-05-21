@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.42.0.0] - 2026-05-21
+
 ### Added
 - Added a robust `MockCollibraService` supporting dynamic assets, relations, Search API, and Data Product API v1 for comprehensive offline testing of Collibra integrations.
 - Native support for deploying permanent Databricks Views with input data quality evaluation and Dataset Resolution using `declare_with_governance` within the Spark integration helpers.

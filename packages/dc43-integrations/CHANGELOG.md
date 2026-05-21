@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.42.0.0] - 2026-05-21
+
 ### Added
 - Added `declare_with_governance` to the Spark IO module to support declarative permanent view deployment. This interprets a templated SQL query, dynamically discovers and evaluates all inputs (applying data quality rules and time travel), and creates a Databricks catalog view safely.
 - Added `build_spark_sql_ref` in `dc43_integrations.spark.io.common` to translate `DatasetResolution` objects securely into Spark SQL text representations, interpreting time travel configurations like `VERSION AS OF`.

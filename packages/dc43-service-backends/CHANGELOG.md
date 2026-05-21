@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.42.0.0] - 2026-05-21
+
 ### Added
 - Added a robust `MockCollibraService` supporting dynamic assets, relations, Search API, and Data Product API v1 for comprehensive offline testing of Collibra integrations.
 - Added `is_null` rule to Data Quality expectation specifications and predicate mappings.
