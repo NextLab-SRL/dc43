@@ -82,39 +82,24 @@ def test_stub_gateway_validated_lookup():
 
 def test_http_gateway_with_mock_transport():
     httpx = pytest.importorskip("httpx")
+    from .mock_collibra_service import MockCollibraService
 
+    mock_service = MockCollibraService()
+    
+    # Pre-populate relation graph for the Port
+    dp_uuid = "dp-uuid-sales"
+    port_uuid = "port-uuid-gold"
+    mock_service.add_asset(dp_uuid, "dp-sales", "Data Product", type_id=mock_service.data_product_type_id)
+    mock_service.add_asset(port_uuid, "gold-port", "Port")
+    mock_service.add_relation(
+        source_id=dp_uuid,
+        target_id=port_uuid,
+        relation_type_name="Data Product contains Port",
+        relation_type_id=mock_service.relation_type_contains_id
+    )
+
+    client = httpx.Client(transport=mock_service.get_transport(), base_url="https://collibra.example.com")
     contract_catalog = {"sales.orders": ("dp-sales", "gold-port")}
-    stored: dict[str, dict[str, dict[str, object]]] = {"sales.orders": {}}
-
-    def handler(request: httpx.Request) -> httpx.Response:  # type: ignore[name-defined]
-        path = request.url.path
-        if path.endswith("/contracts") and request.method == "GET":
-            versions = [
-                {
-                    "version": version,
-                    "status": entry.get("status", "Draft"),
-                    "updatedAt": entry.get("updatedAt", datetime.utcnow().isoformat()),
-                }
-                for version, entry in stored["sales.orders"].items()
-            ]
-            return httpx.Response(200, json={"data": versions})
-
-        if path.endswith("/contracts/1.0.0") and request.method == "PUT":
-            payload = json.loads(request.content.decode("utf-8"))
-            stored["sales.orders"]["1.0.0"] = {
-                "contract": payload["contract"],
-                "status": payload.get("status", "Draft"),
-            }
-            return httpx.Response(204)
-
-        if path.endswith("/contracts/1.0.0") and request.method == "GET":
-            entry = stored["sales.orders"]["1.0.0"]
-            return httpx.Response(200, json={"contract": entry["contract"], "status": entry.get("status")})
-
-        return httpx.Response(404)
-
-    transport = httpx.MockTransport(handler)  # type: ignore[attr-defined]
-    client = httpx.Client(transport=transport, base_url="https://collibra.example.com")
 
     gateway = HttpCollibraContractAdapter(
         base_url="https://collibra.example.com",
@@ -132,3 +117,88 @@ def test_http_gateway_with_mock_transport():
     doc = store.get("sales.orders", "1.0.0")
     assert doc.servers[0].path == "datalake/orders"
 
+
+def test_http_gateway_cascading_lookup():
+    httpx = pytest.importorskip("httpx")
+    from .mock_collibra_service import MockCollibraService
+
+    mock_service = MockCollibraService()
+    
+    # Pre-populate entire relation graph: DP -> Port -> Contract
+    dp_uuid = "dp-uuid-sales"
+    port_uuid = "port-uuid-gold"
+    contract_uuid = "contract-uuid-sales-orders"
+    
+    mock_service.add_asset(dp_uuid, "dp-sales", "Data Product", type_id=mock_service.data_product_type_id)
+    mock_service.add_asset(port_uuid, "gold-port", "Port")
+    mock_service.add_asset(contract_uuid, "sales.orders", "Data Contract")
+    
+    mock_service.add_relation(
+        source_id=dp_uuid,
+        target_id=port_uuid,
+        relation_type_name="Data Product contains Port",
+        relation_type_id=mock_service.relation_type_contains_id
+    )
+    mock_service.add_relation(
+        source_id=contract_uuid,
+        target_id=port_uuid,
+        relation_type_name="Port governed by Data Contract",
+        relation_type_id=mock_service.relation_type_governed_id
+    )
+
+    # Manually configure the contract version inside mock service
+    mock_service.contracts[contract_uuid] = {
+        "id": contract_uuid,
+        "manifestId": "sales.orders",
+        "name": "sales.orders",
+        "domainId": "domain-uuid-1",
+        "domainName": "Mock Domain",
+        "activeVersion": "1.0.0"
+    }
+    
+    import yaml
+    from dc43_service_backends.core.odcs import as_odcs_dict
+    yaml_str = yaml.dump(as_odcs_dict(_sample_contract("1.0.0")))
+    
+    mock_service.contract_manifests[contract_uuid] = {"1.0.0": yaml_str}
+    mock_service.contract_versions[contract_uuid] = {
+        "1.0.0": {
+            "version": "1.0.0",
+            "active": True,
+            "format": "ODCS",
+            "createdBy": "user-uuid",
+            "createdOn": 1476703764163,
+            "lastModifiedBy": "user-uuid",
+            "lastModifiedOn": 1476703764163
+        }
+    }
+
+    client = httpx.Client(transport=mock_service.get_transport(), base_url="https://collibra.example.com")
+    contract_catalog = {"sales.orders": ("dp-sales", "gold-port")}
+
+    gateway = HttpCollibraContractAdapter(
+        base_url="https://collibra.example.com",
+        token="token",
+        contract_catalog=contract_catalog,
+        client=client,
+    )
+
+    # Disable fast path in mock to force cascading lookup!
+    original_handle = mock_service.handle_request
+    
+    def custom_handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/rest/dataProduct/v1/dataContracts" and request.method == "GET":
+            return httpx.Response(200, json={"items": [], "limit": 100, "nextCursor": None})
+        return original_handle(request)
+        
+    mock_service.handle_request = custom_handle
+
+    store = CollibraContractStore(gateway)
+    resolved_uuid = gateway._resolve_contract_uuid("sales.orders")
+    assert resolved_uuid == contract_uuid
+
+    versions = store.list_versions("sales.orders")
+    assert versions == ["1.0.0"]
+
+    doc = store.get("sales.orders", "1.0.0")
+    assert doc.id == "sales.orders"

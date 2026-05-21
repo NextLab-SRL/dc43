@@ -3,8 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- Added a robust `MockCollibraService` supporting dynamic assets, relations, Search API, and Data Product API v1 for comprehensive offline testing of Collibra integrations.
 - Native support for deploying permanent Databricks Views with input data quality evaluation and Dataset Resolution using `declare_with_governance` within the Spark integration helpers.
 - Added support for `is_null` data quality validation rule to natively assert column emptiness avoiding SQL Tri-Valued logic evaluation issues.
+
+### Changed
+- Migrated Collibra contract adapter to target the official Collibra Data Product API v1 (`/rest/dataProduct/v1`) with multipart YAML upload/download, and integrated a dual lookup strategy (direct technical UUID mapping cascading to graph-based traversal).
 
 ## [0.41.0.0] - 2026-03-31
 

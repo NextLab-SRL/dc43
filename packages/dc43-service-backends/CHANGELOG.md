@@ -3,10 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- Added a robust `MockCollibraService` supporting dynamic assets, relations, Search API, and Data Product API v1 for comprehensive offline testing of Collibra integrations.
 - Added `is_null` rule to Data Quality expectation specifications and predicate mappings.
 - Added support for ODCS `logicalTypeOptions.format` date format validation via the `exact_format` rule and Spark `to_timestamp` predicates.
 
 ### Changed
+- Migrated `HttpCollibraContractAdapter` to target the official Collibra Data Product API v1 (`/rest/dataProduct/v1`) with multipart YAML upload/download.
+- Integrated a dual lookup strategy in Collibra adapter: Option A (direct technical UUID mapping) cascading to a graph-based relational traversal (Data Product ➔ Port ➔ Data Contract) when needed.
 - Refactored `dc43_service_backends.data_quality.backend.engine.expectation_specs` to use a Registry Pattern for dynamically dispatching and extracting ODCS quality validations into Spark/SQL ExpectationSpecs.
 
 ## [0.41.0.0] - 2026-03-26
