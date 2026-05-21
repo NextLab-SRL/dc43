@@ -220,7 +220,7 @@ from dc43_integrations.spark.io import (
     GovernanceSparkDeclareRequest,
     GovernanceSparkReadRequest
 )
-from dc43_integrations.spark.io.locators import ContractVersionLocator
+from dc43_service_clients.governance.models import GovernanceReadContext, GovernanceWriteContext
 
 sql_template = """
     SELECT 
@@ -236,14 +236,11 @@ validation = declare_with_governance(
     sql_template=sql_template,
     inputs={
         "orders_source": GovernanceSparkReadRequest(
-            dataset_locator=ContractVersionLocator(
-                dataset_id="sales.orders",
-                dataset_version="latest"
-            )
+            context=GovernanceReadContext.from_contract(id="sales.orders", version="latest")
         )
     },
     request=GovernanceSparkDeclareRequest(
-        dataset_id="sales.orders_taxed_view"
+        context=GovernanceWriteContext.from_contract(id="sales.orders_taxed_view")
     ),
     governance_service=suite.governance,
     enforce=True,

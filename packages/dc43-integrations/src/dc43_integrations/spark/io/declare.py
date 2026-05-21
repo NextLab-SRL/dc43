@@ -80,18 +80,18 @@ def declare_with_governance(
         GovernanceSparkDeclareRequest,
         GovernanceDeclareContext
     )
-    from dc43_integrations.spark.io.locators import ContractVersionLocator
+    from dc43_service_clients.governance.models import GovernanceReadContext
 
     # 1. Define the declarative logic. 
     # Keys like {client_table} and {dim_table} will be fully resolved and injected.
-    sql_template = \"\"\"
+    sql_template = '''
         SELECT 
             c.client_id, 
             c.revenue, 
             d.segment_name
         FROM {client_table} c
         LEFT JOIN {dim_table} d ON c.segment_id = d.segment_id
-    \"\"\"
+    '''
 
     # 2. Execute the Declaration
     # The framework will evaluate input Data Quality before creating the target View.
@@ -100,18 +100,14 @@ def declare_with_governance(
         sql_template=sql_template,
         inputs={
             "client_table": GovernanceSparkReadRequest(
-                dataset_locator=ContractVersionLocator(
-                    dataset_id="contract-clients", 
-                    dataset_version="latest"
-                )
+                context=GovernanceReadContext.from_contract(id="contract-clients", version="latest")
             ),
             "dim_table": GovernanceSparkReadRequest(
-                dataset_id="contract-dimensions"
+                context=GovernanceReadContext.from_contract(id="contract-dimensions")
             )
         },
         request=GovernanceSparkDeclareRequest(
-            context=GovernanceDeclareContext(),
-            dataset_id="contract-output-client-view"
+            context=GovernanceDeclareContext.from_contract(id="contract-output-client-view")
         ),
         governance_service=governance_service
     )
