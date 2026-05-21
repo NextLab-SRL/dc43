@@ -10,7 +10,7 @@ from dc43_integrations.spark.io.common import (
 )
 from dc43_integrations.spark.io.common import GovernanceSparkDeclareRequest
 from dc43_integrations.spark.io.declare import declare_with_governance
-from dc43_integrations.spark.io.locators import ContractVersionLocator
+from dc43_service_clients.governance.models import GovernanceReadContext
 
 from dc43_service_clients.governance.client.interface import GovernanceServiceClient
 
@@ -59,17 +59,10 @@ def deploy_my_view():
         # If the input data violates its target Status policy, the view declaration will abort.
         inputs={
             "users_table": GovernanceSparkReadRequest(
-                dataset_id="contract-crm-users",
-                # Using a version locator allows the engine to parse Time Travel correctly!
-                # If 'latest' resolves to a prior commit version on the contract, the engine will
-                # seamlessly inject `VERSION AS OF X` in the background when translating the {users_table} SQL.
-                dataset_locator=ContractVersionLocator(
-                    dataset_id="contract-crm-users",
-                    dataset_version="latest"
-                )
+                context=GovernanceReadContext.from_contract(id="contract-crm-users", version="latest")
             ),
             "tiers_lookup": GovernanceSparkReadRequest(
-                dataset_id="contract-lookup-tiers"
+                context=GovernanceReadContext.from_contract(id="contract-lookup-tiers")
             )
         },
         
@@ -78,8 +71,7 @@ def deploy_my_view():
         # output contract's Server definition. The target contract MUST provide a standard `table` 
         # definition (e.g. `catalog.schema.table`), otherwise view creation will raise an exception.
         request=GovernanceSparkDeclareRequest(
-            context=GovernanceDeclareContext(),
-            dataset_id="contract-output-crm-view"
+            context=GovernanceDeclareContext.from_contract(id="contract-output-crm-view")
         ),
         
         governance_service=governance_service,

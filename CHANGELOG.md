@@ -9,6 +9,7 @@
 
 ### Changed
 - Migrated Collibra contract adapter to target the official Collibra Data Product API v1 (`/rest/dataProduct/v1`) with multipart YAML upload/download, and integrated a dual lookup strategy (direct technical UUID mapping cascading to graph-based traversal).
+- Aligned documentation, examples, and Spark integration helper docstrings to promote contract-first (`from_contract`) and port-first (`from_port`) patterns as the primary interfaces, removing legacy and invalid usages of low-level `dataset_id` references.
 
 ## [0.41.0.0] - 2026-03-31
 

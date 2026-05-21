@@ -92,6 +92,7 @@ In addition to writing physical data with DataFrames, the `dc43` Spark integrati
 ```python
 from dc43_integrations.spark.io import declare_with_governance, GovernanceSparkDeclareRequest
 from dc43_integrations.spark.io.common import GovernanceSparkReadRequest
+from dc43_service_clients.governance.models import GovernanceReadContext, GovernanceWriteContext
 
 # The {input_dataset} acts as a placeholder that the framework will securely 
 # resolve into a Databricks catalog or delta path.
@@ -105,12 +106,15 @@ execution_result = declare_with_governance(
     spark=spark,
     sql_template=sql_template,
     inputs={
-        # Inputs undergo complete governance evaluation. Time travel is resolved automatically 
-        # generating queries executing e.g., \"my_table VERSION AS OF x\".
-        "input_dataset": GovernanceSparkReadRequest(dataset_id="source-dataset-id") 
+        # Inputs undergo complete governance evaluation. We recommend a "Data Contract First" 
+        # (or "Data Product/Port First") approach rather than low-level dataset IDs.
+        "input_dataset": GovernanceSparkReadRequest(
+            context=GovernanceReadContext.from_contract(id="sales.orders", version="1.0.0")
+        ) 
     },
     request=GovernanceSparkDeclareRequest(
-        dataset_id="destination-view-id"
+        # We target the output contract to govern this view's schema and properties
+        context=GovernanceWriteContext.from_contract(id="sales.orders_taxed_view")
     ),
     governance_service=my_governance_client,
     enforce=True, # Will block View creation if the input dataset breaches Data Quality rules!

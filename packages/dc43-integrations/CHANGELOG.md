@@ -9,6 +9,9 @@
 ### Fixed
 - Fixed an `AttributeError` in `write_with_governance` where data product status attributes were accessed directly on violation strategies without checking for their presence. This allows wrapper strategies like `StrictWriteViolationStrategy` to be used without errors.
 
+### Changed
+- Aligned documentation, examples, and Spark integration helper docstrings to promote contract-first (`from_contract`) and port-first (`from_port`) patterns as the primary interfaces, removing legacy and invalid usages of low-level `dataset_id` references.
+
 ## [0.41.0.0] - 2026-03-31
 
 ### Added
