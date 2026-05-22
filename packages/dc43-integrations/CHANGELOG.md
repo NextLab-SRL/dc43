@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- Fixed an `AttributeError` in `write_with_governance`, `read_with_governance`, `declare_with_governance`, and `merge_with_governance` when requests or contexts are passed as raw mappings/dictionaries instead of fully instantiated dataclass objects. The parsed context object is now correctly assigned back to the request, and `pipeline_context` is resolved safely.
+
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Added

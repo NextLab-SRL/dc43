@@ -104,6 +104,7 @@ def merge_with_governance(
     context = request.context
     if not isinstance(context, GovernanceWriteContext):
         context = GovernanceWriteContext(**dict(context))
+    request.context = context
     
     if context.policy is None:
         context.policy = GovernancePolicy()

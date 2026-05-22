@@ -8,6 +8,8 @@
 
 ### Fixed
 - Coerce version and apiVersion fields to strings in to_model() to handle unquoted numeric versions when parsing YAML (e.g. version: 5).
+- Fixed an `AttributeError` in `write_with_governance`, `read_with_governance`, `declare_with_governance`, and `merge_with_governance` when requests or contexts are passed as raw mappings/dictionaries instead of fully instantiated dataclass objects.
+
 
 ## [0.42.0.0] - 2026-05-21
 

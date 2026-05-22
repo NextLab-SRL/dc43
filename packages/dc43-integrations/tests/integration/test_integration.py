@@ -1370,3 +1370,60 @@ def test_write_executor_applies_plan_data_product_status(spark) -> None:
         enforce=executor.data_product_status_enforce,
         operation="write",
     )
+
+
+def test_dict_context_handling(spark, tmp_path: Path) -> None:
+    source_dir = materialise_orders(spark, tmp_path / "dict_source")
+    target_dir = tmp_path / "dict_target"
+    contract = build_orders_contract(str(target_dir))
+    store, _, _ = persist_contract(tmp_path, contract)
+    governance = build_local_governance_service(store)
+
+    df = spark.read.format("parquet").load(str(source_dir))
+    
+    # 1. Pass request as dict, with context as dict
+    dict_request = {
+        "context": {
+            "contract": {
+                "contract_id": contract.id,
+                "contract_version": contract.version,
+            },
+            "dataset_id": contract.id,
+            "pipeline_context": {"job": "test_dict_job"}
+        },
+        "path": str(target_dir),
+        "format": "parquet",
+        "mode": "overwrite",
+    }
+    
+    _exec_result = write_with_governance(
+        df=df,
+        request=dict_request,
+        governance_service=governance,
+        enforce=True,
+    )
+    result = getattr(_exec_result, 'result', _exec_result) if '_exec_result' in locals() else getattr(result, 'result', result)
+    assert result.ok
+
+    # 2. Pass read request as dict, with context as dict
+    dict_read_request = {
+        "context": {
+            "contract": {
+                "contract_id": contract.id,
+                "contract_version": contract.version,
+            },
+            "pipeline_context": {"job": "test_dict_read_job"}
+        },
+        "path": str(target_dir),
+        "format": "parquet"
+    }
+
+    read_df, status = read_with_governance(
+        spark,
+        dict_read_request,
+        governance_service=governance,
+        return_status=True,
+    )
+    assert read_df.count() == 2
+    assert status is not None
+
