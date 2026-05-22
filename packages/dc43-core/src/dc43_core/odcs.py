@@ -93,6 +93,11 @@ def to_model(doc: Dict[str, Any]) -> OpenDataContractStandard:
     # "schema" name so validation succeeds regardless of the source format.
     if "schema_" in d and "schema" not in d:
         d["schema"] = d.pop("schema_")
+    # Ensure version and apiVersion are string coerced if they are parsed as numbers (e.g. from unquoted YAML)
+    if "version" in d and d["version"] is not None:
+        d["version"] = str(d["version"])
+    if "apiVersion" in d and d["apiVersion"] is not None:
+        d["apiVersion"] = str(d["apiVersion"])
     # try from_dict
     if hasattr(OpenDataContractStandard, "from_dict"):
         try:

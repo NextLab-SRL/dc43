@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Coerce version and apiVersion fields to strings in to_model() to handle unquoted numeric versions when parsing YAML (e.g. version: 5).
+
 ## [0.41.0.0] - 2026-03-26
 
 ## [0.40.0.0] - 2026-03-19
