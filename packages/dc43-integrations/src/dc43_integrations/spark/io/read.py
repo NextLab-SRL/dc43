@@ -104,6 +104,7 @@ def read_with_governance(
     context = request.context
     if not isinstance(context, GovernanceReadContext):
         context = GovernanceReadContext(**dict(context))
+    request.context = context
     
     if context.policy is None:
         context.policy = GovernancePolicy()
@@ -146,7 +147,7 @@ def read_with_governance(
         context.policy.enforce_data_product_status = bool(enforce)
 
     plan = governance_service.resolve_read_context(context=context)
-    pipeline_ctx = request.context.pipeline_context or plan.pipeline_context
+    pipeline_ctx = context.pipeline_context or plan.pipeline_context
 
     return _execute_read(
         BatchReadExecutor,
@@ -222,6 +223,7 @@ def read_stream_with_governance(
     context = request.context
     if not isinstance(context, GovernanceReadContext):
         context = GovernanceReadContext(**dict(context))
+    request.context = context
     
     plan = governance_service.resolve_read_context(context=context)
     pipeline_ctx = context.pipeline_context or plan.pipeline_context

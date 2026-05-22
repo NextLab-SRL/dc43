@@ -124,6 +124,7 @@ def declare_with_governance(
     context = request.context
     if not isinstance(context, GovernanceDeclareContext):
         context = GovernanceDeclareContext(**dict(context))
+    request.context = context
     
     if context.policy is None:
         context.policy = GovernancePolicy()

@@ -54,6 +54,7 @@ def write_with_governance(
     context = request.context
     if not isinstance(context, GovernanceWriteContext):
         context = GovernanceWriteContext(**dict(context))
+    request.context = context
     
     if context.policy is None:
         context.policy = GovernancePolicy()
@@ -96,7 +97,7 @@ def write_with_governance(
         context.policy.enforce_data_product_status = bool(enforce)
 
     plan = governance_service.resolve_write_context(context=context)
-    pipeline_ctx = request.context.pipeline_context or plan.pipeline_context
+    pipeline_ctx = context.pipeline_context or plan.pipeline_context
 
     executor = BaseWriteExecutor(
         df=df,
