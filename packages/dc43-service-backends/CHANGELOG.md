@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Added Basic Authentication support (username and password credentials) for Collibra HTTP Contract Store adapter and configuration loaders.
+- Added corresponding environment variable overrides (`DC43_CONTRACT_STORE_USERNAME` and `DC43_CONTRACT_STORE_PASSWORD`).
+- Added an integration verification script `test_collibra_basic_auth.py` for testing credentials against the Collibra HTTP adapter and backend.
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Added
