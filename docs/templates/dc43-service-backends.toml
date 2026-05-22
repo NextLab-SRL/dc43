@@ -52,7 +52,10 @@ log_sql = false
 # [contract_store]
 # type = "collibra_http"
 # base_url = "https://collibra.example.com"
+# # Use token for Bearer Authentication OR username/password for Basic Authentication
 # token = "$COLLIBRA_API_TOKEN"
+# username = "$COLLIBRA_USERNAME"
+# password = "$COLLIBRA_PASSWORD"
 # timeout = 10.0
 # default_status = "Draft"
 # status_filter = "Validated"

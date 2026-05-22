@@ -138,6 +138,8 @@ class ContractStoreConfig:
     default_status: str = "Draft"
     status_filter: str | None = None
     catalog: dict[str, tuple[str, str]] = field(default_factory=dict)
+    username: str | None = None
+    password: str | None = None
     log_sql: bool = False
 
 
@@ -382,6 +384,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     dsn_value = None
     schema_value = None
     store_token_value = None
+    store_username_value = None
+    store_password_value = None
     timeout_value = 10.0
     endpoint_template = None
     default_status = "Draft"
@@ -409,6 +413,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         token_raw = store_section.get("token")
         if token_raw is not None:
             store_token_value = str(token_raw).strip() or None
+        username_raw = store_section.get("username")
+        if username_raw is not None:
+            store_username_value = str(username_raw).strip() or None
+        password_raw = store_section.get("password")
+        if password_raw is not None:
+            store_password_value = str(password_raw).strip() or None
         timeout_value = _coerce_float(store_section.get("timeout"), 10.0)
         template_raw = store_section.get("contracts_endpoint_template")
         if template_raw is not None:
@@ -630,6 +640,22 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if normalised_type:
             store_type = normalised_type
 
+    env_contract_url = os.getenv("DC43_CONTRACT_STORE_URL") or os.getenv("DC43_CONTRACT_STORE_BASE_URL")
+    if env_contract_url:
+        base_url_value = env_contract_url.strip() or base_url_value
+
+    env_contract_token = os.getenv("DC43_CONTRACT_STORE_TOKEN")
+    if env_contract_token:
+        store_token_value = env_contract_token.strip() or store_token_value
+
+    env_contract_username = os.getenv("DC43_CONTRACT_STORE_USERNAME")
+    if env_contract_username:
+        store_username_value = env_contract_username.strip() or store_username_value
+
+    env_contract_password = os.getenv("DC43_CONTRACT_STORE_PASSWORD")
+    if env_contract_password:
+        store_password_value = env_contract_password.strip() or store_password_value
+
     env_root = os.getenv("DC43_CONTRACT_STORE")
     if env_root:
         root_value = _coerce_path(env_root)
@@ -841,6 +867,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             dsn=dsn_value,
             schema=schema_value,
             token=store_token_value,
+            username=store_username_value,
+            password=store_password_value,
             timeout=timeout_value,
             contracts_endpoint_template=endpoint_template,
             default_status=default_status,
@@ -954,6 +982,10 @@ def _contract_store_mapping(config: ContractStoreConfig) -> dict[str, Any]:
             }
         if catalog_mapping:
             mapping["catalog"] = catalog_mapping
+    if config.username:
+        mapping["username"] = config.username
+    if config.password:
+        mapping["password"] = config.password
     if config.log_sql:
         mapping["log_sql"] = True
     return mapping

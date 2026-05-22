@@ -37,6 +37,9 @@ single field without editing the TOML file:
     backend.
   * `DC43_CONTRACT_STORE_TABLE` / `DC43_CONTRACT_STORE_SCHEMA` – override the
     table or schema used by SQL and Delta stores.
+  * `DC43_CONTRACT_STORE_URL` / `DC43_CONTRACT_STORE_BASE_URL` – overrides the base URL when using `collibra_http`.
+  * `DC43_CONTRACT_STORE_TOKEN` – overrides the bearer token when using `collibra_http`.
+  * `DC43_CONTRACT_STORE_USERNAME` / `DC43_CONTRACT_STORE_PASSWORD` – override credentials for Basic Authentication when using `collibra_http`.
   * `DC43_BACKEND_TOKEN` – overrides the bearer token required by the HTTP API.
 * Contracts app:
   * `DC43_CONTRACTS_APP_STATE_DIR` – overrides the directory used for setup
@@ -187,6 +190,8 @@ port = "gold-quality"
 | --- | ---- | ----------- |
 | `base_url` | string | **Required.** Base URL of the Collibra environment (e.g. `https://collibra.example.com`). |
 | `token` | string | Optional bearer token used for authenticating against Collibra's REST API. |
+| `username` | string | Optional username for Basic Authentication against Collibra's REST API. |
+| `password` | string | Optional password for Basic Authentication against Collibra's REST API. |
 | `timeout` | float | Request timeout in seconds (defaults to `10.0`). |
 | `contracts_endpoint_template` | string | Overrides the REST path template when your Collibra instance customises endpoints. The default matches `/rest/2.0/dataproducts/{data_product}/ports/{port}/contracts`. |
 | `default_status` | string | Workflow status applied when upserting contracts. |

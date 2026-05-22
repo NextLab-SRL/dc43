@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+import base64
 import json
 import tempfile
 import yaml
@@ -17,8 +18,17 @@ from dc43_service_backends.core.versioning import SemVer
 
 
 def _semver_key(version: str) -> Tuple[int, int, int, str]:
-    semver = SemVer.parse(version)
-    return (semver.major, semver.minor, semver.patch, semver.prerelease or "")
+    try:
+        semver = SemVer.parse(version)
+        return (semver.major, semver.minor, semver.patch, semver.prerelease or "")
+    except Exception:
+        # Fallback for non-strict semver strings (e.g. "5", "1.0")
+        import re
+        digits = [int(x) for x in re.findall(r"\d+", version)]
+        major = digits[0] if len(digits) > 0 else 0
+        minor = digits[1] if len(digits) > 1 else 0
+        patch = digits[2] if len(digits) > 2 else 0
+        return (major, minor, patch, version)
 
 
 @dataclass(frozen=True)
@@ -236,6 +246,8 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         base_url: str,
         *,
         token: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         timeout: float = 10.0,
         contract_catalog: Optional[Mapping[str, Tuple[str, str]]] = None,
         client=None,
@@ -252,6 +264,8 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         self._httpx = httpx
         self._base_url = base_url.rstrip("/")
         self._token = token
+        self._username = username
+        self._password = password
         self._catalog: Dict[str, Tuple[str, str]] = dict(contract_catalog or {})
         
         # UUID config for cascading lookup
@@ -283,6 +297,10 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         headers = {"accept": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        elif self._username and self._password:
+            user_pass = f"{self._username}:{self._password}"
+            encoded = base64.b64encode(user_pass.encode("utf-8")).decode("utf-8")
+            headers["Authorization"] = f"Basic {encoded}"
         return headers
 
     def _resolve_contract_uuid(self, contract_id: str) -> str:
