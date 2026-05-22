@@ -124,9 +124,12 @@ def ensure_version(doc: OpenDataContractStandard) -> None:
     """
     # Prefer checking apiVersion directly on the model
     api_ver = doc.apiVersion
-    if api_ver and str(api_ver) not in ODCS_SUPPORTED_VERSIONS:
-        supported = ", ".join(sorted(ODCS_SUPPORTED_VERSIONS))
-        raise ValueError(f"ODCS apiVersion mismatch. Supported versions: {supported}, got {api_ver}")
+    if api_ver:
+        normalized_ver = str(api_ver).lstrip("v")
+        normalized_supported = {v.lstrip("v") for v in ODCS_SUPPORTED_VERSIONS}
+        if normalized_ver not in normalized_supported:
+            supported = ", ".join(sorted(ODCS_SUPPORTED_VERSIONS))
+            raise ValueError(f"ODCS apiVersion mismatch. Supported versions: {supported}, got {api_ver}")
 
 
 def contract_identity(doc: OpenDataContractStandard) -> Tuple[str, str]:

@@ -164,6 +164,10 @@ def _validate_contract_status(
 ) -> None:
     """Check the contract status against an allowed set."""
 
+    options = allowed_statuses or ("active",)
+    allowed = {status.lower() if case_insensitive else status for status in options}
+    allowed_str = ", ".join(sorted(allowed))
+
     raw_status = contract.status
     if raw_status is None:
         if allow_missing:
@@ -178,7 +182,9 @@ def _validate_contract_status(
         message = (
             failure_message
             or "Contract {contract_id}:{contract_version} status {status!r} "
-            "is not allowed for {operation} operations"
+            f"is not allowed for {{operation}} operations (allowed: {allowed_str}). "
+            "If you need to allow other statuses (e.g. 'candidate' for integration testing), "
+            "customize 'allowed_contract_statuses' in your write violation or read status strategy."
         ).format(
             contract_id=str(contract.id or ""),
             contract_version=str(contract.version or ""),
@@ -190,8 +196,6 @@ def _validate_contract_status(
         logger.warning(message)
         return
 
-    options = allowed_statuses or ("active",)
-    allowed = {status.lower() if case_insensitive else status for status in options}
     candidate = status_value.lower() if case_insensitive else status_value
     if candidate in allowed:
         return
@@ -199,7 +203,9 @@ def _validate_contract_status(
     message = (
         failure_message
         or "Contract {contract_id}:{contract_version} status {status!r} "
-        "is not allowed for {operation} operations"
+        f"is not allowed for {{operation}} operations (allowed: {allowed_str}). "
+        "If you need to allow other statuses (e.g. 'candidate' for integration testing), "
+        "customize 'allowed_contract_statuses' in your write violation or read status strategy."
     ).format(
         contract_id=str(contract.id or ""),
         contract_version=str(contract.version or ""),
