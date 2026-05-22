@@ -4,6 +4,7 @@
 
 ### Fixed
 - Coerce version and apiVersion fields to strings in to_model() to handle unquoted numeric versions when parsing YAML (e.g. version: 5).
+- Support 'v' prefixed apiVersion values (e.g. 'v3.0.2', 'v3.1.0') in ensure_version() to comply with the official Open Data Contract Standard (Bitol) specification and support Collibra exports.
 
 ## [0.41.0.0] - 2026-03-26
 

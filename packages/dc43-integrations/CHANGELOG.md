@@ -4,6 +4,7 @@
 
 ### Fixed
 - Fixed an `AttributeError` in `write_with_governance`, `read_with_governance`, `declare_with_governance`, and `merge_with_governance` when requests or contexts are passed as raw mappings/dictionaries instead of fully instantiated dataclass objects. The parsed context object is now correctly assigned back to the request, and `pipeline_context` is resolved safely.
+- Improved `ValueError` when contract status check fails, providing a clear suggestion for developers on how to customize `allowed_contract_statuses` to accept other statuses (like `candidate`) during development or validation phases.
 
 
 ## [0.42.0.0] - 2026-05-21
