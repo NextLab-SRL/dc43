@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional, Sequence
+import warnings
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
@@ -55,7 +56,14 @@ class LocalContractServiceBackend(ContractServiceBackend):
         contract_version: str,
     ) -> None:
         # Local stub does not persist linkage but keeps API surface intact.
-        self._store.put(self._store.get(contract_id, contract_version))
+        warnings.warn(
+            "link_dataset_contract on the Contract Service is deprecated and will be removed in a future version. "
+            "Use the Governance Service instead.",
+            category=FutureWarning,
+            stacklevel=2,
+        )
+        # We fetch the contract to ensure it exists in the store.
+        self._store.get(contract_id, contract_version)
 
     def get_linked_contract_version(
         self,
@@ -63,6 +71,12 @@ class LocalContractServiceBackend(ContractServiceBackend):
         dataset_id: str,
         dataset_version: Optional[str] = None,
     ) -> Optional[str]:
+        warnings.warn(
+            "get_linked_contract_version on the Contract Service is deprecated and will be removed in a future version. "
+            "Use the Governance Service instead.",
+            category=FutureWarning,
+            stacklevel=2,
+        )
         # No linkage is tracked locally, return ``None`` to signal absence.
         return None
 

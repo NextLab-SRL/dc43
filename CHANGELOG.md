@@ -9,6 +9,10 @@
 ### Fixed
 - Coerce version and apiVersion fields to strings in to_model() to handle unquoted numeric versions when parsing YAML (e.g. version: 5).
 - Fixed an `AttributeError` in `write_with_governance`, `read_with_governance`, `declare_with_governance`, and `merge_with_governance` when requests or contexts are passed as raw mappings/dictionaries instead of fully instantiated dataclass objects.
+- Fixed a bug in `LocalContractServiceBackend.link_dataset_contract` that performed an unnecessary `store.put()` after fetching the contract, triggering `409 Conflict` client errors on Collibra stores because the version was already registered.
+
+### Deprecated
+- Deprecated `link_dataset_contract` and `get_linked_contract_version` on the `ContractServiceBackend` interface in favor of delegating dataset-contract linkage exclusively to the `GovernanceServiceBackend`.
 
 
 ## [0.42.0.0] - 2026-05-21
