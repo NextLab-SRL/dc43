@@ -7,6 +7,12 @@
 - Added corresponding environment variable overrides (`DC43_CONTRACT_STORE_USERNAME` and `DC43_CONTRACT_STORE_PASSWORD`).
 - Added an integration verification script `test_collibra_basic_auth.py` for testing credentials against the Collibra HTTP adapter and backend.
 
+### Fixed
+- Fixed a bug in `LocalContractServiceBackend.link_dataset_contract` that attempted to write back the contract via `store.put()`, triggering HTTP `409 Conflict` errors on Collibra stores where the version was already registered.
+
+### Deprecated
+- Deprecated `link_dataset_contract` and `get_linked_contract_version` on the `ContractServiceBackend` interface in favor of delegating dataset-contract linkage exclusively to the `GovernanceServiceBackend`.
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Added
