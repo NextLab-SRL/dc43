@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dc43-databricks-app"
+description = "Databricks App surfacing dc43 contracts, drift, and criticality-aware observability from system tables"
+readme = "README.md"
+requires-python = ">=3.11"
+dynamic = ["version"]
+authors = [
+  { name = "Andy Petrella" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "dc43-core>=0.41.0.0",
+  "dc43-service-clients>=0.41.0.0",
+  "dc43-service-backends>=0.41.0.0",
+  "open-data-contract-standard>=3.0.2,<4.0.0",
+  "streamlit>=1.38",
+  "pandas>=2.0",
+  "plotly>=5.20",
+  "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+databricks = [
+  "databricks-sdk>=0.38.0",
+  "databricks-sql-connector>=3.6.0",
+]
+http = [
+  "dc43-service-clients[http]>=0.41.0.0",
+]
+test = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dc43_databricks_app*"]
+
+[tool.setuptools.package-data]
+"dc43_databricks_app" = [
+  "demo_contracts/**/*.json",
+]

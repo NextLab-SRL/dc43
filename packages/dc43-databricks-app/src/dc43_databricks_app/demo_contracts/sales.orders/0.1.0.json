@@ -1,0 +1,82 @@
+{
+  "apiVersion": "3.0.2",
+  "customProperties": [
+    {
+      "property": "uc.table",
+      "value": "main.sales.orders"
+    },
+    {
+      "property": "criticality",
+      "value": "high"
+    },
+    {
+      "property": "owner",
+      "value": "sales-data-team"
+    }
+  ],
+  "description": {
+    "purpose": "Single source of truth for confirmed customer orders.",
+    "usage": "Order facts for finance reporting and CRM activation."
+  },
+  "domain": "sales",
+  "id": "sales.orders",
+  "kind": "DataContract",
+  "name": "Orders",
+  "schema": [
+    {
+      "name": "orders",
+      "physicalName": "orders",
+      "properties": [
+        {
+          "name": "order_id",
+          "physicalType": "bigint",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "customer_id",
+          "physicalType": "bigint",
+          "required": true
+        },
+        {
+          "name": "order_ts",
+          "physicalType": "timestamp",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "physicalType": "double",
+          "required": true
+        },
+        {
+          "logicalTypeOptions": {
+            "enum": [
+              "EUR",
+              "USD"
+            ]
+          },
+          "name": "currency",
+          "physicalType": "string",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "servers": [
+    {
+      "catalog": "main",
+      "schema": "sales",
+      "server": "production",
+      "type": "databricks"
+    }
+  ],
+  "slaProperties": [
+    {
+      "property": "freshness",
+      "unit": "h",
+      "value": 4
+    }
+  ],
+  "status": "active",
+  "version": "0.1.0"
+}

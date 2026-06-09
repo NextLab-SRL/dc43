@@ -1,0 +1,2 @@
+# Databricks Apps installs this file; the package itself brings dc43 deps.
+.[databricks,http]
