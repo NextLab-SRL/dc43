@@ -1,4 +1,8 @@
-from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+from open_data_contract_standard.model import (  # type: ignore
+    OpenDataContractStandard,
+    SchemaObject,
+    SchemaProperty,
+)
 
 import pytest
 
@@ -6,6 +10,7 @@ pytest.importorskip("faker", reason="faker is required for contract drafting dat
 
 from dc43_integrations.spark.contracts import (
     DraftContractResult,
+    dataframe_schema_from_contract,
     draft_contract_from_dataframe,
 )
 from dc43_integrations.testing import generate_contract_dataset
@@ -60,3 +65,36 @@ def test_draft_contract_from_dataframe_collects_metrics(spark, tmp_path):
     )
 
     assert result.metrics.get("row_count") == 4
+
+
+def test_dataframe_schema_from_contract_prefers_physical_type():
+    from pyspark.sql.types import LongType, StringType
+
+    contract = OpenDataContractStandard(
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="test.types",
+        name="Types",
+        schema=[
+            SchemaObject(
+                name="types",
+                properties=[
+                    # Both physicalType and logicalType are defined: should use physicalType (bigint -> LongType)
+                    SchemaProperty(name="col_both", physicalType="bigint", logicalType="string"),
+                    # Only logicalType is defined: should fall back to logicalType (string -> StringType)
+                    SchemaProperty(name="col_logical", logicalType="string"),
+                    # Only physicalType is defined: should use physicalType (bigint -> LongType)
+                    SchemaProperty(name="col_physical", physicalType="bigint"),
+                ],
+            )
+        ],
+    )
+
+    spark_schema = dataframe_schema_from_contract(contract)
+
+    # Check mapping
+    fields = {f.name: f.dataType for f in spark_schema.fields}
+    assert isinstance(fields["col_both"], LongType)
+    assert isinstance(fields["col_logical"], StringType)
+    assert isinstance(fields["col_physical"], LongType)
