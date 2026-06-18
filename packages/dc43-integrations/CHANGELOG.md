@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- Introduced `MutableStructType` subclass of Spark's `StructType` to support fluent, non-destructive schema manipulation (`drop`, `keep_only`, `rename`, `update_type`, `add_field`).
+- Updated `dataframe_schema_from_contract` to return a `MutableStructType` for easy modification before use with downstream Spark functions like `from_csv`.
+
 ### Changed
 - Prioritized `physicalType` over `logicalType` in `dataframe_schema_from_contract` when converting properties to Spark data types.
 

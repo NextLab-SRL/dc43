@@ -190,6 +190,57 @@ def draft_contract_from_dataframe(
 
     return DraftContractResult(contract=draft, schema=schema, metrics=metrics)
 
+class MutableStructType(StructType):
+    """A subclass of PySpark's StructType that provides fluent methods
+    to manipulate the schema (dropping, keeping, renaming, or updating fields).
+
+    Note:
+        These helper methods operate only on the top-level (direct children) fields
+        of the struct. Nested paths using dot notation (e.g., 'parent.child') are
+        not supported.
+    """
+
+    def drop(self, *names: str) -> MutableStructType:
+        """Return a new MutableStructType with the specified top-level fields removed.
+
+        Note: Only operates on direct child fields. Dot notation is not supported.
+        """
+        names_set = set(names)
+        return MutableStructType([f for f in self.fields if f.name not in names_set])
+
+    def keep_only(self, *names: str) -> MutableStructType:
+        """Return a new MutableStructType keeping only the specified top-level fields.
+
+        Note: Only operates on direct child fields. Dot notation is not supported.
+        """
+        names_set = set(names)
+        return MutableStructType([f for f in self.fields if f.name in names_set])
+
+    def rename(self, mapping: Dict[str, str]) -> MutableStructType:
+        """Return a new MutableStructType with top-level fields renamed according to mapping.
+
+        Note: Only operates on direct child fields. Dot notation is not supported.
+        """
+        return MutableStructType([
+            StructField(mapping.get(f.name, f.name), f.dataType, f.nullable, f.metadata)
+            for f in self.fields
+        ])
+
+    def update_type(self, name: str, data_type: DataType) -> MutableStructType:
+        """Return a new MutableStructType with the data type of a top-level field updated.
+
+        Note: Only operates on direct child fields. Dot notation is not supported.
+        """
+        return MutableStructType([
+            StructField(f.name, data_type, f.nullable, f.metadata) if f.name == name else f
+            for f in self.fields
+        ])
+
+    def add_field(self, field: StructField) -> MutableStructType:
+        """Return a new MutableStructType with the specified StructField added."""
+        return MutableStructType(list(self.fields) + [field])
+
+
 def _property_to_spark_type(prop: SchemaProperty) -> DataType:
     if prop.properties:
         fields = [
@@ -200,7 +251,7 @@ def _property_to_spark_type(prop: SchemaProperty) -> DataType:
             )
             for p in prop.properties
         ]
-        return StructType(fields)
+        return MutableStructType(fields)
     elif prop.items:
         return ArrayType(
             _property_to_spark_type(prop.items),
@@ -239,7 +290,7 @@ def _property_to_spark_type(prop: SchemaProperty) -> DataType:
     return StringType()
 
 
-def dataframe_schema_from_contract(contract: OpenDataContractStandard) -> StructType:
+def dataframe_schema_from_contract(contract: OpenDataContractStandard) -> MutableStructType:
     schema_objects = list(getattr(contract, "schema_", []) or [])
     fields = []
     for obj in schema_objects:
@@ -251,7 +302,12 @@ def dataframe_schema_from_contract(contract: OpenDataContractStandard) -> Struct
                     not getattr(prop, "required", False),
                 )
             )
-    return StructType(fields)
+    return MutableStructType(fields)
 
 
-__all__ = ["DraftContractResult", "draft_contract_from_dataframe", "dataframe_schema_from_contract"]
+__all__ = [
+    "DraftContractResult",
+    "draft_contract_from_dataframe",
+    "dataframe_schema_from_contract",
+    "MutableStructType",
+]
