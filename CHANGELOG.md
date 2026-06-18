@@ -6,6 +6,9 @@
 - Added Basic Authentication support (username and password credentials) for Collibra HTTP Contract Store adapter and configuration loaders, with environment variable overrides `DC43_CONTRACT_STORE_USERNAME` and `DC43_CONTRACT_STORE_PASSWORD`.
 - Added an integration verification script `test_collibra_basic_auth.py` for testing credentials against the Collibra HTTP adapter and backend.
 
+### Changed
+- Prioritized `physicalType` over `logicalType` in `dataframe_schema_from_contract` (Spark integration) when mapping contract fields to Spark schemas.
+
 ### Fixed
 - Coerce version and apiVersion fields to strings in to_model() to handle unquoted numeric versions when parsing YAML (e.g. version: 5).
 - Fixed an `AttributeError` in `write_with_governance`, `read_with_governance`, `declare_with_governance`, and `merge_with_governance` when requests or contexts are passed as raw mappings/dictionaries instead of fully instantiated dataclass objects.

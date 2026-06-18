@@ -208,8 +208,8 @@ def _property_to_spark_type(prop: SchemaProperty) -> DataType:
         )
 
     odcs_type = str(
-        getattr(prop, "logicalType", None)
-        or getattr(prop, "physicalType", None)
+        getattr(prop, "physicalType", None)
+        or getattr(prop, "logicalType", None)
         or "string"
     ).lower()
 
