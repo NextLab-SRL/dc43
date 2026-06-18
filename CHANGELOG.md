@@ -5,6 +5,8 @@
 ### Added
 - Added Basic Authentication support (username and password credentials) for Collibra HTTP Contract Store adapter and configuration loaders, with environment variable overrides `DC43_CONTRACT_STORE_USERNAME` and `DC43_CONTRACT_STORE_PASSWORD`.
 - Added an integration verification script `test_collibra_basic_auth.py` for testing credentials against the Collibra HTTP adapter and backend.
+- Introduced `MutableStructType` subclass of Spark's `StructType` to support fluent, non-destructive schema manipulation (`drop`, `keep_only`, `rename`, `update_type`, `add_field`).
+- Updated `dataframe_schema_from_contract` (Spark integration) to return a `MutableStructType` to support schema modification before use with Spark `from_csv` and other downstream functions.
 
 ### Changed
 - Prioritized `physicalType` over `logicalType` in `dataframe_schema_from_contract` (Spark integration) when mapping contract fields to Spark schemas.

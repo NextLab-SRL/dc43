@@ -10,6 +10,7 @@ pytest.importorskip("faker", reason="faker is required for contract drafting dat
 
 from dc43_integrations.spark.contracts import (
     DraftContractResult,
+    MutableStructType,
     dataframe_schema_from_contract,
     draft_contract_from_dataframe,
 )
@@ -98,3 +99,74 @@ def test_dataframe_schema_from_contract_prefers_physical_type():
     assert isinstance(fields["col_both"], LongType)
     assert isinstance(fields["col_logical"], StringType)
     assert isinstance(fields["col_physical"], LongType)
+
+
+def test_dataframe_schema_from_contract_mutable_struct(spark):
+    from pyspark.sql.types import StructField, StringType
+    from pyspark.sql.functions import from_csv, col
+
+    contract = OpenDataContractStandard(
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="test.mutable",
+        name="Mutable",
+        schema=[
+            SchemaObject(
+                name="mutable",
+                properties=[
+                    SchemaProperty(name="id", physicalType="bigint"),
+                    SchemaProperty(name="name", physicalType="string"),
+                    SchemaProperty(name="score", physicalType="double"),
+                ],
+            )
+        ],
+    )
+
+    # Generate mutable schema from contract
+    schema = dataframe_schema_from_contract(contract)
+    assert isinstance(schema, MutableStructType)
+
+    # Test drop
+    dropped = schema.drop("score")
+    assert isinstance(dropped, MutableStructType)
+    assert [f.name for f in dropped.fields] == ["id", "name"]
+
+    # Test keep_only
+    kept = schema.keep_only("id")
+    assert isinstance(kept, MutableStructType)
+    assert [f.name for f in kept.fields] == ["id"]
+
+    # Test rename
+    renamed = schema.rename({"name": "full_name"})
+    assert isinstance(renamed, MutableStructType)
+    assert [f.name for f in renamed.fields] == ["id", "full_name", "score"]
+
+    # Test update_type
+    updated = schema.update_type("id", StringType())
+    assert isinstance(updated, MutableStructType)
+    assert isinstance(updated.fields[0].dataType, StringType)
+
+    # Test add_field
+    added = schema.add_field(StructField("created_at", StringType(), True))
+    assert isinstance(added, MutableStructType)
+    assert [f.name for f in added.fields] == ["id", "name", "score", "created_at"]
+
+    # Test Spark integration (DataFrame creation & from_csv)
+    # A CSV dataset parsing scenario
+    # Let's create a DataFrame with CSV strings
+    df = spark.createDataFrame(
+        [("1,Alice,95.5",), ("2,Bob,88.0",)],
+        ["csv_data"],
+    )
+
+    # We drop 'score' using drop and parse the CSV string using from_csv with the dropped schema
+    csv_schema = schema.drop("score")
+    parsed_df = df.select(from_csv(col("csv_data"), csv_schema.simpleString()).alias("parsed"))
+    
+    # Check that it parsed id and name, and did not try to parse score
+    rows = parsed_df.select("parsed.id", "parsed.name").collect()
+    assert rows[0].id == 1
+    assert rows[0].name == "Alice"
+    assert rows[1].id == 2
+    assert rows[1].name == "Bob"
