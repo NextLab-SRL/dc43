@@ -145,13 +145,19 @@ def draft_contract_from_dataframe(
         contract_id = contract_id or base_contract.id
 
     if collect_metrics:
-        observed_schema, observed_metrics = collect_observations(
-            df,
-            base_contract,
-            collect_metrics=True,
-        )
-        schema = {k: dict(v) for k, v in observed_schema.items()}
-        metrics = {k: v for k, v in observed_metrics.items()}
+        try:
+            observed_schema, observed_metrics = collect_observations(
+                df,
+                base_contract,
+                collect_metrics=True,
+            )
+            schema = {k: dict(v) for k, v in observed_schema.items()}
+            metrics = {k: v for k, v in observed_metrics.items()}
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Failed to collect observations during drafting: %s", e)
+            schema = {k: dict(v) for k, v in snapshot.items()}
+            metrics = {"row_count": 0, "error": str(e)}
     else:
         schema = {k: dict(v) for k, v in snapshot.items()}
         metrics = {}

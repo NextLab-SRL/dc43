@@ -7,9 +7,11 @@
 - Added an integration verification script `test_collibra_basic_auth.py` for testing credentials against the Collibra HTTP adapter and backend.
 - Introduced `MutableStructType` subclass of Spark's `StructType` to support fluent, non-destructive schema manipulation (`drop`, `keep_only`, `rename`, `update_type`, `add_field`).
 - Updated `dataframe_schema_from_contract` (Spark integration) to return a `MutableStructType` to support schema modification before use with Spark `from_csv` and other downstream functions.
+- Enhanced Spark executors (read, write, revalidator) and data quality metric computations in `dc43-integrations` to gracefully catch PySpark execution and parsing exceptions (such as `CANNOT_PARSE_TIMESTAMP`), converting them to validation errors (`ok=False`) so the configured violation strategies (e.g. quarantining) execute rather than letting the script crash.
 
 ### Changed
 - Prioritized `physicalType` over `logicalType` in `dataframe_schema_from_contract` (Spark integration) when mapping contract fields to Spark schemas.
+- Aligned metadata in `pyproject.toml` files to correctly declare the project license as Apache-2.0 instead of MIT.
 
 ### Fixed
 - Coerce version and apiVersion fields to strings in to_model() to handle unquoted numeric versions when parsing YAML (e.g. version: 5).

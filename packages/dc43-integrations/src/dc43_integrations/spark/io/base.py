@@ -50,6 +50,7 @@ from dc43_service_backends.core.odcs import contract_identity, ensure_version
 from dc43_integrations.spark.data_quality import (
     build_metrics_payload,
     collect_observations,
+    schema_snapshot,
 )
 from dc43_integrations.spark.open_data_lineage import build_lineage_run_event
 from dc43_integrations.spark.open_telemetry import record_telemetry_span
@@ -486,12 +487,19 @@ class BaseReadExecutor:
             )
         )
 
-        observed_schema, observed_metrics = collect_observations(
-            dataframe,
-            contract,
-            expectations=expectation_plan,
-            collect_metrics=not streaming_active,
-        )
+        obs_error = None
+        try:
+            observed_schema, observed_metrics = collect_observations(
+                dataframe,
+                contract,
+                expectations=expectation_plan,
+                collect_metrics=not streaming_active,
+            )
+        except Exception as e:
+            logger.exception("Failed to collect observations: %s", e)
+            observed_schema = schema_snapshot(dataframe) if dataframe else {}
+            observed_metrics = {"row_count": 0}
+            obs_error = f"Spark execution error during observation collection: {e}"
 
         base_pipeline_context = normalise_pipeline_context(pipeline_context)
 
@@ -519,6 +527,12 @@ class BaseReadExecutor:
             validation = ValidationResult(
                 ok=True, errors=[], warnings=[], metrics={}, schema={}
             )
+        if obs_error:
+            validation.ok = False
+            if validation.errors is None:
+                validation.errors = []
+            if obs_error not in validation.errors:
+                validation.errors.append(obs_error)
 
         if validation:
             if "dataset_id" not in validation.details:
@@ -779,8 +793,22 @@ class BaseWriteExecutor:
             cid, cver = contract_identity(contract)
             expectation_plan = list(governance_client.describe_expectations(contract_id=cid, contract_version=cver))
             
-            schema, metrics = collect_observations(df, contract, expectations=expectation_plan, collect_metrics=not streaming_active)
-            dq_validation = None
+            obs_error = None
+            try:
+                schema, metrics = collect_observations(df, contract, expectations=expectation_plan, collect_metrics=not streaming_active)
+                dq_validation = None
+            except Exception as e:
+                logger.exception("Failed to collect observations: %s", e)
+                schema = schema_snapshot(df) if df else {}
+                metrics = {"row_count": 0}
+                obs_error = f"Spark execution error during observation collection: {e}"
+                dq_validation = ValidationResult(
+                    ok=False,
+                    errors=[obs_error],
+                    warnings=[],
+                    metrics=metrics,
+                    schema=schema
+                )
             
             def _obs(): return ObservationPayload(metrics=dict(metrics or {}), schema=dict(schema or {}), reused=True)
             
@@ -789,6 +817,13 @@ class BaseWriteExecutor:
             else:
                 assessment = governance_client.evaluate_dataset(contract_id=cid, contract_version=cver, dataset_id=dataset_id, dataset_version=preflight_version, validation=dq_validation, observations=_obs, pipeline_context=normalise_pipeline_context(pipeline_context), operation="write")
             result = assessment.validation or assessment.status or dq_validation or result
+
+            if obs_error and result:
+                result.ok = False
+                if result.errors is None:
+                    result.errors = []
+                if obs_error not in result.errors:
+                    result.errors.append(obs_error)
 
             if result:
                 _annotate_observation_scope(result, operation="write", scope="pre_write_dataframe")
@@ -825,9 +860,16 @@ class BaseWriteExecutor:
 
         if contract:
             def revalidator(new_df: DataFrame) -> ValidationResult:  # type: ignore[misc]
-                schema, metrics = collect_observations(
-                    new_df, contract, expectations=expectation_plan, collect_metrics=not streaming_active
-                )
+                obs_error = None
+                try:
+                    schema, metrics = collect_observations(
+                        new_df, contract, expectations=expectation_plan, collect_metrics=not streaming_active
+                    )
+                except Exception as e:
+                    logger.exception("Failed to collect observations during revalidation: %s", e)
+                    schema = schema_snapshot(new_df) if new_df else {}
+                    metrics = {"row_count": 0}
+                    obs_error = f"Spark execution error during revalidation: {e}"
                 def _observations() -> ObservationPayload:
                     return ObservationPayload(metrics=dict(metrics or {}), schema=dict(schema or {}), reused=True)
                 follow_up = governance_client.evaluate_dataset(
@@ -837,7 +879,14 @@ class BaseWriteExecutor:
                     pipeline_context=normalise_pipeline_context(pipeline_context),
                     operation="write", draft_on_violation=False,
                 )
-                return follow_up.validation or follow_up.status or ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={})
+                res = follow_up.validation or follow_up.status or ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={})
+                if obs_error:
+                    res.ok = False
+                    if res.errors is None:
+                        res.errors = []
+                    if obs_error not in res.errors:
+                        res.errors.append(obs_error)
+                return res
         else:
             def revalidator(new_df: DataFrame) -> ValidationResult:  # type: ignore[misc]
                 return ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={})
