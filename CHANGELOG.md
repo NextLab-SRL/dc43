@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Enhanced Spark executors (read, write, revalidator) and data quality metric computations in `dc43-integrations` to gracefully catch PySpark execution and parsing exceptions (such as `CANNOT_PARSE_TIMESTAMP`), converting them to validation errors (`ok=False`) so the configured violation strategies (e.g. quarantining) execute rather than letting the script crash.
+
+### Changed
+- Aligned metadata in `pyproject.toml` files to correctly declare the project license as Apache-2.0 instead of MIT.
+
 ## [0.41.0.0] - 2026-03-31
 
 ## [0.40.0.0] - 2026-03-19

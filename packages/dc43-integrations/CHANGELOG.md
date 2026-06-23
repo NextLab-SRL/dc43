@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Enhanced Spark executors (read, write, revalidator) and data quality metric computations to catch PySpark SQL / execution exceptions (such as `CANNOT_PARSE_TIMESTAMP` or check filter errors) and report them as validation errors (`ok=False`) instead of raising unhandled exceptions and crashing user scripts. This ensures the configured violation strategies (e.g., quarantine) can execute successfully on invalid format inputs.
+
 ## [0.41.0.0] - 2026-03-31
 
 ### Added

@@ -141,7 +141,7 @@ def test_governance_store_filesystem_configuration() -> None:
 
     store_cfg = config.governance_store
     assert store_cfg.type == "filesystem"
-    assert str(store_cfg.root) == "/var/lib/dc43/governance"
+    assert Path(store_cfg.root).as_posix() == "/var/lib/dc43/governance"
 
 
 def test_governance_store_delta_adds_databricks_credentials() -> None:

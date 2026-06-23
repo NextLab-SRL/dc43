@@ -294,9 +294,16 @@ class SplitWriteViolationStrategy:
             return f"{base}{self.dataset_suffix_separator}{suffix}"
 
         if self.include_valid:
-            valid_df = context.aligned_df.filter(composite_predicate)
-            has_valid = valid_df.limit(1).count() > 0
-            if has_valid:
+            try:
+                valid_df = context.aligned_df.filter(composite_predicate)
+                has_valid = valid_df.limit(1).count() > 0
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to evaluate valid subset: %s", e)
+                has_valid = False
+                valid_df = None
+
+            if has_valid and valid_df is not None:
                 valid_warning = (
                     f"Valid subset written to dataset suffix '{self.valid_suffix}'"
                 )
@@ -323,9 +330,16 @@ class SplitWriteViolationStrategy:
                 )
 
         if self.include_reject:
-            reject_df = context.aligned_df.filter(f"NOT ({composite_predicate})")
-            has_reject = reject_df.limit(1).count() > 0
-            if has_reject:
+            try:
+                reject_df = context.aligned_df.filter(f"NOT ({composite_predicate})")
+                has_reject = reject_df.limit(1).count() > 0
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to evaluate reject subset: %s", e)
+                has_reject = False
+                reject_df = None
+
+            if has_reject and reject_df is not None:
                 reject_warning = (
                     f"Rejected subset written to dataset suffix '{self.reject_suffix}'"
                 )
