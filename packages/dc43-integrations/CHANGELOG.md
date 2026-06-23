@@ -2,30 +2,23 @@
 
 ## [Unreleased]
 
+## [0.42.0.0] - 2026-05-21
+
 ### Added
 - Introduced `MutableStructType` subclass of Spark's `StructType` to support fluent, non-destructive schema manipulation (`drop`, `keep_only`, `rename`, `update_type`, `add_field`).
 - Updated `dataframe_schema_from_contract` to return a `MutableStructType` for easy modification before use with downstream Spark functions like `from_csv`.
 - Enhanced Spark executors (read, write, revalidator) and data quality metric computations to catch PySpark SQL / execution exceptions (such as `CANNOT_PARSE_TIMESTAMP` or check filter errors) and report them as validation errors (`ok=False`) instead of raising unhandled exceptions and crashing user scripts. This ensures the configured violation strategies (e.g., quarantine) can execute successfully on invalid format inputs.
+- Added `declare_with_governance` to the Spark IO module to support declarative permanent view deployment. This interprets a templated SQL query, dynamically discovers and evaluates all inputs (applying data quality rules and time travel), and creates a Databricks catalog view safely.
+- Added `build_spark_sql_ref` in `dc43_integrations.spark.io.common` to translate `DatasetResolution` objects securely into Spark SQL text representations, interpreting time travel configurations like `VERSION AS OF`.
 
 ### Changed
 - Prioritized `physicalType` over `logicalType` in `dataframe_schema_from_contract` when converting properties to Spark data types.
+- Aligned documentation, examples, and Spark integration helper docstrings to promote contract-first (`from_contract`) and port-first (`from_port`) patterns as the primary interfaces, removing legacy and invalid usages of low-level `dataset_id` references.
 
 ### Fixed
 - Fixed an `AttributeError` in `write_with_governance`, `read_with_governance`, `declare_with_governance`, and `merge_with_governance` when requests or contexts are passed as raw mappings/dictionaries instead of fully instantiated dataclass objects. The parsed context object is now correctly assigned back to the request, and `pipeline_context` is resolved safely.
 - Improved `ValueError` when contract status check fails, providing a clear suggestion for developers on how to customize `allowed_contract_statuses` to accept other statuses (like `candidate`) during development or validation phases.
-
-
-## [0.42.0.0] - 2026-05-21
-
-### Added
-- Added `declare_with_governance` to the Spark IO module to support declarative permanent view deployment. This interprets a templated SQL query, dynamically discovers and evaluates all inputs (applying data quality rules and time travel), and creates a Databricks catalog view safely.
-- Added `build_spark_sql_ref` in `dc43_integrations.spark.io.common` to translate `DatasetResolution` objects securely into Spark SQL text representations, interpreting time travel configurations like `VERSION AS OF`.
-
-### Fixed
 - Fixed an `AttributeError` in `write_with_governance` where data product status attributes were accessed directly on violation strategies without checking for their presence. This allows wrapper strategies like `StrictWriteViolationStrategy` to be used without errors.
-
-### Changed
-- Aligned documentation, examples, and Spark integration helper docstrings to promote contract-first (`from_contract`) and port-first (`from_port`) patterns as the primary interfaces, removing legacy and invalid usages of low-level `dataset_id` references.
 
 ## [0.41.0.0] - 2026-03-31
 
