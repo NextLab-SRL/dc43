@@ -5,6 +5,7 @@
 ### Added
 - Introduced `MutableStructType` subclass of Spark's `StructType` to support fluent, non-destructive schema manipulation (`drop`, `keep_only`, `rename`, `update_type`, `add_field`).
 - Updated `dataframe_schema_from_contract` to return a `MutableStructType` for easy modification before use with downstream Spark functions like `from_csv`.
+- Enhanced Spark executors (read, write, revalidator) and data quality metric computations to catch PySpark SQL / execution exceptions (such as `CANNOT_PARSE_TIMESTAMP` or check filter errors) and report them as validation errors (`ok=False`) instead of raising unhandled exceptions and crashing user scripts. This ensures the configured violation strategies (e.g., quarantine) can execute successfully on invalid format inputs.
 
 ### Changed
 - Prioritized `physicalType` over `logicalType` in `dataframe_schema_from_contract` when converting properties to Spark data types.

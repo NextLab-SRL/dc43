@@ -156,7 +156,8 @@ def compute_metrics(
             logger.debug(f"[DC43 compute_metrics] Predicate check NOT({predicate}) computed {failed} violations.")
         except Exception as e:
             logger.exception(f"[DC43 compute_metrics] CRASH during standard metric check {key} (rule: {rule}): {e}")
-            raise
+            metrics[metric_key] = total
+            metrics[f"errors.{key}"] = str(e)
 
     for item in plan:
         if not isinstance(item, Mapping):

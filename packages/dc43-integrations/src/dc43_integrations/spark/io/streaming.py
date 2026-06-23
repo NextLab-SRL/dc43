@@ -23,7 +23,6 @@ from dc43_service_clients.data_quality import ValidationResult, ObservationPaylo
 from dc43_service_clients.governance.client.interface import GovernanceServiceClient
 from open_data_contract_standard.model import OpenDataContractStandard
 
-from dc43_integrations.spark.data_quality import collect_observations
 from dc43_integrations.spark.io.common import (
     _safe_fs_name,
     resolve_dataset_version,
