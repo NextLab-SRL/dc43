@@ -1,0 +1,20 @@
+command: ["streamlit", "run", "src/dc43_databricks_app/app.py", "--server.port", "8000", "--server.headless", "true"]
+
+env:
+  # Bind a SQL warehouse as an app resource named "sql-warehouse" in the
+  # Databricks Apps UI; this resolves to its ID automatically.
+  - name: "DATABRICKS_WAREHOUSE_ID"
+    valueFrom: "sql-warehouse"
+
+  # Contract source (pick one; leave both unset for bundled demo contracts):
+  # - Remote dc43 service backend:
+  # - name: "DC43_CONTRACTS_URL"
+  #   value: "https://dc43-backend.example.com"
+  # - name: "DC43_CONTRACTS_TOKEN"
+  #   valueFrom: "dc43-backend-token"
+  # - Filesystem store on a UC volume:
+  - name: "DC43_CONTRACT_PATH"
+    value: "/Volumes/main/governance/contracts"
+
+  - name: "STREAMLIT_BROWSER_GATHER_USAGE_STATS"
+    value: "false"

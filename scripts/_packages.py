@@ -42,6 +42,14 @@ PACKAGES = {
         "tag_prefix": "dc43-service-backends",
         "package_dir": "packages/dc43-service-backends",
     },
+    "dc43-databricks-app": {
+        "paths": [ROOT / "packages" / "dc43-databricks-app"],
+        "pyproject": ROOT / "packages" / "dc43-databricks-app" / "pyproject.toml",
+        "version_file": ROOT / "packages" / "dc43-databricks-app" / "VERSION",
+        "pypi": "dc43-databricks-app",
+        "tag_prefix": "dc43-databricks-app",
+        "package_dir": "packages/dc43-databricks-app",
+    },
     "dc43-integrations": {
         "paths": [ROOT / "packages" / "dc43-integrations"],
         "pyproject": ROOT / "packages" / "dc43-integrations" / "pyproject.toml",

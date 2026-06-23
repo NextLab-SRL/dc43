@@ -1,0 +1,95 @@
+{
+  "apiVersion": "3.0.2",
+  "customProperties": [
+    {
+      "property": "uc.table",
+      "value": "main.logistics.shipments"
+    },
+    {
+      "property": "owner",
+      "value": "logistics-data-team"
+    }
+  ],
+  "description": {
+    "purpose": "Auditable record of every parcel movement from warehouse to doorstep.",
+    "usage": "Shipment events for delivery tracking, carrier billing and customer notifications."
+  },
+  "domain": "logistics",
+  "id": "logistics.shipments",
+  "kind": "DataContract",
+  "name": "Shipments",
+  "schema": [
+    {
+      "name": "shipments",
+      "physicalName": "shipments",
+      "properties": [
+        {
+          "name": "shipment_id",
+          "physicalType": "bigint",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "order_id",
+          "physicalType": "bigint",
+          "required": true
+        },
+        {
+          "logicalTypeOptions": {
+            "enum": [
+              "BPOST",
+              "DHL",
+              "UPS",
+              "POSTNL",
+              "GLS"
+            ]
+          },
+          "name": "carrier_code",
+          "physicalType": "string",
+          "required": true
+        },
+        {
+          "logicalTypeOptions": {
+            "enum": [
+              "CREATED",
+              "PICKED",
+              "IN_TRANSIT",
+              "DELIVERED",
+              "RETURNED"
+            ]
+          },
+          "name": "status",
+          "physicalType": "string",
+          "required": true
+        },
+        {
+          "name": "event_ts",
+          "physicalType": "timestamp",
+          "required": true
+        },
+        {
+          "name": "weight_kg",
+          "physicalType": "double",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "servers": [
+    {
+      "catalog": "main",
+      "schema": "logistics",
+      "server": "production",
+      "type": "databricks"
+    }
+  ],
+  "slaProperties": [
+    {
+      "property": "freshness",
+      "unit": "h",
+      "value": 1
+    }
+  ],
+  "status": "active",
+  "version": "1.0.0"
+}
