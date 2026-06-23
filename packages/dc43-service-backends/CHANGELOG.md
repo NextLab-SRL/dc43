@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [0.42.0.0] - 2026-05-21
+
+### Added
+- Added Basic Authentication support (username and password credentials) for Collibra HTTP Contract Store adapter and configuration loaders.
+- Added corresponding environment variable overrides (`DC43_CONTRACT_STORE_USERNAME` and `DC43_CONTRACT_STORE_PASSWORD`).
+- Added an integration verification script `test_collibra_basic_auth.py` for testing credentials against the Collibra HTTP adapter and backend.
+- Added a robust `MockCollibraService` supporting dynamic assets, relations, Search API, and Data Product API v1 for comprehensive offline testing of Collibra integrations.
+- Added `is_null` rule to Data Quality expectation specifications and predicate mappings.
+- Added support for ODCS `logicalTypeOptions.format` date format validation via the `exact_format` rule and Spark `to_timestamp` predicates.
+
+### Changed
+- Migrated `HttpCollibraContractAdapter` to target the official Collibra Data Product API v1 (`/rest/dataProduct/v1`) with multipart YAML upload/download.
+- Integrated a dual lookup strategy in Collibra adapter: Option A (direct technical UUID mapping) cascading to a graph-based relational traversal (Data Product ➔ Port ➔ Data Contract) when needed.
+- Refactored `dc43_service_backends.data_quality.backend.engine.expectation_specs` to use a Registry Pattern for dynamically dispatching and extracting ODCS quality validations into Spark/SQL ExpectationSpecs.
+
+### Fixed
+- Fixed a bug in `LocalContractServiceBackend.link_dataset_contract` that attempted to write back the contract via `store.put()`, triggering HTTP `409 Conflict` errors on Collibra stores where the version was already registered.
+
+### Deprecated
+- Deprecated `link_dataset_contract` and `get_linked_contract_version` on the `ContractServiceBackend` interface in favor of delegating dataset-contract linkage exclusively to the `GovernanceServiceBackend`.
+
+## [0.41.0.0] - 2026-03-26
+
+## [0.40.0.0] - 2026-03-19
+
+### Changed
+- Relaxed the structured dependency `open-data-contract-standard` constraint from `==3.0.2` to `>=3.0.2,<4.0.0` to support ODCS 3.1.0 and future minor updates.
+
+## [0.39.0.0] - 2026-03-18
+
+### Changed
+- Version aligned to 0.39.0.0
+
+## [0.38.5.0] - 2026-03-18
+
+### Fixed
+- Fixed an indentation error in `SQLGovernanceStore.save_status` that triggered `ResourceClosedError`s and disrupted metric extraction during data quality evaluations.
+
+
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - Contract, data product, and governance stores now expose `log_sql` toggles
   plus matching `DC43_*_LOG_SQL` environment overrides so Delta and SQL

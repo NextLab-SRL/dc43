@@ -108,6 +108,24 @@ class ContractReference:
 
 
 @dataclass(slots=True)
+class GovernancePolicy:
+    """Descriptor for behavioral enforcement and policy rules."""
+
+    allowed_data_product_statuses: Optional[tuple[str, ...]] = None
+    allow_missing_data_product_status: Optional[bool] = None
+    data_product_status_case_insensitive: Optional[bool] = None
+    data_product_status_failure_message: Optional[str] = None
+    enforce_data_product_status: Optional[bool] = None
+    bump: str = "minor"
+    draft_on_violation: bool = False
+
+    @classmethod
+    def from_mapping(cls, mapping: Mapping[str, Any]) -> "GovernancePolicy":
+        """Build a policy from a mapping of its attributes."""
+        return cls(**{k: v for k, v in mapping.items() if hasattr(cls, k)})
+
+
+@dataclass(slots=True)
 class GovernanceReadContext:
     """Specification forwarded by callers before a governed read."""
 
@@ -117,13 +135,35 @@ class GovernanceReadContext:
     dataset_version: Optional[str] = None
     dataset_format: Optional[str] = None
     pipeline_context: Optional[PipelineContextSpec] = None
-    bump: str = "minor"
-    draft_on_violation: bool = False
+    policy: Optional[GovernancePolicy] = None
+
+    # Legacy fields for backward compatibility
     allowed_data_product_statuses: Optional[tuple[str, ...]] = None
     allow_missing_data_product_status: Optional[bool] = None
     data_product_status_case_insensitive: Optional[bool] = None
     data_product_status_failure_message: Optional[str] = None
     enforce_data_product_status: Optional[bool] = None
+
+    @classmethod
+    def from_port(
+        cls,
+        product: str,
+        port: str,
+        product_version: str = "latest",
+    ) -> "GovernanceReadContext":
+        """Primary entrance for port-priority reading."""
+        return cls(
+            input_binding=DataProductInputBinding(
+                source_data_product=product,
+                source_output_port=port,
+                source_data_product_version=product_version,
+            )
+        )
+
+    @classmethod
+    def from_contract(cls, id: str, version: str = None) -> "GovernanceReadContext":
+        """Fallback entrance for direct contract reading."""
+        return cls(contract=ContractReference(contract_id=id, contract_version=version))
 
     def __post_init__(self) -> None:
         if self.contract is not None and not isinstance(self.contract, ContractReference):
@@ -138,6 +178,37 @@ class GovernanceReadContext:
             if resolved is None:
                 raise ValueError("input_binding specification is invalid")
             self.input_binding = resolved
+        if self.policy is not None and not isinstance(self.policy, GovernancePolicy):
+            if isinstance(self.policy, Mapping):
+                self.policy = GovernancePolicy.from_mapping(self.policy)
+            else:
+                raise TypeError("policy must be a GovernancePolicy or mapping")
+
+        # Migrate legacy fields to policy if policy is None or missing them
+        if any(
+            v is not None
+            for v in (
+                self.allowed_data_product_statuses,
+                self.allow_missing_data_product_status,
+                self.data_product_status_case_insensitive,
+                self.data_product_status_failure_message,
+                self.enforce_data_product_status,
+            )
+        ):
+            if self.policy is None:
+                self.policy = GovernancePolicy()
+            if self.policy.allowed_data_product_statuses is None:
+                self.policy.allowed_data_product_statuses = self.allowed_data_product_statuses
+            if self.policy.allow_missing_data_product_status is None:
+                self.policy.allow_missing_data_product_status = self.allow_missing_data_product_status
+            if self.policy.data_product_status_case_insensitive is None:
+                self.policy.data_product_status_case_insensitive = (
+                    self.data_product_status_case_insensitive
+                )
+            if self.policy.data_product_status_failure_message is None:
+                self.policy.data_product_status_failure_message = self.data_product_status_failure_message
+            if self.policy.enforce_data_product_status is None:
+                self.policy.enforce_data_product_status = self.enforce_data_product_status
 
 
 @dataclass(slots=True)
@@ -150,13 +221,39 @@ class GovernanceWriteContext:
     dataset_version: Optional[str] = None
     dataset_format: Optional[str] = None
     pipeline_context: Optional[PipelineContextSpec] = None
-    bump: str = "minor"
-    draft_on_violation: bool = False
+    policy: Optional[GovernancePolicy] = None
+
+    # Legacy fields for backward compatibility
     allowed_data_product_statuses: Optional[tuple[str, ...]] = None
     allow_missing_data_product_status: Optional[bool] = None
     data_product_status_case_insensitive: Optional[bool] = None
     data_product_status_failure_message: Optional[str] = None
     enforce_data_product_status: Optional[bool] = None
+    bump: Optional[str] = None
+    draft_on_violation: Optional[bool] = None
+
+    @classmethod
+    def from_port(
+        cls,
+        product: str,
+        port: str,
+        product_version: str = "latest",
+        bump: str = "minor",
+    ) -> "GovernanceWriteContext":
+        """Primary entrance for port-priority writing."""
+        return cls(
+            output_binding=DataProductOutputBinding(
+                data_product=product,
+                port_name=port,
+                data_product_version=product_version,
+                bump=bump,
+            )
+        )
+
+    @classmethod
+    def from_contract(cls, id: str, version: str = None) -> "GovernanceWriteContext":
+        """Fallback entrance for direct contract writing."""
+        return cls(contract=ContractReference(contract_id=id, contract_version=version))
 
     def __post_init__(self) -> None:
         if self.contract is not None and not isinstance(self.contract, ContractReference):
@@ -171,6 +268,43 @@ class GovernanceWriteContext:
             if resolved is None:
                 raise ValueError("output_binding specification is invalid")
             self.output_binding = resolved
+        if self.policy is not None and not isinstance(self.policy, GovernancePolicy):
+            if isinstance(self.policy, Mapping):
+                self.policy = GovernancePolicy.from_mapping(self.policy)
+            else:
+                raise TypeError("policy must be a GovernancePolicy or mapping")
+
+        # Migrate legacy fields to policy if policy is None or missing them
+        if any(
+            v is not None
+            for v in (
+                self.allowed_data_product_statuses,
+                self.allow_missing_data_product_status,
+                self.data_product_status_case_insensitive,
+                self.data_product_status_failure_message,
+                self.enforce_data_product_status,
+                self.bump,
+                self.draft_on_violation,
+            )
+        ):
+            if self.policy is None:
+                self.policy = GovernancePolicy()
+            if self.policy.allowed_data_product_statuses is None:
+                self.policy.allowed_data_product_statuses = self.allowed_data_product_statuses
+            if self.policy.allow_missing_data_product_status is None:
+                self.policy.allow_missing_data_product_status = self.allow_missing_data_product_status
+            if self.policy.data_product_status_case_insensitive is None:
+                self.policy.data_product_status_case_insensitive = (
+                    self.data_product_status_case_insensitive
+                )
+            if self.policy.data_product_status_failure_message is None:
+                self.policy.data_product_status_failure_message = self.data_product_status_failure_message
+            if self.policy.enforce_data_product_status is None:
+                self.policy.enforce_data_product_status = self.enforce_data_product_status
+            if self.bump is not None:
+                self.policy.bump = self.bump
+            if self.draft_on_violation is not None:
+                self.policy.draft_on_violation = self.draft_on_violation
 
 
 @dataclass(slots=True)
@@ -183,15 +317,11 @@ class ResolvedReadPlan:
     dataset_id: str
     dataset_version: str
     dataset_format: Optional[str] = None
+    dataset_path: Optional[str] = None
+    dataset_table: Optional[str] = None
     input_binding: Optional[DataProductInputBinding] = None
     pipeline_context: Optional[Mapping[str, object]] = None
-    bump: str = "minor"
-    draft_on_violation: bool = False
-    allowed_data_product_statuses: Optional[tuple[str, ...]] = None
-    allow_missing_data_product_status: Optional[bool] = None
-    data_product_status_case_insensitive: Optional[bool] = None
-    data_product_status_failure_message: Optional[str] = None
-    enforce_data_product_status: Optional[bool] = None
+    policy: Optional[GovernancePolicy] = None
 
 
 @dataclass(slots=True)
@@ -204,15 +334,11 @@ class ResolvedWritePlan:
     dataset_id: str
     dataset_version: str
     dataset_format: Optional[str] = None
+    dataset_path: Optional[str] = None
+    dataset_table: Optional[str] = None
     output_binding: Optional[DataProductOutputBinding] = None
     pipeline_context: Optional[Mapping[str, object]] = None
-    bump: str = "minor"
-    draft_on_violation: bool = False
-    allowed_data_product_statuses: Optional[tuple[str, ...]] = None
-    allow_missing_data_product_status: Optional[bool] = None
-    data_product_status_case_insensitive: Optional[bool] = None
-    data_product_status_failure_message: Optional[str] = None
-    enforce_data_product_status: Optional[bool] = None
+    policy: Optional[GovernancePolicy] = None
 
 
 def normalise_pipeline_context(
@@ -346,6 +472,7 @@ __all__ = [
     "ContractReference",
     "GovernanceReadContext",
     "GovernanceWriteContext",
+    "GovernancePolicy",
     "ResolvedReadPlan",
     "ResolvedWritePlan",
 ]

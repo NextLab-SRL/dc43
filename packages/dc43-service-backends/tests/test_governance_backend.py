@@ -21,6 +21,7 @@ from dc43_service_clients.data_products.models import (
 )
 from dc43_service_clients.governance.models import (
     ContractReference,
+    GovernancePolicy,
     GovernanceReadContext,
     GovernanceWriteContext,
 )
@@ -126,7 +127,7 @@ def test_resolve_read_context_uses_data_product_binding(governance_fixture):
             port_name="orders",
         ),
         dataset_id="analytics.orders",
-        draft_on_violation=True,
+        policy=GovernancePolicy(draft_on_violation=True),
     )
 
     plan = backend.resolve_read_context(context=context)
@@ -420,7 +421,7 @@ def test_resolve_read_context_allows_draft_when_permitted(governance_fixture):
     )
 
     plan = backend.resolve_read_context(context=context)
-    assert plan.allowed_data_product_statuses == ("active", "draft")
+    assert plan.policy.allowed_data_product_statuses == ("active", "draft")
 
     assessment = backend.evaluate_read_plan(
         plan=plan,
@@ -546,7 +547,7 @@ def test_resolve_write_context_allows_draft_when_permitted(governance_fixture):
     )
 
     plan = backend.resolve_write_context(context=context)
-    assert plan.allowed_data_product_statuses == ("active", "draft")
+    assert plan.policy.allowed_data_product_statuses == ("active", "draft")
 
     assessment = backend.evaluate_write_plan(
         plan=plan,

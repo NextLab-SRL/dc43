@@ -245,13 +245,23 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         draft_on_violation: bool = False,
     ) -> QualityAssessment:
         contract = self._contract_client.get(contract_id, contract_version)
+        logger.info(f"[DC43 evaluate_dataset] Resolved contract {contract_id}@{contract_version}")
 
         payload = observations()
-        validation = validation or self._dq_client.evaluate(
-            contract=contract,
-            payload=payload,
-        )
+        logger.info(f"[DC43 evaluate_dataset] Extracted observation payload. metrics={len(payload.metrics or {})}, schema={len(payload.schema or {})}")
+
+        if validation:
+            logger.info("[DC43 evaluate_dataset] Using provided validation result.")
+        else:
+            logger.info("[DC43 evaluate_dataset] Computing validation result via dq_client...")
+            validation = self._dq_client.evaluate(
+                contract=contract,
+                payload=payload,
+            )
+            logger.info(f"[DC43 evaluate_dataset] DQ client returned status: {validation.status if validation else 'None'}")
+
         status = self._status_from_validation(validation, operation=operation)
+        logger.info(f"[DC43 evaluate_dataset] Final status resolved as: {status.status if status else 'None'}")
 
         if status is not None:
             details = dict(status.details)
@@ -264,7 +274,9 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     details["schema"] = payload.schema
                 status.schema = dict(payload.schema)
             status.details = details
+            logger.debug(f"[DC43 evaluate_dataset] Hydrated status details with payload metrics & schema.")
 
+        logger.info(f"[DC43 evaluate_dataset] Calling _store.save_status for {dataset_id}@{dataset_version}")
         self._store.save_status(
             contract_id=contract_id,
             contract_version=contract_version,
@@ -272,6 +284,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_version=dataset_version,
             status=status,
         )
+        logger.info(f"[DC43 evaluate_dataset] Successfully saved status in store.")
 
         effective_pipeline = merge_pipeline_context(
             context.pipeline_context if context else None,
@@ -942,13 +955,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_format=context.dataset_format,
             input_binding=context.input_binding,
             pipeline_context=pipeline,
-            bump=context.bump,
-            draft_on_violation=context.draft_on_violation,
-            allowed_data_product_statuses=status_options["allowed_statuses"],
-            allow_missing_data_product_status=status_options["allow_missing"],
-            data_product_status_case_insensitive=status_options["case_insensitive"],
-            data_product_status_failure_message=status_options["failure_message"],
-            enforce_data_product_status=status_options["enforce"],
+            policy=context.policy,
         )
 
     def resolve_write_context(
@@ -977,13 +984,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_format=context.dataset_format,
             output_binding=context.output_binding,
             pipeline_context=pipeline,
-            bump=context.bump,
-            draft_on_violation=context.draft_on_violation,
-            allowed_data_product_statuses=status_options["allowed_statuses"],
-            allow_missing_data_product_status=status_options["allow_missing"],
-            data_product_status_case_insensitive=status_options["case_insensitive"],
-            data_product_status_failure_message=status_options["failure_message"],
-            enforce_data_product_status=status_options["enforce"],
+            policy=context.policy,
         )
 
     def evaluate_read_plan(
@@ -993,6 +994,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         validation: ValidationResult | None,
         observations: Callable[[], ObservationPayload],
     ) -> QualityAssessment:
+        bump = getattr(plan.policy, "bump", None) if plan.policy else None
+        draft_on_violation = getattr(plan.policy, "draft_on_violation", False) if plan.policy else False
         return self.evaluate_dataset(
             contract_id=plan.contract_id,
             contract_version=plan.contract_version,
@@ -1000,10 +1003,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_version=plan.dataset_version,
             validation=validation,
             observations=observations,
-            bump=plan.bump,
+            bump=bump,
             pipeline_context=plan.pipeline_context,
             operation="read",
-            draft_on_violation=plan.draft_on_violation,
+            draft_on_violation=draft_on_violation,
         )
 
     def evaluate_write_plan(
@@ -1013,6 +1016,8 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         validation: ValidationResult | None,
         observations: Callable[[], ObservationPayload],
     ) -> QualityAssessment:
+        bump = getattr(plan.policy, "bump", None) if plan.policy else None
+        draft_on_violation = getattr(plan.policy, "draft_on_violation", False) if plan.policy else False
         return self.evaluate_dataset(
             contract_id=plan.contract_id,
             contract_version=plan.contract_version,
@@ -1020,10 +1025,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
             dataset_version=plan.dataset_version,
             validation=validation,
             observations=observations,
-            bump=plan.bump,
+            bump=bump,
             pipeline_context=plan.pipeline_context,
             operation="write",
-            draft_on_violation=plan.draft_on_violation,
+            draft_on_violation=draft_on_violation,
         )
 
     def register_read_activity(
@@ -1639,24 +1644,26 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
         self,
         context: GovernanceReadContext | GovernanceWriteContext,
     ) -> Mapping[str, object]:
+        policy = context.policy
         return {
-            "allowed_statuses": context.allowed_data_product_statuses,
-            "allow_missing": context.allow_missing_data_product_status,
-            "case_insensitive": context.data_product_status_case_insensitive,
-            "failure_message": context.data_product_status_failure_message,
-            "enforce": context.enforce_data_product_status,
+            "allowed_statuses": policy.allowed_data_product_statuses if policy else ("active",),
+            "allow_missing": policy.allow_missing_data_product_status if policy else True,
+            "case_insensitive": policy.data_product_status_case_insensitive if policy else True,
+            "failure_message": policy.data_product_status_failure_message if policy else None,
+            "enforce": policy.enforce_data_product_status if policy else True,
         }
 
     def _status_options_from_plan(
         self,
         plan: ResolvedReadPlan | ResolvedWritePlan,
     ) -> Mapping[str, object]:
+        policy = plan.policy
         return {
-            "allowed_statuses": plan.allowed_data_product_statuses,
-            "allow_missing": plan.allow_missing_data_product_status,
-            "case_insensitive": plan.data_product_status_case_insensitive,
-            "failure_message": plan.data_product_status_failure_message,
-            "enforce": plan.enforce_data_product_status,
+            "allowed_statuses": policy.allowed_data_product_statuses if policy else ("active",),
+            "allow_missing": policy.allow_missing_data_product_status if policy else True,
+            "case_insensitive": policy.data_product_status_case_insensitive if policy else True,
+            "failure_message": policy.data_product_status_failure_message if policy else None,
+            "enforce": policy.enforce_data_product_status if policy else True,
         }
 
     def _normalise_status_options(
@@ -1967,6 +1974,7 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     "warnings": list(validation.warnings),
                     "violations": violation_total or len(validation.errors),
                 },
+                metrics=validation.metrics,
             )
 
         if violation_total > 0:
@@ -1985,11 +1993,13 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     status="block",
                     reason=reason,
                     details=details,
+                    metrics=validation.metrics,
                 )
             return ValidationResult(
                 status="warn",
                 reason=reason,
                 details=details,
+                metrics=validation.metrics,
             )
 
         if validation.warnings:
@@ -2000,9 +2010,10 @@ class LocalGovernanceServiceBackend(GovernanceServiceBackend):
                     "warnings": list(validation.warnings),
                     "violations": violation_total,
                 },
+                metrics=validation.metrics,
             )
 
-        return ValidationResult(status="ok", details={"violations": 0})
+        return ValidationResult(status="ok", details={"violations": 0}, metrics=validation.metrics)
 
     def _record_pipeline_activity(
         self,

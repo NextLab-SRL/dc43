@@ -9,7 +9,6 @@ dc43 is a governance-first toolkit that separates the **concepts** of data contr
 - Contract lifecycle management primitives to draft, review, approve, and retire ODCS contracts. _Note: dc43 currently targets ODCS 3.0.2; a compatibility table will follow as the spec evolves._
 - Extensible interfaces for contract storage, drafting, and data quality orchestration that keep governance decisions close to the data contract owner.
 - Runtime helpers to apply approved specifications in compute platforms while feeding observations back to governance workflows.
-- A documentation assistant embedded in the dc43 app (powered by LangChain and Gradio) so teams can chat with the Markdown guides that ship with the project.
 
 ### Provided integrations
 
@@ -19,9 +18,9 @@ On top of the conceptual platform, dc43 ships opinionated integrations that you 
 - Storage backends such as filesystem (DBFS/UC volumes), Delta tables, and Collibra through `CollibraContractStore`.
 - Open Data Product backends (`dc43_service_backends.data_products.backend`) that let product owners register ports and bind them to contracts via ODPS-compliant metadata stores.
 - A pluggable data-quality client with a stub implementation that can be replaced by catalog-native tools.
-- Scenario-first getting started guides (operations setup, local Spark flows, remote integrations, and the contracts app helper) live in [`docs/getting-started/`](docs/getting-started/README.md).
+- Scenario-first getting started guides (operations setup, local Spark flows, remote integrations, and the contracts app helper) live in [`docs/getting-started/`](docs/getting-started/).
 
-See [`docs/implementations/data-quality-governance/collibra.md`](docs/implementations/data-quality-governance/collibra.md) for end-to-end orchestration guidance when Collibra owns stewardship workflows. Component deep dives cover the [contract store](docs/component-contract-store.md), [contract drafter](docs/component-contract-drafter.md), [data-quality governance interface](docs/component-data-quality-governance.md), [data-quality engine](docs/component-data-quality-engine.md), and [integration layer](docs/component-integration-layer.md). Each component links to implementation catalogs under [`docs/implementations/`](docs/implementations/) so you can pick technology-specific guides (Spark, Delta, Collibra, ...).
+For full usage and integration guidance, please see the [User Guide](docs/user-guide/) which covers [reading data](docs/user-guide/reading-data.md), [writing data](docs/user-guide/writing-data.md), and [handling violations](docs/user-guide/handling-violations.md). The core architecture is described in [Infrastructure and Adapters](docs/infrastructure-and-adapters.md).
 
 ## Component model
 
@@ -37,14 +36,13 @@ dc43 exposes a small set of well-defined components. Swap any of them without re
 | Runtime services | **Data-quality metrics engine** | Collect contract-driven metrics in execution engines and forward them to the governance tool for status evaluation. |
 | Integration | **Integration adapters** | Bridge the contract, data product, drafter, and DQ components into execution engines such as Spark or Delta Live Tables (current adapters live under `dc43_integrations.spark`). |
 
-Guides for each component live under `docs/`:
+Guides for each operation and integration tier are available:
 
-- Contract store: [`component-contract-store.md`](docs/component-contract-store.md)
-- Contract drafter: [`component-contract-drafter.md`](docs/component-contract-drafter.md)
-- Data-quality governance interface: [`component-data-quality-governance.md`](docs/component-data-quality-governance.md)
-- Data-quality engine: [`component-data-quality-engine.md`](docs/component-data-quality-engine.md)
-- Integration layer: [`component-integration-layer.md`](docs/component-integration-layer.md); Spark & DLT adapter: [`implementations/integration/spark-dlt.md`](docs/implementations/integration/spark-dlt.md)
-- Write violation strategies: [`component-write-violation-strategies.md`](docs/component-write-violation-strategies.md)
+- Read and Write APIs: [`docs/user-guide/`](docs/user-guide/)
+- Backend Service Deployment: [`docs/operations/service-backend.md`](docs/operations/service-backend.md)
+- Write violation strategies: [`docs/user-guide/handling-violations.md`](docs/user-guide/handling-violations.md)
+- Service Backends Configuration: [`docs/operations/service-backends-configuration.md`](docs/operations/service-backends-configuration.md)
+- Infrastructure setup: [`docs/infrastructure-and-adapters.md`](docs/infrastructure-and-adapters.md)
 
 ## Architecture
 
@@ -152,7 +150,7 @@ dc43 now ships as a family of distributions so you can install only the layers y
 | `dc43-service-clients` | `dc43_service_clients.*` | Typed service clients, request/response models, and governance helpers that front-end applications can embed. | `open-data-contract-standard` |
 | `dc43-service-backends` | `dc43_service_backends.*` | Reference backend implementations (filesystem/SQL stores, local drafting, in-memory governance service) that orchestrate the client layer. | `dc43-service-clients` |
 | `dc43-integrations` | `dc43_integrations.*` | Runtime adapters such as the Spark helpers that call into client APIs without requiring backend dependencies. | `dc43-service-clients` |
-| `dc43` | `dc43.*` | Aggregating package that wires the CLI/demo and depends on the three modules above. | all of the above |
+| `dc43` | `dc43.*` | Aggregating package that wires the CLI and depends on the three modules above. | all of the above |
 
 ### Pip installs
 
@@ -165,7 +163,6 @@ dc43 now ships as a family of distributions so you can install only the layers y
 - **Spark integrations**: `pip install "dc43-integrations[spark]"`
 - **Full stack**: `pip install dc43`
 - **Spark extras for the meta package**: `pip install "dc43[spark]"`
-- **Demo app**: `pip install "dc43[demo]"`
 
 When developing locally (Databricks Repos, workspace files, or any source checkout) the editable install automatically pulls in
 the sibling packages:
@@ -282,7 +279,7 @@ def orders():
 Need to experiment outside Databricks? Install [`databricks-dlt`](https://pypi.org/project/databricks-dlt/)
 for the official notebook-compatible shims (the local mode only flips a flag).
 If the package is not available the helpers now fall back to an in-repo stub so
-the demo pipeline and tests continue to run, but installing the real package is
+the tests continue to run, but installing the real package is
 recommended for parity. Wrap your pipeline definitions in
 ``LocalDLTHarness`` (see `packages/dc43-integrations/examples/dlt_contract_pipeline.py`)
 to execute the same annotations on a local Spark session and inspect the
@@ -354,42 +351,6 @@ if status and status.status == "block":
     raise ValueError(f"DQ blocked write: {status.details}")
 ```
 
-## Demo application
-
-A Vue-powered FastAPI application packaged as ``dc43-demo-app`` (module
-``dc43_demo_app``) offers a visual way to explore contracts, datasets and data
-quality results. Install the optional dependencies and launch the app with:
-
-```bash
-pip install ".[demo]"
-dc43-demo
-```
-
-Visit ``http://localhost:8000`` to:
-
-- Browse contracts and their versions with draft/active status.
-- Inspect dataset versions, their linked contract, validation status and
-  detailed DQ metrics derived from contract rules.
-- Highlight datasets using draft contracts and trigger validation to promote
-  them.
-
-An additional Reveal.js presentation is available at
-``http://localhost:8000/static/presentation.html`` to walk through the
-contract lifecycle and automation steps.
-
-The application also exposes an example Spark pipeline in
-``dc43_demo_app.pipeline`` used when registering new dataset versions. The
-preconfigured scenarios are documented in
-[`docs/demo-pipeline-scenarios.md`](docs/demo-pipeline-scenarios.md) including
-the new split strategy example that writes ``orders_enriched::valid`` and
-``orders_enriched::reject`` alongside the main dataset.
-
-The demo now drives its contract, governance, and data-quality operations
-through the same HTTP clients that production pipelines use. When the UI starts
-it spins up an in-process instance of the service backend HTTP application, so
-Spark runs exercise the remote code paths without requiring an external
-deployment.
-
 ### Running the service backend over HTTP
 
 Pipelines that rely on the remote clients can reach a standalone backend via
@@ -404,7 +365,7 @@ uvicorn dc43_service_backends.webapp:app --host 0.0.0.0 --port 8001
 
 Contracts stored under `$DC43_CONTRACT_STORE` are served over the API while the
 stub data-quality and governance backends keep draft information on disk. See
-[`docs/implementations/service-backends/http-server.md`](docs/implementations/service-backends/http-server.md)
+[`docs/operations/service-backend.md`](docs/operations/service-backend.md)
 for Docker packaging notes and deployment options.
 
 ## Spark Flow (Mermaid)
@@ -500,8 +461,7 @@ pytest -q tests packages/dc43-service-clients/tests \
   - `AWS_ROLE_TO_ASSUME`
   - `AWS_ECR_CONTRACTS_APP_REPOSITORY`
   - `AWS_ECR_HTTP_BACKEND_REPOSITORY`
-- See [`docs/aws-ecr-setup.md`](docs/aws-ecr-setup.md) for full AWS and GitHub
-  configuration guidance.
+- See [`docs/operations/aws-ecr-setup.md`](docs/operations/aws-ecr-setup.md) for full AWS configuration guidance and [`docs/operations/azure-acr-setup.md`](docs/operations/azure-acr-setup.md) for Azure.
 
 # Publishing
 

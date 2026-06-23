@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+import base64
 import json
 import tempfile
+import yaml
 from typing import Dict, List, Optional, Protocol, Tuple
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
@@ -16,8 +18,17 @@ from dc43_service_backends.core.versioning import SemVer
 
 
 def _semver_key(version: str) -> Tuple[int, int, int, str]:
-    semver = SemVer.parse(version)
-    return (semver.major, semver.minor, semver.patch, semver.prerelease or "")
+    try:
+        semver = SemVer.parse(version)
+        return (semver.major, semver.minor, semver.patch, semver.prerelease or "")
+    except Exception:
+        # Fallback for non-strict semver strings (e.g. "5", "1.0")
+        import re
+        digits = [int(x) for x in re.findall(r"\d+", version)]
+        major = digits[0] if len(digits) > 0 else 0
+        minor = digits[1] if len(digits) > 1 else 0
+        patch = digits[2] if len(digits) > 2 else 0
+        return (major, minor, patch, version)
 
 
 @dataclass(frozen=True)
@@ -228,17 +239,22 @@ class StubCollibraContractAdapter(CollibraContractAdapter):
 
 
 class HttpCollibraContractAdapter(CollibraContractAdapter):
-    """HTTP implementation aligned with Collibra Data Products REST API."""
+    """HTTP implementation aligned with Collibra Data Products REST API v1 and cascading lookup."""
 
     def __init__(
         self,
         base_url: str,
         *,
         token: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         timeout: float = 10.0,
         contract_catalog: Optional[Mapping[str, Tuple[str, str]]] = None,
         client=None,
-        contracts_endpoint_template: str = "/rest/2.0/dataproducts/{data_product}/ports/{port}/contracts",
+        contracts_endpoint_template: str = "/rest/dataProduct/v1/dataContracts",
+        relation_type_contains_id: Optional[str] = None,
+        relation_type_governed_id: Optional[str] = None,
+        data_product_type_id: Optional[str] = None,
     ) -> None:
         try:
             import httpx  # type: ignore
@@ -248,8 +264,18 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         self._httpx = httpx
         self._base_url = base_url.rstrip("/")
         self._token = token
+        self._username = username
+        self._password = password
         self._catalog: Dict[str, Tuple[str, str]] = dict(contract_catalog or {})
-        self._contracts_endpoint_template = contracts_endpoint_template
+        
+        # UUID config for cascading lookup
+        self._relation_type_contains_id = relation_type_contains_id or "rel-contains-uuid-1111"
+        self._relation_type_governed_id = relation_type_governed_id or "rel-governed-uuid-2222"
+        self._data_product_type_id = data_product_type_id or "dp-type-uuid-3333"
+
+        # Caching of resolved contract UUIDs
+        self._uuid_cache: Dict[str, str] = {}
+
         if client is None:
             self._client = httpx.Client(base_url=self._base_url, timeout=timeout)
             self._owns_client = True
@@ -271,67 +297,227 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         headers = {"accept": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        elif self._username and self._password:
+            user_pass = f"{self._username}:{self._password}"
+            encoded = base64.b64encode(user_pass.encode("utf-8")).decode("utf-8")
+            headers["Authorization"] = f"Basic {encoded}"
         return headers
 
-    def _locate(self, contract_id: str) -> Tuple[str, str]:
+    def _resolve_contract_uuid(self, contract_id: str) -> str:
+        if contract_id in self._uuid_cache:
+            return self._uuid_cache[contract_id]
+
+        # 1. Fast Path (Option A) - query by manifestId
+        try:
+            resp = self._client.get(
+                "/rest/dataProduct/v1/dataContracts",
+                headers=self._headers(),
+                params={"manifestId": contract_id},
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            items = payload.get("items", [])
+            if items:
+                contract_uuid = items[0]["id"]
+                self._uuid_cache[contract_id] = contract_uuid
+                return contract_uuid
+        except Exception:
+            pass
+
+        # 2. Cascading Graph Lookup
         if contract_id not in self._catalog:
             raise LookupError(f"Contract {contract_id} is not registered in the Collibra catalog")
-        return self._catalog[contract_id]
+        
+        data_product_name, port_name = self._catalog[contract_id]
 
-    def _contracts_url(self, data_product: str, port: str, suffix: str = "") -> str:
-        return self._contracts_endpoint_template.format(data_product=data_product, port=port) + suffix
+        # Step 2a: Resolve Data Product UUID from name
+        import re
+        uuid_pattern = re.compile(r"^[a-fA-F0-9-]{36}$")
+        
+        dp_uuid = None
+        if uuid_pattern.match(data_product_name):
+            dp_uuid = data_product_name
+        else:
+            resp = self._client.get(
+                "/rest/2.0/assets",
+                headers=self._headers(),
+                params={"name": data_product_name, "typeId": self._data_product_type_id},
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            if not results:
+                raise LookupError(f"Data Product asset '{data_product_name}' not found in Collibra")
+            dp_uuid = results[0]["id"]
+
+        # Step 2b: Resolve Port UUID from Data Product containing Port relations
+        port_uuid = None
+        if uuid_pattern.match(port_name):
+            port_uuid = port_name
+        else:
+            resp = self._client.get(
+                "/rest/2.0/relations",
+                headers=self._headers(),
+                params={
+                    "sourceId": dp_uuid,
+                    "relationTypeId": self._relation_type_contains_id,
+                },
+            )
+            resp.raise_for_status()
+            relations = resp.json().get("results", [])
+            # Search for the port with matching name (exact then case-insensitive)
+            for rel in relations:
+                target = rel.get("target", {})
+                if target.get("name") == port_name or target.get("displayName") == port_name:
+                    port_uuid = target.get("id")
+                    break
+            
+            if not port_uuid:
+                # Case-insensitive fallback
+                for rel in relations:
+                    target = rel.get("target", {})
+                    t_name = target.get("name", "").lower()
+                    t_disp = target.get("displayName", "").lower()
+                    if t_name == port_name.lower() or t_disp == port_name.lower():
+                        port_uuid = target.get("id")
+                        break
+            
+            if not port_uuid:
+                raise LookupError(
+                    f"Port asset '{port_name}' not found under Data Product '{data_product_name}' relations"
+                )
+
+        # Step 2c: Resolve Data Contract UUID from Port relations
+        # Check targetId first (Port governed by Data Contract: Contract -> Port)
+        resp = self._client.get(
+            "/rest/2.0/relations",
+            headers=self._headers(),
+            params={
+                "targetId": port_uuid,
+                "relationTypeId": self._relation_type_governed_id,
+            },
+        )
+        resp.raise_for_status()
+        relations = resp.json().get("results", [])
+        if relations:
+            contract_uuid = relations[0]["source"]["id"]
+            self._uuid_cache[contract_id] = contract_uuid
+            return contract_uuid
+
+        # Try sourceId fallback
+        resp = self._client.get(
+            "/rest/2.0/relations",
+            headers=self._headers(),
+            params={
+                "sourceId": port_uuid,
+                "relationTypeId": self._relation_type_governed_id,
+            },
+        )
+        resp.raise_for_status()
+        relations = resp.json().get("results", [])
+        if relations:
+            contract_uuid = relations[0]["target"]["id"]
+            self._uuid_cache[contract_id] = contract_uuid
+            return contract_uuid
+
+        raise LookupError(f"No Data Contract asset found governing Port '{port_name}' (UUID: {port_uuid})")
+
+    def _resolve_port_uuid(self, contract_id: str) -> str:
+        if contract_id not in self._catalog:
+            raise LookupError(f"Contract {contract_id} is not registered in the Collibra catalog")
+        
+        data_product_name, port_name = self._catalog[contract_id]
+
+        import re
+        uuid_pattern = re.compile(r"^[a-fA-F0-9-]{36}$")
+        if uuid_pattern.match(port_name):
+            return port_name
+
+        dp_uuid = None
+        if uuid_pattern.match(data_product_name):
+            dp_uuid = data_product_name
+        else:
+            resp = self._client.get(
+                "/rest/2.0/assets",
+                headers=self._headers(),
+                params={"name": data_product_name, "typeId": self._data_product_type_id},
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            if not results:
+                raise LookupError(f"Data Product asset '{data_product_name}' not found in Collibra")
+            dp_uuid = results[0]["id"]
+
+        resp = self._client.get(
+            "/rest/2.0/relations",
+            headers=self._headers(),
+            params={
+                "sourceId": dp_uuid,
+                "relationTypeId": self._relation_type_contains_id,
+            },
+        )
+        resp.raise_for_status()
+        relations = resp.json().get("results", [])
+        for rel in relations:
+            target = rel.get("target", {})
+            if target.get("name") == port_name or target.get("displayName") == port_name:
+                return target["id"]
+        
+        # Case-insensitive fallback
+        for rel in relations:
+            target = rel.get("target", {})
+            t_name = target.get("name", "").lower()
+            t_disp = target.get("displayName", "").lower()
+            if t_name == port_name.lower() or t_disp == port_name.lower():
+                return target["id"]
+
+        raise LookupError(
+            f"Port asset '{port_name}' not found under Data Product '{data_product_name}' relations"
+        )
 
     def list_contracts(self) -> List[str]:
         return sorted(self._catalog.keys())
 
     def list_versions(self, contract_id: str) -> List[ContractSummary]:
-        data_product, port = self._locate(contract_id)
+        contract_uuid = self._resolve_contract_uuid(contract_id)
         resp = self._client.get(
-            self._contracts_url(data_product, port),
+            f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions",
             headers=self._headers(),
         )
         resp.raise_for_status()
         payload = resp.json()
+        
         summaries: List[ContractSummary] = []
-        items = []
-        if isinstance(payload, Mapping):
-            if "data" in payload and isinstance(payload["data"], list):
-                items = payload["data"]
-            elif "results" in payload and isinstance(payload["results"], list):
-                items = payload["results"]
-            elif "contracts" in payload and isinstance(payload["contracts"], list):
-                items = payload["contracts"]
-        if not items and isinstance(payload, list):
-            items = payload
-        for item in items:
+        for item in payload.get("items", []):
             version = item.get("version")
             if not version:
                 continue
+            
+            # Map active=True to "Validated", active=False to "Draft"
+            status = "Validated" if item.get("active") else "Draft"
+            created_on_ms = item.get("lastModifiedOn") or item.get("createdOn")
+            updated_at = datetime.utcfromtimestamp(created_on_ms / 1000.0) if created_on_ms else None
+            
             summaries.append(
                 ContractSummary(
                     contract_id=contract_id,
                     version=str(version),
-                    status=str(item.get("status", "Draft")),
-                    updated_at=_parse_timestamp(item.get("updatedAt")),
+                    status=status,
+                    updated_at=updated_at,
                 )
             )
         summaries.sort(key=lambda s: _semver_key(s.version))
         return summaries
 
     def get_contract(self, contract_id: str, version: str) -> Mapping[str, object]:
-        data_product, port = self._locate(contract_id)
+        contract_uuid = self._resolve_contract_uuid(contract_id)
         resp = self._client.get(
-            self._contracts_url(data_product, port, f"/{version}"),
+            f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions/manifest",
             headers=self._headers(),
+            params={"version": version},
         )
         resp.raise_for_status()
-        payload = resp.json()
-        if isinstance(payload, Mapping):
-            if "contract" in payload:
-                return payload["contract"]
-            if "data" in payload and isinstance(payload["data"], Mapping):
-                return payload["data"]
-        return payload
+        # Parse YAML payload directly to dict
+        return yaml.safe_load(resp.text)
 
     def upsert_contract(
         self,
@@ -340,27 +526,68 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         status: str = "Draft",
     ) -> None:
         ensure_version(contract)
-        contract_dict = as_odcs_dict(contract)
         contract_id, version = contract_identity(contract)
-        data_product, port = self._locate(contract_id)
-        resp = self._client.put(
-            self._contracts_url(data_product, port, f"/{version}"),
-            headers=self._headers(),
-            json={"status": status, "contract": contract_dict},
-        )
-        resp.raise_for_status()
+        yaml_str = yaml.dump(as_odcs_dict(contract))
+
+        # Check if contract already exists
+        try:
+            contract_uuid = self._resolve_contract_uuid(contract_id)
+            exists = True
+        except LookupError:
+            exists = False
+
+        if exists:
+            # Upload a new version
+            data = {
+                "version": version,
+                "active": "true" if status == "Validated" else "false",
+            }
+            files = {
+                "manifest": ("manifest.yaml", yaml_str.encode("utf-8"), "text/plain")
+            }
+            resp = self._client.post(
+                f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions",
+                headers=self._headers(),
+                data=data,
+                files=files,
+            )
+            resp.raise_for_status()
+        else:
+            # Initialize a new contract
+            port_uuid = self._resolve_port_uuid(contract_id)
+            data = {
+                "governedAssetId": port_uuid,
+                "manifestId": contract_id,
+                "version": version,
+                "name": contract.name or contract_id,
+            }
+            files = {
+                "manifest": ("manifest.yaml", yaml_str.encode("utf-8"), "text/plain")
+            }
+            resp = self._client.post(
+                "/rest/dataProduct/v1/dataContracts",
+                headers=self._headers(),
+                data=data,
+                files=files,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            new_uuid = payload.get("id")
+            if new_uuid:
+                self._uuid_cache[contract_id] = new_uuid
 
     def submit_draft(self, contract: OpenDataContractStandard) -> None:
         self.upsert_contract(contract, status="Draft")
 
     def update_status(self, contract_id: str, version: str, status: str) -> None:
-        data_product, port = self._locate(contract_id)
-        resp = self._client.patch(
-            self._contracts_url(data_product, port, f"/{version}"),
-            headers=self._headers(),
-            json={"status": status},
-        )
-        resp.raise_for_status()
+        if status == "Validated":
+            contract_uuid = self._resolve_contract_uuid(contract_id)
+            resp = self._client.patch(
+                f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/activeVersion",
+                headers=self._headers(),
+                params={"version": version},
+            )
+            resp.raise_for_status()
 
     def get_validated_contract(self, contract_id: str) -> Mapping[str, object]:
         summaries = [s for s in self.list_versions(contract_id) if s.status == "Validated"]

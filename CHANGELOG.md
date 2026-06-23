@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [0.42.0.0] - 2026-05-21
+
+### Added
+- Added Basic Authentication support (username and password credentials) for Collibra HTTP Contract Store adapter and configuration loaders, with environment variable overrides `DC43_CONTRACT_STORE_USERNAME` and `DC43_CONTRACT_STORE_PASSWORD`.
+- Added an integration verification script `test_collibra_basic_auth.py` for testing credentials against the Collibra HTTP adapter and backend.
+- Introduced `MutableStructType` subclass of Spark's `StructType` to support fluent, non-destructive schema manipulation (`drop`, `keep_only`, `rename`, `update_type`, `add_field`).
+- Updated `dataframe_schema_from_contract` (Spark integration) to return a `MutableStructType` to support schema modification before use with Spark `from_csv` and other downstream functions.
+- Enhanced Spark executors (read, write, revalidator) and data quality metric computations in `dc43-integrations` to gracefully catch PySpark execution and parsing exceptions (such as `CANNOT_PARSE_TIMESTAMP`), converting them to validation errors (`ok=False`) so the configured violation strategies (e.g. quarantining) execute rather than letting the script crash.
+- Added a robust `MockCollibraService` supporting dynamic assets, relations, Search API, and Data Product API v1 for comprehensive offline testing of Collibra integrations.
+- Native support for deploying permanent Databricks Views with input data quality evaluation and Dataset Resolution using `declare_with_governance` within the Spark integration helpers.
+- Added support for `is_null` data quality validation rule to natively assert column emptiness avoiding SQL Tri-Valued logic evaluation issues.
+
+### Changed
+- Prioritized `physicalType` over `logicalType` in `dataframe_schema_from_contract` (Spark integration) when mapping contract fields to Spark schemas.
+- Aligned metadata in `pyproject.toml` files to correctly declare the project license as Apache-2.0 instead of MIT.
+- Migrated Collibra contract adapter to target the official Collibra Data Product API v1 (`/rest/dataProduct/v1`) with multipart YAML upload/download, and integrated a dual lookup strategy (direct technical UUID mapping cascading to graph-based traversal).
+- Aligned documentation, examples, and Spark integration helper docstrings to promote contract-first (`from_contract`) and port-first (`from_port`) patterns as the primary interfaces, removing legacy and invalid usages of low-level `dataset_id` references.
+
+### Fixed
+- Coerce version and apiVersion fields to strings in to_model() to handle unquoted numeric versions when parsing YAML (e.g. version: 5).
+- Fixed an `AttributeError` in `write_with_governance`, `read_with_governance`, `declare_with_governance`, and `merge_with_governance` when requests or contexts are passed as raw mappings/dictionaries instead of fully instantiated dataclass objects.
+- Fixed a bug in `LocalContractServiceBackend.link_dataset_contract` that performed an unnecessary `store.put()` after fetching the contract, triggering `409 Conflict` client errors on Collibra stores because the version was already registered.
+
+### Deprecated
+- Deprecated `link_dataset_contract` and `get_linked_contract_version` on the `ContractServiceBackend` interface in favor of delegating dataset-contract linkage exclusively to the `GovernanceServiceBackend`.
+
+## [0.41.0.0] - 2026-03-31
+
+## [0.40.0.0] - 2026-03-19
+
+### Added
+- Added `merge_with_governance` to the Spark I/O integrations to support Delta Lake Merge operations with full governance resolution, schema injection, and telemetry.
+- Bumped Open Data Contract Standard (ODCS) support in `dc43-core` to `>=3.0.2,<4.0.0` with configurable API target defaulting to `3.1.0`.
+
+## [0.39.0.0] - 2026-03-18
+
+### Changed
+- Version aligned to 0.39.0.0
+
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - Integration helper pipeline now surfaces governed data products alongside
   contracts so you can add product nodes, wire their ports into transformations,

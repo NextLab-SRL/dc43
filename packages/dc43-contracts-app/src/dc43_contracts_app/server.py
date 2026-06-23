@@ -81,7 +81,6 @@ from .config import (
     BackendConfig,
     BackendProcessConfig,
     ContractsAppConfig,
-    DocsChatConfig,
     WorkspaceConfig,
     dumps as dump_contracts_app_config,
     load_config,
@@ -111,7 +110,6 @@ from .services import (
     thread_service_clients,
 )
 from .hints import get_workspace_hints
-from . import docs_chat
 from .setup_bundle import PipelineExample, render_pipeline_stub
 from open_data_contract_standard.model import (
     CustomProperty,
@@ -657,13 +655,7 @@ def configure_from_config(config: ContractsAppConfig | None = None) -> Contracts
 
     config = config or load_config()
     configure_backend(config=config.backend)
-    base_dir = config.workspace.root
-    docs_chat.configure(config.docs_chat, base_dir=base_dir)
-
-    def _log_warmup(detail: str) -> None:
-        logger.info("Docs chat warm-up: %s", detail)
-
-    docs_chat.warm_up(progress=_log_warmup)
+    
     return _set_active_config(config)
 
 
@@ -704,46 +696,6 @@ async def _expectation_predicates(contract: OpenDataContractStandard) -> Dict[st
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-
-@router.get("/docs-chat", response_class=HTMLResponse)
-async def docs_chat_view(request: Request) -> HTMLResponse:
-    status_payload = docs_chat.status()
-    context = {
-        "request": request,
-        "docs_chat_status": status_payload,
-        "gradio_path": docs_chat.GRADIO_MOUNT_PATH,
-    }
-    return templates.TemplateResponse("docs_chat.html", context)
-
-
-@router.post("/api/docs-chat/messages")
-async def docs_chat_message(payload: dict[str, Any]) -> JSONResponse:
-    message = payload.get("message") if isinstance(payload, Mapping) else None
-    if not isinstance(message, str) or not message.strip():
-        raise HTTPException(status_code=422, detail="Provide a question so the assistant can help.")
-
-    history_raw = payload.get("history") if isinstance(payload, Mapping) else None
-    history: list[Any]
-    if isinstance(history_raw, list):
-        history = history_raw
-    else:
-        history = []
-
-    status_payload = docs_chat.status()
-    if not status_payload.enabled:
-        detail = status_payload.message or "Docs chat is disabled in the current configuration."
-        raise HTTPException(status_code=400, detail=detail)
-    if not status_payload.ready:
-        detail = status_payload.message or "Docs chat is not ready yet."
-        raise HTTPException(status_code=400, detail=detail)
-
-    try:
-        reply = await run_in_threadpool(docs_chat.generate_reply, message, history)
-    except docs_chat.DocsChatError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    return JSONResponse({"message": reply.answer, "sources": reply.sources, "steps": reply.steps})
 
 
 SETUP_MODULES: Dict[str, Dict[str, Any]] = {
@@ -4007,62 +3959,9 @@ def _contracts_app_config_from_state(
         process=BackendProcessConfig(),
     )
 
-    docs_option = selected.get("docs_assistant")
-    docs_chat_cfg = DocsChatConfig()
-    if docs_option == "openai_embedded":
-        docs_module = configuration.get("docs_assistant", {})
-        if not isinstance(docs_module, Mapping):
-            docs_module = {}
-
-        provider = _clean_str(docs_module.get("provider")) or "openai"
-        model = _clean_str(docs_module.get("model")) or "gpt-4o-mini"
-        embedding_provider = _clean_str(docs_module.get("embedding_provider")) or "openai"
-        embedding_model = _clean_str(docs_module.get("embedding_model")) or "text-embedding-3-small"
-        api_key_env = _clean_str(docs_module.get("api_key_env")) or "OPENAI_API_KEY"
-        api_key_value = _clean_str(docs_module.get("api_key"))
-
-        docs_path_text = _clean_str(docs_module.get("docs_path"))
-        index_path_text = _clean_str(docs_module.get("index_path"))
-
-        docs_path = Path(docs_path_text).expanduser() if docs_path_text else None
-        index_path = Path(index_path_text).expanduser() if index_path_text else None
-
-        code_paths_value = docs_module.get("code_paths")
-        code_path_entries: list[str] = []
-        if isinstance(code_paths_value, (list, tuple, set)):
-            for item in code_paths_value:
-                if not isinstance(item, str):
-                    item = str(item)
-                item = item.strip()
-                if item:
-                    code_path_entries.append(item)
-        elif isinstance(code_paths_value, str):
-            candidate = code_paths_value.strip()
-            if candidate:
-                parts = [part.strip() for part in candidate.replace(";", ",").split(",")]
-                code_path_entries.extend(part for part in parts if part)
-
-        code_paths = tuple(Path(entry).expanduser() for entry in code_path_entries)
-        reasoning_effort = _clean_str(docs_module.get("reasoning_effort")) or None
-
-        docs_chat_cfg = DocsChatConfig(
-            enabled=True,
-            provider=provider,
-            model=model,
-            embedding_provider=embedding_provider,
-            embedding_model=embedding_model,
-            api_key_env=api_key_env,
-            api_key=api_key_value,
-            docs_path=docs_path,
-            index_path=index_path,
-            code_paths=code_paths,
-            reasoning_effort=reasoning_effort,
-        )
-
     return ContractsAppConfig(
         workspace=workspace_cfg,
         backend=backend_cfg,
-        docs_chat=docs_chat_cfg,
     )
 
 
@@ -8005,7 +7904,7 @@ async def setup_get(request: Request, step: Optional[int] = None, restart: bool 
         state = load_setup_state()
 
     context = _build_setup_context(request, state, step=step)
-    return templates.TemplateResponse("setup.html", context)
+    return templates.TemplateResponse(request, "setup.html", context)
 
 
 @router.post("/setup", response_class=HTMLResponse)
@@ -8062,7 +7961,7 @@ async def setup_post(request: Request) -> HTMLResponse:
             temp_state = dict(state)
             temp_state["selected_options"] = selections
             context = _build_setup_context(request, temp_state, step=1, errors=errors)
-            return templates.TemplateResponse("setup.html", context, status_code=422)
+            return templates.TemplateResponse(request, "setup.html", context, status_code=422)
 
         configuration = state.get("configuration") if isinstance(state, Mapping) else {}
         new_configuration: Dict[str, Any] = {}
@@ -8084,7 +7983,7 @@ async def setup_post(request: Request) -> HTMLResponse:
         selected_options = state.get("selected_options") if isinstance(state, Mapping) else {}
         if not isinstance(selected_options, Mapping) or not selected_options:
             context = _build_setup_context(request, state, step=1, errors=["Choose an implementation for each module first."])
-            return templates.TemplateResponse("setup.html", context, status_code=422)
+            return templates.TemplateResponse(request, "setup.html", context, status_code=422)
 
         configuration: Dict[str, Dict[str, Any]] = {}
         errors = []
@@ -8109,7 +8008,7 @@ async def setup_post(request: Request) -> HTMLResponse:
             temp_state = dict(state)
             temp_state["configuration"] = configuration
             context = _build_setup_context(request, temp_state, step=2, errors=errors)
-            return templates.TemplateResponse("setup.html", context, status_code=422)
+            return templates.TemplateResponse(request, "setup.html", context, status_code=422)
 
         updated_state = dict(state)
         updated_state["configuration"] = configuration
@@ -8131,7 +8030,7 @@ async def setup_post(request: Request) -> HTMLResponse:
         return RedirectResponse(url="/setup?step=1", status_code=303)
 
     context = _build_setup_context(request, state)
-    return templates.TemplateResponse("setup.html", context)
+    return templates.TemplateResponse(request, "setup.html", context)
 
 
 @router.get("/setup/export", response_class=StreamingResponse)
@@ -8171,7 +8070,7 @@ async def setup_export() -> StreamingResponse:
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html", {"request": request})
 
 
 @router.get("/integration-helper", response_class=HTMLResponse)
@@ -8186,14 +8085,14 @@ async def integration_helper(request: Request) -> HTMLResponse:
             {"value": "spark", "label": "Spark (PySpark / Delta Lake)"},
         ],
     }
-    return templates.TemplateResponse("integration_helper.html", context)
+    return templates.TemplateResponse(request, "integration_helper.html", context)
 
 
 @router.get("/contracts", response_class=HTMLResponse)
 async def list_contracts(request: Request) -> HTMLResponse:
     contract_ids = list_contract_ids()
     return templates.TemplateResponse(
-        "contracts.html", {"request": request, "contracts": contract_ids}
+        request, "contracts.html", {"request": request, "contracts": contract_ids}
     )
 
 
@@ -8202,7 +8101,7 @@ async def new_contract_form(request: Request) -> HTMLResponse:
     editor_state = _contract_editor_state()
     editor_state["version"] = editor_state.get("version") or "1.0.0"
     context = _editor_context(request, editor_state=editor_state)
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 @router.post("/contracts/new", response_class=HTMLResponse)
@@ -8231,7 +8130,7 @@ async def create_contract(
         editor_state=editor_state,
         error=error,
     )
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 
@@ -8285,7 +8184,7 @@ async def list_contract_versions(request: Request, cid: str) -> HTMLResponse:
             }
         )
     context = {"request": request, "contract_id": cid, "contracts": contracts}
-    return templates.TemplateResponse("contract_versions.html", context)
+    return templates.TemplateResponse(request, "contract_versions.html", context)
 
 
 @router.get("/contracts/{cid}/{ver}", response_class=HTMLResponse)
@@ -8364,7 +8263,7 @@ async def contract_detail(request: Request, cid: str, ver: str) -> HTMLResponse:
         "metrics_summary": metrics_summary,
         "metrics_error": metrics_error,
     }
-    return templates.TemplateResponse("contract_detail.html", context)
+    return templates.TemplateResponse(request, "contract_detail.html", context)
 
 
 def _next_version(ver: str) -> str:
@@ -9546,7 +9445,7 @@ async def edit_contract_form(request: Request, cid: str, ver: str) -> HTMLRespon
         baseline_state=baseline_state,
         baseline_contract=contract,
     )
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 @router.post("/contracts/{cid}/{ver}/edit", response_class=HTMLResponse)
@@ -9600,7 +9499,7 @@ async def save_contract_edits(
         baseline_contract=baseline_contract,
         error=error,
     )
-    return templates.TemplateResponse("new_contract.html", context)
+    return templates.TemplateResponse(request, "new_contract.html", context)
 
 
 @router.post("/contracts/{cid}/{ver}/validate")
@@ -9613,7 +9512,7 @@ async def list_datasets(request: Request) -> HTMLResponse:
     records = load_records()
     catalog = dataset_catalog(records)
     context = {"request": request, "datasets": catalog}
-    return templates.TemplateResponse("datasets.html", context)
+    return templates.TemplateResponse(request, "datasets.html", context)
 
 
 def _dataset_history_sort_key(record: Mapping[str, Any]) -> Tuple[str, str, str]:
@@ -9665,7 +9564,7 @@ async def dataset_versions(request: Request, dataset_name: str) -> HTMLResponse:
         "metrics_panel_scope_label": f"Dataset {dataset_name}",
         "metrics_empty_message": "No metrics recorded for this dataset yet.",
     }
-    return templates.TemplateResponse("dataset_versions.html", context)
+    return templates.TemplateResponse(request, "dataset_versions.html", context)
 
 
 @router.get("/data-products", response_class=HTMLResponse)
@@ -9677,7 +9576,7 @@ async def list_data_products(request: Request) -> HTMLResponse:
         "products": catalog,
         "can_manage_products": bool(data_product_service),
     }
-    return templates.TemplateResponse("data_products.html", context)
+    return templates.TemplateResponse(request, "data_products.html", context)
 
 
 @router.get("/data-products/new", response_class=HTMLResponse)
@@ -9688,7 +9587,7 @@ async def new_data_product_form(request: Request) -> HTMLResponse:
     editor_state["version"] = editor_state.get("version") or "0.1.0"
     editor_state["status"] = editor_state.get("status") or "draft"
     context = _data_product_editor_context(request, editor_state=editor_state)
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.post("/data-products/new", response_class=HTMLResponse)
@@ -9721,7 +9620,7 @@ async def create_data_product(
         editor_state=editor_state,
         error=error,
     )
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.get("/data-products/{product_id}/{version}/edit", response_class=HTMLResponse)
@@ -9747,7 +9646,7 @@ async def edit_data_product_form(
         baseline_state=baseline_state,
         baseline_product=baseline_product,
     )
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.post("/data-products/{product_id}/{version}/edit", response_class=HTMLResponse)
@@ -9799,7 +9698,7 @@ async def save_data_product_edits(
         baseline_product=baseline_product,
         error=error,
     )
-    return templates.TemplateResponse("new_data_product.html", context)
+    return templates.TemplateResponse(request, "new_data_product.html", context)
 
 
 @router.get("/data-products/{product_id}", response_class=HTMLResponse)
@@ -9813,7 +9712,7 @@ async def data_product_detail_view(request: Request, product_id: str) -> HTMLRes
         "product": details,
         "can_manage_products": bool(data_product_service),
     }
-    return templates.TemplateResponse("data_product_detail.html", context)
+    return templates.TemplateResponse(request, "data_product_detail.html", context)
 
 
 def _dataset_preview(
@@ -10418,7 +10317,7 @@ async def dataset_detail(request: Request, dataset_name: str, dataset_version: s
                 ),
                 "metrics_empty_message": "No metrics recorded for this dataset version.",
             }
-            return templates.TemplateResponse("dataset_detail.html", context)
+            return templates.TemplateResponse(request, "dataset_detail.html", context)
     raise HTTPException(status_code=404, detail="Dataset not found")
 
 
@@ -10429,11 +10328,6 @@ def create_app() -> FastAPI:
 
     @application.middleware("http")
     async def setup_guard(request: Request, call_next):  # type: ignore[override]
-        docs_status = docs_chat.status()
-        request.state.docs_chat_status = docs_status
-        request.state.docs_chat_enabled = docs_status.enabled
-        request.state.docs_chat_ready = docs_status.ready
-        request.state.docs_chat_message = docs_status.message
 
         path = request.url.path
         exempt_paths = {"/openapi.json"}
@@ -10454,7 +10348,6 @@ def create_app() -> FastAPI:
         name="static",
     )
     application.include_router(router)
-    docs_chat.mount_gradio_app(application, path=docs_chat.GRADIO_MOUNT_PATH)
     return application
 
 

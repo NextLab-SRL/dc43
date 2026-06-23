@@ -24,9 +24,7 @@ _INTERNAL_CORE_DEPENDENCIES = [
     "dc43-contracts-app",
 ]
 
-_OPTIONAL_INTERNAL_DEPENDENCIES = [
-    "dc43-demo-app",
-]
+_OPTIONAL_INTERNAL_DEPENDENCIES = []
 
 _ALL_INTERNAL_PACKAGES = _INTERNAL_CORE_DEPENDENCIES + _OPTIONAL_INTERNAL_DEPENDENCIES
 
@@ -87,15 +85,12 @@ install_requires += [
     "attrs>=20.0",
     "faker>=25.0",
     "packaging>=21.0",
-    "open-data-contract-standard==3.0.2",
+    "open-data-contract-standard>=3.0.2,<4.0.0",
 ]
 
 extras_require = {
     "spark": [
         _dependency("dc43-integrations", extras="spark")
-    ],
-    "docs-chat": [
-        _dependency("dc43-contracts-app", extras="docs-chat"),
     ],
     "test": [
         "pytest>=7.0",
@@ -105,15 +100,6 @@ extras_require = {
         "python-multipart",
         "httpx",
         _dependency("dc43-contracts-app", extras="spark"),
-    ],
-    "demo": [
-        "fastapi",
-        "uvicorn",
-        "jinja2",
-        "python-multipart",
-        _dependency("dc43-contracts-app", extras="spark,docs-chat"),
-        _dependency("dc43-integrations", extras="spark"),
-        _dependency("dc43-demo-app"),
     ],
 }
 

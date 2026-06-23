@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 try:  # pragma: no cover - optional dependency at runtime
     from pyspark.sql import DataFrame
@@ -67,6 +67,8 @@ class WriteRequest:
     warnings: tuple[str, ...] = field(default_factory=tuple)
     pipeline_context: Optional[Mapping[str, Any]] = None
     streaming_observation_writer: Optional["StreamingObservationWriter"] = None
+    writer_modifier: Optional[Callable[[Any], Any]] = None
+    observation_writer_modifier: Optional[Callable[[Any], Any]] = None
 
 
 @dataclass
@@ -98,6 +100,8 @@ class WriteStrategyContext:
     pipeline_context: Optional[Mapping[str, Any]] = None
     streaming: bool = False
     streaming_observation_writer: Optional["StreamingObservationWriter"] = None
+    writer_modifier: Optional[Callable[[Any], Any]] = None
+    observation_writer_modifier: Optional[Callable[[Any], Any]] = None
 
     def base_request(
         self,
@@ -136,9 +140,12 @@ class WriteStrategyContext:
                 pipeline_context,
             ),
             streaming_observation_writer=self.streaming_observation_writer,
+            writer_modifier=self.writer_modifier,
+            observation_writer_modifier=self.observation_writer_modifier,
         )
 
 
+@runtime_checkable
 class WriteViolationStrategy(Protocol):
     """Plan how a write should proceed when validation discovers violations."""
 
@@ -166,7 +173,7 @@ class NoOpWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_contract_status  # local import to avoid cycles
+        from .io.validation import _validate_contract_status  # local import to avoid cycles
 
         _validate_contract_status(
             contract=contract,
@@ -185,7 +192,7 @@ class NoOpWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_data_product_status  # local import to avoid cycles
+        from .io.validation import _validate_data_product_status  # local import to avoid cycles
 
         _validate_data_product_status(
             data_product=data_product,
@@ -227,7 +234,7 @@ class SplitWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_contract_status  # local import to avoid cycles
+        from .io.validation import _validate_contract_status  # local import to avoid cycles
 
         _validate_contract_status(
             contract=contract,
@@ -246,7 +253,7 @@ class SplitWriteViolationStrategy:
         enforce: bool,
         operation: str,
     ) -> None:
-        from .io import _validate_data_product_status  # local import to avoid cycles
+        from .io.validation import _validate_data_product_status  # local import to avoid cycles
 
         _validate_data_product_status(
             data_product=data_product,
@@ -287,9 +294,16 @@ class SplitWriteViolationStrategy:
             return f"{base}{self.dataset_suffix_separator}{suffix}"
 
         if self.include_valid:
-            valid_df = context.aligned_df.filter(composite_predicate)
-            has_valid = valid_df.limit(1).count() > 0
-            if has_valid:
+            try:
+                valid_df = context.aligned_df.filter(composite_predicate)
+                has_valid = valid_df.limit(1).count() > 0
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to evaluate valid subset: %s", e)
+                has_valid = False
+                valid_df = None
+
+            if has_valid and valid_df is not None:
                 valid_warning = (
                     f"Valid subset written to dataset suffix '{self.valid_suffix}'"
                 )
@@ -311,12 +325,21 @@ class SplitWriteViolationStrategy:
                         {"subset": self.valid_suffix},
                     ),
                     streaming_observation_writer=context.streaming_observation_writer,
+                    writer_modifier=context.writer_modifier,
+                    observation_writer_modifier=context.observation_writer_modifier,
                 )
 
         if self.include_reject:
-            reject_df = context.aligned_df.filter(f"NOT ({composite_predicate})")
-            has_reject = reject_df.limit(1).count() > 0
-            if has_reject:
+            try:
+                reject_df = context.aligned_df.filter(f"NOT ({composite_predicate})")
+                has_reject = reject_df.limit(1).count() > 0
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to evaluate reject subset: %s", e)
+                has_reject = False
+                reject_df = None
+
+            if has_reject and reject_df is not None:
                 reject_warning = (
                     f"Rejected subset written to dataset suffix '{self.reject_suffix}'"
                 )
@@ -338,6 +361,8 @@ class SplitWriteViolationStrategy:
                         {"subset": self.reject_suffix},
                     ),
                     streaming_observation_writer=context.streaming_observation_writer,
+                    writer_modifier=context.writer_modifier,
+                    observation_writer_modifier=context.observation_writer_modifier,
                 )
 
         for message in warnings:
@@ -407,6 +432,112 @@ class SplitWriteViolationStrategy:
 
 
 @dataclass
+class FlagWriteViolationStrategy:
+    """Flag invalid rows with an array of broken expectations.
+
+    This strategy evaluates each row against the defined data quality
+    expectations. If a row fails one or more expectations, the names of
+    the failed expectations are collected into an array and stored in a
+    dedicated metadata column (by default `_corrupted_data`). Valid rows
+    will have `None` (null) in this column to save space.
+
+    Attributes:
+        column_name: The name of the column to append containing the failed
+            expectation names. Defaults to `_corrupted_data`.
+        allowed_contract_statuses: Tuple of acceptable contract statuses.
+            Writes are blocked if the contract status is not in this list.
+        allow_missing_contract_status: Whether to allow writes if the
+            contract status is undefined.
+        contract_status_case_insensitive: Whether contract status checks
+            should ignore case.
+        contract_status_failure_message: Custom message to raise when the
+            contract status is unacceptable.
+        allowed_data_product_statuses: Tuple of acceptable data product
+            statuses (if applicable).
+        allow_missing_data_product_status: Whether to allow writes if the
+            data product status is undefined.
+        data_product_status_case_insensitive: Whether data product status
+            checks should ignore case.
+        data_product_status_failure_message: Custom message to raise when the
+            data product status is unacceptable.
+    """
+
+    column_name: str = "_corrupted_data"
+    allowed_contract_statuses: tuple[str, ...] = ("active",)
+    allow_missing_contract_status: bool = True
+    contract_status_case_insensitive: bool = True
+    contract_status_failure_message: str | None = None
+    allowed_data_product_statuses: tuple[str, ...] = ("active",)
+    allow_missing_data_product_status: bool = True
+    data_product_status_case_insensitive: bool = True
+    data_product_status_failure_message: str | None = None
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io.validation import _validate_contract_status
+
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_contract_statuses,
+            allow_missing=self.allow_missing_contract_status,
+            case_insensitive=self.contract_status_case_insensitive,
+            failure_message=self.contract_status_failure_message,
+        )
+
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io.validation import _validate_data_product_status
+
+        _validate_data_product_status(
+            data_product=data_product,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_data_product_statuses,
+            allow_missing=self.allow_missing_data_product_status,
+            case_insensitive=self.data_product_status_case_insensitive,
+            failure_message=self.data_product_status_failure_message,
+        )
+
+    def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401
+        from pyspark.sql import functions as F
+
+        predicates = context.expectation_predicates
+        if not predicates:
+            return WritePlan(primary=context.base_request())
+
+        df = context.aligned_df
+        flag_columns = []
+        for name, sql_expr in predicates.items():
+            flag_columns.append(
+                F.when(~F.expr(sql_expr), F.lit(name))
+            )
+
+        # Array of failed predicates for the row, dropping nulls
+        flag_array = F.array_compact(F.array(*flag_columns))
+        df_flagged = df.withColumn(
+            self.column_name,
+            F.when(F.size(flag_array) > 0, flag_array).otherwise(F.lit(None))
+        )
+
+        request = context.base_request()
+        request.df = df_flagged
+        return WritePlan(primary=request)
+
+
+
+@dataclass
 class StrictWriteViolationStrategy:
     """Decorate another strategy and fail the run when violations persist."""
 
@@ -445,7 +576,7 @@ class StrictWriteViolationStrategy:
             validator(contract=contract, enforce=enforce, operation=operation)
             return
 
-        from .io import _validate_contract_status  # local import to avoid cycles
+        from .io.validation import _validate_contract_status  # local import to avoid cycles
 
         _validate_contract_status(
             contract=contract,

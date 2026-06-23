@@ -10,7 +10,6 @@ const pythonPathEntries = [
   process.env.PYTHONPATH ?? '',
   'src',
   'packages/dc43-contracts-app/src',
-  'packages/dc43-demo-app/src',
 ].filter((value) => value && value.trim().length > 0);
 
 const webServerEnv = {
