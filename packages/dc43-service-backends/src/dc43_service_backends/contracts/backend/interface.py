@@ -46,6 +46,11 @@ class ContractServiceBackend(Protocol):
         contract_id: str,
         contract_version: str,
     ) -> None:
+        """Link a dataset version to a contract version.
+
+        .. deprecated:: 0.43.0
+           Use the Governance Service instead.
+        """
         ...
 
     def get_linked_contract_version(
@@ -54,6 +59,11 @@ class ContractServiceBackend(Protocol):
         dataset_id: str,
         dataset_version: Optional[str] = None,
     ) -> Optional[str]:
+        """Return the contract version linked to a dataset version.
+
+        .. deprecated:: 0.43.0
+           Use the Governance Service instead.
+        """
         ...
 
 

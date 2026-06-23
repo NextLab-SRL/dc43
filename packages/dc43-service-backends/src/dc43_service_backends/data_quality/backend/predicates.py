@@ -24,28 +24,40 @@ def sql_predicate(spec: ExpectationSpec) -> str | None:
     column = spec.column
     if not column:
         return None
+    col_ref = f"`{column.replace('`', '')}`"
     if spec.rule in {"not_null", "required"}:
-        return f"{column} IS NOT NULL"
+        return f"{col_ref} IS NOT NULL"
     if spec.rule == "gt":
-        return f"{column} > {_sql_literal(spec.params.get('threshold'))}"
+        return f"{col_ref} > {_sql_literal(spec.params.get('threshold'))}"
     if spec.rule == "ge":
-        return f"{column} >= {_sql_literal(spec.params.get('threshold'))}"
+        return f"{col_ref} >= {_sql_literal(spec.params.get('threshold'))}"
     if spec.rule == "lt":
-        return f"{column} < {_sql_literal(spec.params.get('threshold'))}"
+        return f"{col_ref} < {_sql_literal(spec.params.get('threshold'))}"
     if spec.rule == "le":
-        return f"{column} <= {_sql_literal(spec.params.get('threshold'))}"
+        return f"{col_ref} <= {_sql_literal(spec.params.get('threshold'))}"
     if spec.rule == "enum":
         values = spec.params.get("values") or []
         if not isinstance(values, (list, tuple, set)):
             return None
         literals = ", ".join(_sql_literal(v) for v in values)
-        return f"{column} IN ({literals})" if literals else None
+        return f"{col_ref} IN ({literals})" if literals else None
     if spec.rule == "regex":
         pattern = spec.params.get("pattern")
         if pattern is None:
             return None
         pattern_str = str(pattern).replace("'", "\\'")
-        return f"{column} RLIKE '{pattern_str}'"
+        return f"{col_ref} RLIKE '{pattern_str}'"
+    if spec.rule == "exact":
+        val = spec.params.get("value")
+        return f"{col_ref} = {_sql_literal(val)}"
+    if spec.rule == "is_null":
+        return f"{col_ref} IS NULL"
+    if spec.rule == "exact_format":
+        fmt = spec.params.get("format")
+        if not fmt:
+            return None
+        fmt_str = str(fmt).replace("'", "\\'")
+        return f"{col_ref} IS NULL OR to_timestamp({col_ref}, '{fmt_str}') IS NOT NULL"
     return None
 
 

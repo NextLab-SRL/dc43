@@ -65,8 +65,13 @@ class SQLGovernanceStore(GovernanceStore):
             metadata,
             Column("dataset_id", String, primary_key=True),
             Column("dataset_version", String, primary_key=True),
+            Column("contract_id", String, nullable=True),
+            Column("contract_version", String, nullable=True),
             Column("payload", Text, nullable=False),
             Column("updated_at", String, nullable=False),
+            Column("recorded_at", String, nullable=True),
+            Column("pipeline_context", Text, nullable=True),
+            Column("lineage_event", Text, nullable=True),
         )
         self._links = Table(
             link_table,
@@ -242,6 +247,7 @@ class SQLGovernanceStore(GovernanceStore):
             "reason": status.reason,
             "details": details_payload,
         }
+        logger.info(f"[DC43 SQLGovernanceStore] Saving status '{status.status}' to '{self._status.fullname}' for {dataset_id}@{dataset_version}")
         self._write_payload(
             self._status,
             dataset_id=dataset_id,
@@ -270,9 +276,23 @@ class SQLGovernanceStore(GovernanceStore):
                     "metric_numeric_value": numeric_value,
                 }
             )
+        
+        logger.info(f"[DC43 SQLGovernanceStore] Prepared {len(metrics_entries)} metric entries for {dataset_id}@{dataset_version}")
         if metrics_entries:
-            with self._engine.begin() as conn:
-                conn.execute(self._metrics.insert(), metrics_entries)
+            try:
+                with self._engine.begin() as conn:
+                    logger.debug(f"[DC43 SQLGovernanceStore] Deleting old metrics from '{self._metrics.fullname}'")
+                    conn.execute(
+                        self._metrics.delete()
+                        .where(self._metrics.c.dataset_id == dataset_id)
+                        .where(self._metrics.c.dataset_version == dataset_version)
+                    )
+                    logger.debug(f"[DC43 SQLGovernanceStore] Inserting new metrics into '{self._metrics.fullname}'")
+                    conn.execute(self._metrics.insert(), metrics_entries)
+                    logger.info(f"[DC43 SQLGovernanceStore] Successfully inserted metrics into '{self._metrics.fullname}'")
+            except Exception as e:
+                logger.exception(f"[DC43 SQLGovernanceStore] FAILED to insert metrics: {e}")
+                raise
 
     def load_status(
         self,
@@ -486,14 +506,24 @@ class SQLGovernanceStore(GovernanceStore):
             }
         events = list(record.get("events") or [])
         events.append(dict(event))
+        if len(events) > 100:
+            events = events[-100:]
         record["events"] = events
         if lineage_event is not None:
             record["lineage_event"] = dict(lineage_event)
+        record["pipeline_context"] = dict(event.get("pipeline_context") or {})
         record["contract_id"] = contract_id
         record["contract_version"] = contract_version
-        extra: Mapping[str, object] | None = None
+        extra: dict[str, object] = {
+            "contract_id": contract_id,
+            "contract_version": contract_version,
+            "recorded_at": self._now(),
+            "pipeline_context": json.dumps(record["pipeline_context"]),
+        }
+        if lineage_event is not None:
+            extra["lineage_event"] = json.dumps(dict(lineage_event))
         if self._activity_has_updated_at:
-            extra = {"updated_at": self._now()}
+            extra["updated_at"] = self._now()
         self._write_payload(
             self._activity,
             dataset_id=dataset_id,

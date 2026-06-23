@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.41.0.0] - 2026-03-26
+
+## [0.39.0.0] - 2026-03-18
+
+### Changed
+- Version aligned to 0.39.0.0
+
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - The integration helper sidebar now lists governed data products alongside
   contracts, letting users add product nodes, wire ports into transformations,

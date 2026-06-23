@@ -135,6 +135,8 @@ def _resolve_collibra_http_store(config: ContractStoreConfig) -> ContractStore:
     adapter = HttpCollibraContractAdapter(
         config.base_url,
         token=config.token,
+        username=config.username,
+        password=config.password,
         timeout=config.timeout,
         contract_catalog=config.catalog or None,
         contracts_endpoint_template=(

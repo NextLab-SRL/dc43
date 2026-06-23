@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.41.0.0] - 2026-03-26
+
+## [0.40.0.0] - 2026-03-19
+
+### Changed
+- Relaxed the structured dependency `open-data-contract-standard` constraint from `==3.0.2` to `>=3.0.2,<4.0.0` to support ODCS 3.1.0 and future minor updates.
+
+## [0.39.0.0] - 2026-03-18
+
+### Changed
+- Version aligned to 0.39.0.0
+
+## [0.35.0.0] - 2026-03-09
+
 ### Added
 - Introduced `load_service_clients` and `load_governance_client` helpers to
   provision local or remote service clients directly from backend

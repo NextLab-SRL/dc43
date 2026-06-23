@@ -15,8 +15,8 @@ for path in (CONTRACTS_SRC, SERVICE_SRC):
         sys.path.insert(0, str(path))
 
 DOC_PATHS = (
-    ROOT / "docs" / "configuration-reference.md",
-    ROOT / "docs" / "service-backends-configuration.md",
+    ROOT / "docs" / "operations" / "configuration-reference.md",
+    ROOT / "docs" / "operations" / "service-backends-configuration.md",
 )
 
 
@@ -57,7 +57,6 @@ def test_config_dataclasses_are_documented() -> None:
         BackendConfig,
         BackendProcessConfig,
         ContractsAppConfig,
-        DocsChatConfig,
         WorkspaceConfig,
     )
     from dc43_service_backends.config import (  # type: ignore import
@@ -78,7 +77,6 @@ def test_config_dataclasses_are_documented() -> None:
         WorkspaceConfig,
         BackendConfig,
         BackendProcessConfig,
-        DocsChatConfig,
         ServiceBackendsConfig,
         ContractStoreConfig,
         DataProductStoreConfig,

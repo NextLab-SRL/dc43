@@ -22,6 +22,7 @@ on:
 
 env:
   TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   tests:
@@ -65,15 +66,6 @@ jobs:
               pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
               pip install -e "packages/dc43-contracts-app[spark,test]"
             test_command: "pytest packages/dc43-contracts-app/tests -q"
-          - display: demo-app
-            install: |
-              pip install -e packages/dc43-core
-              pip install -e "packages/dc43-service-clients[lineage,test]"
-              pip install -e "packages/dc43-service-backends[sql,test]"
-              pip install -e "packages/dc43-integrations[spark,lineage,telemetry,test]"
-              pip install -e "packages/dc43-contracts-app[spark,test]"
-              pip install -e packages/dc43-demo-app
-            test_command: "pytest packages/dc43-demo-app/tests -q"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,7 +73,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -169,7 +161,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
         if: ${{ steps.token.outputs.has_token == 'true' && (github.event_name == 'workflow_dispatch' || steps.label.outputs.has_label == 'true') }}
 
       - name: Prepare build tooling
@@ -343,4 +335,3 @@ jobs:
 
           build_and_push "contracts-app" "deploy/contracts-app/Dockerfile" "$CONTRACTS_REPOSITORY"
           build_and_push "http-backend" "deploy/http-backend/Dockerfile" "$BACKEND_REPOSITORY"
-

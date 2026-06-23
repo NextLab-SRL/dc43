@@ -1,11 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>dc43 app</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css"/>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css"
+    />
     <style>
       .form-control::placeholder,
       textarea::placeholder {
@@ -19,76 +25,68 @@
         min-height: 320px;
       }
     </style>
-</head>
-<body>
-<nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
-  <div class="container-fluid">
-    <a class="navbar-brand" href="/">dc43 app</a>
-    <div class="navbar-nav">
-      <a class="nav-link" href="/contracts">Contracts</a>
-      <a class="nav-link" href="/datasets">Datasets</a>
-      <a class="nav-link" href="/data-products">Data products</a>
-      <a class="nav-link" href="/integration-helper">Integration helper</a>
-      {% set docs_status = request.state.docs_chat_status | default(None) %}
-      {% set docs_title = "Open the dc43 documentation assistant" %}
-      {% if docs_status and not docs_status.ready and docs_status.message %}
-        {% set docs_title = docs_status.message %}
-      {% elif docs_status and docs_status.ready %}
-        {% set docs_title = "Chat with the dc43 documentation assistant" %}
-      {% endif %}
-      <a class="nav-link{% if docs_status and not docs_status.ready %} text-warning{% endif %}" href="/docs-chat" title="{{ docs_title }}">
-        Docs chat
-      </a>
-      {% set needs_setup = request.state.setup_required | default(False) %}
-      <a class="nav-link{% if needs_setup %} text-danger fw-semibold{% endif %}" href="/setup">
-        {% if needs_setup %}
-        Setup required
-        {% else %}
-        Setup
-        {% endif %}
-      </a>
-    </div>
-  </div>
-</nav>
-<div class="container">
-{% block content %}{% endblock %}
-</div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/scala.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/java.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/sql.min.js"></script>
-<script src="{{ url_for('static', path='chart.umd.js') }}" data-chart-source="local"></script>
-<script>
-  (function () {
-    function notify(eventName, detail) {
-      window.dispatchEvent(new CustomEvent(eventName, { detail }));
-    }
-    if (window.Chart) {
-      notify('dc43:chart-ready');
-      return;
-    }
-    const fallback = document.createElement('script');
-    fallback.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js';
-    fallback.async = true;
-    fallback.addEventListener('load', () => notify('dc43:chart-ready'));
-    fallback.addEventListener('error', () =>
-      notify('dc43:chart-error', { message: 'Chart.js failed to load.' })
-    );
-    document.head.appendChild(fallback);
-  })();
-</script>
-<script type="module">
-    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
-    mermaid.initialize({ startOnLoad: true, securityLevel: "loose" });
-    window.mermaid = mermaid;
-</script>
-<script>
-  if (window.hljs && window.hljs.highlightAll) {
-    window.hljs.highlightAll();
-  }
-</script>
-{% block page_scripts %}{% endblock %}
-</body>
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="/">dc43 app</a>
+        <div class="navbar-nav">
+          <a class="nav-link" href="/contracts">Contracts</a>
+          <a class="nav-link" href="/datasets">Datasets</a>
+          <a class="nav-link" href="/data-products">Data products</a>
+          <a class="nav-link" href="/integration-helper">Integration helper</a>
+
+          {% set needs_setup = request.state.setup_required | default(False) %}
+          <a
+            class="nav-link{% if needs_setup %} text-danger fw-semibold{% endif %}"
+            href="/setup"
+          >
+            {% if needs_setup %} Setup required {% else %} Setup {% endif %}
+          </a>
+        </div>
+      </div>
+    </nav>
+    <div class="container">{% block content %}{% endblock %}</div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/scala.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/java.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/sql.min.js"></script>
+    <script
+      src="{{ url_for('static', path='chart.umd.js') }}"
+      data-chart-source="local"
+    ></script>
+    <script>
+      (function () {
+        function notify(eventName, detail) {
+          window.dispatchEvent(new CustomEvent(eventName, { detail }));
+        }
+        if (window.Chart) {
+          notify("dc43:chart-ready");
+          return;
+        }
+        const fallback = document.createElement("script");
+        fallback.src =
+          "https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js";
+        fallback.async = true;
+        fallback.addEventListener("load", () => notify("dc43:chart-ready"));
+        fallback.addEventListener("error", () =>
+          notify("dc43:chart-error", { message: "Chart.js failed to load." }),
+        );
+        document.head.appendChild(fallback);
+      })();
+    </script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, securityLevel: "loose" });
+      window.mermaid = mermaid;
+    </script>
+    <script>
+      if (window.hljs && window.hljs.highlightAll) {
+        window.hljs.highlightAll();
+      }
+    </script>
+    {% block page_scripts %}{% endblock %}
+  </body>
 </html>
