@@ -155,7 +155,7 @@ def compute_metrics(
             metrics[metric_key] = failed
             logger.debug(f"[DC43 compute_metrics] Predicate check NOT({predicate}) computed {failed} violations.")
         except Exception as e:
-            logger.exception(f"[DC43 compute_metrics] CRASH during standard metric check {key} (rule: {rule}): {e}")
+            logger.exception(f"[DC43 compute_metrics] Error evaluating standard metric check {key} (rule: {rule}): {e}")
             metrics[metric_key] = total
             metrics[f"errors.{key}"] = str(e)
 

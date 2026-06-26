@@ -261,7 +261,7 @@ The native local execution engine parses Open Data Contract Standard (ODCS) rule
 | ------------- | ----------- | -------------- | ----------- |
 | `required: true` | `not_null` | `col IS NOT NULL` | Ensures field presence. |
 | `unique: true` | `unique` | Evaluated at dataframe level | Enforces column uniqueness. |
-| `logicalTypeOptions.format` | `exact_format` | `to_timestamp(col, fmt) IS NOT NULL` | Verifies a string matches the specified date/time format. |
+| `logicalTypeOptions.format` | `exact_format` | `try_to_timestamp(col, fmt) IS NOT NULL` | Verifies a string matches the specified date/time format. |
 | `quality[].mustBeGreaterThan` | `gt` | `col > threshold` | Strict greater than. |
 | `quality[].mustBeGreaterOrEqualTo` | `ge` | `col >= threshold` | Greater than or equal to. |
 | `quality[].mustBeLessThan` | `lt` | `col < threshold` | Strict less than. |
@@ -286,7 +286,7 @@ dataset:
         mustBe: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
 ```
 
-The config above will trigger three discrete validation rules at runtime: `not_null` (from `required`), `exact_format` (from `logicalTypeOptions.format`, translated to `col IS NULL OR to_timestamp(col, 'yyyy-MM-dd') IS NOT NULL`), and `regex` (from the explicit quality array).
+The config above will trigger three discrete validation rules at runtime: `not_null` (from `required`), `exact_format` (from `logicalTypeOptions.format`, translated to `col IS NULL OR try_to_timestamp(col, 'yyyy-MM-dd') IS NOT NULL`), and `regex` (from the explicit quality array).
 
 #### Configuring execution engines
 

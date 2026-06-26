@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.
+- Improved logging inside `compute_metrics` to avoid alarmist "CRASH" labeling when validation rules fail or throw query execution exceptions.
+
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Added
