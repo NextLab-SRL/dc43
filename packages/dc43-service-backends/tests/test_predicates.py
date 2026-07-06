@@ -65,7 +65,7 @@ def test_sql_predicate_float_format() -> None:
         params={"decimalSeparator": "."},
     )
     predicate1 = sql_predicate(spec1)
-    assert predicate1 == r"`val1` IS NULL OR `val1` RLIKE '^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$'"
+    assert predicate1 == r"`val1` IS NULL OR `val1` RLIKE '^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$'"
 
     # 2. Custom decimal separator (,), custom thousands separator (.)
     spec2 = ExpectationSpec(
@@ -75,7 +75,7 @@ def test_sql_predicate_float_format() -> None:
         params={"decimalSeparator": ",", "thousandsSeparator": "."},
     )
     predicate2 = sql_predicate(spec2)
-    assert predicate2 == r"`val2` IS NULL OR `val2` RLIKE '^[+-]?(?:(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d*)?|,\d+)$'"
+    assert predicate2 == r"`val2` IS NULL OR `val2` RLIKE '^[+-]?(?:(?:\\d{1,3}(?:\\.\\d{3})+|\\d+)(?:,\\d*)?|,\\d+)$'"
 
     # 3. Custom decimal separator (.), custom thousands separator (space)
     spec3 = ExpectationSpec(
@@ -85,7 +85,8 @@ def test_sql_predicate_float_format() -> None:
         params={"decimalSeparator": ".", "thousandsSeparator": " "},
     )
     predicate3 = sql_predicate(spec3)
-    assert predicate3 == r"`val3` IS NULL OR `val3` RLIKE '^[+-]?(?:(?:\d{1,3}(?:\ \d{3})+|\d+)(?:\.\d*)?|\.\d+)$'"
+    assert predicate3 == r"`val3` IS NULL OR `val3` RLIKE '^[+-]?(?:(?:\\d{1,3}(?:\\ \\d{3})+|\\d+)(?:\\.\\d*)?|\\.\\d+)$'"
+
 
 
 def test_expectation_plan_extracts_float_format() -> None:
@@ -133,7 +134,7 @@ def test_sql_predicate_integer_format() -> None:
         column="val1",
     )
     predicate1 = sql_predicate(spec1)
-    assert predicate1 == r"`val1` IS NULL OR `val1` RLIKE '^[+-]?\d+$'"
+    assert predicate1 == r"`val1` IS NULL OR `val1` RLIKE '^[+-]?\\d+$'"
 
     # 2. Custom thousands separator (comma)
     spec2 = ExpectationSpec(
@@ -143,7 +144,7 @@ def test_sql_predicate_integer_format() -> None:
         params={"thousandsSeparator": ","},
     )
     predicate2 = sql_predicate(spec2)
-    assert predicate2 == r"`val2` IS NULL OR `val2` RLIKE '^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)$'"
+    assert predicate2 == r"`val2` IS NULL OR `val2` RLIKE '^[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)$'"
 
     # 3. Custom thousands separator (space)
     spec3 = ExpectationSpec(
@@ -153,7 +154,8 @@ def test_sql_predicate_integer_format() -> None:
         params={"thousandsSeparator": " "},
     )
     predicate3 = sql_predicate(spec3)
-    assert predicate3 == r"`val3` IS NULL OR `val3` RLIKE '^[+-]?(?:\d{1,3}(?:\ \d{3})+|\d+)$'"
+    assert predicate3 == r"`val3` IS NULL OR `val3` RLIKE '^[+-]?(?:\\d{1,3}(?:\\ \\d{3})+|\\d+)$'"
+
 
 
 

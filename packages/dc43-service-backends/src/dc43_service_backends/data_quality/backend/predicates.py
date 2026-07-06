@@ -72,7 +72,7 @@ def sql_predicate(spec: ExpectationSpec) -> str | None:
         else:
             pattern = f"^[+-]?(?:\\d+(?:{dec_esc}\\d*)?|{dec_esc}\\d+)$"
             
-        pattern_str = pattern.replace("'", "\\'")
+        pattern_str = pattern.replace("\\", "\\\\").replace("'", "\\'")
         return f"{col_ref} IS NULL OR {col_ref} RLIKE '{pattern_str}'"
     if spec.rule == "integer_format":
         th_sep = spec.params.get("thousandsSeparator")
@@ -85,9 +85,10 @@ def sql_predicate(spec: ExpectationSpec) -> str | None:
         else:
             pattern = r"^[+-]?\d+$"
             
-        pattern_str = pattern.replace("'", "\\'")
+        pattern_str = pattern.replace("\\", "\\\\").replace("'", "\\'")
         return f"{col_ref} IS NULL OR {col_ref} RLIKE '{pattern_str}'"
     return None
+
 
 
 
