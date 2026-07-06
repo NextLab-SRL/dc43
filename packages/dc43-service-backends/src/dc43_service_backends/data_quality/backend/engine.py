@@ -111,6 +111,50 @@ def _extract_exact_format(field: SchemaProperty, optional: bool) -> Iterable[Exp
             )
 
 
+@register_field_extractor
+def _extract_float_format(field: SchemaProperty, optional: bool) -> Iterable[ExpectationSpec]:
+    if getattr(field, "logicalTypeOptions", None) and (getattr(field, "physicalType", None) or getattr(field, "type", "string") or "string").lower() in ("string", "varchar", "text", "char"):
+        logical_opts = dict(field.logicalTypeOptions)
+        dec_sep = logical_opts.get("decimalSeparator")
+        th_sep = logical_opts.get("thousandsSeparator")
+        
+        is_numeric_logical = getattr(field, "logicalType", None) and str(field.logicalType).lower() in ("float", "double", "decimal", "number")
+        
+        if dec_sep is not None or th_sep is not None or is_numeric_logical:
+            params = {}
+            params["decimalSeparator"] = str(dec_sep) if dec_sep is not None else "."
+            if th_sep is not None:
+                params["thousandsSeparator"] = str(th_sep)
+            yield ExpectationSpec(
+                key=f"float_format_{field.name}",
+                rule="float_format",
+                column=field.name,
+                params=params,
+                optional=optional,
+            )
+
+
+@register_field_extractor
+def _extract_integer_format(field: SchemaProperty, optional: bool) -> Iterable[ExpectationSpec]:
+    if getattr(field, "logicalTypeOptions", None) and (getattr(field, "physicalType", None) or getattr(field, "type", "string") or "string").lower() in ("string", "varchar", "text", "char"):
+        logical_opts = dict(field.logicalTypeOptions)
+        th_sep = logical_opts.get("thousandsSeparator")
+        
+        is_integer_logical = getattr(field, "logicalType", None) and str(field.logicalType).lower() in ("int", "integer", "long", "bigint", "short", "smallint", "byte", "tinyint")
+        
+        if th_sep is not None or is_integer_logical:
+            params = {}
+            if th_sep is not None:
+                params["thousandsSeparator"] = str(th_sep)
+            yield ExpectationSpec(
+                key=f"integer_format_{field.name}",
+                rule="integer_format",
+                column=field.name,
+                params=params,
+                optional=optional,
+            )
+
+
 @register_quality_extractor
 def _extract_gt(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
     if dq.mustBeGreaterThan is not None:

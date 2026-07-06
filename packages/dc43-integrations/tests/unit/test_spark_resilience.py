@@ -430,3 +430,131 @@ def test_strict_flag_strategy_exact_format_ansi(spark):
         spark.conf.set("spark.sql.ansi.enabled", original_ansi)
 
 
+def test_float_format_validation(spark):
+    data = [
+        ("1 234.56",),
+        ("123.45",),
+        ("1 234 567.89",),
+        ("invalid",),
+        ("123a.45",),
+        ("1  234.56",),
+        ("12 34.56",),
+        (None,),
+    ]
+    df = spark.createDataFrame(data, ["my_value"])
+
+    contract = OpenDataContractStandard(
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="test.float_format",
+        name="Float Format Validation",
+        schema=[
+            SchemaObject(
+                name="values",
+                properties=[
+                    SchemaProperty(
+                        name="my_value",
+                        physicalType="string",
+                        logicalType="float",
+                        logicalTypeOptions={"decimalSeparator": ".", "thousandsSeparator": " "}
+                    )
+                ]
+            )
+        ]
+    )
+
+    from dc43_integrations.spark.data_quality import compute_metrics
+    from dc43_service_backends.data_quality.backend.predicates import sql_predicate
+    from dc43_service_backends.data_quality.backend.engine import ExpectationSpec
+
+    spec = ExpectationSpec(
+        key="float_format_my_value",
+        rule="float_format",
+        column="my_value",
+        params={"decimalSeparator": ".", "thousandsSeparator": " "},
+    )
+    predicate = sql_predicate(spec)
+
+    expectations = [
+        {
+            "key": "float_format_my_value",
+            "rule": "float_format",
+            "column": "my_value",
+            "predicate": predicate,
+        }
+    ]
+
+    metrics = compute_metrics(df, contract, expectations=expectations)
+
+    # 8 rows total
+    assert metrics["row_count"] == 8
+    # 4 invalid values: "invalid", "123a.45", "1  234.56", "12 34.56"
+    assert metrics["violations.float_format_my_value"] == 4
+
+
+def test_integer_format_validation(spark):
+    data = [
+        ("1 234",),
+        ("123",),
+        ("1 234 567",),
+        ("invalid",),
+        ("123.45",),
+        ("1  234",),
+        ("12 34",),
+        (None,),
+    ]
+    df = spark.createDataFrame(data, ["my_value"])
+
+    contract = OpenDataContractStandard(
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="test.integer_format",
+        name="Integer Format Validation",
+        schema=[
+            SchemaObject(
+                name="values",
+                properties=[
+                    SchemaProperty(
+                        name="my_value",
+                        physicalType="string",
+                        logicalType="integer",
+                        logicalTypeOptions={"thousandsSeparator": " "}
+                    )
+                ]
+            )
+        ]
+    )
+
+    from dc43_integrations.spark.data_quality import compute_metrics
+    from dc43_service_backends.data_quality.backend.predicates import sql_predicate
+    from dc43_service_backends.data_quality.backend.engine import ExpectationSpec
+
+    spec = ExpectationSpec(
+        key="integer_format_my_value",
+        rule="integer_format",
+        column="my_value",
+        params={"thousandsSeparator": " "},
+    )
+    predicate = sql_predicate(spec)
+
+    expectations = [
+        {
+            "key": "integer_format_my_value",
+            "rule": "integer_format",
+            "column": "my_value",
+            "predicate": predicate,
+        }
+    ]
+
+    metrics = compute_metrics(df, contract, expectations=expectations)
+
+    # 8 rows total
+    assert metrics["row_count"] == 8
+    # 4 invalid values: "invalid", "123.45", "1  234", "12 34"
+    assert metrics["violations.integer_format_my_value"] == 4
+
+
+
+

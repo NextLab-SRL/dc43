@@ -58,7 +58,38 @@ def sql_predicate(spec: ExpectationSpec) -> str | None:
             return None
         fmt_str = str(fmt).replace("'", "\\'")
         return f"{col_ref} IS NULL OR try_to_timestamp({col_ref}, '{fmt_str}') IS NOT NULL"
+    if spec.rule == "float_format":
+        dec_sep = spec.params.get("decimalSeparator", ".")
+        th_sep = spec.params.get("thousandsSeparator")
+        
+        import re
+        dec_esc = re.escape(dec_sep)
+        
+        if th_sep:
+            th_esc = re.escape(th_sep)
+            # Allow properly grouped separators (e.g. 1 234.56 or 1,234.56) or no separators (e.g. 1234.56)
+            pattern = f"^[+-]?(?:(?:\\d{{1,3}}(?:{th_esc}\\d{{3}})+|\\d+)(?:{dec_esc}\\d*)?|{dec_esc}\\d+)$"
+        else:
+            pattern = f"^[+-]?(?:\\d+(?:{dec_esc}\\d*)?|{dec_esc}\\d+)$"
+            
+        pattern_str = pattern.replace("'", "\\'")
+        return f"{col_ref} IS NULL OR {col_ref} RLIKE '{pattern_str}'"
+    if spec.rule == "integer_format":
+        th_sep = spec.params.get("thousandsSeparator")
+        
+        if th_sep:
+            import re
+            th_esc = re.escape(th_sep)
+            # Allow properly grouped separators (e.g. 1 234 or 1,234) or no separators (e.g. 1234)
+            pattern = f"^[+-]?(?:\\d{{1,3}}(?:{th_esc}\\d{{3}})+|\\d+)$"
+        else:
+            pattern = r"^[+-]?\d+$"
+            
+        pattern_str = pattern.replace("'", "\\'")
+        return f"{col_ref} IS NULL OR {col_ref} RLIKE '{pattern_str}'"
     return None
+
+
 
 
 def expectation_plan(contract: OpenDataContractStandard) -> List[Dict[str, Any]]:

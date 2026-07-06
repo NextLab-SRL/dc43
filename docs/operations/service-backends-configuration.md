@@ -262,6 +262,8 @@ The native local execution engine parses Open Data Contract Standard (ODCS) rule
 | `required: true` | `not_null` | `col IS NOT NULL` | Ensures field presence. |
 | `unique: true` | `unique` | Evaluated at dataframe level | Enforces column uniqueness. |
 | `logicalTypeOptions.format` | `exact_format` | `try_to_timestamp(col, fmt) IS NOT NULL` | Verifies a string matches the specified date/time format. |
+| `logicalTypeOptions.decimalSeparator` / `logicalTypeOptions.thousandsSeparator` | `float_format` | `col RLIKE pattern` | Validates string represents a float with custom separators. |
+| `logicalTypeOptions.thousandsSeparator` | `integer_format` | `col RLIKE pattern` | Validates string represents an integer with custom thousands separators. |
 | `quality[].mustBeGreaterThan` | `gt` | `col > threshold` | Strict greater than. |
 | `quality[].mustBeGreaterOrEqualTo` | `ge` | `col >= threshold` | Greater than or equal to. |
 | `quality[].mustBeLessThan` | `lt` | `col < threshold` | Strict less than. |
