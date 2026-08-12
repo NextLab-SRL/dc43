@@ -270,3 +270,291 @@ def test_split_strategy_resilience():
     
     assert plan.primary is not None
     assert plan.additional == ()
+
+
+def test_exact_format_ansi_mode(spark):
+    # Enable ANSI mode in Spark session for this test
+    original_ansi = spark.conf.get("spark.sql.ansi.enabled", "false")
+    spark.conf.set("spark.sql.ansi.enabled", "true")
+    try:
+        # Create a dataframe with 3 rows: 2 valid dates, 1 invalid date format (yyyy-MM-dd instead of dd/MM/yyyy)
+        data = [("01/04/2022",), ("02/04/2022",), ("2022-04-01",)]
+        df = spark.createDataFrame(data, ["date_mutation"])
+
+        contract = OpenDataContractStandard(
+            version="0.1.0",
+            kind="DataContract",
+            apiVersion="3.0.2",
+            id="test.date_mutation_ansi",
+            name="Date Mutation ANSI Mode",
+            schema=[
+                SchemaObject(
+                    name="mutations",
+                    properties=[
+                        SchemaProperty(
+                            name="date_mutation",
+                            physicalType="string",
+                            logicalType="date",
+                            logicalTypeOptions={"format": "dd/MM/yyyy"}
+                        )
+                    ]
+                )
+            ]
+        )
+
+        from dc43_service_backends.data_quality.backend.predicates import sql_predicate
+        from dc43_service_backends.data_quality.backend.engine import ExpectationSpec
+
+        spec = ExpectationSpec(
+            key="date_mutation_format",
+            rule="exact_format",
+            column="date_mutation",
+            params={"format": "dd/MM/yyyy"},
+        )
+        predicate = sql_predicate(spec)
+
+        expectations = [
+            {
+                "key": "date_mutation_format",
+                "rule": "exact_format",
+                "column": "date_mutation",
+                "predicate": predicate,
+            }
+        ]
+
+        metrics = compute_metrics(df, contract, expectations=expectations)
+
+        # It should NOT crash, and should report exactly 1 violation (the yyyy-MM-dd row)
+        assert metrics["row_count"] == 3
+        assert metrics["violations.date_mutation_format"] == 1
+        assert "errors.date_mutation_format" not in metrics
+    finally:
+        spark.conf.set("spark.sql.ansi.enabled", original_ansi)
+
+
+def test_strict_flag_strategy_exact_format_ansi(spark):
+    from dc43_integrations.spark.violation_strategy import FlagWriteViolationStrategy, StrictWriteViolationStrategy
+    from dc43_service_backends.data_quality.backend.predicates import sql_predicate
+    from dc43_service_backends.data_quality.backend.engine import ExpectationSpec
+
+    original_ansi = spark.conf.get("spark.sql.ansi.enabled", "false")
+    spark.conf.set("spark.sql.ansi.enabled", "true")
+    try:
+        # Create a dataframe with 3 rows: 2 valid dates, 1 invalid date format (yyyy-MM-dd instead of dd/MM/yyyy)
+        data = [("01/04/2022",), ("02/04/2022",), ("2022-04-01",)]
+        df = spark.createDataFrame(data, ["date_mutation"])
+
+        contract = OpenDataContractStandard(
+            version="0.1.0",
+            kind="DataContract",
+            apiVersion="3.0.2",
+            id="test.date_mutation_ansi",
+            name="Date Mutation ANSI Mode",
+            schema=[
+                SchemaObject(
+                    name="mutations",
+                    properties=[
+                        SchemaProperty(
+                            name="date_mutation",
+                            physicalType="string",
+                            logicalType="date",
+                            logicalTypeOptions={"format": "dd/MM/yyyy"}
+                        )
+                    ]
+                )
+            ]
+        )
+
+        spec = ExpectationSpec(
+            key="date_mutation_format",
+            rule="exact_format",
+            column="date_mutation",
+            params={"format": "dd/MM/yyyy"},
+        )
+        predicate = sql_predicate(spec)
+
+        # Build context
+        validation = ValidationResult(
+            ok=False,
+            errors=[],
+            warnings=[],
+            metrics={"violations.date_mutation_format": 1},
+        )
+        
+        context = WriteStrategyContext(
+            df=df,
+            aligned_df=df,
+            contract=contract,
+            path=None,
+            table="mutations_table",
+            format="delta",
+            options={},
+            mode="append",
+            validation=validation,
+            dataset_id="test.date_mutation_ansi",
+            dataset_version="0.1.0",
+            revalidate=lambda _: validation,
+            expectation_predicates={"date_mutation_format": predicate},
+            pipeline_context=None,
+        )
+
+        # Exact strategy from the user's example
+        violation_strategy = FlagWriteViolationStrategy(column_name="_donnees_corrompues")
+        strict_violation_strategy = StrictWriteViolationStrategy(
+            base=violation_strategy,
+            failure_message="ECHEC : Des lignes invalides ont été détectées et écrites avec un flag."
+        )
+
+        # Plan the strategy
+        plan = strict_violation_strategy.plan(context)
+        
+        # Check that the plan generates the correct primary request
+        assert plan.primary is not None
+        assert "_donnees_corrompues" in plan.primary.df.columns
+        
+        # Verify spark execution on the flagged dataframe under ANSI mode
+        results = plan.primary.df.collect()
+        
+        # Row 1 and 2: valid -> _donnees_corrompues should be None
+        assert results[0]["_donnees_corrompues"] is None
+        assert results[1]["_donnees_corrompues"] is None
+        # Row 3: invalid -> _donnees_corrompues should contain ["date_mutation_format"]
+        assert results[2]["_donnees_corrompues"] == ["date_mutation_format"]
+        
+        # Strict strategy validation result factory should return ok=False with the user's custom failure message
+        strict_res = plan.result_factory()
+        assert not strict_res.ok
+        assert "ECHEC : Des lignes invalides ont été détectées et écrites avec un flag." in strict_res.errors
+
+    finally:
+        spark.conf.set("spark.sql.ansi.enabled", original_ansi)
+
+
+def test_float_format_validation(spark):
+    data = [
+        ("1 234.56",),
+        ("123.45",),
+        ("1 234 567.89",),
+        ("invalid",),
+        ("123a.45",),
+        ("1  234.56",),
+        ("12 34.56",),
+        (None,),
+    ]
+    df = spark.createDataFrame(data, ["my_value"])
+
+    contract = OpenDataContractStandard(
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="test.float_format",
+        name="Float Format Validation",
+        schema=[
+            SchemaObject(
+                name="values",
+                properties=[
+                    SchemaProperty(
+                        name="my_value",
+                        physicalType="string",
+                        logicalType="float",
+                        logicalTypeOptions={"decimalSeparator": ".", "thousandsSeparator": " "}
+                    )
+                ]
+            )
+        ]
+    )
+
+    from dc43_integrations.spark.data_quality import compute_metrics
+    from dc43_service_backends.data_quality.backend.predicates import sql_predicate
+    from dc43_service_backends.data_quality.backend.engine import ExpectationSpec
+
+    spec = ExpectationSpec(
+        key="float_format_my_value",
+        rule="float_format",
+        column="my_value",
+        params={"decimalSeparator": ".", "thousandsSeparator": " "},
+    )
+    predicate = sql_predicate(spec)
+
+    expectations = [
+        {
+            "key": "float_format_my_value",
+            "rule": "float_format",
+            "column": "my_value",
+            "predicate": predicate,
+        }
+    ]
+
+    metrics = compute_metrics(df, contract, expectations=expectations)
+
+    # 8 rows total
+    assert metrics["row_count"] == 8
+    # 4 invalid values: "invalid", "123a.45", "1  234.56", "12 34.56"
+    assert metrics["violations.float_format_my_value"] == 4
+
+
+def test_integer_format_validation(spark):
+    data = [
+        ("1 234",),
+        ("123",),
+        ("1 234 567",),
+        ("invalid",),
+        ("123.45",),
+        ("1  234",),
+        ("12 34",),
+        (None,),
+    ]
+    df = spark.createDataFrame(data, ["my_value"])
+
+    contract = OpenDataContractStandard(
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="test.integer_format",
+        name="Integer Format Validation",
+        schema=[
+            SchemaObject(
+                name="values",
+                properties=[
+                    SchemaProperty(
+                        name="my_value",
+                        physicalType="string",
+                        logicalType="integer",
+                        logicalTypeOptions={"thousandsSeparator": " "}
+                    )
+                ]
+            )
+        ]
+    )
+
+    from dc43_integrations.spark.data_quality import compute_metrics
+    from dc43_service_backends.data_quality.backend.predicates import sql_predicate
+    from dc43_service_backends.data_quality.backend.engine import ExpectationSpec
+
+    spec = ExpectationSpec(
+        key="integer_format_my_value",
+        rule="integer_format",
+        column="my_value",
+        params={"thousandsSeparator": " "},
+    )
+    predicate = sql_predicate(spec)
+
+    expectations = [
+        {
+            "key": "integer_format_my_value",
+            "rule": "integer_format",
+            "column": "my_value",
+            "predicate": predicate,
+        }
+    ]
+
+    metrics = compute_metrics(df, contract, expectations=expectations)
+
+    # 8 rows total
+    assert metrics["row_count"] == 8
+    # 4 invalid values: "invalid", "123.45", "1  234", "12 34"
+    assert metrics["violations.integer_format_my_value"] == 4
+
+
+
+

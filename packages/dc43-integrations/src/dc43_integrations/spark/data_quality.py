@@ -144,6 +144,18 @@ def compute_metrics(
                 metrics[metric_key] = total - distinct
                 logger.debug(f"[DC43 compute_metrics] Unique check for '{column}' computed {metrics[metric_key]} violations.")
                 continue
+            if rule == "unique_composite":
+                props = item.get("params", {}).get("properties") or []
+                if not props or not all(isinstance(p, str) and p in available_columns for p in props):
+                    logger.warning(f"[DC43 compute_metrics] Properties {props} not in available columns. Skipping composite unique check.")
+                    metrics[metric_key] = total
+                    continue
+                distinct = df.select(*props).distinct().count()
+                metrics[metric_key] = total - distinct
+                logger.debug(f"[DC43 compute_metrics] Composite unique check for {props} computed {metrics[metric_key]} violations.")
+                continue
+            if rule == "row_count":
+                continue
             if not isinstance(predicate, str):
                 logger.warning(f"[DC43 compute_metrics] Predicate for '{key}' is not a string. Skipping.")
                 continue
@@ -155,7 +167,7 @@ def compute_metrics(
             metrics[metric_key] = failed
             logger.debug(f"[DC43 compute_metrics] Predicate check NOT({predicate}) computed {failed} violations.")
         except Exception as e:
-            logger.exception(f"[DC43 compute_metrics] CRASH during standard metric check {key} (rule: {rule}): {e}")
+            logger.exception(f"[DC43 compute_metrics] Error evaluating standard metric check {key} (rule: {rule}): {e}")
             metrics[metric_key] = total
             metrics[f"errors.{key}"] = str(e)
 

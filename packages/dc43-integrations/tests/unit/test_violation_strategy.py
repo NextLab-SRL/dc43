@@ -174,3 +174,124 @@ def test_flag_strategy_adds_corrupted_data_column(spark):
     # id 3: amount=200 -> valid (null)
     assert results[2]["_corrupted_data"] is None
 
+
+def test_custom_deduplicate_quarantine_strategy(spark):
+    from dataclasses import dataclass
+    from typing import Literal, Sequence, Optional
+    from pyspark.sql import Window
+    from pyspark.sql import functions as F
+    from dc43_integrations.spark.violation_strategy import (
+        WriteViolationStrategy,
+        WriteStrategyContext,
+        WritePlan,
+        WriteRequest,
+    )
+
+    @dataclass
+    class DeduplicateQuarantineWriteViolationStrategy:
+        key_properties: Sequence[str]
+        sort_column: str
+        keep: Literal["first", "last"] = "first"
+        aggregate_quarantine: bool = False
+        reject_suffix: str = "reject"
+
+        def plan(self, context: WriteStrategyContext) -> WritePlan:
+            df = context.aligned_df
+            sort_order = F.col(self.sort_column).desc() if self.keep == "first" else F.col(self.sort_column).asc()
+            window_spec = Window.partitionBy(*self.key_properties).orderBy(sort_order)
+            df_ranked = df.withColumn("_row_num", F.row_number().over(window_spec))
+            valid_df = df_ranked.filter(F.col("_row_num") == 1).drop("_row_num")
+            reject_df = df_ranked.filter(F.col("_row_num") > 1).drop("_row_num")
+
+            if self.aggregate_quarantine:
+                other_cols = [c for c in df.columns if c not in self.key_properties]
+                reject_df = reject_df.groupBy(*self.key_properties).agg(
+                    F.collect_list(F.struct(*other_cols)).alias("quarantined_duplicates"),
+                    F.count("*").alias("duplicate_count"),
+                )
+
+            primary_request = WriteRequest(
+                df=valid_df,
+                path=context.path,
+                table=context.table,
+                format=context.format,
+                options=dict(context.options),
+                mode=context.mode,
+                contract=context.contract,
+                dataset_id=context.dataset_id,
+                dataset_version=context.dataset_version,
+            )
+            reject_request = WriteRequest(
+                df=reject_df,
+                path=f"{context.path}_{self.reject_suffix}" if context.path else None,
+                table=f"{context.table}_{self.reject_suffix}" if context.table else None,
+                format=context.format,
+                options=dict(context.options),
+                mode=context.mode,
+                contract=context.contract,
+                dataset_id=f"{context.dataset_id}::{self.reject_suffix}" if context.dataset_id else None,
+                dataset_version=context.dataset_version,
+            )
+            return WritePlan(primary=primary_request, additional=[reject_request])
+
+    # Sample data with duplicates for (tenant_id="t1", order_id="o1")
+    df = spark.createDataFrame(
+        [
+            ("t1", "o1", 100, 10),
+            ("t1", "o1", 150, 20),  # Newer updated_at (20)
+            ("t1", "o2", 200, 15),
+        ],
+        ["tenant_id", "order_id", "amount", "updated_at"],
+    )
+
+    validation = FakeValidation()
+    context = WriteStrategyContext(
+        df=df,
+        aligned_df=df,
+        contract=None,
+        path="/tmp/orders",
+        table="analytics.orders",
+        format="delta",
+        options={},
+        mode="append",
+        validation=validation,
+        dataset_id="orders",
+        dataset_version="v1",
+        revalidate=lambda _: validation,
+        expectation_predicates={},
+        pipeline_context=None,
+    )
+
+    # Test non-aggregated deduplication
+    strat = DeduplicateQuarantineWriteViolationStrategy(
+        key_properties=["tenant_id", "order_id"],
+        sort_column="updated_at",
+        keep="first",
+        aggregate_quarantine=False,
+    )
+    plan = strat.plan(context)
+    primary_rows = plan.primary.df.orderBy("order_id").collect()
+    assert len(primary_rows) == 2
+    # For (t1, o1), kept row is updated_at=20, amount=150
+    assert primary_rows[0]["amount"] == 150
+    assert primary_rows[0]["updated_at"] == 20
+
+    reject_rows = plan.additional[0].df.collect()
+    assert len(reject_rows) == 1
+    assert reject_rows[0]["amount"] == 100
+
+    # Test aggregated quarantine
+    strat_agg = DeduplicateQuarantineWriteViolationStrategy(
+        key_properties=["tenant_id", "order_id"],
+        sort_column="updated_at",
+        keep="first",
+        aggregate_quarantine=True,
+    )
+    plan_agg = strat_agg.plan(context)
+    agg_reject_rows = plan_agg.additional[0].df.collect()
+    assert len(agg_reject_rows) == 1
+    assert agg_reject_rows[0]["duplicate_count"] == 1
+    assert len(agg_reject_rows[0]["quarantined_duplicates"]) == 1
+    assert agg_reject_rows[0]["quarantined_duplicates"][0]["amount"] == 100
+
+

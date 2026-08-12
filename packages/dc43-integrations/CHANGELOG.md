@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- Added metric computation support in Spark for ODCS v3.1.0 `duplicateValues` (single & multi-column compound keys), `missingValues` (with custom missing lists), `invalidValues` (enum and regex patterns), and `rowCount`.
+
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Added

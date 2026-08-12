@@ -111,6 +111,50 @@ def _extract_exact_format(field: SchemaProperty, optional: bool) -> Iterable[Exp
             )
 
 
+@register_field_extractor
+def _extract_float_format(field: SchemaProperty, optional: bool) -> Iterable[ExpectationSpec]:
+    if getattr(field, "logicalTypeOptions", None) and (getattr(field, "physicalType", None) or getattr(field, "type", "string") or "string").lower() in ("string", "varchar", "text", "char"):
+        logical_opts = dict(field.logicalTypeOptions)
+        dec_sep = logical_opts.get("decimalSeparator")
+        th_sep = logical_opts.get("thousandsSeparator")
+        
+        is_numeric_logical = getattr(field, "logicalType", None) and str(field.logicalType).lower() in ("float", "double", "decimal", "number")
+        
+        if dec_sep is not None or th_sep is not None or is_numeric_logical:
+            params = {}
+            params["decimalSeparator"] = str(dec_sep) if dec_sep is not None else "."
+            if th_sep is not None:
+                params["thousandsSeparator"] = str(th_sep)
+            yield ExpectationSpec(
+                key=f"float_format_{field.name}",
+                rule="float_format",
+                column=field.name,
+                params=params,
+                optional=optional,
+            )
+
+
+@register_field_extractor
+def _extract_integer_format(field: SchemaProperty, optional: bool) -> Iterable[ExpectationSpec]:
+    if getattr(field, "logicalTypeOptions", None) and (getattr(field, "physicalType", None) or getattr(field, "type", "string") or "string").lower() in ("string", "varchar", "text", "char"):
+        logical_opts = dict(field.logicalTypeOptions)
+        th_sep = logical_opts.get("thousandsSeparator")
+        
+        is_integer_logical = getattr(field, "logicalType", None) and str(field.logicalType).lower() in ("int", "integer", "long", "bigint", "short", "smallint", "byte", "tinyint")
+        
+        if th_sep is not None or is_integer_logical:
+            params = {}
+            if th_sep is not None:
+                params["thousandsSeparator"] = str(th_sep)
+            yield ExpectationSpec(
+                key=f"integer_format_{field.name}",
+                rule="integer_format",
+                column=field.name,
+                params=params,
+                optional=optional,
+            )
+
+
 @register_quality_extractor
 def _extract_gt(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
     if dq.mustBeGreaterThan is not None:
@@ -165,13 +209,89 @@ def _extract_le(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optio
 
 @register_quality_extractor
 def _extract_unique_quality(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
-    if (dq.rule or "").lower() == "unique":
+    metric = (getattr(dq, "metric", None) or dq.rule or "").lower()
+    if metric in {"unique", "duplicatevalues"}:
         return ExpectationSpec(
             key=f"unique_{field.name}",
             rule="unique",
             column=field.name,
             optional=optional,
         )
+    return None
+
+
+@register_quality_extractor
+def _extract_null_values(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    metric = (getattr(dq, "metric", None) or dq.rule or "").lower()
+    if metric == "nullvalues":
+        return ExpectationSpec(
+            key=f"not_null_{field.name}",
+            rule="not_null",
+            column=field.name,
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_missing_values(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    metric = (getattr(dq, "metric", None) or dq.rule or "").lower()
+    if metric == "missingvalues":
+        args = getattr(dq, "arguments", None)
+        missing_vals = None
+        if isinstance(args, dict):
+            missing_vals = args.get("missingValues")
+        elif hasattr(args, "missingValues"):
+            missing_vals = getattr(args, "missingValues", None)
+        if missing_vals is None and dq.mustBe is not None:
+            missing_vals = dq.mustBe if isinstance(dq.mustBe, (list, tuple)) else [dq.mustBe]
+        if missing_vals is None:
+            missing_vals = ["", "N/A"]
+        return ExpectationSpec(
+            key=f"missing_values_{field.name}",
+            rule="missing_values",
+            column=field.name,
+            params={"values": list(missing_vals)},
+            optional=optional,
+        )
+    return None
+
+
+@register_quality_extractor
+def _extract_invalid_values(field: SchemaProperty, dq: DataQuality, optional: bool) -> Optional[ExpectationSpec]:
+    metric = (getattr(dq, "metric", None) or dq.rule or "").lower()
+    if metric == "invalidvalues":
+        args = getattr(dq, "arguments", None)
+        valid_vals = None
+        pattern = None
+        if isinstance(args, dict):
+            valid_vals = args.get("validValues")
+            pattern = args.get("pattern")
+        elif args is not None:
+            valid_vals = getattr(args, "validValues", None)
+            pattern = getattr(args, "pattern", None)
+        if valid_vals is None and pattern is None and dq.mustBe is not None:
+            if isinstance(dq.mustBe, (list, tuple, set)):
+                valid_vals = list(dq.mustBe)
+            elif isinstance(dq.mustBe, str):
+                pattern = dq.mustBe
+
+        if valid_vals is not None:
+            return ExpectationSpec(
+                key=f"enum_{field.name}",
+                rule="enum",
+                column=field.name,
+                params={"values": list(valid_vals)},
+                optional=optional,
+            )
+        if pattern is not None:
+            return ExpectationSpec(
+                key=f"regex_{field.name}",
+                rule="regex",
+                column=field.name,
+                params={"pattern": str(pattern)},
+                optional=optional,
+            )
     return None
 
 
@@ -205,7 +325,8 @@ def _extract_exact(field: SchemaProperty, dq: DataQuality, optional: bool) -> Op
     if (
         (dq.rule or "").lower() == "exact"
         or (
-            (dq.rule or "").lower() not in {"regex", "enum", "query"}
+            (dq.rule or "").lower() not in {"regex", "enum", "query", "duplicatevalues", "nullvalues", "missingvalues", "invalidvalues", "rowcount"}
+            and (getattr(dq, "metric", None) or "").lower() not in {"duplicatevalues", "nullvalues", "missingvalues", "invalidvalues", "rowcount"}
             and dq.mustBe is not None
             and not isinstance(dq.mustBe, (list, tuple, set, dict))
         )
@@ -241,6 +362,51 @@ def _extract_query(obj: SchemaObject, dq: DataQuality) -> Optional[ExpectationSp
             rule="query",
             column=None,
             params={"query": dq.query, "engine": dq.engine},
+        )
+    return None
+
+
+@register_schema_extractor
+def _extract_schema_duplicate_values(obj: SchemaObject, dq: DataQuality) -> Optional[ExpectationSpec]:
+    metric = (getattr(dq, "metric", None) or dq.rule or "").lower()
+    if metric == "duplicatevalues":
+        args = getattr(dq, "arguments", None)
+        props = []
+        if isinstance(args, dict):
+            props = args.get("properties") or []
+        elif hasattr(args, "properties"):
+            props = getattr(args, "properties", None) or []
+        key = dq.id or dq.name or f"duplicate_values_{obj.name or 'schema'}"
+        return ExpectationSpec(
+            key=key,
+            rule="unique_composite",
+            column=None,
+            params={"properties": list(props)},
+        )
+    return None
+
+
+@register_schema_extractor
+def _extract_schema_row_count(obj: SchemaObject, dq: DataQuality) -> Optional[ExpectationSpec]:
+    metric = (getattr(dq, "metric", None) or dq.rule or "").lower()
+    if metric == "rowcount":
+        params: Dict[str, Any] = {}
+        if dq.mustBe is not None:
+            params["exact"] = dq.mustBe
+        if dq.mustBeGreaterThan is not None:
+            params["gt"] = dq.mustBeGreaterThan
+        if dq.mustBeGreaterOrEqualTo is not None:
+            params["ge"] = dq.mustBeGreaterOrEqualTo
+        if dq.mustBeLessThan is not None:
+            params["lt"] = dq.mustBeLessThan
+        if dq.mustBeLessOrEqualTo is not None:
+            params["le"] = dq.mustBeLessOrEqualTo
+        key = dq.id or dq.name or f"row_count_{obj.name or 'schema'}"
+        return ExpectationSpec(
+            key=key,
+            rule="row_count",
+            column=None,
+            params=params,
         )
     return None
 
@@ -284,6 +450,14 @@ def _format_expectation_violation(spec: ExpectationSpec, count: int) -> str:
         return f"column {column} contains {count} null value(s) but is required in the contract"
     if spec.rule == "unique":
         return f"column {column} has {count} duplicate value(s)"
+    if spec.rule == "unique_composite":
+        props = spec.params.get("properties") or []
+        props_str = ", ".join(map(str, props))
+        return f"schema has {count} duplicate row(s) across properties [{props_str}]"
+    if spec.rule == "missing_values":
+        vals = spec.params.get("values") or []
+        vals_str = ", ".join(map(str, vals))
+        return f"column {column} contains {count} missing value(s) in [{vals_str}]"
     if spec.rule == "enum":
         allowed = spec.params.get("values")
         if isinstance(allowed, Iterable):
@@ -397,6 +571,30 @@ def evaluate_contract(
             # components interpret; they do not represent pass/fail metrics by
             # themselves in the engine.
             continue
+        if spec.rule == "row_count":
+            row_count = metrics_map.get("row_count")
+            if row_count is not None and isinstance(row_count, (int, float)):
+                params = spec.params
+                failed = False
+                if "exact" in params and row_count != params["exact"]:
+                    failed = True
+                if "gt" in params and not (row_count > params["gt"]):
+                    failed = True
+                if "ge" in params and not (row_count >= params["ge"]):
+                    failed = True
+                if "lt" in params and not (row_count < params["lt"]):
+                    failed = True
+                if "le" in params and not (row_count <= params["le"]):
+                    failed = True
+                if failed:
+                    message = f"dataset row count {row_count} failed rowCount constraint {params}"
+                    severity = expectation_severity
+                    if severity == "error":
+                        errors.append(message)
+                    elif severity == "warning":
+                        warnings.append(message)
+            continue
+
         metric_key = f"violations.{spec.key}"
         metric_value = metrics_map.get(metric_key)
         if metric_value is None:
@@ -409,7 +607,7 @@ def evaluate_contract(
         if metric_value > 0:
             message = _format_expectation_violation(spec, int(metric_value))
             severity = expectation_severity
-            if spec.rule in {"not_null", "required", "unique"}:
+            if spec.rule in {"not_null", "required", "unique", "unique_composite", "missing_values"}:
                 severity = "error"
             if severity == "ignore":
                 continue

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- Added native quality & schema extractors for ODCS v3.1.0 standard metrics: `nullValues`, `missingValues` (with custom missing value lists), `invalidValues` (with `validValues` enum or `pattern` regex), `duplicateValues` (single column & compound key `arguments.properties`), and `rowCount`.
+- Added support for checking float format using `logicalTypeOptions` properties `decimalSeparator` and `thousandsSeparator` for string fields.
+- Added support for checking integer format using `logicalTypeOptions` property `thousandsSeparator` for string fields.
+
+### Fixed
+- Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.
+
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Added

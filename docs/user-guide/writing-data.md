@@ -125,3 +125,196 @@ execution_result = declare_with_governance(
 * **Pre-flight Evaluation**: Unlike traditional tables where validation occurs *during* the write, view input dependencies are queried and validated *before* the `CREATE VIEW` statement executes. If an input breaches its quality or status policy, the view declaration aborts.
 * **Smart Translation**: `declare_with_governance` automatically translates `DatasetLocator` definitions (such as `ContractVersionLocator` alias resolutions) into pure Databricks SQL syntaxes, accurately injecting `VERSION AS OF` options directly into the SQL string.
 * **Metastore Enforcement**: Databricks prohibits permanent views anchored to pure filesystem paths. Ensure that the associated output contract provides a standard `catalog.schema.table` mapping.
+
+## Data Quality Metrics (ODCS v3.1.0)
+
+`dc43` natively extracts and evaluates the full set of ODCS v3.1.0 standard metrics:
+
+| Metric | Level | Description | Arguments / Example |
+| :--- | :--- | :--- | :--- |
+| `nullValues` | Property | Counts null values in a field | `metric: nullValues, mustBe: 0` |
+| `missingValues` | Property | Counts values considered as missing | `metric: missingValues, arguments: { missingValues: [null, '', 'N/A'] }` |
+| `invalidValues` | Property | Counts values failing valid criteria (enum or regex) | `metric: invalidValues, arguments: { validValues: ['EUR', 'USD'] }` |
+| `duplicateValues` | Property | Counts duplicate values in a single column | `metric: duplicateValues, mustBe: 0` |
+| `duplicateValues` | Schema | Counts duplicate rows across compound key properties | `metric: duplicateValues, arguments: { properties: ['tenant_id', 'order_id'] }` |
+| `rowCount` | Schema | Validates dataset total row count thresholds | `metric: rowCount, mustBeGreaterThan: 0` |
+
+### ODCS Contract Example
+
+```yaml
+kind: DataContract
+apiVersion: 3.1.0
+id: sales.orders
+schema:
+  - name: orders
+    quality:
+      - id: orders_unique_tenant_order
+        description: The combination of tenant_id and order_id must be unique
+        metric: duplicateValues
+        mustBe: 0
+        arguments:
+          properties:
+            - tenant_id
+            - order_id
+      - id: orders_min_rowCount
+        metric: rowCount
+        mustBeGreaterThan: 0
+    properties:
+      - name: tenant_id
+        type: string
+        quality:
+          - metric: nullValues
+            mustBe: 0
+      - name: order_id
+        type: string
+        quality:
+          - metric: duplicateValues
+            mustBe: 0
+      - name: status
+        type: string
+        quality:
+          - metric: missingValues
+            mustBe: 0
+            arguments:
+              missingValues: [null, '', 'N/A']
+```
+
+## Violation Strategies & Duplicate Quarantine
+
+When write validation detects quality or schema violations, `dc43` uses violation strategies to decide how data flows to target sinks.
+
+### Split Quarantine (`SplitWriteViolationStrategy`)
+
+The `SplitWriteViolationStrategy` splits invalid rows from valid rows during write:
+
+```python
+from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy
+
+request = GovernanceSparkWriteRequest(
+    context=GovernanceWriteContext(
+        contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
+        policy=GovernancePolicy(draft_on_violation=True),
+    ),
+    violation_strategy=SplitWriteViolationStrategy(
+        valid_suffix="valid",
+        reject_suffix="reject",
+        include_valid=True,
+        include_reject=True,
+    ),
+)
+```
+
+### Custom Duplicate Quarantine Strategy (`DeduplicateQuarantineWriteViolationStrategy`)
+
+In the `dc43` architecture, metrics collect contract violation counts (`ValidationResult`), while `WriteViolationStrategy` implementations decide how to process, split, or quarantine violating records.
+
+To handle `duplicateValues` rules, you can create a custom `WriteViolationStrategy` that deduplicates the primary dataset based on a sorter instruction (e.g. keeping `first` or `last` record according to an ordering column like `updated_at`), while routing all rejected duplicates to a quarantine sink.
+
+Optionally, the strategy can **aggregate** all quarantined duplicates for a given key into a single row containing a list column (`quarantined_duplicates`) and the count of duplicates (`duplicate_count`).
+
+```python
+from dataclasses import dataclass
+from typing import Literal, Sequence, Optional
+from pyspark.sql import Window
+from pyspark.sql import functions as F
+
+from dc43_integrations.spark.violation_strategy import (
+    WriteViolationStrategy,
+    WriteStrategyContext,
+    WritePlan,
+    WriteRequest,
+)
+
+@dataclass
+class DeduplicateQuarantineWriteViolationStrategy:
+    """Strategy that deduplicates records on compound keys and routes rejected duplicates to quarantine."""
+
+    key_properties: Sequence[str]
+    sort_column: str
+    keep: Literal["first", "last"] = "first"
+    aggregate_quarantine: bool = False
+    valid_suffix: str = "valid"
+    reject_suffix: str = "reject"
+    dataset_suffix_separator: str = "::"
+
+    def plan(self, context: WriteStrategyContext) -> WritePlan:
+        df = context.aligned_df
+        
+        # 1. Define window ordering (first -> descending, last -> ascending)
+        sort_order = F.col(self.sort_column).desc() if self.keep == "first" else F.col(self.sort_column).asc()
+        window_spec = Window.partitionBy(*self.key_properties).orderBy(sort_order)
+        
+        # 2. Assign rank per composite key
+        df_ranked = df.withColumn("_row_num", F.row_number().over(window_spec))
+        
+        # Primary valid records (rank == 1)
+        valid_df = df_ranked.filter(F.col("_row_num") == 1).drop("_row_num")
+        
+        # Quarantined duplicate records (rank > 1)
+        reject_df = df_ranked.filter(F.col("_row_num") > 1).drop("_row_num")
+
+        # 3. Optional: Combine all quarantined duplicates into a single aggregated row per key
+        if self.aggregate_quarantine:
+            other_cols = [c for c in df.columns if c not in self.key_properties]
+            reject_df = reject_df.groupBy(*self.key_properties).agg(
+                F.collect_list(F.struct(*other_cols)).alias("quarantined_duplicates"),
+                F.count("*").alias("duplicate_count")
+            )
+
+        def _extend_dataset_id(base: Optional[str], suffix: str) -> Optional[str]:
+            return f"{base}{self.dataset_suffix_separator}{suffix}" if base else None
+
+        # Build Primary WriteRequest (clean dataset written to primary sink)
+        primary_request = WriteRequest(
+            df=valid_df,
+            path=context.path,
+            table=context.table,
+            format=context.format,
+            options=dict(context.options),
+            mode=context.mode,
+            contract=context.contract,
+            dataset_id=context.dataset_id,
+            dataset_version=context.dataset_version,
+            validation_factory=lambda df=valid_df: context.revalidate(df),
+        )
+
+        # Build Additional WriteRequest (rejected duplicates written to quarantine sink)
+        reject_request = WriteRequest(
+            df=reject_df,
+            path=f"{context.path}_{self.reject_suffix}" if context.path else None,
+            table=f"{context.table}_{self.reject_suffix}" if context.table else None,
+            format=context.format,
+            options=dict(context.options),
+            mode=context.mode,
+            contract=context.contract,
+            dataset_id=_extend_dataset_id(context.dataset_id, self.reject_suffix),
+            dataset_version=context.dataset_version,
+        )
+
+        return WritePlan(primary=primary_request, additional=[reject_request])
+```
+
+### Using the Custom Strategy
+
+```python
+# Pass the custom strategy to write_with_governance
+request = GovernanceSparkWriteRequest(
+    context=GovernanceWriteContext(
+        contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
+    ),
+    violation_strategy=DeduplicateQuarantineWriteViolationStrategy(
+        key_properties=["tenant_id", "order_id"],
+        sort_column="updated_at",
+        keep="first",                 # Keeps the latest record (newest updated_at)
+        aggregate_quarantine=True,    # Groups quarantined duplicates into a list column + duplicate_count
+    ),
+)
+
+execution_result = write_with_governance(
+    df=df,
+    request=request,
+    governance_service=my_governance_client,
+)
+```
+
+

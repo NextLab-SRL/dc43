@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+- Added native support for the full set of ODCS v3.1.0 standard data quality metrics: `nullValues`, `missingValues` (with custom missing lists), `invalidValues` (with `validValues` enum or `pattern` regex), `duplicateValues` (single column and schema-level compound key `arguments.properties`), and `rowCount`.
+- Added documentation and patterns for duplicate quarantine strategies in Spark pipelines using window functions (`ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)`).
+- Added support for checking float format using `logicalTypeOptions` properties `decimalSeparator` and `thousandsSeparator` for string fields.
+- Added support for checking integer format using `logicalTypeOptions` property `thousandsSeparator` for string fields.
+
+### Fixed
+- Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.
+- Improved logging inside `compute_metrics` to avoid alarmist "CRASH" labeling when validation rules fail or throw query execution exceptions.
+
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Added
