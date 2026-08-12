@@ -7,6 +7,8 @@ from typing import List, Optional, Any, Dict
 
 from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
 
+from dc43_service_backends.core.versioning import version_key
+
 
 class ContractStore(ABC):
     """Interface for reading/writing ODCS contracts in a registry."""
@@ -35,7 +37,7 @@ class ContractStore(ABC):
         versions = self.list_versions(contract_id)
         if not versions:
             return None
-        versions.sort(key=lambda v: tuple(int(x) for x in v.split(".")[:3]))
+        versions.sort(key=version_key)
         return self.get(contract_id, versions[-1])
 
 

@@ -8,6 +8,7 @@
 - Added support for checking integer format using `logicalTypeOptions` property `thousandsSeparator` for string fields.
 
 ### Fixed
+- Fixed a bug in `ContractStore.latest()` where version sorting relied on naive `int()` conversion, crashing with `ValueError` when contract versions contained non-numeric suffixes or labels such as `0.1-DEV`. Switched to `version_key` to support non-numeric and prerelease version identifiers.
 - Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.
 
 
