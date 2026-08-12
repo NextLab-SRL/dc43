@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added native quality & schema extractors for ODCS v3.1.0 standard metrics: `nullValues`, `missingValues` (with custom missing value lists), `invalidValues` (with `validValues` enum or `pattern` regex), `duplicateValues` (single column & compound key `arguments.properties`), and `rowCount`.
 - Added support for checking float format using `logicalTypeOptions` properties `decimalSeparator` and `thousandsSeparator` for string fields.
 - Added support for checking integer format using `logicalTypeOptions` property `thousandsSeparator` for string fields.
 

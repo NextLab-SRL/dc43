@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- Added native support for the full set of ODCS v3.1.0 standard data quality metrics: `nullValues`, `missingValues` (with custom missing lists), `invalidValues` (with `validValues` enum or `pattern` regex), `duplicateValues` (single column and schema-level compound key `arguments.properties`), and `rowCount`.
+- Added documentation and patterns for duplicate quarantine strategies in Spark pipelines using window functions (`ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)`).
 - Added support for checking float format using `logicalTypeOptions` properties `decimalSeparator` and `thousandsSeparator` for string fields.
 - Added support for checking integer format using `logicalTypeOptions` property `thousandsSeparator` for string fields.
 

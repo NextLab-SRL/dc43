@@ -27,6 +27,13 @@ def sql_predicate(spec: ExpectationSpec) -> str | None:
     col_ref = f"`{column.replace('`', '')}`"
     if spec.rule in {"not_null", "required"}:
         return f"{col_ref} IS NOT NULL"
+    if spec.rule == "missing_values":
+        values = spec.params.get("values") or []
+        conds = [f"{col_ref} IS NULL"]
+        for v in values:
+            if v is not None:
+                conds.append(f"{col_ref} = {_sql_literal(v)}")
+        return f"NOT ({' OR '.join(conds)})"
     if spec.rule == "gt":
         return f"{col_ref} > {_sql_literal(spec.params.get('threshold'))}"
     if spec.rule == "ge":
