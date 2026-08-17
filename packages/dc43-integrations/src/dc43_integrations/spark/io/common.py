@@ -107,6 +107,8 @@ class GovernanceSparkReadRequest:
     status_strategy: Optional[Any] = None  # Typed as Any to avoid circular import
     pipeline_context: Optional[PipelineContextLike] = None
     publication_mode: GovernancePublicationMode | str | None = None
+    interceptors: Optional[Sequence[Any]] = None
+    contract_interceptors: Optional[Sequence[Any]] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceReadContext):
@@ -141,6 +143,10 @@ class GovernanceSparkWriteRequest:
     writer_modifier: Optional[Callable[[Any], Any]] = None
     observation_writer_modifier: Optional[Callable[[Any], Any]] = None
     contract_transformers: Optional[Sequence[Any]] = None
+    ddl_modifier: Optional[Callable[[str], str]] = None
+    table_properties: Optional[Mapping[str, str]] = None
+    interceptors: Optional[Sequence[Any]] = None
+    contract_interceptors: Optional[Sequence[Any]] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceWriteContext):

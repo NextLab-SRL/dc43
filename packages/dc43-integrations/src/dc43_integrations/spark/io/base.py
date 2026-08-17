@@ -112,6 +112,11 @@ class WriteExecutionResult:
     status: Optional[ValidationResult]
     streaming_queries: list[Any]
 
+    @property
+    def validation(self) -> ValidationResult:
+        """Alias for result providing uniform property access."""
+        return self.result
+
 
 def _resolve_publication_mode(
     *,
@@ -680,6 +685,8 @@ class BaseWriteExecutor:
         self.streaming_intervention_strategy = getattr(self.request, 'streaming_intervention_strategy', None)
         self.writer_modifier = getattr(self.request, 'writer_modifier', None)
         self.observation_writer_modifier = getattr(self.request, 'observation_writer_modifier', None)
+        self.ddl_modifier = getattr(self.request, 'ddl_modifier', None)
+        self.table_properties = getattr(self.request, 'table_properties', None)
         self.streaming_batch_callback = streaming_batch_callback
         self.pipeline_context = getattr(self.request.context, 'pipeline_context', None) or (plan.pipeline_context if plan else None)
 
@@ -898,7 +905,9 @@ class BaseWriteExecutor:
             expectation_predicates=expectation_predicates, pipeline_context=normalise_pipeline_context(pipeline_context),
             streaming=streaming_active, streaming_observation_writer=observation_writer,
             writer_modifier=self.writer_modifier,
-            observation_writer_modifier=self.observation_writer_modifier
+            observation_writer_modifier=self.observation_writer_modifier,
+            ddl_modifier=self.ddl_modifier,
+            table_properties=self.table_properties,
         )
         violation_plan = strategy.plan(context)
         requests = ([violation_plan.primary] if violation_plan.primary else []) + list(violation_plan.additional)
@@ -940,7 +949,21 @@ class BaseWriteExecutor:
         
         if contract and ctx and interceptors:
             for interceptor in interceptors:
-                interceptor.post_write(context=ctx, result=execution_result)
+                try:
+                    interceptor.post_write(context=ctx, result=execution_result)
+                except Exception as e:
+                    logger.exception("Error executing post_write interceptor %s: %s", interceptor, e)
+                    err_msg = f"Post-write interceptor error ({interceptor.__class__.__name__}): {e}"
+                    if execution_result.validation is None:
+                        execution_result.validation = ValidationResult(ok=False, errors=[err_msg], warnings=[], metrics={}, schema={})
+                    else:
+                        execution_result.validation.ok = False
+                        if execution_result.validation.errors is None:
+                            execution_result.validation.errors = []
+                        if err_msg not in execution_result.validation.errors:
+                            execution_result.validation.errors.append(err_msg)
+                    if enforce:
+                        raise
                 
         return execution_result
 
@@ -975,28 +998,41 @@ def _execute_write_request(
             pass
 
     if governance_client and request.contract and request.dataset_id:
-        # Pre-create streaming sink to avoid TABLE_OR_VIEW_NOT_FOUND during property sync
-        if request.streaming:
-            try:
-                # Need spark session to evaluate options and execute CREATE TABLE
-                spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
-                if spark is not None:
-                    tgt_fmt = request.format or "delta"
-                    if tgt_fmt.lower() == "delta":
+        # Pre-create sink table using ContractDDLBuilder to ensure contract DDL conformity
+        try:
+            spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+            if spark is not None and (request.table or request.streaming):
+                tgt_fmt = request.format or "delta"
+                table_exists = False
+                if request.table:
+                    try:
+                        table_exists = spark.catalog.tableExists(request.table)
+                    except Exception:
+                        table_exists = False
+                if not table_exists:
+                    try:
+                        from dc43_integrations.spark.ddl import ContractDDLBuilder
+                        ddl_builder = ContractDDLBuilder(
+                            contract=request.contract,
+                            table=request.table,
+                            path=request.path,
+                            format=tgt_fmt,
+                            table_properties=request.table_properties,
+                            ddl_modifier=request.ddl_modifier,
+                        )
+                        ddl_builder.execute(spark)
+                    except Exception as ddl_err:
+                        import logging
+                        logging.getLogger(__name__).warning("ContractDDLBuilder execution failed, falling back to DataFrame pre-creation: %s", ddl_err)
                         if request.table:
-                            try:
-                                if not spark.catalog.tableExists(request.table):
-                                    fields_def = ", ".join([f"`{field.name}` {field.dataType.simpleString()}" for field in getattr(df, "schema", [])])
-                                    spark.sql(f"CREATE TABLE IF NOT EXISTS {request.table} ({fields_def}) USING {tgt_fmt}")
-                            except Exception:
-                                empty_df = spark.createDataFrame([], getattr(df, "schema", None))
-                                empty_df.write.format(tgt_fmt).mode("append").saveAsTable(request.table)
-                        elif request.path:
+                            empty_df = spark.createDataFrame([], getattr(df, "schema", None))
+                            empty_df.write.format(tgt_fmt).mode("append").saveAsTable(request.table)
+                        elif request.path and request.streaming:
                             empty_df = spark.createDataFrame([], getattr(df, "schema", None))
                             empty_df.write.format(tgt_fmt).mode("append").save(request.path)
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning("Failed to pre-create streaming sink: %s", e)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to pre-create sink table: %s", e)
         
         try:
             governance_client.link_dataset_contract(

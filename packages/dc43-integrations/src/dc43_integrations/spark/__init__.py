@@ -3,6 +3,7 @@
 __all__ = [
     "contracts",
     "data_quality",
+    "ddl",
     "dlt",
     "open_data_lineage",
     "io",

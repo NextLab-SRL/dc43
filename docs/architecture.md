@@ -102,3 +102,25 @@ flowchart TD
     Adapter -->|publish| Lineage["Open Data Lineage / Telemetry"]
     Steward -->|verdict| Adapter
 ```
+
+---
+
+## Enforcement & Gating Architecture
+
+`dc43` enforces governance through two distinct gating tiers:
+
+1. **Hard Gating (Structural & Physical DDL - Unconditional)**:
+   - Elements that permanently alter or define shared storage infrastructure (table DDL, column data types, `NOT NULL` constraints, Primary Keys, Partitioning, Liquid Clustering, and `TBLPROPERTIES`) are strictly gated.
+   - Initial table creation is guaranteed to match the contract via `ContractDDLBuilder`, preventing misconfigured pipelines from polluting shared catalogs (Unity Catalog, Hive Metastore).
+   - **Prefix Scoping Conventions**: Table properties under `customProperties.tableProperties` obey engine-specific prefixes (`delta.<property>` for Delta Lake, `write.<property>` for Iceberg, unprefixed for global metadata), automatically filtering out incompatible engine properties when generating DDL for standard formats (Parquet, ORC).
+   - Unconditional: setting `enforce=False` does not loosen or bypass Hard DDL Gating.
+2. **Soft Gating (Content & Data Quality - Policy Driven)**:
+   - Row-level assertions, regex, and numeric range bounds are governed conditionally by `enforce` flags and `violation_strategy` implementations (e.g., `SplitWriteViolationStrategy`).
+
+---
+
+## Known Limitations & Roadmap
+
+- **Streaming Schema Registry Auto-Registration**:
+  - `dc43-integrations` currently focuses on Spark batch/streaming write destinations for Delta Lake, Parquet, and Databricks Catalog tables.
+  - Streaming event brokers requiring external schema registries (e.g., Confluent Schema Registry, AWS Glue Schema Registry for Kafka/EventHubs) are not auto-provisioned directly by `dc43`. External schemas must be registered prior to stream start, or managed via custom `pre_write` interceptors. Automatic Schema Registry provisioning is part of the future architectural roadmap.

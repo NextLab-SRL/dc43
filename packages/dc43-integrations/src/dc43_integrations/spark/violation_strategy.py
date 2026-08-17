@@ -69,6 +69,8 @@ class WriteRequest:
     streaming_observation_writer: Optional["StreamingObservationWriter"] = None
     writer_modifier: Optional[Callable[[Any], Any]] = None
     observation_writer_modifier: Optional[Callable[[Any], Any]] = None
+    ddl_modifier: Optional[Callable[[str], str]] = None
+    table_properties: Optional[Mapping[str, str]] = None
 
 
 @dataclass
@@ -102,6 +104,8 @@ class WriteStrategyContext:
     streaming_observation_writer: Optional["StreamingObservationWriter"] = None
     writer_modifier: Optional[Callable[[Any], Any]] = None
     observation_writer_modifier: Optional[Callable[[Any], Any]] = None
+    ddl_modifier: Optional[Callable[[str], str]] = None
+    table_properties: Optional[Mapping[str, str]] = None
 
     def base_request(
         self,
@@ -142,6 +146,8 @@ class WriteStrategyContext:
             streaming_observation_writer=self.streaming_observation_writer,
             writer_modifier=self.writer_modifier,
             observation_writer_modifier=self.observation_writer_modifier,
+            ddl_modifier=self.ddl_modifier,
+            table_properties=self.table_properties,
         )
 
 

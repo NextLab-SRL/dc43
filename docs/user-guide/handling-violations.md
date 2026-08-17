@@ -2,13 +2,17 @@
 
 When `dc43-integrations` assesses a DataFrame against a contract, it produces a deep `ValidationResult` containing expectation metrics, schema errors, and the final status of the dataset. You control how aggressive the framework is via policies and argument flags.
 
-## Enforcement Modes
+## Dual-Layer Enforcement Model
 
-By default, passing `enforce=True` into `write_with_governance` or `read_with_governance` makes the integration strictly block processing on any errors:
-- If a column is missing from the contract, an Exception is raised.
-- If data quality expectations fail out-of-bounds, an Exception is raised.
+`dc43` separates structural guarantees from data-level content validation:
 
-When you pass `enforce=False`, the execution completes successfully and allows the Spark job to continue, *even if* violations occurred. The violations are still submitted to the Data Governance Service for catalog tracking.
+1. **Hard Gating (Structural DDL & Schema Integrity - Unconditional)**:
+   - Physical table structure, column types, nullability (`NOT NULL`), Primary Keys (`PRIMARY KEY`), and partitioning (`PARTITIONED BY` / `CLUSTER BY`) are **strictly gated**.
+   - Setting `enforce=False` **never** bypasses structural DDL generation. When a table is created, it is guaranteed to match the contract DDL, preventing misaligned jobs from creating corrupted table schemas in shared catalogs.
+2. **Soft Gating (Data Quality & Metric Thresholds - Conditional)**:
+   - Metric rules (value bounds, regex, null ratios) are controlled by the `enforce` flag and violation strategies:
+     - `enforce=True`: Strictly blocks processing and raises an Exception if data quality bounds are breached or if a post-write governance interceptor fails.
+     - `enforce=False`: Allows the Spark job to continue writing data, while submitting the violations and observations to the Data Governance Service for catalog tracking and lineage audit.
 
 ## Governance Policies
 

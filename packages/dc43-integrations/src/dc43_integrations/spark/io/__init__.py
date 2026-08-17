@@ -60,6 +60,8 @@ from .interceptors import (
     BaseGovernanceInterceptor,
 )
 
+from ..ddl import ContractDDLBuilder
+
 __all__ = [
     "GovernanceSparkReadRequest",
     "GovernanceSparkWriteRequest",
@@ -89,4 +91,5 @@ __all__ = [
     "GovernanceInterceptor",
     "InterceptorContext",
     "BaseGovernanceInterceptor",
+    "ContractDDLBuilder",
 ]
