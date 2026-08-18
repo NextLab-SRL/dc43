@@ -10,6 +10,7 @@
 - Added `ContractDDLBuilder` in `dc43-integrations` to enforce Hard Gated table pre-creation with strict DDL matching the Data Contract (column types, `NOT NULL` constraints, `PRIMARY KEY`, `PARTITIONED BY` / `CLUSTER BY`, and `TBLPROPERTIES`).
 - Added `ddl_modifier` and `table_properties` hooks to `GovernanceSparkWriteRequest` for controlled DDL customization.
 - Added error tracking and observability for `post_write` governance interceptors (e.g. Unity Catalog tagging), recording side-effect failures in `ValidationResult.errors`.
+- Added a dedicated, comprehensive documentation guide [Stores, Telemetry, and Actionable Observability](docs/operations/stores-telemetry-and-observability.md) detailing the Governance vs. Observability taxonomy, exact message payload structures, end-to-end service routing, interactive tldraw ([`.tldr`](docs/diagrams/stores-telemetry-architecture.tldr)) & vector SVG ([`.svg`](docs/diagrams/stores-telemetry-architecture.svg)) architecture diagrams, and actionable tooling integration patterns (Datadog, Prometheus, Marquez, Unity Catalog, Collibra).
 
 ### Fixed
 - Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.

@@ -6,6 +6,7 @@ Welcome to the documentation for dc43. This repository provides a governance lay
 If you are new to the project or want to understand how the components fit together:
 - [dc43 Architecture](architecture.md)
 - [Infrastructure & Adapters (Local vs Remote)](infrastructure-and-adapters.md)
+- [Stores, Telemetry & Actionable Observability](operations/stores-telemetry-and-observability.md)
 
 ## 2. 🚀 Getting Started
 If you are ready to use dc43 in your pipelines or run it locally, see the guides below:
@@ -22,7 +23,7 @@ Learn how to use the unified Spark APIs to read and write governed datasets:
 ## 4. ⚙️ Operations & Deployment
 For detailed information on configuring and deploying dc43 services and backends:
 - [Service Backend Setup](operations/service-backend.md)
-- [Contract Stores (Delta, FS, SQL, Collibra)](operations/contract-stores.md)
+- [Stores, Telemetry & Actionable Observability](operations/stores-telemetry-and-observability.md)
 - [General Configuration Reference](operations/configuration-reference.md)
 - [Service Backends Configuration](operations/service-backends-configuration.md)
 - [AWS ECR Setup](operations/aws-ecr-setup.md)

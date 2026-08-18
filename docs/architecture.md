@@ -25,7 +25,7 @@ The integration layer bridges pipeline runs to the governance service. Integrati
 - Validate and coerce data using the retrieved contract.
 - Call the governance service with validation metrics (observations).
 - Surface governance decisions (status, drafts) back to the runtime.
-- Publish observability signals (Open Data Lineage, OpenTelemetry).
+- Publish observability signals (Open Data Lineage, OpenTelemetry). *(See [Stores, Telemetry & Observability](operations/stores-telemetry-and-observability.md) for full payload reference and routing).*
 
 **Supported Integrations:**
 - Apache Spark (Batch and Structured Streaming)
@@ -77,6 +77,8 @@ The contract store resolves and stores Open Data Contract Standard (ODCS) docume
 - **SQL**: Relational tables via SQLAlchemy.
 - **Delta Lake**: ACID tables in a lakehouse or Unity Catalog.
 - **Collibra**: Full integration with Collibra Data Governance domains.
+
+*(For detailed storage schemas and actionable integrations, see [Stores, Telemetry & Observability](operations/stores-telemetry-and-observability.md))*
 
 ---
 
