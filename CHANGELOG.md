@@ -13,6 +13,7 @@
 - Added a dedicated, comprehensive documentation guide [Stores, Telemetry, and Actionable Observability](docs/operations/stores-telemetry-and-observability.md) detailing the Governance vs. Observability taxonomy, exact message payload structures, end-to-end service routing, interactive tldraw ([`.tldr`](docs/diagrams/stores-telemetry-architecture.tldr)) & vector SVG ([`.svg`](docs/diagrams/stores-telemetry-architecture.svg)) architecture diagrams, and actionable tooling integration patterns (Datadog, Prometheus, Marquez, Unity Catalog, Collibra).
 
 ### Fixed
+- Fixed a bug in `ContractStore.latest()` where version sorting relied on naive `int()` conversion, crashing with `ValueError` when contract versions contained non-numeric suffixes or labels such as `0.1-DEV`. Switched to `version_key` to support non-numeric and prerelease version identifiers.
 - Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.
 - Improved logging inside `compute_metrics` to avoid alarmist "CRASH" labeling when validation rules fail or throw query execution exceptions.
 - Fixed a `NameError: name 'build_spark_sql_ref' is not defined` inside `BaseDeclareExecutor._evaluate_inputs` when executing `declare_with_governance`.

@@ -14,21 +14,11 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 from .interface import ContractStore
 from .filesystem import FSContractStore
 from dc43_service_backends.core.odcs import as_odcs_dict, contract_identity, ensure_version, to_model
-from dc43_service_backends.core.versioning import SemVer
+from dc43_service_backends.core.versioning import SemVer, version_key
 
 
-def _semver_key(version: str) -> Tuple[int, int, int, str]:
-    try:
-        semver = SemVer.parse(version)
-        return (semver.major, semver.minor, semver.patch, semver.prerelease or "")
-    except Exception:
-        # Fallback for non-strict semver strings (e.g. "5", "1.0")
-        import re
-        digits = [int(x) for x in re.findall(r"\d+", version)]
-        major = digits[0] if len(digits) > 0 else 0
-        minor = digits[1] if len(digits) > 1 else 0
-        patch = digits[2] if len(digits) > 2 else 0
-        return (major, minor, patch, version)
+def _semver_key(version: str) -> tuple[int, int, int, int, int, int]:
+    return version_key(version)
 
 
 @dataclass(frozen=True)

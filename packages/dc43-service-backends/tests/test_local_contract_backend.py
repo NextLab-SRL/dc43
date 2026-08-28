@@ -64,3 +64,27 @@ def test_link_dataset_contract_keeps_contract_available():
 
     assert backend.get("orders", "1.0.0").contract_id == "orders"
     assert backend.get_linked_contract_version(dataset_id="table.orders") is None
+
+
+def test_contract_store_latest_with_non_numeric_versions():
+    store = InMemoryStore()
+    c1 = make_contract("orders", "0.1-DEV")
+    c2 = make_contract("orders", "0.2-DEV")
+    c3 = make_contract("orders", "0.2")
+
+    store.put(c1)
+    store.put(c2)
+    store.put(c3)
+
+    latest = store.latest("orders")
+    assert latest is not None
+    assert latest.version == "0.2"
+
+    # Also check latest between dev versions
+    store_dev = InMemoryStore()
+    store_dev.put(c1)
+    store_dev.put(c2)
+    latest_dev = store_dev.latest("orders")
+    assert latest_dev is not None
+    assert latest_dev.version == "0.2-DEV"
+
