@@ -26,7 +26,8 @@ from open_data_contract_standard.model import (
 )
 
 
-def _make_contract(contract_id: str, table: str = "catalog.schema.tbl"):
+def _make_contract(contract_id: str, table: str = "catalog.schema.tbl", columns: list[str] = None):
+    cols = columns or ["CTYPARTICL"]
     return OpenDataContractStandard(
         version="1.0.0",
         kind="DataContract",
@@ -39,7 +40,7 @@ def _make_contract(contract_id: str, table: str = "catalog.schema.tbl"):
             SchemaObject(
                 name="table",
                 properties=[
-                    SchemaProperty(name="CTYPARTICL", physicalType="string"),
+                    SchemaProperty(name=col, physicalType="string") for col in cols
                 ],
             )
         ],
@@ -82,6 +83,7 @@ def test_build_spark_sql_ref_time_travel():
 
 def test_declare_with_governance_executes_successfully(monkeypatch):
     monkeypatch.setattr("dc43_integrations.spark.validation.col", lambda name: MagicMock())
+    monkeypatch.setattr("pyspark.sql.functions.lit", lambda val: MagicMock())
     
     mock_spark = MagicMock()
     mock_df = MagicMock()
@@ -156,6 +158,7 @@ def test_declare_with_governance_executes_successfully(monkeypatch):
 
 def test_declare_with_governance_multi_input_join(monkeypatch):
     monkeypatch.setattr("dc43_integrations.spark.validation.col", lambda name: MagicMock())
+    monkeypatch.setattr("pyspark.sql.functions.lit", lambda val: MagicMock())
 
     mock_spark = MagicMock()
     mock_df = MagicMock()
@@ -171,9 +174,9 @@ def test_declare_with_governance_multi_input_join(monkeypatch):
     mock_df.columns = ["id", "val"]
     mock_df.select.return_value = mock_df
 
-    contract_a = _make_contract("contract_a", table="raw.table_a")
-    contract_b = _make_contract("contract_b", table="raw.table_b")
-    output_contract = _make_contract("output_view", table="views.joined_view")
+    contract_a = _make_contract("contract_a", table="raw.table_a", columns=["id", "val"])
+    contract_b = _make_contract("contract_b", table="raw.table_b", columns=["id", "val"])
+    output_contract = _make_contract("output_view", table="views.joined_view", columns=["id", "val"])
 
     mock_gov = MagicMock()
     mock_assessment = SimpleNamespace(
@@ -188,13 +191,17 @@ def test_declare_with_governance_multi_input_join(monkeypatch):
         "output_view": output_contract,
     }
     mock_gov.resolve_contract.side_effect = lambda id, **kw: contracts[id]
-    mock_gov.resolve_read_context.side_effect = lambda context: ResolvedReadPlan(
-        contract=contracts[context.contract_id],
-        contract_id=context.contract_id,
-        contract_version="1.0.0",
-        dataset_id=context.contract_id,
-        dataset_version="1.0.0",
-    )
+    def _resolve_read(context):
+        cid = context.contract.contract_id if context.contract else context.dataset_id
+        return ResolvedReadPlan(
+            contract=contracts[cid],
+            contract_id=cid,
+            contract_version="1.0.0",
+            dataset_id=cid,
+            dataset_version="1.0.0",
+        )
+
+    mock_gov.resolve_read_context.side_effect = _resolve_read
     mock_gov.resolve_write_context.return_value = ResolvedWritePlan(
         contract=output_contract,
         contract_id=output_contract.id,
