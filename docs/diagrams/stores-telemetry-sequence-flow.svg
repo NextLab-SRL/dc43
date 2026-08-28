@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1340" width="100%" height="100%" style="background-color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <defs>
+    <linearGradient id="grad-p1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0369a1" />
+    </linearGradient>
+    <linearGradient id="grad-p2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#6d28d9" />
+    </linearGradient>
+    <linearGradient id="grad-p3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#3730a3" />
+    </linearGradient>
+    <linearGradient id="grad-p4" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    
+    <filter id="drop-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+    
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#94a3b8" />
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#38bdf8" />
+    </marker>
+    <marker id="arrow-violet" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#c084fc" />
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#34d399" />
+    </marker>
+  </defs>
+
+  <!-- Header -->
+  <text x="700" y="40" text-anchor="middle" fill="#f8fafc" font-size="24" font-weight="700">dc43: Integration Sequence &amp; Data Exchange Flow</text>
+  <text x="700" y="65" text-anchor="middle" fill="#94a3b8" font-size="14">Step-by-step lifecycle: What Spark calls, what it sends, what it receives, and which stores are updated</text>
+
+  <!-- ========================================================================= -->
+  <!-- PHASE 1: PRE-FLIGHT RESOLUTION -->
+  <!-- ========================================================================= -->
+  <g transform="translate(60, 90)">
+    <rect width="1280" height="230" rx="10" fill="#0c4a6e" fill-opacity="0.3" stroke="#0284c7" stroke-width="2.5" filter="url(#drop-shadow)"/>
+    <rect x="15" y="12" width="1250" height="28" rx="4" fill="url(#grad-p1)"/>
+    <text x="640" y="31" text-anchor="middle" fill="#ffffff" font-size="13.5" font-weight="800">PHASE 1: PRE-FLIGHT RESOLUTION [📥 FETCHING INBOUND RUNTIME DEPENDENCIES]</text>
+    
+    <!-- Step 1.1: Fetch ODCS Contract -->
+    <rect x="25" y="50" width="390" height="165" rx="6" fill="#0f172a" stroke="#22c55e" stroke-width="2"/>
+    <rect x="33" y="56" width="374" height="20" rx="3" fill="#15803d"/>
+    <text x="220" y="70" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="900">📥 CONSUMED BY INTEGRATION (MANDATORY)</text>
+    <text x="35" y="93" fill="#67e8f9" font-size="12" font-weight="700">1. Authoritative ODCS Contract</text>
+    <text x="35" y="110" fill="#cbd5e1" font-size="10">• Spark calls <tspan fill="#f8fafc">ContractServiceBackend.get_contract()</tspan></text>
+    <text x="35" y="125" fill="#cbd5e1" font-size="10">• Reads <tspan fill="#34d399">ContractStore</tspan> (Collibra / Delta / SQL / FS)</text>
+    <text x="35" y="140" fill="#cbd5e1" font-size="10">• Returns: Schema types, NOT NULL, PKs, Rules</text>
+    <rect x="33" y="185" width="374" height="22" rx="3" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+    <text x="220" y="200" text-anchor="middle" fill="#fee2e2" font-size="9.5" font-weight="900">💥 IF MISSING: FATAL PIPELINE CRASH</text>
+
+    <!-- Step 1.2: Fetch Expectation Plan -->
+    <rect x="445" y="50" width="390" height="165" rx="6" fill="#0f172a" stroke="#22c55e" stroke-width="2"/>
+    <rect x="453" y="56" width="374" height="20" rx="3" fill="#15803d"/>
+    <text x="640" y="70" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="900">📥 CONSUMED BY INTEGRATION (MANDATORY)</text>
+    <text x="455" y="93" fill="#67e8f9" font-size="12" font-weight="700">2. Expectation Execution Plan</text>
+    <text x="455" y="110" fill="#cbd5e1" font-size="10">• Spark calls <tspan fill="#f8fafc">describe_expectations(contract_id)</tspan></text>
+    <text x="455" y="125" fill="#cbd5e1" font-size="10">• Normalizes contract rules into execution plan</text>
+    <text x="455" y="140" fill="#cbd5e1" font-size="10">• Returns: SQL predicates (not_null, bounds, regex)</text>
+    <rect x="453" y="185" width="374" height="22" rx="3" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+    <text x="640" y="200" text-anchor="middle" fill="#fee2e2" font-size="9.5" font-weight="900">💥 IF MISSING: IN-ENGINE DQ BYPASSED</text>
+
+    <!-- Step 1.3: Check Prior State & Links -->
+    <rect x="865" y="50" width="390" height="165" rx="6" fill="#0f172a" stroke="#22c55e" stroke-width="2"/>
+    <rect x="873" y="56" width="374" height="20" rx="3" fill="#15803d"/>
+    <text x="1060" y="70" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="900">📥 CONSUMED BY INTEGRATION (MANDATORY)</text>
+    <text x="875" y="93" fill="#67e8f9" font-size="12" font-weight="700">3. Prior Governance State (dq_status)</text>
+    <text x="875" y="110" fill="#cbd5e1" font-size="10">• Spark calls <tspan fill="#f8fafc">GovernanceServiceBackend.get_status()</tspan></text>
+    <text x="875" y="125" fill="#cbd5e1" font-size="10">• Reads <tspan fill="#34d399">dq_status</tspan> from <tspan fill="#34d399">GovernanceStore</tspan></text>
+    <text x="875" y="140" fill="#cbd5e1" font-size="10">• Verifies upstream dataset is healthy (ok/warn)</text>
+    <rect x="873" y="185" width="374" height="22" rx="3" fill="#7f1d1d" stroke="#ef4444" stroke-width="1"/>
+    <text x="1060" y="200" text-anchor="middle" fill="#fee2e2" font-size="9.5" font-weight="900">💥 IF MISSING: CIRCUIT BREAKER FAILS</text>
+  </g>
+
+  <!-- Arrow: Phase 1 -> Phase 2 -->
+  <path d="M 700 320 L 700 350" stroke="#38bdf8" stroke-width="2.5" marker-end="url(#arrow-blue)"/>
+  <text x="715" y="340" fill="#38bdf8" font-size="11" font-family="monospace">Context &amp; Expectations Loaded into Spark Runtime</text>
+
+  <!-- ========================================================================= -->
+  <!-- PHASE 2: IN-ENGINE EXECUTION & HARD DDL GATING -->
+  <!-- ========================================================================= -->
+  <g transform="translate(60, 355)">
+    <rect width="1280" height="190" rx="10" fill="#581c87" fill-opacity="0.25" stroke="#7c3aed" stroke-width="2" filter="url(#drop-shadow)"/>
+    <rect x="15" y="12" width="1250" height="28" rx="4" fill="url(#grad-p2)"/>
+    <text x="640" y="31" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">PHASE 2: IN-ENGINE EXECUTION &amp; HARD DDL GATING (Apache Spark / DLT)</text>
+    
+    <!-- Step 2.1: Interceptors -->
+    <rect x="25" y="52" width="390" height="120" rx="6" fill="#0f172a" stroke="#6d28d9" stroke-width="1"/>
+    <text x="35" y="74" fill="#c084fc" font-size="12" font-weight="700">1. Pre-Write Interceptors</text>
+    <text x="35" y="94" fill="#94a3b8" font-size="10.5">• Masks sensitive PII columns in DataFrame</text>
+    <text x="35" y="112" fill="#94a3b8" font-size="10.5">• Injects tenant metadata &amp; pipeline run context</text>
+    <text x="35" y="130" fill="#94a3b8" font-size="10.5">• Custom enrichment hooks execute in-memory</text>
+
+    <!-- Step 2.2: Hard DDL Gating -->
+    <rect x="445" y="52" width="390" height="120" rx="6" fill="#0f172a" stroke="#6d28d9" stroke-width="1"/>
+    <text x="455" y="74" fill="#c084fc" font-size="12" font-weight="700">2. ContractDDLBuilder (Hard DDL)</text>
+    <text x="455" y="94" fill="#94a3b8" font-size="10.5">• Executes: <tspan fill="#f8fafc">CREATE TABLE IF NOT EXISTS</tspan></text>
+    <text x="455" y="112" fill="#94a3b8" font-size="10.5">• Strictly enforces contract types, NOT NULL, PKs</text>
+    <text x="455" y="130" fill="#94a3b8" font-size="10.5">• Sets contract <tspan fill="#f8fafc">TBLPROPERTIES</tspan> &amp; partition clauses</text>
+
+    <!-- Step 2.3: Observation Engine -->
+    <rect x="865" y="52" width="390" height="120" rx="6" fill="#0f172a" stroke="#6d28d9" stroke-width="1"/>
+    <text x="875" y="74" fill="#c084fc" font-size="12" font-weight="700">3. In-Engine Observation Engine</text>
+    <text x="875" y="94" fill="#94a3b8" font-size="10.5">• Computes in-memory: row_count, nulls, SQL rules</text>
+    <text x="875" y="112" fill="#94a3b8" font-size="10.5">• Captures observed DataFrame schema snapshot</text>
+    <text x="875" y="130" fill="#c084fc" font-size="10.5">• Emits: <tspan fill="#f8fafc">ObservationPayload (JSON)</tspan></text>
+  </g>
+
+  <!-- Arrow: Phase 2 -> Phase 3 -->
+  <path d="M 700 545 L 700 575" stroke="#c084fc" stroke-width="2.5" marker-end="url(#arrow-violet)"/>
+  <text x="715" y="565" fill="#c084fc" font-size="11" font-family="monospace">POST /governance/evaluate (ObservationPayload)</text>
+
+  <!-- ========================================================================= -->
+  <!-- PHASE 3: EVALUATION & STATE PERSISTENCE -->
+  <!-- ========================================================================= -->
+  <g transform="translate(60, 580)">
+    <rect width="1280" height="230" rx="10" fill="#312e81" fill-opacity="0.25" stroke="#4f46e5" stroke-width="2" filter="url(#drop-shadow)"/>
+    <rect x="15" y="12" width="1250" height="28" rx="4" fill="url(#grad-p3)"/>
+    <text x="640" y="31" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">PHASE 3: EVALUATION &amp; STATE PERSISTENCE (Governance Control Plane)</text>
+    
+    <!-- Step 3.1: Evaluate Expectations -->
+    <rect x="25" y="52" width="390" height="160" rx="6" fill="#0f172a" stroke="#4338ca" stroke-width="1"/>
+    <text x="35" y="74" fill="#a5b4fc" font-size="12" font-weight="700">1. Evaluate Expectations</text>
+    <text x="35" y="94" fill="#94a3b8" font-size="10.5">• <tspan fill="#f8fafc">DataQualityServiceBackend</tspan> normalizes metrics</text>
+    <text x="35" y="112" fill="#94a3b8" font-size="10.5">• Evaluates rules via Native/GE/Soda engines</text>
+    <text x="35" y="130" fill="#94a3b8" font-size="10.5">• <tspan fill="#f8fafc">CompatibilityMatrix</tspan> computes verdict:</text>
+    <text x="45" y="148" fill="#34d399" font-size="10.5">✓ ok (fully compliant)</text>
+    <text x="45" y="164" fill="#fbbf24" font-size="10.5">⚠ warn (minor non-fatal drift)</text>
+    <text x="45" y="180" fill="#ef4444" font-size="10.5">✗ block (fatal rule violation)</text>
+
+    <!-- Step 3.2: Persist Governance State -->
+    <rect x="445" y="52" width="390" height="160" rx="6" fill="#0f172a" stroke="#4338ca" stroke-width="1"/>
+    <text x="455" y="74" fill="#a5b4fc" font-size="12" font-weight="700">2. Persist State in GovernanceStore</text>
+    <text x="455" y="94" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">UPDATE dq_status</tspan>: Saves latest verdict</text>
+    <text x="455" y="112" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">INSERT dq_dataset_contract_links</tspan>: Matrix link</text>
+    <text x="455" y="130" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">INSERT dq_metrics</tspan>: Unpacked numeric values</text>
+    <text x="455" y="148" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">INSERT dq_activity</tspan>: Immutable audit log</text>
+    <text x="455" y="174" fill="#a5b4fc" font-size="10">Drivers: PostgreSQL (DSN) / Delta Lake tables</text>
+
+    <!-- Step 3.3: Drafting & Unity Tagging -->
+    <rect x="865" y="52" width="390" height="160" rx="6" fill="#0f172a" stroke="#4338ca" stroke-width="1"/>
+    <text x="875" y="74" fill="#a5b4fc" font-size="12" font-weight="700">3. Drafting &amp; Unity Tagging Hooks</text>
+    <text x="875" y="94" fill="#94a3b8" font-size="10.5">• If schema drift &amp; <tspan fill="#f8fafc">draft_on_violation=True</tspan>:</text>
+    <text x="885" y="112" fill="#94a3b8" font-size="10.5"><tspan fill="#f8fafc">ContractDrafter</tspan> creates draft ODCS v1.1.0</text>
+    <text x="875" y="138" fill="#94a3b8" font-size="10.5">• If Unity Catalog Hook enabled:</text>
+    <text x="885" y="156" fill="#94a3b8" font-size="10.5"><tspan fill="#f8fafc">UnityCatalogLinker</tspan> connects via SQL Warehouse</text>
+    <text x="885" y="174" fill="#38bdf8" font-size="10.5">Executes <tspan fill="#f8fafc">ALTER TABLE SET TAGS</tspan></text>
+  </g>
+
+  <!-- Arrow: Phase 3 -> Phase 4 -->
+  <path d="M 700 810 L 700 840" stroke="#34d399" stroke-width="2.5" marker-end="url(#arrow-green)"/>
+  <text x="715" y="830" fill="#34d399" font-size="11" font-family="monospace">Returns QualityAssessment (Verdict: ok | warn | block)</text>
+
+  <!-- ========================================================================= -->
+  <!-- PHASE 4: ENFORCEMENT & DIRECT TELEMETRY EGRESS -->
+  <!-- ========================================================================= -->
+  <g transform="translate(60, 845)">
+    <rect width="1280" height="210" rx="10" fill="#064e3b" fill-opacity="0.25" stroke="#059669" stroke-width="2" filter="url(#drop-shadow)"/>
+    <rect x="15" y="12" width="1250" height="28" rx="4" fill="url(#grad-p4)"/>
+    <text x="640" y="31" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="700">PHASE 4: ENFORCEMENT &amp; DIRECT TELEMETRY EGRESS (Pipeline Egress &amp; Actionable Sinks)</text>
+    
+    <!-- Step 4.1: Enforcement -->
+    <rect x="25" y="52" width="390" height="140" rx="6" fill="#0f172a" stroke="#047857" stroke-width="1"/>
+    <text x="35" y="74" fill="#34d399" font-size="12" font-weight="700">1. Violation Strategy Enforcement</text>
+    <text x="35" y="94" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">ok / warn</tspan>: Writes clean rows to Primary Sink Table</text>
+    <text x="35" y="112" fill="#94a3b8" font-size="10.5">• <tspan fill="#ef4444">block</tspan>: <tspan fill="#f8fafc">SplitWriteViolationStrategy</tspan> splits data:</text>
+    <text x="45" y="130" fill="#34d399" font-size="10.5">→ Clean rows write to Target Table</text>
+    <text x="45" y="146" fill="#ef4444" font-size="10.5">→ Rejected rows write to Quarantine Table</text>
+
+    <!-- Step 4.2: OpenTelemetry Mode -->
+    <rect x="445" y="52" width="390" height="140" rx="6" fill="#0f172a" stroke="#d97706" stroke-width="1"/>
+    <text x="455" y="74" fill="#fbbf24" font-size="12" font-weight="700">2. OpenTelemetry Mode (OTLP)</text>
+    <text x="455" y="94" fill="#94a3b8" font-size="10.5">• <tspan fill="#f8fafc">record_telemetry_span()</tspan> emits trace span</text>
+    <text x="455" y="112" fill="#94a3b8" font-size="10.5">• Protocols: OTLP gRPC (:4317) &amp; HTTP (:4318)</text>
+    <text x="455" y="130" fill="#94a3b8" font-size="10.5">• Emits: <tspan fill="#f8fafc">dc43.validation</tspan> structured events</text>
+    <text x="455" y="148" fill="#fbbf24" font-size="10.5">→ Datadog / Prometheus trigger P0 alerts</text>
+
+    <!-- Step 4.3: OpenLineage Mode -->
+    <rect x="865" y="52" width="390" height="140" rx="6" fill="#0f172a" stroke="#d97706" stroke-width="1"/>
+    <text x="875" y="74" fill="#fbbf24" font-size="12" font-weight="700">3. OpenLineage Mode (RunEvent 2.0.2)</text>
+    <text x="875" y="94" fill="#94a3b8" font-size="10.5">• <tspan fill="#f8fafc">build_lineage_run_event()</tspan> emits HTTP POST</text>
+    <text x="875" y="112" fill="#94a3b8" font-size="10.5">• Custom facets: dc43Contract, dc43DataQuality</text>
+    <text x="875" y="130" fill="#94a3b8" font-size="10.5">• Marquez / DataHub render DAG blast radius</text>
+    <text x="875" y="148" fill="#fbbf24" font-size="10.5">→ Automatically pauses downstream Airflow DAGs</text>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- ACTIONABLE SUMMARY FOOTER -->
+  <!-- ========================================================================= -->
+  <g transform="translate(60, 1075)">
+    <rect width="1280" height="175" rx="10" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5" filter="url(#drop-shadow)"/>
+    <text x="25" y="30" fill="#38bdf8" font-size="14" font-weight="700">SUMMARY: HOW THE INTEGRATION CONSUMES &amp; CLOSES THE FEEDBACK LOOPS</text>
+    
+    <text x="25" y="58" fill="#e0f2fe" font-size="11.5" font-weight="600">1. Schema Evolution Loop:</text>
+    <text x="35" y="76" fill="#94a3b8" font-size="10.5">ContractDrafter proposes draft ODCS v1.1.0 → Data Steward reviews in Collibra UI → Once approved, promoted to active in ContractStore.</text>
+
+    <text x="25" y="102" fill="#e0f2fe" font-size="11.5" font-weight="600">2. Downstream Reader Gating Loop:</text>
+    <text x="35" y="120" fill="#94a3b8" font-size="10.5">Downstream Spark pipelines query dq_status before reading tables. If status == 'block', reader raises error to prevent corrupt data propagation.</text>
+
+    <text x="25" y="146" fill="#e0f2fe" font-size="11.5" font-weight="600">3. Active ABAC Policy Enforcement:</text>
+    <text x="35" y="164" fill="#94a3b8" font-size="10.5">Unity Catalog tags (dc43_status='block') automatically prevent BI dashboards and analysts from running SQL queries on quarantined datasets.</text>
+  </g>
+
+</svg>

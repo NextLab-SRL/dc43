@@ -1,6 +1,9 @@
 from .common import (
     GovernanceSparkReadRequest,
     GovernanceSparkWriteRequest,
+    GovernanceSparkDeclareRequest,
+    GovernanceDeclareContext,
+    build_spark_sql_ref,
 )
 
 from .resolution import (
@@ -33,6 +36,7 @@ from .base import (
     BatchReadExecutor,
     StreamingReadExecutor,
     BaseWriteExecutor,
+    BaseDeclareExecutor,
     WriteExecutionResult,
 )
 
@@ -60,9 +64,14 @@ from .interceptors import (
     BaseGovernanceInterceptor,
 )
 
+from ..ddl import ContractDDLBuilder
+
 __all__ = [
     "GovernanceSparkReadRequest",
     "GovernanceSparkWriteRequest",
+    "GovernanceSparkDeclareRequest",
+    "GovernanceDeclareContext",
+    "build_spark_sql_ref",
     "DatasetResolution",
     "DatasetLocatorStrategy",
     "ContractFirstDatasetLocator",
@@ -82,6 +91,7 @@ __all__ = [
     "read_with_governance",
     "read_stream_with_governance",
     "BaseWriteExecutor",
+    "BaseDeclareExecutor",
     "WriteExecutionResult",
     "write_with_governance",
     "declare_with_governance",
@@ -89,4 +99,5 @@ __all__ = [
     "GovernanceInterceptor",
     "InterceptorContext",
     "BaseGovernanceInterceptor",
+    "ContractDDLBuilder",
 ]

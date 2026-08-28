@@ -26,6 +26,10 @@ request = GovernanceSparkWriteRequest(
     # Advanced: Use a modifier function to apply Spark-specific configurations (like partitionBy or trigger)
     # writer_modifier=lambda w: w.partitionBy("date").trigger(availableNow=True)
     
+    # Advanced: Customize or extend generated DDL when creating a table for the first time
+    # ddl_modifier=lambda ddl: ddl + "\nTBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true')",
+    # table_properties={"delta.enableChangeDataFeed": "true"},
+    
     # Optional: Apply an ordered sequence of lifecycle interceptors
     # interceptors=["utils.pii:PrivacyInterceptor", "utils.enrichment:UnityCatalogInterceptor"]
 )
@@ -42,16 +46,64 @@ execution_result = write_with_governance(
 # Check the outcome
 if not execution_result.validation.ok:
     print(f"Warnings: {execution_result.validation.warnings}")
+    print(f"Errors: {execution_result.validation.errors}")
 ```
 
 ## How It Works
 
-1. **Interceptors**: Any defined interceptors (passed explicitly via `interceptors` or configured globally via `DC43_GOVERNANCE_INTERCEPTORS`) are applied to the DataFrame lifecycle.
-   * **Sequence Order**: `pre_write` hooks (like PII masking) are executed before the schema alignment. After standard constraints are checked, data is written. Upon successful persist, `post_write` hooks (like Unity Catalog tagging) apply.
-2. **Alignment**: The DataFrame columns are re-ordered and cast to match the exact contract specification.
-3. **Quality Evaluation**: Spark computes metrics based on the data expectations defined in the Data Contract.
-4. **Governance Assessment**: The integration hands the metrics over to the `governance_service`. The service decides if the payload meets the contract standard.
-5. **Sink Writing**: If everything passes (or if `enforce=False`), the aligned data is written to the destination sink.
+1. **Interceptors (Pre-Write)**: Any defined interceptors (passed explicitly via `interceptors` or configured globally via `DC43_GOVERNANCE_INTERCEPTORS`) execute `pre_write` hooks (e.g., PII masking) before schema validation.
+2. **Alignment & Quality Evaluation**: The DataFrame columns are re-ordered and cast to match the contract specification. Spark computes metrics based on the data expectations defined in the Data Contract.
+3. **Governance Assessment**: The integration hands the metrics over to the `governance_service`.
+4. **Hard Gated DDL Pre-Creation**: When writing to a table that does not exist yet, `dc43` uses `ContractDDLBuilder` to generate and execute the strict `CREATE TABLE IF NOT EXISTS` DDL derived from the contract:
+   * **Data Types & Nullability**: Columns and their Spark SQL types with `NOT NULL` constraints (`required: true`).
+   * **Primary Keys**: `CONSTRAINT pk_... PRIMARY KEY (...)` for `primaryKey: true` fields (on Delta Lake / Unity Catalog).
+   * **Partitioning & Clustering**: `PARTITIONED BY (...)` (`partitioned: true`) or Databricks `CLUSTER BY (...)` (`clustering`).
+   * **Table Properties & Prefix Conventions**: `TBLPROPERTIES (...)` populated from contract `customProperties.tableProperties` and `request.table_properties`.
+   * **Custom DDL Hook**: `request.ddl_modifier` allows programmatic customization of the DDL string before execution.
+5. **Sink Writing**: If validation passes (or if `enforce=False` is set for non-blocking DQ observations), the aligned data is written to the destination sink.
+6. **Interceptors (Post-Write) & Error Tracking**: `post_write` hooks (like Unity Catalog tagging) execute. Any failure in post-write hooks is automatically recorded in `execution_result.validation.errors` (and raises an exception if `enforce=True`).
+
+## Contract-to-DDL Conventions & Prefixes
+
+When defining Data Contracts (ODCS), `dc43` adheres to standard property conventions to generate dialect-aware table definitions:
+
+### 1. Table Properties (`customProperties.tableProperties`) & Prefix Scoping
+
+In your ODCS contract YAML, define table properties under `customProperties.tableProperties`:
+
+```yaml
+customProperties:
+  clustering:
+    - customer_id
+    - order_date
+  tableProperties:
+    # Delta Lake specific properties (prefixed with delta.)
+    delta.enableChangeDataFeed: "true"
+    delta.autoOptimize.optimizeWrite: "true"
+    delta.autoOptimize.autoCompact: "true"
+    delta.deletedFileRetentionDuration: "interval 30 days"
+    
+    # Generic metadata / Governance properties (preserved across all formats)
+    domain: "finance"
+    owner: "data_engineering"
+    data_classification: "confidential"
+```
+
+#### Prefix Convention Rules:
+* **`delta.<property>`**: Scoped specifically to **Delta Lake** tables. When the write destination is `format="delta"`, these are injected directly into `TBLPROPERTIES (...)`. When the destination is a non-Delta format (`parquet`, `orc`), `dc43` **automatically filters out** all `delta.*` properties so the target metastore/catalog does not reject the DDL.
+* **`iceberg.<property>` / `write.<property>`**: Scoped to **Apache Iceberg** tables (e.g. `write.format.default='parquet'`).
+* **Unprefixed / Generic properties** (e.g. `owner`, `domain`, `classification`): Injected into `TBLPROPERTIES` across all supported table formats.
+
+### 2. Column-Level Constraints & Partitioning
+
+| ODCS Contract Attribute | Generated DDL Clause (Delta) | Generated DDL Clause (Parquet/Standard) |
+| :--- | :--- | :--- |
+| `required: true` | `col_name type NOT NULL` | `col_name type NOT NULL` |
+| `primaryKey: true` | `CONSTRAINT pk_<tbl> PRIMARY KEY (col1, ...)` | *(Omitted - not supported in pure Hive/Parquet DDL)* |
+| `partitioned: true` | `PARTITIONED BY (col1, ...)` | `PARTITIONED BY (col1, ...)` |
+| `customProperties.clustering: [...]` | `CLUSTER BY (col1, ...)` *(Liquid Clustering)* | *(Falls back to `PARTITIONED BY` if defined)* |
+| `description: "..."` | `col_name type COMMENT '...'` | `col_name type COMMENT '...'` |
+| `path: "/mnt/lake/table"` (no table name) | `CREATE TABLE delta.\`/mnt/lake/table\`` | `CREATE TABLE \`table\` ... LOCATION '/mnt/lake/table'` |
 
 ## Streaming Writers
 

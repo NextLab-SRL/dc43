@@ -53,7 +53,7 @@ single field without editing the TOML file:
     (`open_data_lineage`), or record OpenTelemetry spans (`open_telemetry`).
     Spark integrations also consult configuration keys named
     `dc43.governance.publicationMode`, `dc43.governance.publication_mode`, or
-    `governance.publication.mode`.
+    `governance.publication.mode`. (See [Stores, Telemetry & Observability](stores-telemetry-and-observability.md) for full payload reference and actionable tool integrations).
 * Additional backend specific overrides exist for the contracts UI (see
   [Contracts app configuration](#contracts-app-configuration)).
 
@@ -359,6 +359,8 @@ example, `status` → `status_metrics`). Override `metrics_table` explicitly whe
 your deployment already exposes a populated metrics table or uses a different
 schema layout—the services will honour the configured name without attempting to
 derive one.
+
+> 📘 For a detailed guide on what information is written to `dq_status`, `dq_activity`, `dq_links`, and `dq_metrics`, see the comprehensive [Stores, Telemetry, and Actionable Observability](stores-telemetry-and-observability.md) guide.
 
 > When the service uses Delta-backed contract or data product stores, the
 > process must run in an environment that can authenticate against the target

@@ -7,10 +7,16 @@
 - Added documentation and patterns for duplicate quarantine strategies in Spark pipelines using window functions (`ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)`).
 - Added support for checking float format using `logicalTypeOptions` properties `decimalSeparator` and `thousandsSeparator` for string fields.
 - Added support for checking integer format using `logicalTypeOptions` property `thousandsSeparator` for string fields.
+- Added `ContractDDLBuilder` in `dc43-integrations` to enforce Hard Gated table pre-creation with strict DDL matching the Data Contract (column types, `NOT NULL` constraints, `PRIMARY KEY`, `PARTITIONED BY` / `CLUSTER BY`, and `TBLPROPERTIES`).
+- Added `ddl_modifier` and `table_properties` hooks to `GovernanceSparkWriteRequest` for controlled DDL customization.
+- Added error tracking and observability for `post_write` governance interceptors (e.g. Unity Catalog tagging), recording side-effect failures in `ValidationResult.errors`.
+- Added a dedicated, comprehensive documentation guide [Stores, Telemetry, and Actionable Observability](docs/operations/stores-telemetry-and-observability.md) detailing the Governance vs. Observability taxonomy, exact message payload structures, end-to-end service routing, interactive tldraw ([`.tldr`](docs/diagrams/stores-telemetry-architecture.tldr)) & vector SVG ([`.svg`](docs/diagrams/stores-telemetry-architecture.svg)) architecture diagrams, and actionable tooling integration patterns (Datadog, Prometheus, Marquez, Unity Catalog, Collibra).
 
 ### Fixed
 - Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.
 - Improved logging inside `compute_metrics` to avoid alarmist "CRASH" labeling when validation rules fail or throw query execution exceptions.
+- Fixed a `NameError: name 'build_spark_sql_ref' is not defined` inside `BaseDeclareExecutor._evaluate_inputs` when executing `declare_with_governance`.
+- Exported `GovernanceSparkDeclareRequest`, `GovernanceDeclareContext`, `build_spark_sql_ref`, and `BaseDeclareExecutor` in `dc43_integrations.spark.io`.
 
 
 ## [0.42.0.0] - 2026-05-21

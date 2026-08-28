@@ -4,6 +4,13 @@
 
 ### Added
 - Added metric computation support in Spark for ODCS v3.1.0 `duplicateValues` (single & multi-column compound keys), `missingValues` (with custom missing lists), `invalidValues` (enum and regex patterns), and `rowCount`.
+- Introduced `ContractDDLBuilder` to generate and execute strict `CREATE TABLE IF NOT EXISTS` DDL statements matching the Data Contract schema, supporting `NOT NULL` constraints (`required: true`), `PRIMARY KEY` (`primaryKey: true`), `PARTITIONED BY` (`partitioned: true`), `CLUSTER BY` (Liquid Clustering), and `TBLPROPERTIES`.
+- Added `ddl_modifier` and `table_properties` in `GovernanceSparkWriteRequest` to allow custom DDL enrichment during table creation.
+- Added error capturing and observability for `post_write` governance interceptors (e.g. Unity Catalog tagging), recording failures into `ValidationResult.errors` and respecting the `enforce` flag.
+
+### Fixed
+- Fixed a `NameError: name 'build_spark_sql_ref' is not defined` inside `BaseDeclareExecutor._evaluate_inputs` when executing `declare_with_governance`.
+- Exported `GovernanceSparkDeclareRequest`, `GovernanceDeclareContext`, `build_spark_sql_ref`, and `BaseDeclareExecutor` in `dc43_integrations.spark.io`.
 
 
 ## [0.42.0.0] - 2026-05-21
