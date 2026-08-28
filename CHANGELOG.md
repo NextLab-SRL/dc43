@@ -15,6 +15,8 @@
 ### Fixed
 - Fixed a bug where `exact_format` SQL predicate generation used `to_timestamp` which crashed under Spark's ANSI mode when encountering invalid values. Changed to `try_to_timestamp` to return `NULL` on parsing failure instead of raising exceptions.
 - Improved logging inside `compute_metrics` to avoid alarmist "CRASH" labeling when validation rules fail or throw query execution exceptions.
+- Fixed a `NameError: name 'build_spark_sql_ref' is not defined` inside `BaseDeclareExecutor._evaluate_inputs` when executing `declare_with_governance`.
+- Exported `GovernanceSparkDeclareRequest`, `GovernanceDeclareContext`, `build_spark_sql_ref`, and `BaseDeclareExecutor` in `dc43_integrations.spark.io`.
 
 
 ## [0.42.0.0] - 2026-05-21

@@ -14,12 +14,15 @@ from typing import (
     Literal,
     Iterable,
 )
-from typing import Tuple
 from dataclasses import dataclass
 
 from pyspark.sql import DataFrame, SparkSession
 
-from .common import GovernanceSparkReadRequest, GovernanceSparkWriteRequest
+from .common import (
+    GovernanceSparkReadRequest,
+    GovernanceSparkWriteRequest,
+    build_spark_sql_ref,
+)
 
 from dc43_service_clients.contracts.client.interface import ContractServiceClient
 from dc43_service_clients.data_quality.client.interface import DataQualityServiceClient
@@ -1118,13 +1121,6 @@ class BaseDeclareExecutor(BaseWriteExecutor):
         self.spark = spark
         self.sql_template = sql_template
         self.inputs = inputs
-
-        from dc43_integrations.spark.io.common import (
-            GovernanceSparkReadRequest,
-            GovernanceSparkWriteRequest,
-            build_spark_sql_ref,
-        )
-        
         self._governance_req_type = GovernanceSparkReadRequest
 
         # 1. Evaluate inputs to trigger read lineage and validations
