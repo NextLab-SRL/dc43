@@ -260,11 +260,17 @@ def resolve_table_name(
         return object_name
 
     server_type = (_get_server_attr(server, "type") or "").lower()
+    server_format = (_get_server_attr(server, "format") or "").lower()
     catalog = _get_server_attr(server, "catalog")
     schema_val = _get_server_attr(server, "schema_", "schema")
     database = _get_server_attr(server, "database")
     dataset = _get_server_attr(server, "dataset")
     project = _get_server_attr(server, "project")
+
+    # Non-table server types (streaming, file storage) without table coordinates
+    if server_type in ("stream", "streaming", "kafka", "s3", "adls", "abfss", "gcs", "file", "local", "filesystem") or server_format in ("rate", "memory", "kafka", "socket", "console"):
+        if not (catalog or schema_val or database or project):
+            return None
 
     # Databricks / Unity Catalog
     if server_type in ("databricks", "catalog", "unity", "delta") or catalog:
@@ -284,8 +290,10 @@ def resolve_table_name(
                 filtered_parts.append(p)
         return ".".join(filtered_parts) if filtered_parts else None
 
-    # Fallback when only object_name or dataset is present
-    return object_name or dataset
+    if server_type in ("sql", "rdbms", "postgres", "postgresql", "mysql", "oracle", "sqlserver", "snowflake", "sqlite", "table", "view"):
+        return object_name or dataset
+
+    return None
 
 
 def resolve_storage_path(

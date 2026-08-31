@@ -1004,8 +1004,8 @@ def _execute_write_request(
         # Pre-create sink table using ContractDDLBuilder to ensure contract DDL conformity
         try:
             spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
-            if spark is not None and (request.table or request.streaming):
-                tgt_fmt = request.format or "delta"
+            tgt_fmt = (request.format or "delta").lower()
+            if spark is not None and tgt_fmt not in ("memory", "console", "socket", "rate", "noop") and (request.table or (request.path and request.streaming)):
                 table_exists = False
                 if request.table:
                     try:
