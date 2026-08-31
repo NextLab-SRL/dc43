@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.43.0.0] - 2026-08-31
+
+### Added
+- Added `resolve_table_name`, `resolve_storage_path`, `list_schema_objects`, and `find_schema_object` to facilitate standard ODCS table and path resolution across Server types (Databricks, Snowflake, BigQuery, SQL, and storage paths) and SchemaObjects (`physicalName`).
+- Enhanced `build_odcs()` with `physical_name` and `physical_type` parameters.
+
 ## [0.42.0.0] - 2026-05-21
 
 ### Fixed

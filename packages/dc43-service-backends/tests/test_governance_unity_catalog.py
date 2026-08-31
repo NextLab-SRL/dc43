@@ -98,6 +98,45 @@ def test_linker_uses_contract_servers_before_dataset_id() -> None:
     assert updates == ["dev.bronze.orders"]
 
 
+def test_linker_uses_contract_server_and_schema_objects() -> None:
+    from open_data_contract_standard.model import SchemaObject
+    updates: list[str] = []
+
+    def _update(table_name: str, properties: Mapping[str, str]) -> None:
+        updates.append(table_name)
+
+    contract = OpenDataContractStandard(
+        id="sales.orders",
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        servers=[
+            Server(server="unity", type="databricks", catalog="governed", schema="analytics"),
+        ],
+        schema=[
+            SchemaObject(name="orders", physicalName="orders", physicalType="table"),
+            SchemaObject(name="order_items", physicalName="order_items", physicalType="table"),
+        ]
+    )
+
+    linker = UnityCatalogLinker(
+        apply_table_properties=_update,
+        contract_loader=lambda *_: contract,
+        contract_table_resolver=contract_servers_table_resolver,
+        table_resolver=prefix_table_resolver("table__"),
+    )
+
+    linker.link_dataset_contract(
+        dataset_id="ignored.dataset",
+        dataset_version="1",
+        contract_id="sales.orders",
+        contract_version="0.1.0",
+    )
+
+    assert updates == ["governed.analytics.orders", "governed.analytics.order_items"]
+
+
+
 def test_linker_falls_back_to_dataset_identifier_when_contract_missing() -> None:
     updates: list[str] = []
 

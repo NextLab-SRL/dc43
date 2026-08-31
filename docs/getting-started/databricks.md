@@ -105,7 +105,7 @@ Delta-backed contract store:
 
 ```python
 from open_data_contract_standard.model import (
-    OpenDataContractStandard, SchemaObject, SchemaProperty, Description
+    OpenDataContractStandard, Server, SchemaObject, SchemaProperty, Description
 )
 
 orders_contract = OpenDataContractStandard(
@@ -115,9 +115,19 @@ orders_contract = OpenDataContractStandard(
     id="sales.orders",
     name="Orders",
     description=Description(usage="Orders facts"),
+    servers=[
+        Server(
+            server="production",
+            type="databricks",
+            catalog="governed",
+            schema="analytics",
+        )
+    ],
     schema_=[
         SchemaObject(
             name="orders",
+            physicalName="orders",
+            physicalType="table",
             properties=[
                 SchemaProperty(name="order_id", physicalType="bigint", required=True, unique=True),
                 SchemaProperty(name="customer_id", physicalType="bigint", required=True),
@@ -147,6 +157,10 @@ data_product_backend.register_output_port(
     contract=orders_contract,
 )
 ```
+
+> [!TIP]
+> **Data Modeling Best Practice (ODCS vs ODPS)**:
+> In `dc43`, the recommended pattern is **1 Data Contract (ODCS) for 1 Technical Table**. When a business domain encompasses multiple tables (e.g. `orders`, `order_items`, `customers`), encapsulate them under a shared **Data Product (ODPS)** with multiple output ports. This guarantees independent lifecycles (SemVer), isolated data quality alerts, and unambiguous table referencing. See [ODCS vs ODPS Best Practices](../architecture.md#data-modeling--granularity-odcs-vs-odps-best-practices) for details.
 
 The backend persists both artefacts in Delta tables under the base paths you set
 in the configuration file. You can inspect them directly with `spark.read.format("delta")`.

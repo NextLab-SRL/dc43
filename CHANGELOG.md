@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
+## [0.43.0.0] - 2026-08-31
+
 ### Added
+- Aligned table resolution and contract modeling with the Open Data Contract Standard (ODCS) specification:
+  - ODCS `Server` objects declare environment, catalog, and schema coordinates (`catalog`, `schema_`/`schema`, `database`, `project`), while physical table/view names reside within `contract.schema_` as `SchemaObject` models via `physicalName` (and `physicalType="table"` / `"view"`).
+  - Added `resolve_table_name`, `resolve_storage_path`, `list_schema_objects`, and `find_schema_object` helpers in `dc43-core` (`dc43_core.odcs`).
+  - Added support in `ContractFirstDatasetLocator` and `_ref_from_contract` in `dc43-integrations` to resolve fully-qualified table identifiers from Server + SchemaObject (`physicalName`/`name`) across Databricks, Snowflake, BigQuery, and SQL engines, with fallback to storage paths.
+  - Added `schema_object` selection and automatic table resolution to `ContractDDLBuilder`.
+  - Added support in `dc43-service-backends` Unity Catalog table resolver to combine `catalog` and `schema` from `contract.servers` with `physicalName` from `contract.schema_`.
+  - Added `physicalName` and `physicalType` capture and preservation in contract drafting (`draft_contract_from_dataframe`, `draft_from_observations`, `draft_from_validation_result`).
+  - Added `physicalName` and `physicalType` form inputs and display badges in `dc43-contracts-app` (`new_contract.html`, `contract_detail.html`, `_schema_object_state`, `_schema_objects_models`).
 - Added native support for the full set of ODCS v3.1.0 standard data quality metrics: `nullValues`, `missingValues` (with custom missing lists), `invalidValues` (with `validValues` enum or `pattern` regex), `duplicateValues` (single column and schema-level compound key `arguments.properties`), and `rowCount`.
 - Added documentation and patterns for duplicate quarantine strategies in Spark pipelines using window functions (`ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)`).
 - Added support for checking float format using `logicalTypeOptions` properties `decimalSeparator` and `thousandsSeparator` for string fields.

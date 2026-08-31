@@ -415,12 +415,20 @@
           <input class="form-control" data-field="name" placeholder="orders_enriched"/>
         </div>
         <div class="col-md-4">
+          <label class="form-label">Physical name</label>
+          <input class="form-control" data-field="physicalName" placeholder="orders"/>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Physical type</label>
+          <input class="form-control" data-field="physicalType" placeholder="table"/>
+        </div>
+        <div class="col-md-6">
           <label class="form-label">Business name</label>
           <input class="form-control" data-field="businessName"/>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6">
           <label class="form-label">Logical type</label>
-          <input class="form-control" data-field="logicalType"/>
+          <input class="form-control" data-field="logicalType" placeholder="object"/>
         </div>
         <div class="col-12">
           <label class="form-label">Description</label>
@@ -1276,7 +1284,7 @@
 
   function createSchemaObject(initial) {
     const node = createFromTemplate('schema-object-template');
-    ['name', 'description', 'businessName', 'logicalType'].forEach((field) => {
+    ['name', 'physicalName', 'physicalType', 'description', 'businessName', 'logicalType'].forEach((field) => {
       const input = node.querySelector('[data-field="' + field + '"]');
       if (input) {
         const value = initial && initial[field] !== undefined ? initial[field] : '';
@@ -1701,7 +1709,7 @@
         return null;
       }
       const data = { name, properties };
-      ['description', 'businessName', 'logicalType'].forEach((field) => {
+      ['physicalName', 'physicalType', 'description', 'businessName', 'logicalType'].forEach((field) => {
         const input = obj.querySelector('[data-field="' + field + '"]');
         if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
           const value = input.value.trim();

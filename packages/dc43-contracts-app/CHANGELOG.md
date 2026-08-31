@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.43.0.0] - 2026-08-31
+
+### Added
+- Added `physicalName` and `physicalType` field management to the contract creation and editing form (`new_contract.html`), preserving them across serialization and model parsing.
+- Added `physicalName` and `physicalType` badge displays in the contract detail schema view (`contract_detail.html`).
+
 ## [0.41.0.0] - 2026-03-26
 
 ## [0.39.0.0] - 2026-03-18

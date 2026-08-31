@@ -71,12 +71,23 @@ def _ensure_schema_object(
     contract: OpenDataContractStandard,
     *,
     default_name: str | None = None,
+    physical_name: str | None = None,
+    physical_type: str | None = None,
 ) -> SchemaObject:
     schema_objects = list(getattr(contract, "schema_", []) or [])
     if schema_objects:
         obj = schema_objects[0]
+        if physical_name and not getattr(obj, "physicalName", None):
+            obj.physicalName = physical_name
+        if physical_type and not getattr(obj, "physicalType", None):
+            obj.physicalType = physical_type
     else:
-        obj = SchemaObject(name=default_name, properties=[])
+        obj = SchemaObject(
+            name=default_name,
+            physicalName=physical_name,
+            physicalType=physical_type or "table",
+            properties=[],
+        )
         schema_objects.append(obj)
         contract.schema_ = schema_objects
     return obj
@@ -112,6 +123,8 @@ def draft_contract_from_dataframe(
     dataset_version: str | None = None,
     draft_context: Mapping[str, object] | None = None,
     name: str | None = None,
+    physical_name: str | None = None,
+    physical_type: str | None = None,
     description: str | None = None,
     collect_metrics: bool = False,
 ) -> DraftContractResult:
@@ -128,6 +141,12 @@ def draft_contract_from_dataframe(
         raise ValueError("contract_id is required when base_contract is not provided")
 
     snapshot = schema_snapshot(df)
+    inferred_physical_name = physical_name or (
+        dataset_id.split(":")[-1].split(".")[-1]
+        if dataset_id
+        else (name.split(".")[-1] if name else (contract_id.split(".")[-1] if contract_id else None))
+    )
+    inferred_physical_type = physical_type or "table"
 
     if base_contract is None:
         properties = _properties_from_snapshot(snapshot)
@@ -138,7 +157,14 @@ def draft_contract_from_dataframe(
             api_version=ODCS_REQUIRED,
             name=name or contract_id,
             description=description,
-            schema_objects=[SchemaObject(name=name or contract_id, properties=properties)],
+            schema_objects=[
+                SchemaObject(
+                    name=name or contract_id,
+                    physicalName=inferred_physical_name,
+                    physicalType=inferred_physical_type,
+                    properties=properties,
+                )
+            ],
         )
     else:
         ensure_version(base_contract)
@@ -178,7 +204,12 @@ def draft_contract_from_dataframe(
     draft.version = f"{bump}-{suffix}" if suffix else str(bump)
     draft.status = "draft"
 
-    schema_obj = _ensure_schema_object(draft, default_name=name or contract_id)
+    schema_obj = _ensure_schema_object(
+        draft,
+        default_name=name or contract_id,
+        physical_name=inferred_physical_name,
+        physical_type=inferred_physical_type,
+    )
     _update_properties(schema_obj, schema)
 
     context_payload: Dict[str, object] = {}

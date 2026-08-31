@@ -255,6 +255,13 @@ def draft_from_validation_result(
                 pipeline_value = str(raw)
                 break
 
+    if draft.schema_:
+        for obj in draft.schema_:
+            if not getattr(obj, "physicalName", None) and dataset_id:
+                obj.physicalName = dataset_id.split(":")[-1].split(".")[-1]
+            if not getattr(obj, "physicalType", None):
+                obj.physicalType = "table"
+
     change_log: List[Dict[str, Any]] = []
     change_log = _apply_schema_feedback(
         draft,
@@ -401,6 +408,13 @@ def draft_from_observations(
             if raw:
                 pipeline_value = str(raw)
                 break
+
+    if draft.schema_:
+        for obj in draft.schema_:
+            if not getattr(obj, "physicalName", None) and dataset_id:
+                obj.physicalName = dataset_id.split(":")[-1].split(".")[-1]
+            if not getattr(obj, "physicalType", None):
+                obj.physicalType = "table"
 
     change_log = _apply_schema_feedback(
         draft,

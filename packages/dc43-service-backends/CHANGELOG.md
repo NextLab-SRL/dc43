@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
+## [0.43.0.0] - 2026-08-31
+
 ### Added
+- Aligned Unity Catalog table resolution and contract drafting with ODCS:
+  - Updated `contract_servers_table_resolver` to resolve Unity Catalog tables from Server `catalog` + `schema` combined with `contract.schema_` `physicalName` (and `physicalType="table"` / `"view"`), retaining backwards-compatible fallback to `server.dataset`.
+  - Updated drafting helpers (`draft_from_observations`, `draft_from_validation_result`) to preserve and assign `physicalName` and `physicalType` on generated SchemaObjects.
 - Added native quality & schema extractors for ODCS v3.1.0 standard metrics: `nullValues`, `missingValues` (with custom missing value lists), `invalidValues` (with `validValues` enum or `pattern` regex), `duplicateValues` (single column & compound key `arguments.properties`), and `rowCount`.
 - Added support for checking float format using `logicalTypeOptions` properties `decimalSeparator` and `thousandsSeparator` for string fields.
 - Added support for checking integer format using `logicalTypeOptions` property `thousandsSeparator` for string fields.

@@ -56,3 +56,48 @@ def test_to_model_coerces_numeric_fields():
     assert contract.version == "5"
     assert contract.apiVersion == "3.1"
 
+
+def test_schema_object_and_table_resolution():
+    from open_data_contract_standard.model import Server, SchemaObject, SchemaProperty
+    from dc43_core import (
+        list_schema_objects,
+        find_schema_object,
+        resolve_table_name,
+        resolve_storage_path,
+    )
+
+    doc = build_odcs(
+        contract_id="sales.orders",
+        version="1.0.0",
+        kind="DataContract",
+        api_version=ODCS_REQUIRED,
+        physical_name="orders",
+        physical_type="table",
+        properties=[SchemaProperty(name="id", physicalType="bigint")],
+        servers=[
+            Server(server="databricks", type="databricks", catalog="governed", schema="analytics"),
+            Server(server="snowflake", type="snowflake", database="prod", schema="sales"),
+            Server(server="bigquery", type="bigquery", project="my-project", dataset="dw"),
+            Server(server="s3", type="s3", location="s3://my-bucket/orders"),
+        ],
+    )
+
+    objs = list_schema_objects(doc)
+    assert len(objs) == 1
+    assert objs[0].physicalName == "orders"
+    assert objs[0].physicalType == "table"
+
+    obj = find_schema_object(doc, "orders")
+    assert obj is not None
+    assert obj.physicalName == "orders"
+
+    # Databricks
+    assert resolve_table_name(doc.servers[0], obj) == "governed.analytics.orders"
+    # Snowflake
+    assert resolve_table_name(doc.servers[1], obj) == "prod.sales.orders"
+    # BigQuery
+    assert resolve_table_name(doc.servers[2], obj) == "my-project.dw.orders"
+    # S3
+    assert resolve_storage_path(doc.servers[3], obj) == "s3://my-bucket/orders"
+
+

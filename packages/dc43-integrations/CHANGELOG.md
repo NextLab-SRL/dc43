@@ -2,7 +2,14 @@
 
 ## [Unreleased]
 
+## [0.43.0.0] - 2026-08-31
+
 ### Added
+- Aligned Spark dataset resolution with standard ODCS models:
+  - `ContractFirstDatasetLocator` and `_ref_from_contract` now resolve fully qualified table identifiers using `contract.servers` (`catalog`, `schema`, `database`, `project`) combined with `contract.schema_` `physicalName` (and `physicalType="table"` / `"view"`).
+  - Added support for targeting specific `schema_object` and `server` in `ContractFirstDatasetLocator`.
+  - Added `schema_object` filtering and automatic table reference resolution in `ContractDDLBuilder`.
+  - Enhanced `draft_contract_from_dataframe` with `physical_name` and `physical_type` parameters, ensuring generated SchemaObjects include `physicalName` and `physicalType="table"`.
 - Added metric computation support in Spark for ODCS v3.1.0 `duplicateValues` (single & multi-column compound keys), `missingValues` (with custom missing lists), `invalidValues` (enum and regex patterns), and `rowCount`.
 - Introduced `ContractDDLBuilder` to generate and execute strict `CREATE TABLE IF NOT EXISTS` DDL statements matching the Data Contract schema, supporting `NOT NULL` constraints (`required: true`), `PRIMARY KEY` (`primaryKey: true`), `PARTITIONED BY` (`partitioned: true`), `CLUSTER BY` (Liquid Clustering), and `TBLPROPERTIES`.
 - Added `ddl_modifier` and `table_properties` in `GovernanceSparkWriteRequest` to allow custom DDL enrichment during table creation.

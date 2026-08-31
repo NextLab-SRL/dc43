@@ -41,6 +41,7 @@ class ContractDDLBuilder:
         table: Optional[str] = None,
         path: Optional[str] = None,
         format: Optional[str] = None,
+        schema_object: Optional[str] = None,
         table_properties: Optional[Mapping[str, str]] = None,
         ddl_modifier: Optional[Callable[[str], str]] = None,
     ) -> None:
@@ -48,14 +49,30 @@ class ContractDDLBuilder:
         self.table = table
         self.path = path
         self.format = (format or "delta").lower()
+        self.schema_object = schema_object
         self.table_properties = dict(table_properties or {})
         self.ddl_modifier = ddl_modifier
 
     def build_create_table_sql(self) -> str:
         """Generate a CREATE TABLE IF NOT EXISTS statement representing the contract schema."""
-        props = list_properties(self.contract)
+        props: List[SchemaProperty] = []
+        if self.schema_object:
+            from dc43_core.odcs import find_schema_object
+            obj = find_schema_object(self.contract, self.schema_object)
+            if obj and obj.properties:
+                props = list(obj.properties)
+        if not props:
+            props = list_properties(self.contract)
         if not props:
             raise ValueError(f"Contract {self.contract.id} has no defined properties for DDL generation")
+
+        if not self.table and not self.path:
+            from dc43_integrations.spark.io.locators import _ref_from_contract
+            c_path, c_table = _ref_from_contract(self.contract, schema_object_name=self.schema_object)
+            if c_table:
+                self.table = c_table
+            elif c_path:
+                self.path = c_path
 
         column_defs: List[str] = []
         pk_cols: List[str] = []

@@ -119,3 +119,61 @@ def test_contract_locator_promotes_table_like_path_when_catalog_confirms():
 
     assert resolution.table == table_name
     assert resolution.path is None
+
+
+def test_contract_locator_resolves_databricks_unity_table():
+    from open_data_contract_standard.model import OpenDataContractStandard, Server, SchemaObject, SchemaProperty
+
+    contract = OpenDataContractStandard(
+        id="sales.orders",
+        version="1.0.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        servers=[
+            Server(server="databricks_prod", type="databricks", catalog="governed", schema="analytics")
+        ],
+        schema=[
+            SchemaObject(name="orders", physicalName="orders", physicalType="table", properties=[
+                SchemaProperty(name="id", physicalType="bigint")
+            ])
+        ]
+    )
+
+    locator = ContractFirstDatasetLocator()
+    res = locator.for_read(
+        contract=contract,
+        spark=SimpleNamespace(),
+        format=None,
+        path=None,
+        table=None,
+    )
+
+    assert res.table == "governed.analytics.orders"
+    assert res.path is None
+
+
+def test_contract_locator_resolves_multi_schema_object():
+    from open_data_contract_standard.model import OpenDataContractStandard, Server, SchemaObject, SchemaProperty
+
+    contract = OpenDataContractStandard(
+        id="sales.crm",
+        version="1.0.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        servers=[
+            Server(server="unity", type="databricks", catalog="governed", schema="crm")
+        ],
+        schema=[
+            SchemaObject(name="customers", physicalName="dim_customers", physicalType="table"),
+            SchemaObject(name="transactions", physicalName="fct_transactions", physicalType="table"),
+        ]
+    )
+
+    locator_default = ContractFirstDatasetLocator()
+    res_default = locator_default.for_read(contract=contract, spark=SimpleNamespace(), format=None, path=None, table=None)
+    assert res_default.table == "governed.crm.dim_customers"
+
+    locator_tx = ContractFirstDatasetLocator(schema_object="transactions")
+    res_tx = locator_tx.for_read(contract=contract, spark=SimpleNamespace(), format=None, path=None, table=None)
+    assert res_tx.table == "governed.crm.fct_transactions"
+

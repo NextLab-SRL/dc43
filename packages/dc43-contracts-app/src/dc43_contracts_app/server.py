@@ -8432,6 +8432,8 @@ def _schema_object_state(obj: SchemaObject) -> Dict[str, Any]:
     ]
     return {
         "name": obj.name or "",
+        "physicalName": getattr(obj, "physicalName", "") or "",
+        "physicalType": getattr(obj, "physicalType", "") or "",
         "description": obj.description or "",
         "businessName": obj.businessName or "",
         "logicalType": obj.logicalType or "",
@@ -9295,10 +9297,10 @@ def _schema_objects_models(items: Optional[Iterable[Mapping[str, Any]]]) -> List
         payload: Dict[str, Any] = {}
         if name:
             payload["name"] = name
-        for field in ("description", "businessName", "logicalType"):
+        for field in ("description", "businessName", "logicalType", "physicalName", "physicalType"):
             value = item.get(field)
             if value not in (None, ""):
-                payload[field] = value
+                payload[field] = str(value)
         custom_props = _custom_properties_models(item.get("customProperties"))
         if custom_props:
             payload["customProperties"] = custom_props
