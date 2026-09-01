@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Added `CompositeGovernanceStore` in `dc43-service-backends` to orchestrate multi-store fan-out and selective role-based routing across multiple backends.
+- Added `type = "composite"` support in `GovernanceStoreConfig` and service configuration loaders, supporting named backend blocks (`[governance_store.backends.<name>]`) and routing tables (`[governance_store.routes]`) with catch-all keys (`all`, `*`) and specific signal routes (`status`, `links`, `metrics`, `activity`).
+- Updated documentation and sequence flow diagrams covering the Control Plane vs. Telemetry Store split and composite routing architecture.
+
 ## [0.43.0.0] - 2026-08-31
 
 ### Added

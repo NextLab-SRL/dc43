@@ -3,6 +3,7 @@
 from .interface import GovernanceStore
 from .memory import InMemoryGovernanceStore
 from .filesystem import FilesystemGovernanceStore
+from .composite import CompositeGovernanceStore
 
 try:  # pragma: no cover - optional dependency
     from .sql import SQLGovernanceStore
@@ -26,4 +27,5 @@ __all__ = [
     "SQLGovernanceStore",
     "DeltaGovernanceStore",
     "HttpGovernanceStore",
+    "CompositeGovernanceStore",
 ]

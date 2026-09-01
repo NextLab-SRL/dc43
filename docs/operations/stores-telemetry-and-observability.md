@@ -280,22 +280,51 @@ CREATE TABLE dq_activity (
 In enterprise environments, governance and observability artefacts often need to land in **different specialized backends** or be **broadcast simultaneously across multiple stores** (e.g. status in Delta Lake for fast lakehouse gating, metrics in TimescaleDB/PostgreSQL for Grafana dashboards, and audit logs in S3/Filesystem for compliance archive):
 
 ```
-                                      ┌──> [Store 1: Delta Lake] ────> Status & Links (Lakehouse Gating)
+                                      ┌──> [Backend 1: Delta Lake] ──> Status & Links (Lakehouse Gating)
                                       │
-[GovernanceServiceBackend] ──(Fan-Out)─┼──> [Store 2: PostgreSQL] ────> Metrics & Dashboards (Time-Series)
+[GovernanceServiceBackend] ──(Fan-Out)─┼──> [Backend 2: PostgreSQL] ──> Metrics & Dashboards (Time-Series)
                                       │
-                                      └──> [Store 3: S3 / Storage] ──> Immutable Audit Log (SOX Archive)
+                                      └──> [Backend 3: S3 / ADLS] ────> Immutable Audit Log (SOX Archive)
 ```
 
 #### How a Composite Store Works:
 1. **Fan-Out on Writes (`save_status`, `record_pipeline_event`, `link_dataset_contract`)**:
-   - The Composite Store iterates through its configured child stores sequentially or concurrently.
-   - If a child store only implements a subset of features (e.g. ignores metrics or does not support links), it can simply no-op or raise `NotImplementedError`, which the Composite safely handles.
+   - The Composite Store routes operations to the designated backends.
+   - If a backend only implements a subset of features (or raises `NotImplementedError`), the Composite Store absorbs it safely without disrupting the pipeline.
 2. **Primary / Fallback on Reads (`load_status`, `load_metrics`, `list_datasets`)**:
-   - Reads query the primary authoritative store first (e.g. Delta/SQL) and can fallback to secondary stores if needed.
-3. **Role-Based Routing vs. Broadcast**:
-   - **Broadcast Mode**: Every write event is mirrored across all registered backends.
-   - **Role-Based Mode**: Routes `status` to a low-latency key-value or Delta table, `metrics` to a time-series store, and `activity` to cold object storage.
+   - Reads query the primary responsive store registered for that route and fallback to subsequent stores if needed.
+3. **Flexible Routing (`all` / `*` Catch-All)**:
+   - **`all` (or `*`)**: Directs all signals/tables to the specified store by default.
+   - Specific overrides (`metrics`, `activity`, `status`, `links`) redirect or fan-out individual signals to dedicated backends.
+
+#### TOML Configuration Example:
+
+```toml
+[governance_store]
+type = "composite"
+
+# 1. Backends declarations
+[governance_store.backends.lakehouse]
+type = "delta"
+status_table   = "main.gov.dq_status"
+link_table     = "main.gov.dq_links"
+activity_table = "main.gov.dq_activity"
+
+[governance_store.backends.bi_sql]
+type = "sql"
+dsn = "postgresql://bi_user:pwd@postgres:5432/analytics"
+metrics_table = "dq_metrics"
+
+[governance_store.backends.audit_s3]
+type = "filesystem"
+root = "s3://company-sox-vault/governance-events/"
+
+# 2. Routing table (Optional: defaults to broadcasting across all backends)
+[governance_store.routes]
+all      = ["lakehouse"]              # Catch-All: all signals default to Delta Lake
+metrics  = ["bi_sql"]                 # Divert metrics to PostgreSQL BI
+activity = ["lakehouse", "audit_s3"]  # Fan-out: persist audit logs to Delta AND S3!
+```
 
 ---
 
