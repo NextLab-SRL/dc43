@@ -44,16 +44,16 @@
     {
       "id": "page:page",
       "typeName": "page",
-      "name": "Integration Sequence Flow",
+      "name": "dc43 Integration Sequence",
       "index": "a1",
       "meta": {}
     },
     {
       "id": "camera:page:page",
       "typeName": "camera",
-      "x": 0,
+      "x": -50,
       "y": 0,
-      "z": 0.6,
+      "z": 0.55,
       "meta": {}
     },
     {
@@ -146,7 +146,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "Step-by-step lifecycle: What Spark calls, what it sends, what it receives, and stores updated"
+                  "text": "Step-by-step lifecycle: What Spark calls, what it sends, what it receives, and multi-store fan-out routing"
                 }
               ]
             }
@@ -333,22 +333,27 @@
                       ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "type": "paragraph",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "💥 "
                 },
                 {
-                  "type": "text",
-                  "text": "IF MISSING: Fatal pipeline crash",
-                  "marks": [
+                  "type": "listItem",
+                  "content": [
                     {
-                      "type": "bold"
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "💥  "
+                        },
+                        {
+                          "type": "text",
+                          "text": "IF MISSING: Fatal pipeline crash",
+                          "marks": [
+                            {
+                              "type": "bold"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 }
@@ -448,22 +453,27 @@
                       ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "type": "paragraph",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "💥 "
                 },
                 {
-                  "type": "text",
-                  "text": "IF MISSING: DQ assertions bypassed",
-                  "marks": [
+                  "type": "listItem",
+                  "content": [
                     {
-                      "type": "bold"
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "💥  "
+                        },
+                        {
+                          "type": "text",
+                          "text": "IF MISSING: DQ assertions bypassed",
+                          "marks": [
+                            {
+                              "type": "bold"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 }
@@ -510,7 +520,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "3. Check Prior State & Links",
+                  "text": "3. Check Prior State (Control Plane Store)",
                   "marks": [
                     {
                       "type": "bold"
@@ -558,27 +568,32 @@
                       "content": [
                         {
                           "type": "text",
-                          "text": "Verifies upstream dataset is healthy (ok)"
+                          "text": "Verifies upstream dataset is healthy (ok/warn)"
                         }
                       ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "type": "paragraph",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "💥 "
                 },
                 {
-                  "type": "text",
-                  "text": "IF MISSING: Downstream gating inactive",
-                  "marks": [
+                  "type": "listItem",
+                  "content": [
                     {
-                      "type": "bold"
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "💥  "
+                        },
+                        {
+                          "type": "text",
+                          "text": "IF MISSING: Downstream gating inactive",
+                          "marks": [
+                            {
+                              "type": "bold"
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1163,7 +1178,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "PHASE 3: EVALUATION & STATE PERSISTENCE (Governance Control Plane Coordination)",
+                  "text": "PHASE 3: EVALUATION & MULTI-STORE FAN-OUT (Governance Control Plane Coordination)",
                   "marks": [
                     {
                       "type": "bold"
@@ -1338,7 +1353,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "2. Persist State in GovernanceStore",
+                  "text": "2. GovernanceStore (Control Plane) & Telemetry Sink",
                   "marks": [
                     {
                       "type": "bold"
@@ -1358,7 +1373,7 @@
                       "content": [
                         {
                           "type": "text",
-                          "text": "UPDATE dq_status: Saves latest verdict"
+                          "text": "UPDATE dq_status: Saves latest verdict (gating)"
                         }
                       ]
                     }
@@ -1386,7 +1401,7 @@
                       "content": [
                         {
                           "type": "text",
-                          "text": "INSERT dq_metrics: Unpacked numeric points"
+                          "text": "Multi-Store Fan-Out to telemetry sinks:"
                         }
                       ]
                     }
@@ -1400,7 +1415,21 @@
                       "content": [
                         {
                           "type": "text",
-                          "text": "INSERT dq_activity: Immutable regulatory log"
+                          "text": "→ INSERT dq_metrics: Unpacked numeric points"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "→ INSERT dq_activity: Immutable regulatory log"
                         }
                       ]
                     }
@@ -1449,7 +1478,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "3. Drafting & Unity Tagging Hooks",
+                  "text": "3. Drafting & Catalog Tagging Fan-Out",
                   "marks": [
                     {
                       "type": "bold"
@@ -1482,7 +1511,7 @@
               "content": [
                 {
                   "type": "text",
-                  "text": "ContractDrafter creates draft ODCS v1.1.0"
+                  "text": "ContractDrafter writes draft in ContractStore"
                 }
               ]
             },
@@ -1738,24 +1767,34 @@
                       ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "type": "paragraph",
-              "content": [
+                },
                 {
-                  "type": "text",
-                  "text": "→ Clean rows written to Target Table"
-                }
-              ]
-            },
-            {
-              "type": "paragraph",
-              "content": [
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "→ Clean rows written to Target Table"
+                        }
+                      ]
+                    }
+                  ]
+                },
                 {
-                  "type": "text",
-                  "text": "→ Rejected rows routed to Quarantine Table"
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "→ Rejected rows routed to Quarantine Table"
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }
@@ -1853,15 +1892,20 @@
                       ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "type": "paragraph",
-              "content": [
+                },
                 {
-                  "type": "text",
-                  "text": "→ Datadog / Prometheus trigger P0 alerts"
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "→ Datadog / Prometheus trigger P0 alerts"
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }
@@ -1959,15 +2003,20 @@
                       ]
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "type": "paragraph",
-              "content": [
+                },
                 {
-                  "type": "text",
-                  "text": "→ Automatically pauses downstream Airflow DAGs"
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph",
+                      "content": [
+                        {
+                          "type": "text",
+                          "text": "→ Automatically pauses downstream Airflow DAGs"
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }

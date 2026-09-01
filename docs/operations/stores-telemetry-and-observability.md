@@ -112,7 +112,8 @@ sequenceDiagram
     participant CStore as ContractStore<br/>(Collibra / Delta / SQL / FS)
     participant Gov as GovernanceServiceBackend<br/>(Coordinator)
     participant DQ as DataQualityServiceBackend<br/>(DQManager / Engines)
-    participant GStore as GovernanceStore<br/>(dq_status / links / metrics / activity)
+    participant GovStore as GovernanceStore (Control Plane)<br/>(dq_status / dq_links)
+    participant ObsStore as Telemetry & Audit Store (Data Plane)<br/>(dq_metrics / dq_activity)
     participant UC as Unity Catalog Hook<br/>(Databricks SQL Warehouse)
     participant APM as OpenTelemetry / OpenLineage<br/>(Collector / Marquez)
 
@@ -126,8 +127,8 @@ sequenceDiagram
     Gov-->>Spark: Return Expectation Execution Plan (Normalized SQL rules)
 
     Spark->>Gov: GET /governance/status/{dataset_id}
-    Gov->>GStore: SELECT payload FROM dq_status WHERE dataset_id = :id
-    GStore-->>Gov: Latest status
+    Gov->>GovStore: SELECT payload FROM dq_status WHERE dataset_id = :id
+    GovStore-->>Gov: Latest status
     Gov-->>Spark: Prior Dataset State (Checks if upstream is blocked)
 
     Note over Spark: PHASE 2: IN-ENGINE EXECUTION & DDL GATING
@@ -135,7 +136,7 @@ sequenceDiagram
     Spark->>Spark: 2. ContractDDLBuilder: CREATE TABLE IF NOT EXISTS
     Spark->>Spark: 3. Observation Engine: Compute metrics & schema snapshot
 
-    Note over Spark,GStore: PHASE 3: EVALUATION & STATE PERSISTENCE
+    Note over Spark,ObsStore: PHASE 3: EVALUATION & STATE PERSISTENCE (Multi-Store Fan-Out)
     Spark->>Gov: POST /governance/evaluate (ObservationPayload)
     Gov->>DQ: Evaluate observations against contract rules
     DQ-->>Gov: ValidationResult (ok, errors, warnings)
@@ -146,10 +147,10 @@ sequenceDiagram
         CS->>CStore: Save new Draft ODCS proposal (v1.1.0)
     end
 
-    Gov->>GStore: 1. UPDATE dq_status (Latest state)
-    Gov->>GStore: 2. INSERT dq_dataset_contract_links (Compatibility link)
-    Gov->>GStore: 3. INSERT dq_metrics (Decomposed numeric points)
-    Gov->>GStore: 4. INSERT dq_activity (Audit log + pipeline context)
+    Gov->>GovStore: 1. UPDATE dq_status (Latest state for gating)
+    Gov->>GovStore: 2. INSERT dq_dataset_contract_links (Compatibility matrix link)
+    Gov->>ObsStore: 3. INSERT dq_metrics (Decomposed numeric time-series)
+    Gov->>ObsStore: 4. INSERT dq_activity (Audit log + pipeline context)
     
     opt If Unity Catalog Tagging Enabled
         Gov->>UC: Databricks SQL DSN: ALTER TABLE SET TAGS ('dc43_status'='ok')
@@ -273,6 +274,28 @@ CREATE TABLE dq_activity (
     PRIMARY KEY (dataset_id, dataset_version)
 );
 ```
+
+### C. Composite Stores & Multi-Store Fan-Out Architecture
+
+In enterprise environments, governance and observability artefacts often need to land in **different specialized backends** or be **broadcast simultaneously across multiple stores** (e.g. status in Delta Lake for fast lakehouse gating, metrics in TimescaleDB/PostgreSQL for Grafana dashboards, and audit logs in S3/Filesystem for compliance archive):
+
+```
+                                      ┌──> [Store 1: Delta Lake] ────> Status & Links (Lakehouse Gating)
+                                      │
+[GovernanceServiceBackend] ──(Fan-Out)─┼──> [Store 2: PostgreSQL] ────> Metrics & Dashboards (Time-Series)
+                                      │
+                                      └──> [Store 3: S3 / Storage] ──> Immutable Audit Log (SOX Archive)
+```
+
+#### How a Composite Store Works:
+1. **Fan-Out on Writes (`save_status`, `record_pipeline_event`, `link_dataset_contract`)**:
+   - The Composite Store iterates through its configured child stores sequentially or concurrently.
+   - If a child store only implements a subset of features (e.g. ignores metrics or does not support links), it can simply no-op or raise `NotImplementedError`, which the Composite safely handles.
+2. **Primary / Fallback on Reads (`load_status`, `load_metrics`, `list_datasets`)**:
+   - Reads query the primary authoritative store first (e.g. Delta/SQL) and can fallback to secondary stores if needed.
+3. **Role-Based Routing vs. Broadcast**:
+   - **Broadcast Mode**: Every write event is mirrored across all registered backends.
+   - **Role-Based Mode**: Routes `status` to a low-latency key-value or Delta table, `metrics` to a time-series store, and `activity` to cold object storage.
 
 ---
 

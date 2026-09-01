@@ -139,21 +139,22 @@
 
     <!-- Step 3.2: Persist Governance State -->
     <rect x="445" y="52" width="390" height="160" rx="6" fill="#0f172a" stroke="#4338ca" stroke-width="1"/>
-    <text x="455" y="74" fill="#a5b4fc" font-size="12" font-weight="700">2. Persist State in GovernanceStore</text>
-    <text x="455" y="94" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">UPDATE dq_status</tspan>: Saves latest verdict</text>
+    <text x="455" y="74" fill="#a5b4fc" font-size="12" font-weight="700">2. GovernanceStore (Control Plane)</text>
+    <text x="455" y="94" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">UPDATE dq_status</tspan>: Saves latest verdict (gating)</text>
     <text x="455" y="112" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">INSERT dq_dataset_contract_links</tspan>: Matrix link</text>
-    <text x="455" y="130" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">INSERT dq_metrics</tspan>: Unpacked numeric values</text>
-    <text x="455" y="148" fill="#94a3b8" font-size="10.5">• <tspan fill="#34d399">INSERT dq_activity</tspan>: Immutable audit log</text>
-    <text x="455" y="174" fill="#a5b4fc" font-size="10">Drivers: PostgreSQL (DSN) / Delta Lake tables</text>
+    <text x="455" y="130" fill="#94a3b8" font-size="10.5">• <tspan fill="#f8fafc">Multi-Store Fan-Out</tspan> to telemetry &amp; audit sinks:</text>
+    <text x="465" y="148" fill="#fbbf24" font-size="10.5">→ <tspan fill="#fbbf24">dq_metrics</tspan> (numeric time-series points)</text>
+    <text x="465" y="164" fill="#fbbf24" font-size="10.5">→ <tspan fill="#fbbf24">dq_activity</tspan> (immutable audit trail)</text>
+    <text x="455" y="184" fill="#a5b4fc" font-size="9.5">Drivers: Delta Lake / PostgreSQL / S3 Filesystem</text>
 
     <!-- Step 3.3: Drafting & Unity Tagging -->
     <rect x="865" y="52" width="390" height="160" rx="6" fill="#0f172a" stroke="#4338ca" stroke-width="1"/>
-    <text x="875" y="74" fill="#a5b4fc" font-size="12" font-weight="700">3. Drafting &amp; Unity Tagging Hooks</text>
+    <text x="875" y="74" fill="#a5b4fc" font-size="12" font-weight="700">3. Drafting &amp; Catalog Fan-Out</text>
     <text x="875" y="94" fill="#94a3b8" font-size="10.5">• If schema drift &amp; <tspan fill="#f8fafc">draft_on_violation=True</tspan>:</text>
-    <text x="885" y="112" fill="#94a3b8" font-size="10.5"><tspan fill="#f8fafc">ContractDrafter</tspan> creates draft ODCS v1.1.0</text>
+    <text x="885" y="112" fill="#94a3b8" font-size="10.5"><tspan fill="#f8fafc">ContractDrafter</tspan> writes draft in <tspan fill="#34d399">ContractStore</tspan></text>
     <text x="875" y="138" fill="#94a3b8" font-size="10.5">• If Unity Catalog Hook enabled:</text>
     <text x="885" y="156" fill="#94a3b8" font-size="10.5"><tspan fill="#f8fafc">UnityCatalogLinker</tspan> connects via SQL Warehouse</text>
-    <text x="885" y="174" fill="#38bdf8" font-size="10.5">Executes <tspan fill="#f8fafc">ALTER TABLE SET TAGS</tspan></text>
+    <text x="885" y="174" fill="#38bdf8" font-size="10.5">Executes <tspan fill="#f8fafc">ALTER TABLE SET TAGS ('dc43_status')</tspan></text>
   </g>
 
   <!-- Arrow: Phase 3 -> Phase 4 -->
