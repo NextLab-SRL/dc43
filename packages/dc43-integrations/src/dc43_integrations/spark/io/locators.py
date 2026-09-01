@@ -17,7 +17,13 @@ from typing import (
 from pyspark.sql import DataFrame, SparkSession
 from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
 
-from dc43_service_backends.core.odcs import custom_properties_dict
+from dc43_service_backends.core.odcs import (
+    custom_properties_dict,
+    find_schema_object,
+    list_schema_objects,
+    resolve_table_name,
+    resolve_storage_path,
+)
 from dc43_service_backends.core.versioning import SemVer
 
 from dc43_integrations.spark.io.common import (
@@ -39,32 +45,87 @@ def _timestamp() -> str:
     return now.isoformat().replace("+00:00", "Z")
 
 
-def _ref_from_contract(contract: OpenDataContractStandard) -> tuple[Optional[str], Optional[str]]:
-    """Return ``(path, table)`` derived from the contract's first server."""
-    if not contract.servers:
+def _ref_from_contract(
+    contract: OpenDataContractStandard,
+    *,
+    schema_object_name: Optional[str] = None,
+    server_name: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(path, table)`` derived from the contract's servers and schema objects."""
+    if not contract or not contract.servers:
         return None, None
-    server: Server = contract.servers[0]
-    try:
-        path = server.path  # type: ignore
-    except AttributeError:
-        path = None
-    if path:
-        return path, None
-    # Build table name from catalog/schema/database/dataset parts when present
-    try:
-        last = server.dataset or server.database  # type: ignore
-        parts = [server.catalog, server.schema_, last]  # type: ignore
-        table = ".".join([p for p in parts if p]) if any(parts) else None
+
+    server: Optional[Server] = None
+    if server_name:
+        server = next(
+            (
+                s
+                for s in contract.servers
+                if getattr(s, "server", None) == server_name
+                or getattr(s, "id", None) == server_name
+            ),
+            contract.servers[0],
+        )
+    else:
+        server = contract.servers[0]
+
+    # First check if the server defines a storage path (e.g. S3, local, filesystem)
+    if server:
+        try:
+            path = server.path or getattr(server, "location", None)
+        except AttributeError:
+            path = None
+        if path:
+            return str(path), None
+
+    # Resolve schema object
+    schema_object = None
+    schema_objects = getattr(contract, "schema_", getattr(contract, "schema", None))
+    if schema_objects:
+        if schema_object_name:
+            schema_object = next(
+                (
+                    obj
+                    for obj in schema_objects
+                    if obj.name == schema_object_name
+                    or getattr(obj, "physicalName", None) == schema_object_name
+                    or getattr(obj, "id", None) == schema_object_name
+                ),
+                schema_objects[0],
+            )
+        else:
+            schema_object = schema_objects[0]
+
+    # Resolve table name from server and schema object
+    table = resolve_table_name(server, schema_object)
+    if table:
         return None, table
-    except AttributeError:
-        return None, None
+
+    # Fallback to server dataset/database if present
+    if server:
+        try:
+            last = getattr(server, "dataset", None) or getattr(server, "database", None)
+            catalog = getattr(server, "catalog", None)
+            schema_val = getattr(server, "schema_", None)
+            if schema_val is None or callable(schema_val):
+                if hasattr(server, "__dict__"):
+                    schema_val = server.__dict__.get("schema")
+            parts = [p for p in (catalog, schema_val, last) if p and not callable(p)]
+            table = ".".join(str(p) for p in parts) if any(parts) else None
+            return None, table
+        except Exception:
+            return None, None
+
+    return None, None
 
 
 @dataclass
 class ContractFirstDatasetLocator:
-    """Default locator that favours contract servers over provided hints."""
+    """Default locator that favours contract servers and schema objects over provided hints."""
 
     clock: Callable[[], str] = _timestamp
+    schema_object: Optional[str] = None
+    server: Optional[str] = None
 
     def _resolve_base(
         self,
@@ -75,14 +136,31 @@ class ContractFirstDatasetLocator:
         format: Optional[str],
         spark: Optional[SparkSession] = None,
     ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[Server]]:
-        server: Optional[Server] = None
-        if contract and contract.servers:
-            c_path, c_table = _ref_from_contract(contract)
-            server = contract.servers[0]
-            if server is not None:
-                try:
-                    c_format = server.format  # type: ignore[attr-defined]
-                except AttributeError:
+        server_obj: Optional[Server] = None
+        if contract:
+            c_path, c_table = _ref_from_contract(
+                contract,
+                schema_object_name=self.schema_object,
+                server_name=self.server,
+            )
+            if contract.servers:
+                server_obj = contract.servers[0]
+                if self.server:
+                    server_obj = next(
+                        (
+                            s
+                            for s in contract.servers
+                            if getattr(s, "server", None) == self.server
+                            or getattr(s, "id", None) == self.server
+                        ),
+                        contract.servers[0],
+                    )
+                if server_obj is not None:
+                    try:
+                        c_format = server_obj.format  # type: ignore[attr-defined]
+                    except AttributeError:
+                        c_format = None
+                else:
                     c_format = None
             else:
                 c_format = None
@@ -98,7 +176,7 @@ class ContractFirstDatasetLocator:
             format=format,
             spark=spark,
         )
-        return path, table, format, server
+        return path, table, format, server_obj
 
     def _resolution(
         self,

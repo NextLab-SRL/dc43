@@ -195,20 +195,42 @@ def _table_identifier_from_server(server: object) -> str | None:
 
 
 def contract_servers_table_resolver(contract: OpenDataContractStandard) -> Sequence[str]:
-    """Return Unity Catalog table identifiers from ``contract.servers``."""
+    """Return Unity Catalog table identifiers from ``contract.servers`` and ``contract.schema_``."""
 
     tables: list[str] = []
     seen: set[str] = set()
+
+    schema_objects = getattr(contract, "schema_", getattr(contract, "schema", None)) or []
+
     for server in contract.servers or []:
-        table = _table_identifier_from_server(server)
-        if not table:
-            continue
-        canonical = _normalise_table_identifier(table)
-        if canonical and canonical in seen:
-            continue
-        if canonical:
-            seen.add(canonical)
-        tables.append(table)
+        catalog = _server_attribute(server, "catalog")
+        schema = _server_attribute(server, "schema_", "schema", "database")
+        server_type = (_server_attribute(server, "type") or "").lower()
+
+        # If we have catalog/schema or a databricks/catalog server, combine with schema objects
+        resolved_from_objects = False
+        if catalog or schema or server_type in ("databricks", "catalog", "unity"):
+            for obj in schema_objects:
+                obj_name = getattr(obj, "physicalName", None) or getattr(obj, "name", None)
+                if obj_name and not callable(obj_name):
+                    parts = [p for p in (catalog, schema, str(obj_name)) if p]
+                    if parts:
+                        table = ".".join(parts)
+                        canonical = _normalise_table_identifier(table)
+                        if canonical and canonical not in seen:
+                            seen.add(canonical)
+                            tables.append(table)
+                            resolved_from_objects = True
+
+        # Fallback to legacy server.dataset resolution if no schema objects resolved
+        if not resolved_from_objects:
+            table = _table_identifier_from_server(server)
+            if table:
+                canonical = _normalise_table_identifier(table)
+                if canonical and canonical not in seen:
+                    seen.add(canonical)
+                    tables.append(table)
+
     return tuple(tables)
 
 

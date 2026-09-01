@@ -199,7 +199,11 @@
   </div>
   <div class="tab-pane fade" id="schema" role="tabpanel" aria-labelledby="schema-tab">
     {% for s in contract.schema %}
-      <h5>{{ s.name }}</h5>
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h5 class="mb-0">{{ s.name }}</h5>
+        {% if s.physicalName %}<span class="badge bg-light text-dark border">Physical: <code>{{ s.physicalName }}</code></span>{% endif %}
+        {% if s.physicalType %}<span class="badge bg-secondary">{{ s.physicalType }}</span>{% endif %}
+      </div>
       <table class="table table-sm">
         <thead><tr><th>Name</th><th>Type</th><th>Required</th></tr></thead>
         <tbody>

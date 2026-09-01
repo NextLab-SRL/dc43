@@ -505,6 +505,18 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
             timeout=config.timeout,
         )
 
+    if store_type == "composite":
+        from .governance.backend.stores.composite import CompositeGovernanceStore
+
+        if not config.backends:
+            raise RuntimeError(
+                "governance_store.backends must declare at least one backend when type is 'composite'"
+            )
+        built_backends: dict[str, GovernanceStore] = {}
+        for name, b_config in config.backends.items():
+            built_backends[name] = build_governance_store(b_config)
+        return CompositeGovernanceStore(backends=built_backends, routes=config.routes)
+
     raise RuntimeError(f"Unsupported governance store type: {store_type}")
 
 

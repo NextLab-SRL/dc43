@@ -31,6 +31,29 @@ def test_datasets_index(client: TestClient) -> None:
     assert "datasets" in resp.text.lower()
 
 
+def test_schema_objects_state_and_models_preserves_physical_name_and_type() -> None:
+    obj = SchemaObject(
+        name="orders",
+        physicalName="fct_orders",
+        physicalType="table",
+        description="Orders facts",
+        businessName="Orders",
+        logicalType="object",
+        properties=[SchemaProperty(name="id", physicalType="bigint")],
+    )
+    state = server._schema_object_state(obj)
+    assert state["name"] == "orders"
+    assert state["physicalName"] == "fct_orders"
+    assert state["physicalType"] == "table"
+
+    models = server._schema_objects_models([state])
+    assert len(models) == 1
+    assert models[0].name == "orders"
+    assert models[0].physicalName == "fct_orders"
+    assert models[0].physicalType == "table"
+
+
+
 def test_summarise_metrics_groups_snapshots() -> None:
     summary = server._summarise_metrics(
         [

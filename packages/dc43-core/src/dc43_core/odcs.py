@@ -200,6 +200,115 @@ def custom_properties_dict(source: Any) -> Dict[str, Any]:
     return props
 
 
+def list_schema_objects(doc: OpenDataContractStandard) -> List[SchemaObject]:
+    """Return all SchemaObject instances from the contract schema."""
+    ensure_version(doc)
+    return list(doc.schema_ or [])
+
+
+def find_schema_object(
+    doc: OpenDataContractStandard,
+    name: str | None = None,
+) -> Optional[SchemaObject]:
+    """Find a SchemaObject by name, physicalName, or id, defaulting to the first."""
+    objects = list_schema_objects(doc)
+    if not objects:
+        return None
+    if name is None:
+        return objects[0]
+    for obj in objects:
+        if (
+            obj.name == name
+            or getattr(obj, "physicalName", None) == name
+            or getattr(obj, "id", None) == name
+        ):
+            return obj
+    return None
+
+
+def _get_server_attr(server: object, *attr_names: str) -> Optional[str]:
+    """Safely extract non-callable attribute from a server object."""
+    if server is None:
+        return None
+    for name in attr_names:
+        if hasattr(server, "__dict__") and name in server.__dict__:
+            val = server.__dict__[name]
+            if val is not None and not callable(val):
+                return str(val)
+        val = getattr(server, name, None)
+        if val is not None and not callable(val):
+            return str(val)
+    return None
+
+
+def resolve_table_name(
+    server: Optional[Server],
+    schema_object: Optional[SchemaObject] = None,
+) -> Optional[str]:
+    """Derive fully-qualified table identifier from Server and SchemaObject."""
+    object_name = None
+    if schema_object is not None:
+        object_name = getattr(schema_object, "physicalName", None) or getattr(
+            schema_object, "name", None
+        )
+        if callable(object_name):
+            object_name = None
+        elif object_name is not None:
+            object_name = str(object_name)
+
+    if server is None:
+        return object_name
+
+    server_type = (_get_server_attr(server, "type") or "").lower()
+    server_format = (_get_server_attr(server, "format") or "").lower()
+    catalog = _get_server_attr(server, "catalog")
+    schema_val = _get_server_attr(server, "schema_", "schema")
+    database = _get_server_attr(server, "database")
+    dataset = _get_server_attr(server, "dataset")
+    project = _get_server_attr(server, "project")
+
+    # Non-table server types (streaming, file storage) without table coordinates
+    if server_type in ("stream", "streaming", "kafka", "s3", "adls", "abfss", "gcs", "file", "local", "filesystem") or server_format in ("rate", "memory", "kafka", "socket", "console"):
+        if not (catalog or schema_val or database or project):
+            return None
+
+    # Databricks / Unity Catalog
+    if server_type in ("databricks", "catalog", "unity", "delta") or catalog:
+        parts = [p for p in (catalog, schema_val or database, object_name or dataset) if p]
+        return ".".join(parts) if parts else None
+
+    # BigQuery
+    if server_type in ("bigquery", "googlecloudsql") or project:
+        parts = [p for p in (project, dataset or schema_val, object_name) if p]
+        return ".".join(parts) if parts else None
+
+    # Snowflake / Postgres / SQL Databases
+    if database or schema_val:
+        filtered_parts: List[str] = []
+        for p in (catalog, database, schema_val, object_name or dataset):
+            if p and (not filtered_parts or p != filtered_parts[-1]):
+                filtered_parts.append(p)
+        return ".".join(filtered_parts) if filtered_parts else None
+
+    if server_type in ("sql", "rdbms", "postgres", "postgresql", "mysql", "oracle", "sqlserver", "snowflake", "sqlite", "table", "view"):
+        return object_name or dataset
+
+    return None
+
+
+def resolve_storage_path(
+    server: Optional[Server],
+    schema_object: Optional[SchemaObject] = None,
+) -> Optional[str]:
+    """Derive storage path / location from Server and SchemaObject."""
+    if server is None:
+        return None
+    path = getattr(server, "path", None) or getattr(server, "location", None)
+    if not path:
+        return None
+    return path
+
+
 def build_odcs(
     *,
     contract_id: str,
@@ -208,6 +317,8 @@ def build_odcs(
     api_version: str,
     name: str | None = None,
     description: str | None = None,
+    physical_name: str | None = None,
+    physical_type: str | None = None,
     properties: List[SchemaProperty] | None = None,
     schema_objects: List[SchemaObject] | None = None,
     custom_properties: List[CustomProperty] | None = None,
@@ -219,7 +330,14 @@ def build_odcs(
     a single SchemaObject.
     """
     if schema_objects is None:
-        schema_objects = [SchemaObject(name=name, properties=properties or [])]
+        schema_objects = [
+            SchemaObject(
+                name=name or contract_id,
+                physicalName=physical_name,
+                physicalType=physical_type,
+                properties=properties or [],
+            )
+        ]
     return OpenDataContractStandard(
         version=version,
         kind=kind,
@@ -242,6 +360,10 @@ __all__ = [
     "ensure_version",
     "contract_identity",
     "list_properties",
+    "list_schema_objects",
+    "find_schema_object",
+    "resolve_table_name",
+    "resolve_storage_path",
     "field_map",
     "fingerprint",
     "normalise_custom_properties",

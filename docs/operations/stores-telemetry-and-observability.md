@@ -112,7 +112,8 @@ sequenceDiagram
     participant CStore as ContractStore<br/>(Collibra / Delta / SQL / FS)
     participant Gov as GovernanceServiceBackend<br/>(Coordinator)
     participant DQ as DataQualityServiceBackend<br/>(DQManager / Engines)
-    participant GStore as GovernanceStore<br/>(dq_status / links / metrics / activity)
+    participant GovStore as GovernanceStore (Control Plane)<br/>(dq_status / dq_links)
+    participant ObsStore as Telemetry & Audit Store (Data Plane)<br/>(dq_metrics / dq_activity)
     participant UC as Unity Catalog Hook<br/>(Databricks SQL Warehouse)
     participant APM as OpenTelemetry / OpenLineage<br/>(Collector / Marquez)
 
@@ -126,8 +127,8 @@ sequenceDiagram
     Gov-->>Spark: Return Expectation Execution Plan (Normalized SQL rules)
 
     Spark->>Gov: GET /governance/status/{dataset_id}
-    Gov->>GStore: SELECT payload FROM dq_status WHERE dataset_id = :id
-    GStore-->>Gov: Latest status
+    Gov->>GovStore: SELECT payload FROM dq_status WHERE dataset_id = :id
+    GovStore-->>Gov: Latest status
     Gov-->>Spark: Prior Dataset State (Checks if upstream is blocked)
 
     Note over Spark: PHASE 2: IN-ENGINE EXECUTION & DDL GATING
@@ -135,7 +136,7 @@ sequenceDiagram
     Spark->>Spark: 2. ContractDDLBuilder: CREATE TABLE IF NOT EXISTS
     Spark->>Spark: 3. Observation Engine: Compute metrics & schema snapshot
 
-    Note over Spark,GStore: PHASE 3: EVALUATION & STATE PERSISTENCE
+    Note over Spark,ObsStore: PHASE 3: EVALUATION & STATE PERSISTENCE (Multi-Store Fan-Out)
     Spark->>Gov: POST /governance/evaluate (ObservationPayload)
     Gov->>DQ: Evaluate observations against contract rules
     DQ-->>Gov: ValidationResult (ok, errors, warnings)
@@ -146,10 +147,10 @@ sequenceDiagram
         CS->>CStore: Save new Draft ODCS proposal (v1.1.0)
     end
 
-    Gov->>GStore: 1. UPDATE dq_status (Latest state)
-    Gov->>GStore: 2. INSERT dq_dataset_contract_links (Compatibility link)
-    Gov->>GStore: 3. INSERT dq_metrics (Decomposed numeric points)
-    Gov->>GStore: 4. INSERT dq_activity (Audit log + pipeline context)
+    Gov->>GovStore: 1. UPDATE dq_status (Latest state for gating)
+    Gov->>GovStore: 2. INSERT dq_dataset_contract_links (Compatibility matrix link)
+    Gov->>ObsStore: 3. INSERT dq_metrics (Decomposed numeric time-series)
+    Gov->>ObsStore: 4. INSERT dq_activity (Audit log + pipeline context)
     
     opt If Unity Catalog Tagging Enabled
         Gov->>UC: Databricks SQL DSN: ALTER TABLE SET TAGS ('dc43_status'='ok')
@@ -272,6 +273,57 @@ CREATE TABLE dq_activity (
     recorded_at TIMESTAMP,
     PRIMARY KEY (dataset_id, dataset_version)
 );
+```
+
+### C. Composite Stores & Multi-Store Fan-Out Architecture
+
+In enterprise environments, governance and observability artefacts often need to land in **different specialized backends** or be **broadcast simultaneously across multiple stores** (e.g. status in Delta Lake for fast lakehouse gating, metrics in TimescaleDB/PostgreSQL for Grafana dashboards, and audit logs in S3/Filesystem for compliance archive):
+
+```
+                                      ┌──> [Backend 1: Delta Lake] ──> Status & Links (Lakehouse Gating)
+                                      │
+[GovernanceServiceBackend] ──(Fan-Out)─┼──> [Backend 2: PostgreSQL] ──> Metrics & Dashboards (Time-Series)
+                                      │
+                                      └──> [Backend 3: S3 / ADLS] ────> Immutable Audit Log (SOX Archive)
+```
+
+#### How a Composite Store Works:
+1. **Fan-Out on Writes (`save_status`, `record_pipeline_event`, `link_dataset_contract`)**:
+   - The Composite Store routes operations to the designated backends.
+   - If a backend only implements a subset of features (or raises `NotImplementedError`), the Composite Store absorbs it safely without disrupting the pipeline.
+2. **Primary / Fallback on Reads (`load_status`, `load_metrics`, `list_datasets`)**:
+   - Reads query the primary responsive store registered for that route and fallback to subsequent stores if needed.
+3. **Flexible Routing (`all` / `*` Catch-All)**:
+   - **`all` (or `*`)**: Directs all signals/tables to the specified store by default.
+   - Specific overrides (`metrics`, `activity`, `status`, `links`) redirect or fan-out individual signals to dedicated backends.
+
+#### TOML Configuration Example:
+
+```toml
+[governance_store]
+type = "composite"
+
+# 1. Backends declarations
+[governance_store.backends.lakehouse]
+type = "delta"
+status_table   = "main.gov.dq_status"
+link_table     = "main.gov.dq_links"
+activity_table = "main.gov.dq_activity"
+
+[governance_store.backends.bi_sql]
+type = "sql"
+dsn = "postgresql://bi_user:pwd@postgres:5432/analytics"
+metrics_table = "dq_metrics"
+
+[governance_store.backends.audit_s3]
+type = "filesystem"
+root = "s3://company-sox-vault/governance-events/"
+
+# 2. Routing table (Optional: defaults to broadcasting across all backends)
+[governance_store.routes]
+all      = ["lakehouse"]              # Catch-All: all signals default to Delta Lake
+metrics  = ["bi_sql"]                 # Divert metrics to PostgreSQL BI
+activity = ["lakehouse", "audit_s3"]  # Fan-out: persist audit logs to Delta AND S3!
 ```
 
 ---

@@ -121,8 +121,71 @@ flowchart TD
 
 ---
 
+## Data Modeling & Granularity: ODCS vs ODPS Best Practices
+
+A recurring design question in data contract governance is deciding the scope of a contract: **should a contract govern a single technical table or multiple tables?**
+
+### 1. The Recommended Baseline: 1 Contract = 1 Technical Asset
+
+In modern data architecture (and Data Mesh), **`dc43` strongly advocates the pattern of 1 Data Contract (ODCS) for 1 Technical Asset (Table, View, or Topic)**.
+
+| Benefit | Why it matters |
+|---|---|
+| **Unambiguous Referencing** | `contract_id` + `contract_version` unambiguously identifies the technical table coordinates (`catalog.schema.physicalName`) without requiring low-level schema object selectors. |
+| **Decoupled Lifecycle & SemVer** | A breaking schema change on Table A (which bumps the major version to `2.0.0`) has **zero blast radius** on consumers of Table B. |
+| **Independent SLA & Data Quality** | Data Quality metrics and status verdicts (`active`, `degraded`, `broken`) reflect the exact state of that single table. An issue on Table B does not falsely block Table A pipelines. |
+| **Clean Ownership & Governance** | Ownership, metadata tags, and stewardship approvals remain strictly focused on individual datasets. |
+
+### 2. Multi-Table Aggregation via ODPS (Open Data Product Standard)
+
+When multiple datasets belong to the same business capability, domain service, or analytical product, **do not overload a single ODCS contract with multiple tables**. Instead, use the **Open Data Product Standard (ODPS)** layer provided by `dc43`:
+
+```mermaid
+flowchart TD
+    subgraph DataProduct["📦 Data Product (ODPS) : dp.sales.orders_service"]
+        direction TB
+        PortA["🔌 Output Port: orders_header"]
+        PortB["🔌 Output Port: orders_items"]
+        PortC["🔌 Output Port: customers_dim"]
+    end
+
+    subgraph Contracts["📄 Atomic Data Contracts (ODCS)"]
+        ContractA["sales.orders (1.0.0)<br/>schema: [orders]"]
+        ContractB["sales.order_items (1.0.0)<br/>schema: [order_items]"]
+        ContractC["sales.customers (1.0.0)<br/>schema: [customers]"]
+    end
+
+    subgraph Storage["🗄️ Physical Catalog (Unity / Snowflake / BigQuery)"]
+        TableA["governed.sales.dim_orders"]
+        TableB["governed.sales.fct_order_items"]
+        TableC["governed.sales.dim_customers"]
+    end
+
+    PortA --> ContractA --> TableA
+    PortB --> ContractB --> TableB
+    PortC --> ContractC --> TableC
+```
+
+- **Data Product (`ODPS`)**: Acts as the macro business boundary (e.g. `dp.sales.orders_service`), defining domain ownership, SLA tiers, and exposing distinct **Output Ports**.
+- **Data Contract (`ODCS`)**: Each output port is bound 1-to-1 to a dedicated, atomic data contract.
+- **Pipelines**: Spark jobs can reference either the specific contract directly (`GovernanceReadContext.from_contract("sales.orders")`) or via port binding (`GovernanceReadContext.from_port("dp.sales.orders_service", "orders_header")`).
+
+### 3. When are Multi-Object ODCS Contracts Appropriate?
+
+The ODCS specification permits defining multiple `SchemaObject` elements in `contract.schema_`. Within `dc43`, this multi-table pattern is fully supported but should be reserved for:
+
+1. **Inseparable Domain-Driven Design (DDD) Aggregates**:
+   Entities that form an atomic transactional unit and can never exist, evolve, or be consumed independently (e.g., `invoice_header` + `invoice_lines`).
+2. **Snapshot + CDC Change Logs**:
+   A primary snapshot table accompanied by a mutation log table representing the exact same underlying entity.
+
+When using multi-object contracts, use `ContractFirstDatasetLocator(schema_object="table_name")` in Spark pipelines to select non-default schema objects.
+
+---
+
 ## Known Limitations & Roadmap
 
 - **Streaming Schema Registry Auto-Registration**:
   - `dc43-integrations` currently focuses on Spark batch/streaming write destinations for Delta Lake, Parquet, and Databricks Catalog tables.
   - Streaming event brokers requiring external schema registries (e.g., Confluent Schema Registry, AWS Glue Schema Registry for Kafka/EventHubs) are not auto-provisioned directly by `dc43`. External schemas must be registered prior to stream start, or managed via custom `pre_write` interceptors. Automatic Schema Registry provisioning is part of the future architectural roadmap.
+

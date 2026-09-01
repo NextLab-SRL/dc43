@@ -200,6 +200,8 @@ class GovernanceStoreConfig:
     timeout: float = 10.0
     headers: dict[str, str] = field(default_factory=dict)
     log_sql: bool = False
+    backends: dict[str, GovernanceStoreConfig] = field(default_factory=dict)
+    routes: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -327,6 +329,87 @@ def _parse_str_dict(section: Any) -> dict[str, str]:
             continue
         values[key_str] = str(value)
     return values
+
+
+def _parse_governance_store_payload(
+    payload: Mapping[str, Any] | None,
+) -> GovernanceStoreConfig:
+    """Parse a single or composite governance store payload into GovernanceStoreConfig."""
+    if not isinstance(payload, Mapping):
+        return GovernanceStoreConfig()
+
+    raw_type = payload.get("type")
+    store_type = raw_type.strip().lower() if isinstance(raw_type, str) and raw_type.strip() else "memory"
+    root_value = _coerce_path(payload.get("root"))
+    base_path_value = _coerce_path(payload.get("base_path"))
+    table_raw = payload.get("table")
+    table_value = table_raw.strip() if isinstance(table_raw, str) and table_raw.strip() else None
+    status_table_raw = payload.get("status_table")
+    status_table_value = status_table_raw.strip() if isinstance(status_table_raw, str) and status_table_raw.strip() else None
+    activity_table_raw = payload.get("activity_table")
+    activity_table_value = activity_table_raw.strip() if isinstance(activity_table_raw, str) and activity_table_raw.strip() else None
+    link_table_raw = payload.get("link_table")
+    link_table_value = link_table_raw.strip() if isinstance(link_table_raw, str) and link_table_raw.strip() else None
+    metrics_table_raw = payload.get("metrics_table")
+    metrics_table_value = metrics_table_raw.strip() if isinstance(metrics_table_raw, str) and metrics_table_raw.strip() else None
+    dsn_raw = payload.get("dsn")
+    dsn_value = str(dsn_raw).strip() or None if dsn_raw is not None else None
+    schema_raw = payload.get("schema")
+    schema_value = str(schema_raw).strip() or None if schema_raw is not None else None
+    base_url_raw = payload.get("base_url")
+    base_url_value = str(base_url_raw).strip() or None if base_url_raw is not None else None
+    token_raw = payload.get("token")
+    token_value = str(token_raw).strip() or None if token_raw is not None else None
+    token_header_raw = payload.get("token_header")
+    token_header_value = str(token_header_raw).strip() or "Authorization" if token_header_raw is not None else "Authorization"
+    token_scheme_raw = payload.get("token_scheme")
+    token_scheme_value = str(token_scheme_raw).strip() or "Bearer" if token_scheme_raw is not None else "Bearer"
+    timeout_value = _coerce_float(payload.get("timeout"), 10.0)
+    headers_raw = payload.get("headers")
+    headers_value = _parse_str_dict(headers_raw) if headers_raw is not None else {}
+    log_sql = _parse_bool(payload.get("log_sql"), False)
+
+    backends_map: dict[str, GovernanceStoreConfig] = {}
+    backends_raw = payload.get("backends")
+    if isinstance(backends_raw, Mapping):
+        for b_name, b_payload in backends_raw.items():
+            if isinstance(b_payload, Mapping):
+                backends_map[str(b_name).strip()] = _parse_governance_store_payload(b_payload)
+
+    routes_map: dict[str, list[str]] = {}
+    routes_raw = payload.get("routes")
+    if isinstance(routes_raw, Mapping):
+        for r_key, r_val in routes_raw.items():
+            if isinstance(r_val, str):
+                routes_map[str(r_key).strip().lower()] = [
+                    item.strip() for item in r_val.split(",") if item.strip()
+                ]
+            elif isinstance(r_val, (list, tuple, set)):
+                routes_map[str(r_key).strip().lower()] = [
+                    str(item).strip() for item in r_val if str(item).strip()
+                ]
+
+    return GovernanceStoreConfig(
+        type=store_type,
+        root=root_value,
+        base_path=base_path_value,
+        table=table_value,
+        status_table=status_table_value,
+        activity_table=activity_table_value,
+        link_table=link_table_value,
+        metrics_table=metrics_table_value,
+        dsn=dsn_value,
+        schema=schema_value,
+        base_url=base_url_value,
+        token=token_value,
+        token_header=token_header_value,
+        token_scheme=token_scheme_value,
+        timeout=timeout_value,
+        headers=headers_value,
+        log_sql=log_sql,
+        backends=backends_map,
+        routes=routes_map,
+    )
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsConfig:
@@ -589,6 +672,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     gov_headers_value: dict[str, str] = {}
     gov_log_sql = False
     gov_metrics_table_value = None
+    gov_backends_value: dict[str, GovernanceStoreConfig] = {}
+    gov_routes_value: dict[str, list[str]] = {}
     if isinstance(governance_store_section, MutableMapping):
         raw_type = governance_store_section.get("type")
         if isinstance(raw_type, str) and raw_type.strip():
@@ -633,6 +718,24 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if headers_raw is not None:
             gov_headers_value = _parse_str_dict(headers_raw)
         gov_log_sql = _parse_bool(governance_store_section.get("log_sql"), False)
+
+        backends_raw = governance_store_section.get("backends")
+        if isinstance(backends_raw, MutableMapping):
+            for b_name, b_payload in backends_raw.items():
+                if isinstance(b_payload, MutableMapping):
+                    gov_backends_value[str(b_name).strip()] = _parse_governance_store_payload(b_payload)
+
+        routes_raw = governance_store_section.get("routes")
+        if isinstance(routes_raw, MutableMapping):
+            for r_key, r_val in routes_raw.items():
+                if isinstance(r_val, str):
+                    gov_routes_value[str(r_key).strip().lower()] = [
+                        item.strip() for item in r_val.split(",") if item.strip()
+                    ]
+                elif isinstance(r_val, (list, tuple, set)):
+                    gov_routes_value[str(r_key).strip().lower()] = [
+                        str(item).strip() for item in r_val if str(item).strip()
+                    ]
 
     env_contract_type = os.getenv("DC43_CONTRACT_STORE_TYPE")
     if env_contract_type:
@@ -932,6 +1035,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             timeout=gov_timeout_value,
             headers=gov_headers_value,
             log_sql=gov_log_sql,
+            backends=gov_backends_value,
+            routes=gov_routes_value,
         ),
     )
 
@@ -1110,6 +1215,12 @@ def _governance_store_mapping(config: GovernanceStoreConfig) -> dict[str, Any]:
         mapping["headers"] = dict(config.headers)
     if config.log_sql:
         mapping["log_sql"] = True
+    if config.backends:
+        mapping["backends"] = {
+            name: _governance_store_mapping(b_conf) for name, b_conf in config.backends.items()
+        }
+    if config.routes:
+        mapping["routes"] = {k: list(v) for k, v in config.routes.items()}
     return mapping
 
 

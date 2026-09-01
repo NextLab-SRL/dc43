@@ -333,6 +333,9 @@ pipeline activity are persisted. Supported types are:
 | `sql` | Uses a relational database via `SQLGovernanceStore`. Requires `sqlalchemy`. |
 | `delta` | Writes governance artefacts to Delta tables using Spark. Requires `pyspark`. |
 | `http` | Delegates persistence to an external HTTP service implementing the governance store API. |
+| `composite` | Orchestrates multi-store fan-out and selective role-based routing across multiple backends. |
+
+When `type = "composite"`, declare child backends under `[governance_store.backends.<name>]` and optional routing rules under `[governance_store.routes]`. Routes accept catch-all keys (`all` or `*`) alongside signal-specific overrides (`status`, `links`, `metrics`, `activity`). When `routes` is omitted, the composite broadcasts writes to all declared backends by default.
 
 When `type = "delta"` and a `dsn` is supplied, the backend falls back to the SQL implementation and issues every insert/update through the Databricks SQL warehouse referenced by that DSN. This keeps remote FastAPI deployments compatible with Unity Catalog tables without bootstrapping a Spark session next to the service.
 
