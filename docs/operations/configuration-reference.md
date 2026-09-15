@@ -471,8 +471,12 @@ for targeted keys.
 - `table` – Table name for Delta/SQL backends. Override with `DC43_CONTRACT_STORE_TABLE`.
 - `dsn` – SQLAlchemy DSN for the SQL backend. Override with `DC43_CONTRACT_STORE_DSN`.
 - `schema` – Database schema for SQL/Delta backends. Override with `DC43_CONTRACT_STORE_SCHEMA`.
-- `base_url` – Collibra HTTP adapter base URL.
-- `token` – Bearer token for the Collibra HTTP adapter. Override with `DC43_BACKEND_TOKEN` when the token should be shared.
+- `base_url` – Collibra HTTP adapter base URL or API Gateway prefix.
+- `token` – Bearer token for the Collibra HTTP adapter. Override with `DC43_CONTRACT_STORE_TOKEN` or `DC43_BACKEND_TOKEN` when the token should be shared.
+- `client_id` – Client ID for automated OAuth2 token acquisition. Override with `DC43_CONTRACT_STORE_CLIENT_ID` or `COLLIBRA_CLIENT_ID`.
+- `client_secret` – Client secret for automated OAuth2 token acquisition. Override with `DC43_CONTRACT_STORE_CLIENT_SECRET` or `COLLIBRA_CLIENT_SECRET`.
+- `token_endpoint` – Token endpoint URL or path (defaults to `/token`). Override with `DC43_CONTRACT_STORE_TOKEN_ENDPOINT`.
+- `headers` – Additional custom HTTP headers sent with every request (e.g. for API gateways like WSO2/APIM).
 - `timeout` – Request timeout (seconds) for HTTP adapters.
 - `contracts_endpoint_template` – Override for Collibra HTTP endpoint templates.
 - `default_status` / `status_filter` – Workflow status defaults for Collibra adapters.
@@ -481,12 +485,18 @@ for targeted keys.
 ### `[data_product_store]`
 - `type` – Backend type (`memory`, `filesystem`, `delta`, `collibra_stub`, `collibra_http`).
 - `root` / `base_path` / `table` / `dsn` / `schema` – Same semantics as the contract store.
-- `base_url` – Collibra HTTP adapter base URL.
+- `base_url` – Collibra HTTP adapter base URL or API Gateway prefix.
+- `token` – Bearer token for the Collibra HTTP adapter. Override with `DC43_DATA_PRODUCT_STORE_TOKEN`.
+- `client_id` – Client ID for automated OAuth2 token acquisition. Override with `DC43_DATA_PRODUCT_STORE_CLIENT_ID` or `COLLIBRA_CLIENT_ID`.
+- `client_secret` – Client secret for automated OAuth2 token acquisition. Override with `DC43_DATA_PRODUCT_STORE_CLIENT_SECRET` or `COLLIBRA_CLIENT_SECRET`.
+- `token_endpoint` – Token endpoint URL or path (defaults to `/token`). Override with `DC43_DATA_PRODUCT_STORE_TOKEN_ENDPOINT`.
+- `headers` – Additional custom HTTP headers sent with every request.
 - `catalog` – Collibra catalog identifier for product assets.
 
 Environment overrides:
 - `DC43_DATA_PRODUCT_STORE` – Filesystem root.
 - `DC43_DATA_PRODUCT_TABLE` – Delta/SQL table name.
+- `DC43_DATA_PRODUCT_STORE_URL` – Collibra HTTP adapter base URL.
 
 ### `[data_quality]`
 - `type` – Backend type (`local`, `http`, etc.). Override with `DC43_DATA_QUALITY_BACKEND_TYPE`.

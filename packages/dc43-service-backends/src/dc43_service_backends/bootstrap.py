@@ -28,6 +28,7 @@ from .data_products import (
     DataProductServiceBackend,
     DeltaDataProductServiceBackend,
     FilesystemDataProductServiceBackend,
+    HttpCollibraDataProductAdapter,
     LocalDataProductServiceBackend,
     StubCollibraDataProductAdapter,
 )
@@ -135,6 +136,9 @@ def _resolve_collibra_http_store(config: ContractStoreConfig) -> ContractStore:
     adapter = HttpCollibraContractAdapter(
         config.base_url,
         token=config.token,
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+        token_endpoint=config.token_endpoint,
         username=config.username,
         password=config.password,
         timeout=config.timeout,
@@ -143,6 +147,7 @@ def _resolve_collibra_http_store(config: ContractStoreConfig) -> ContractStore:
             config.contracts_endpoint_template
             or "/rest/2.0/dataproducts/{data_product}/ports/{port}/contracts"
         ),
+        headers=config.headers or None,
     )
     return CollibraContractStore(
         adapter,
@@ -278,6 +283,21 @@ def build_data_product_backend(config: DataProductStoreConfig) -> DataProductSer
         base_path = config.base_path or config.root
         adapter = StubCollibraDataProductAdapter(str(base_path) if base_path else None)
         return CollibraDataProductServiceBackend(adapter)
+
+    if store_type == "collibra_http":
+        if not config.base_url:
+            raise RuntimeError(
+                "data_product_store.base_url is required when type is 'collibra_http'",
+            )
+        dp_adapter = HttpCollibraDataProductAdapter(
+            config.base_url,
+            token=config.token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+            token_endpoint=config.token_endpoint,
+            headers=config.headers or None,
+        )
+        return CollibraDataProductServiceBackend(dp_adapter)
 
     raise RuntimeError(f"Unsupported data product store type: {store_type}")
 

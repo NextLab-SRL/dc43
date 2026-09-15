@@ -202,3 +202,93 @@ def test_http_gateway_cascading_lookup():
 
     doc = store.get("sales.orders", "1.0.0")
     assert doc.id == "sales.orders"
+
+
+def test_http_adapter_apim_headers_and_prefix():
+    httpx = pytest.importorskip("httpx")
+    from .mock_collibra_service import MockCollibraService
+
+    mock_service = MockCollibraService()
+    captured_requests: list[httpx.Request] = []
+
+    prefix = "/t/csmsil.laposte/HarmadaMetadonneeDataProduct"
+
+    def tracking_transport(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        if request.url.path.startswith(prefix):
+            unprefixed_path = request.url.path[len(prefix):]
+            new_url = request.url.copy_with(path=unprefixed_path)
+            new_request = httpx.Request(
+                method=request.method,
+                url=new_url,
+                headers=request.headers,
+                content=request.content,
+            )
+            return mock_service.handle_request(new_request)
+        return mock_service.handle_request(request)
+
+    transport = httpx.MockTransport(tracking_transport)
+    client = httpx.Client(transport=transport)
+
+    base_url = f"https://apim-gw-acc.net.intra.laposte.fr{prefix}"
+    adapter = HttpCollibraContractAdapter(
+        base_url=base_url,
+        token="my-bearer-token",
+        headers={"apim-o2-endpoint": "dev"},
+        client=client,
+    )
+
+    contract_uuid = "contract-uuid-sales-orders"
+    mock_service.contracts[contract_uuid] = {
+        "id": contract_uuid,
+        "manifestId": "sales.orders",
+        "name": "sales.orders",
+        "activeVersion": "1.0.0",
+    }
+
+    resolved = adapter._resolve_contract_uuid("sales.orders")
+    assert resolved == contract_uuid
+    assert len(captured_requests) == 1
+    req = captured_requests[0]
+    assert req.url.path == f"{prefix}/rest/dataProduct/v1/dataContracts"
+    assert req.headers.get("apim-o2-endpoint") == "dev"
+    assert req.headers.get("Authorization") == "Bearer my-bearer-token"
+
+
+def test_http_adapter_oauth2_client_credentials():
+    httpx = pytest.importorskip("httpx")
+
+    token_called = False
+
+    def oauth_transport(request: httpx.Request) -> httpx.Response:
+        nonlocal token_called
+        if request.url.path == "/token":
+            token_called = True
+            auth = request.headers.get("Authorization", "")
+            assert auth.startswith("Basic ")
+            assert request.headers.get("apim-o2-endpoint") == "dev"
+            return httpx.Response(
+                200,
+                json={"access_token": "generated-token-xyz", "expires_in": 3600, "token_type": "Bearer"},
+            )
+        if request.url.path == "/t/api/rest/dataProduct/v1/dataContracts":
+            assert request.headers.get("Authorization") == "Bearer generated-token-xyz"
+            assert request.headers.get("apim-o2-endpoint") == "dev"
+            return httpx.Response(200, json={"items": [{"id": "resolved-id"}]})
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(oauth_transport))
+    adapter = HttpCollibraContractAdapter(
+        base_url="https://apim.example.com/t/api",
+        client_id="my-client-id",
+        client_secret="my-client-secret",
+        token_endpoint="/token",
+        headers={"apim-o2-endpoint": "dev"},
+        client=client,
+    )
+
+    resolved = adapter._resolve_contract_uuid("sales.orders")
+    assert resolved == "resolved-id"
+    assert token_called is True
+    assert adapter._cached_token == "generated-token-xyz"
+

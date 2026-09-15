@@ -6,6 +6,8 @@ from datetime import datetime
 import base64
 import json
 import tempfile
+import time
+from urllib.parse import urljoin
 import yaml
 from typing import Dict, List, Optional, Protocol, Tuple
 
@@ -236,6 +238,9 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         base_url: str,
         *,
         token: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        token_endpoint: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
         timeout: float = 10.0,
@@ -245,6 +250,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         relation_type_contains_id: Optional[str] = None,
         relation_type_governed_id: Optional[str] = None,
         data_product_type_id: Optional[str] = None,
+        headers: Optional[Mapping[str, str]] = None,
     ) -> None:
         try:
             import httpx  # type: ignore
@@ -254,9 +260,15 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         self._httpx = httpx
         self._base_url = base_url.rstrip("/")
         self._token = token
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._token_endpoint = token_endpoint
         self._username = username
         self._password = password
         self._catalog: Dict[str, Tuple[str, str]] = dict(contract_catalog or {})
+        self._headers_map: Dict[str, str] = dict(headers or {})
+        self._cached_token: Optional[str] = None
+        self._token_expires_at: Optional[float] = None
         
         # UUID config for cascading lookup
         self._relation_type_contains_id = relation_type_contains_id or "rel-contains-uuid-1111"
@@ -283,14 +295,55 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
     def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - trivial
         self.close()
 
+    def _url(self, path: str) -> str:
+        clean_path = path.lstrip("/")
+        return f"{self._base_url}/{clean_path}"
+
+    def _get_token(self) -> Optional[str]:
+        if self._token:
+            return self._token
+        if self._client_id and self._client_secret:
+            now = time.time()
+            if self._cached_token and self._token_expires_at and now < self._token_expires_at - 30:
+                return self._cached_token
+            endpoint = self._token_endpoint or "/token"
+            if endpoint.startswith("http://") or endpoint.startswith("https://"):
+                token_url = endpoint
+            else:
+                token_url = urljoin(self._base_url + "/", endpoint)
+
+            user_pass = f"{self._client_id}:{self._client_secret}"
+            encoded = base64.b64encode(user_pass.encode("utf-8")).decode("utf-8")
+            token_headers = {
+                "Authorization": f"Basic {encoded}",
+                "accept": "application/json",
+            }
+            token_headers.update(self._headers_map)
+            resp = self._client.post(
+                token_url,
+                data={"grant_type": "client_credentials"},
+                headers=token_headers,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            access_token = payload.get("access_token")
+            expires_in = payload.get("expires_in")
+            self._cached_token = access_token
+            if expires_in:
+                self._token_expires_at = now + float(expires_in)
+            return self._cached_token
+        return None
+
     def _headers(self) -> Dict[str, str]:
         headers = {"accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        headers.update(self._headers_map)
+        token = self._get_token()
+        if token:
+            headers.setdefault("Authorization", f"Bearer {token}")
         elif self._username and self._password:
             user_pass = f"{self._username}:{self._password}"
             encoded = base64.b64encode(user_pass.encode("utf-8")).decode("utf-8")
-            headers["Authorization"] = f"Basic {encoded}"
+            headers.setdefault("Authorization", f"Basic {encoded}")
         return headers
 
     def _resolve_contract_uuid(self, contract_id: str) -> str:
@@ -300,7 +353,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         # 1. Fast Path (Option A) - query by manifestId
         try:
             resp = self._client.get(
-                "/rest/dataProduct/v1/dataContracts",
+                self._url("/rest/dataProduct/v1/dataContracts"),
                 headers=self._headers(),
                 params={"manifestId": contract_id},
             )
@@ -329,7 +382,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
             dp_uuid = data_product_name
         else:
             resp = self._client.get(
-                "/rest/2.0/assets",
+                self._url("/rest/2.0/assets"),
                 headers=self._headers(),
                 params={"name": data_product_name, "typeId": self._data_product_type_id},
             )
@@ -345,7 +398,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
             port_uuid = port_name
         else:
             resp = self._client.get(
-                "/rest/2.0/relations",
+                self._url("/rest/2.0/relations"),
                 headers=self._headers(),
                 params={
                     "sourceId": dp_uuid,
@@ -379,7 +432,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         # Step 2c: Resolve Data Contract UUID from Port relations
         # Check targetId first (Port governed by Data Contract: Contract -> Port)
         resp = self._client.get(
-            "/rest/2.0/relations",
+            self._url("/rest/2.0/relations"),
             headers=self._headers(),
             params={
                 "targetId": port_uuid,
@@ -395,7 +448,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
 
         # Try sourceId fallback
         resp = self._client.get(
-            "/rest/2.0/relations",
+            self._url("/rest/2.0/relations"),
             headers=self._headers(),
             params={
                 "sourceId": port_uuid,
@@ -427,7 +480,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
             dp_uuid = data_product_name
         else:
             resp = self._client.get(
-                "/rest/2.0/assets",
+                self._url("/rest/2.0/assets"),
                 headers=self._headers(),
                 params={"name": data_product_name, "typeId": self._data_product_type_id},
             )
@@ -438,7 +491,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
             dp_uuid = results[0]["id"]
 
         resp = self._client.get(
-            "/rest/2.0/relations",
+            self._url("/rest/2.0/relations"),
             headers=self._headers(),
             params={
                 "sourceId": dp_uuid,
@@ -470,7 +523,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
     def list_versions(self, contract_id: str) -> List[ContractSummary]:
         contract_uuid = self._resolve_contract_uuid(contract_id)
         resp = self._client.get(
-            f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions",
+            self._url(f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions"),
             headers=self._headers(),
         )
         resp.raise_for_status()
@@ -501,7 +554,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
     def get_contract(self, contract_id: str, version: str) -> Mapping[str, object]:
         contract_uuid = self._resolve_contract_uuid(contract_id)
         resp = self._client.get(
-            f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions/manifest",
+            self._url(f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions/manifest"),
             headers=self._headers(),
             params={"version": version},
         )
@@ -536,7 +589,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
                 "manifest": ("manifest.yaml", yaml_str.encode("utf-8"), "text/plain")
             }
             resp = self._client.post(
-                f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions",
+                self._url(f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/versions"),
                 headers=self._headers(),
                 data=data,
                 files=files,
@@ -555,7 +608,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
                 "manifest": ("manifest.yaml", yaml_str.encode("utf-8"), "text/plain")
             }
             resp = self._client.post(
-                "/rest/dataProduct/v1/dataContracts",
+                self._url("/rest/dataProduct/v1/dataContracts"),
                 headers=self._headers(),
                 data=data,
                 files=files,
@@ -573,7 +626,7 @@ class HttpCollibraContractAdapter(CollibraContractAdapter):
         if status == "Validated":
             contract_uuid = self._resolve_contract_uuid(contract_id)
             resp = self._client.patch(
-                f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/activeVersion",
+                self._url(f"/rest/dataProduct/v1/dataContracts/{contract_uuid}/activeVersion"),
                 headers=self._headers(),
                 params={"version": version},
             )

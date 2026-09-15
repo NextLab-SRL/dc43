@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import tempfile
+import time
+from urllib.parse import urljoin
 from typing import Dict, Mapping, Optional, Protocol, Sequence
 
 from dc43_service_clients.odps import (
@@ -146,9 +149,13 @@ class HttpCollibraDataProductAdapter(CollibraDataProductAdapter):
         base_url: str,
         *,
         token: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        token_endpoint: Optional[str] = None,
         timeout: float = 10.0,
         client=None,
         products_endpoint_template: str = "/rest/2.0/dataproducts/{data_product}",
+        headers: Optional[Mapping[str, str]] = None,
     ) -> None:
         try:
             import httpx  # type: ignore
@@ -158,7 +165,14 @@ class HttpCollibraDataProductAdapter(CollibraDataProductAdapter):
         self._httpx = httpx
         self._base_url = base_url.rstrip("/")
         self._token = token
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._token_endpoint = token_endpoint
         self._products_endpoint_template = products_endpoint_template.rstrip("/")
+        self._headers_map: Dict[str, str] = dict(headers or {})
+        self._cached_token: Optional[str] = None
+        self._token_expires_at: Optional[float] = None
+
         if client is None:
             self._client = httpx.Client(base_url=self._base_url, timeout=timeout)
             self._owns_client = True
@@ -179,15 +193,56 @@ class HttpCollibraDataProductAdapter(CollibraDataProductAdapter):
     # ------------------------------------------------------------------
     # Request helpers
     # ------------------------------------------------------------------
+    def _url(self, path: str) -> str:
+        clean_path = path.lstrip("/")
+        return f"{self._base_url}/{clean_path}"
+
+    def _get_token(self) -> Optional[str]:
+        if self._token:
+            return self._token
+        if self._client_id and self._client_secret:
+            now = time.time()
+            if self._cached_token and self._token_expires_at and now < self._token_expires_at - 30:
+                return self._cached_token
+            endpoint = self._token_endpoint or "/token"
+            if endpoint.startswith("http://") or endpoint.startswith("https://"):
+                token_url = endpoint
+            else:
+                token_url = urljoin(self._base_url + "/", endpoint)
+
+            user_pass = f"{self._client_id}:{self._client_secret}"
+            encoded = base64.b64encode(user_pass.encode("utf-8")).decode("utf-8")
+            token_headers = {
+                "Authorization": f"Basic {encoded}",
+                "accept": "application/json",
+            }
+            token_headers.update(self._headers_map)
+            resp = self._client.post(
+                token_url,
+                data={"grant_type": "client_credentials"},
+                headers=token_headers,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            access_token = payload.get("access_token")
+            expires_in = payload.get("expires_in")
+            self._cached_token = access_token
+            if expires_in:
+                self._token_expires_at = now + float(expires_in)
+            return self._cached_token
+        return None
+
     def _headers(self) -> Dict[str, str]:
         headers = {"accept": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
+        headers.update(self._headers_map)
+        token = self._get_token()
+        if token:
+            headers.setdefault("Authorization", f"Bearer {token}")
         return headers
 
     def _product_url(self, data_product: str, suffix: str = "") -> str:
         base = self._products_endpoint_template.format(data_product=data_product)
-        return f"{base}{suffix}"
+        return self._url(f"{base.lstrip('/')}{suffix}")
 
     def list_versions(self, data_product_id: str) -> Sequence[str]:  # noqa: D401
         resp = self._client.get(

@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- Added custom HTTP headers support (`headers = { ... }` / `[contract_store.headers]`) to `ContractStoreConfig` and `HttpCollibraContractAdapter`, enabling integration with API Gateways (such as WSO2/APIM) requiring routing headers (e.g. `apim-o2-endpoint`).
+- Added automated OAuth2 client credentials token acquisition and caching to `HttpCollibraContractAdapter` via `client_id`, `client_secret`, and `token_endpoint`.
+- Added support for preserving URL context path prefixes in `HttpCollibraContractAdapter` and `HttpCollibraDataProductAdapter` when passing reverse-proxy gateway URLs.
+- Added `collibra_http` store type support to `DataProductStoreConfig` and `build_data_product_backend`.
 - Added `CompositeGovernanceStore` implementing multi-store fan-out and selective role-based routing across multiple backends.
 - Added `type = "composite"` configuration support in `GovernanceStoreConfig` and `load_config`, allowing declaration of child backends (`[governance_store.backends.<name>]`) and flexible routing tables (`[governance_store.routes]`) supporting catch-all keys (`all`, `*`) and signal overrides (`status`, `links`, `metrics`, `activity`).
 - Added comprehensive unit test suite in `test_composite_governance_store.py`.

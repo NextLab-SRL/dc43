@@ -54,6 +54,15 @@ log_sql = false
 # base_url = "https://collibra.example.com"
 # # Use token for Bearer Authentication OR username/password for Basic Authentication
 # token = "$COLLIBRA_API_TOKEN"
+# # Or use OAuth2 Client Credentials authentication against an API Gateway:
+# # client_id = "$COLLIBRA_CLIENT_ID"
+# # client_secret = "$COLLIBRA_CLIENT_SECRET"
+# # token_endpoint = "/token"
+# #
+# # Custom HTTP headers sent on all requests (e.g. for API gateways like WSO2):
+# # [contract_store.headers]
+# # apim-o2-endpoint = "dev"
+#
 # username = "$COLLIBRA_USERNAME"
 # password = "$COLLIBRA_PASSWORD"
 # timeout = 10.0
