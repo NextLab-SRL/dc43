@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Integrated `ContractDDLBuilder` into `merge_with_governance` in `dc43-integrations` to ensure target Delta tables and storage paths are automatically pre-created with strict contract schema, constraints (`NOT NULL`, `PRIMARY KEY`), clustering/partitioning, and table properties before merge execution.
 - Added custom HTTP headers support (`headers = { ... }`), APIM context path preservation, and automated OAuth2 client credentials token acquisition to `ContractStoreConfig`, `DataProductStoreConfig`, `HttpCollibraContractAdapter`, and `HttpCollibraDataProductAdapter` in `dc43-service-backends`.
 - Added `CompositeGovernanceStore` in `dc43-service-backends` to orchestrate multi-store fan-out and selective role-based routing across multiple backends.
 - Added `type = "composite"` support in `GovernanceStoreConfig` and service configuration loaders, supporting named backend blocks (`[governance_store.backends.<name>]`) and routing tables (`[governance_store.routes]`) with catch-all keys (`all`, `*`) and specific signal routes (`status`, `links`, `metrics`, `activity`).

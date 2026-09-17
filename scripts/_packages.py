@@ -11,6 +11,8 @@ PACKAGES = {
         "paths": [
             ROOT / "src" / "dc43",
             ROOT / "pyproject.toml",
+            ROOT / "VERSION",
+            ROOT / "CHANGELOG.md",
         ],
         "pyproject": ROOT / "pyproject.toml",
         "version_file": ROOT / "VERSION",

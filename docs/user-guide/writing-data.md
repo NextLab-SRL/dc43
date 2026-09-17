@@ -54,7 +54,7 @@ if not execution_result.validation.ok:
 1. **Interceptors (Pre-Write)**: Any defined interceptors (passed explicitly via `interceptors` or configured globally via `DC43_GOVERNANCE_INTERCEPTORS`) execute `pre_write` hooks (e.g., PII masking) before schema validation.
 2. **Alignment & Quality Evaluation**: The DataFrame columns are re-ordered and cast to match the contract specification. Spark computes metrics based on the data expectations defined in the Data Contract.
 3. **Governance Assessment**: The integration hands the metrics over to the `governance_service`.
-4. **Hard Gated DDL Pre-Creation**: When writing to a table that does not exist yet, `dc43` uses `ContractDDLBuilder` to generate and execute the strict `CREATE TABLE IF NOT EXISTS` DDL derived from the contract:
+4. **Hard Gated DDL Pre-Creation**: When writing or merging into a table/storage path that does not exist yet, `dc43` uses `ContractDDLBuilder` to generate and execute the strict `CREATE TABLE IF NOT EXISTS` DDL derived from the contract:
    * **Data Types & Nullability**: Columns and their Spark SQL types with `NOT NULL` constraints (`required: true`).
    * **Primary Keys**: `CONSTRAINT pk_... PRIMARY KEY (...)` for `primaryKey: true` fields (on Delta Lake / Unity Catalog).
    * **Partitioning & Clustering**: `PARTITIONED BY (...)` (`partitioned: true`) or Databricks `CLUSTER BY (...)` (`clustering`).
@@ -368,5 +368,43 @@ execution_result = write_with_governance(
     governance_service=my_governance_client,
 )
 ```
+
+---
+
+## Governed Merges (`merge_with_governance`)
+
+For Delta Lake upserts and merges, `merge_with_governance` provides the same contract governance and pre-creation guarantees:
+
+```python
+from dc43_integrations.spark.io import merge_with_governance, GovernanceSparkWriteRequest
+from dc43_service_clients.governance.models import GovernanceWriteContext, ContractReference
+
+request = GovernanceSparkWriteRequest(
+    context=GovernanceWriteContext(
+        contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
+    ),
+    table="catalog.sales.orders",
+    table_properties={"delta.autoOptimize.optimizeWrite": "true"},
+)
+
+def configure_merge(builder):
+    return (
+        builder.whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+    )
+
+exec_result = merge_with_governance(
+    source_df=incoming_df,
+    condition="target.order_id = source.order_id",
+    request=request,
+    governance_service=my_governance_client,
+    merge_builder_modifier=configure_merge,
+)
+```
+
+When `merge_with_governance` runs:
+1. It validates and casts `incoming_df` against the ODCS contract.
+2. If the target Delta table or path does not exist, `ContractDDLBuilder` executes the `CREATE TABLE IF NOT EXISTS` DDL before the merge initiates, preventing Delta Lake missing-table exceptions.
+3. The merge executes cleanly on the contract-compliant table.
 
 
