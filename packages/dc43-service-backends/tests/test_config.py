@@ -604,3 +604,71 @@ def test_config_to_mapping_covers_all_sections() -> None:
         "timeout": 45.5,
         "headers": {"X-Env": "prod"},
     }
+
+
+def test_load_contract_and_data_product_store_apim_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[contract_store]",
+                "type = 'collibra_http'",
+                "base_url = 'https://apim-gw-acc.net.intra.laposte.fr/t/csmsil.laposte/HarmadaMetadonneeDataProduct'",
+                "token_endpoint = '/token'",
+                "client_id = 'my-client-id'",
+                "client_secret = 'my-client-secret'",
+                "",
+                "[contract_store.headers]",
+                "apim-o2-endpoint = 'dev'",
+                "",
+                "[data_product]",
+                "type = 'collibra_http'",
+                "base_url = 'https://apim-gw-acc.net.intra.laposte.fr/t/csmsil.laposte/HarmadaMetadonneeDataProduct'",
+                "token_endpoint = '/token'",
+                "client_id = 'dp-client-id'",
+                "client_secret = 'dp-client-secret'",
+                "headers = { 'apim-o2-endpoint' = 'dev' }",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.contract_store.type == "collibra_http"
+    assert config.contract_store.base_url == "https://apim-gw-acc.net.intra.laposte.fr/t/csmsil.laposte/HarmadaMetadonneeDataProduct"
+    assert config.contract_store.token_endpoint == "/token"
+    assert config.contract_store.client_id == "my-client-id"
+    assert config.contract_store.client_secret == "my-client-secret"
+    assert config.contract_store.headers == {"apim-o2-endpoint": "dev"}
+
+    assert config.data_product_store.type == "collibra_http"
+    assert config.data_product_store.base_url == "https://apim-gw-acc.net.intra.laposte.fr/t/csmsil.laposte/HarmadaMetadonneeDataProduct"
+    assert config.data_product_store.token_endpoint == "/token"
+    assert config.data_product_store.client_id == "dp-client-id"
+    assert config.data_product_store.client_secret == "dp-client-secret"
+    assert config.data_product_store.headers == {"apim-o2-endpoint": "dev"}
+
+    # Verify serialization
+    mapping = config_to_mapping(config)
+    assert mapping["contract_store"]["client_id"] == "my-client-id"
+    assert mapping["contract_store"]["token_endpoint"] == "/token"
+    assert mapping["contract_store"]["headers"] == {"apim-o2-endpoint": "dev"}
+    assert mapping["data_product"]["client_id"] == "dp-client-id"
+    assert mapping["data_product"]["token_endpoint"] == "/token"
+    assert mapping["data_product"]["headers"] == {"apim-o2-endpoint": "dev"}
+
+
+def test_contract_store_client_credentials_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text("[contract_store]\ntype = 'collibra_http'\n", encoding="utf-8")
+
+    monkeypatch.setenv("DC43_CONTRACT_STORE_CLIENT_ID", "env-client-id")
+    monkeypatch.setenv("DC43_CONTRACT_STORE_CLIENT_SECRET", "env-client-secret")
+    monkeypatch.setenv("DC43_CONTRACT_STORE_TOKEN_ENDPOINT", "/oauth/token")
+
+    config = load_config(config_path)
+    assert config.contract_store.client_id == "env-client-id"
+    assert config.contract_store.client_secret == "env-client-secret"
+    assert config.contract_store.token_endpoint == "/oauth/token"
+

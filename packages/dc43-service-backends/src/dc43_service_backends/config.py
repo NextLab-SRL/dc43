@@ -133,6 +133,9 @@ class ContractStoreConfig:
     dsn: str | None = None
     schema: str | None = None
     token: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    token_endpoint: str | None = None
     timeout: float = 10.0
     contracts_endpoint_template: str | None = None
     default_status: str = "Draft"
@@ -141,6 +144,7 @@ class ContractStoreConfig:
     username: str | None = None
     password: str | None = None
     log_sql: bool = False
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -162,7 +166,12 @@ class DataProductStoreConfig:
     schema: str | None = None
     base_url: str | None = None
     catalog: str | None = None
+    token: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    token_endpoint: str | None = None
     log_sql: bool = False
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -467,6 +476,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     dsn_value = None
     schema_value = None
     store_token_value = None
+    store_client_id_value = None
+    store_client_secret_value = None
+    store_token_endpoint_value = None
     store_username_value = None
     store_password_value = None
     timeout_value = 10.0
@@ -475,6 +487,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     status_filter = None
     catalog_value: dict[str, tuple[str, str]] = {}
     store_log_sql = False
+    contract_headers_value: dict[str, str] = {}
     if isinstance(store_section, MutableMapping):
         raw_type = store_section.get("type")
         if isinstance(raw_type, str) and raw_type.strip():
@@ -496,6 +509,15 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         token_raw = store_section.get("token")
         if token_raw is not None:
             store_token_value = str(token_raw).strip() or None
+        client_id_raw = store_section.get("client_id")
+        if client_id_raw is not None:
+            store_client_id_value = str(client_id_raw).strip() or None
+        client_secret_raw = store_section.get("client_secret")
+        if client_secret_raw is not None:
+            store_client_secret_value = str(client_secret_raw).strip() or None
+        token_endpoint_raw = store_section.get("token_endpoint")
+        if token_endpoint_raw is not None:
+            store_token_endpoint_value = str(token_endpoint_raw).strip() or None
         username_raw = store_section.get("username")
         if username_raw is not None:
             store_username_value = str(username_raw).strip() or None
@@ -512,6 +534,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             status_filter = str(status_raw).strip() or None
         catalog_value = _parse_catalog(store_section.get("catalog"))
         store_log_sql = _parse_bool(store_section.get("log_sql"), False)
+        headers_raw = store_section.get("headers")
+        if headers_raw is not None:
+            contract_headers_value = _parse_str_dict(headers_raw)
 
     dp_type = "memory"
     dp_root_value = None
@@ -521,7 +546,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     dp_schema_value = None
     dp_base_url_value = None
     dp_catalog_value = None
+    dp_token_value = None
+    dp_client_id_value = None
+    dp_client_secret_value = None
+    dp_token_endpoint_value = None
     dp_log_sql = False
+    dp_headers_value: dict[str, str] = {}
     if isinstance(data_product_section, MutableMapping):
         raw_type = data_product_section.get("type")
         if isinstance(raw_type, str) and raw_type.strip():
@@ -543,7 +573,22 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         catalog_raw = data_product_section.get("catalog")
         if catalog_raw is not None:
             dp_catalog_value = str(catalog_raw).strip() or None
+        token_raw = data_product_section.get("token")
+        if token_raw is not None:
+            dp_token_value = str(token_raw).strip() or None
+        client_id_raw = data_product_section.get("client_id")
+        if client_id_raw is not None:
+            dp_client_id_value = str(client_id_raw).strip() or None
+        client_secret_raw = data_product_section.get("client_secret")
+        if client_secret_raw is not None:
+            dp_client_secret_value = str(client_secret_raw).strip() or None
+        token_endpoint_raw = data_product_section.get("token_endpoint")
+        if token_endpoint_raw is not None:
+            dp_token_endpoint_value = str(token_endpoint_raw).strip() or None
         dp_log_sql = _parse_bool(data_product_section.get("log_sql"), False)
+        headers_raw = data_product_section.get("headers")
+        if headers_raw is not None:
+            dp_headers_value = _parse_str_dict(headers_raw)
 
     dq_type = "local"
     dq_base_url_value = None
@@ -751,6 +796,18 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_contract_token:
         store_token_value = env_contract_token.strip() or store_token_value
 
+    env_contract_client_id = os.getenv("DC43_CONTRACT_STORE_CLIENT_ID") or os.getenv("COLLIBRA_CLIENT_ID")
+    if env_contract_client_id:
+        store_client_id_value = env_contract_client_id.strip() or store_client_id_value
+
+    env_contract_client_secret = os.getenv("DC43_CONTRACT_STORE_CLIENT_SECRET") or os.getenv("COLLIBRA_CLIENT_SECRET")
+    if env_contract_client_secret:
+        store_client_secret_value = env_contract_client_secret.strip() or store_client_secret_value
+
+    env_contract_token_endpoint = os.getenv("DC43_CONTRACT_STORE_TOKEN_ENDPOINT")
+    if env_contract_token_endpoint:
+        store_token_endpoint_value = env_contract_token_endpoint.strip() or store_token_endpoint_value
+
     env_contract_username = os.getenv("DC43_CONTRACT_STORE_USERNAME")
     if env_contract_username:
         store_username_value = env_contract_username.strip() or store_username_value
@@ -796,6 +853,26 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     env_dp_schema = os.getenv("DC43_DATA_PRODUCT_STORE_SCHEMA")
     if env_dp_schema:
         dp_schema_value = env_dp_schema.strip() or dp_schema_value
+
+    env_dp_base_url = os.getenv("DC43_DATA_PRODUCT_STORE_URL") or os.getenv("DC43_DATA_PRODUCT_STORE_BASE_URL")
+    if env_dp_base_url:
+        dp_base_url_value = env_dp_base_url.strip() or dp_base_url_value
+
+    env_dp_token = os.getenv("DC43_DATA_PRODUCT_STORE_TOKEN")
+    if env_dp_token:
+        dp_token_value = env_dp_token.strip() or dp_token_value
+
+    env_dp_client_id = os.getenv("DC43_DATA_PRODUCT_STORE_CLIENT_ID") or os.getenv("COLLIBRA_CLIENT_ID")
+    if env_dp_client_id:
+        dp_client_id_value = env_dp_client_id.strip() or dp_client_id_value
+
+    env_dp_client_secret = os.getenv("DC43_DATA_PRODUCT_STORE_CLIENT_SECRET") or os.getenv("COLLIBRA_CLIENT_SECRET")
+    if env_dp_client_secret:
+        dp_client_secret_value = env_dp_client_secret.strip() or dp_client_secret_value
+
+    env_dp_token_endpoint = os.getenv("DC43_DATA_PRODUCT_STORE_TOKEN_ENDPOINT")
+    if env_dp_token_endpoint:
+        dp_token_endpoint_value = env_dp_token_endpoint.strip() or dp_token_endpoint_value
 
     env_dp_log_sql = os.getenv("DC43_DATA_PRODUCT_STORE_LOG_SQL")
     if env_dp_log_sql is not None:
@@ -970,6 +1047,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             dsn=dsn_value,
             schema=schema_value,
             token=store_token_value,
+            client_id=store_client_id_value,
+            client_secret=store_client_secret_value,
+            token_endpoint=store_token_endpoint_value,
             username=store_username_value,
             password=store_password_value,
             timeout=timeout_value,
@@ -978,6 +1058,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             status_filter=status_filter,
             catalog=catalog_value,
             log_sql=store_log_sql,
+            headers=contract_headers_value,
         ),
         data_product_store=DataProductStoreConfig(
             type=dp_type,
@@ -988,7 +1069,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             schema=dp_schema_value,
             base_url=dp_base_url_value,
             catalog=dp_catalog_value,
+            token=dp_token_value,
+            client_id=dp_client_id_value,
+            client_secret=dp_client_secret_value,
+            token_endpoint=dp_token_endpoint_value,
             log_sql=dp_log_sql,
+            headers=dp_headers_value,
         ),
         data_quality=DataQualityBackendConfig(
             type=dq_type,
@@ -1068,6 +1154,12 @@ def _contract_store_mapping(config: ContractStoreConfig) -> dict[str, Any]:
         mapping["schema"] = config.schema
     if config.token:
         mapping["token"] = config.token
+    if config.client_id:
+        mapping["client_id"] = config.client_id
+    if config.client_secret:
+        mapping["client_secret"] = config.client_secret
+    if config.token_endpoint:
+        mapping["token_endpoint"] = config.token_endpoint
     if config.timeout != 10.0:
         mapping["timeout"] = config.timeout
     if config.contracts_endpoint_template:
@@ -1093,6 +1185,8 @@ def _contract_store_mapping(config: ContractStoreConfig) -> dict[str, Any]:
         mapping["password"] = config.password
     if config.log_sql:
         mapping["log_sql"] = True
+    if config.headers:
+        mapping["headers"] = dict(config.headers)
     return mapping
 
 
@@ -1114,8 +1208,18 @@ def _data_product_store_mapping(config: DataProductStoreConfig) -> dict[str, Any
         mapping["base_url"] = config.base_url
     if config.catalog:
         mapping["catalog"] = config.catalog
+    if config.token:
+        mapping["token"] = config.token
+    if config.client_id:
+        mapping["client_id"] = config.client_id
+    if config.client_secret:
+        mapping["client_secret"] = config.client_secret
+    if config.token_endpoint:
+        mapping["token_endpoint"] = config.token_endpoint
     if config.log_sql:
         mapping["log_sql"] = True
+    if config.headers:
+        mapping["headers"] = dict(config.headers)
     return mapping
 
 

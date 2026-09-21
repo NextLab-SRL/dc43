@@ -188,8 +188,12 @@ port = "gold-quality"
 
 | Key | Type | Description |
 | --- | ---- | ----------- |
-| `base_url` | string | **Required.** Base URL of the Collibra environment (e.g. `https://collibra.example.com`). |
+| `base_url` | string | **Required.** Base URL of the Collibra environment or API Gateway (e.g. `https://collibra.example.com` or `https://apim-gw.example.com/t/tenant/prefix`). |
 | `token` | string | Optional bearer token used for authenticating against Collibra's REST API. |
+| `client_id` | string | Optional OAuth2 client identifier for automatic client credentials token acquisition. |
+| `client_secret` | string | Optional OAuth2 client secret for automatic client credentials token acquisition. |
+| `token_endpoint` | string | Optional token endpoint path or URL (defaults to `/token`). |
+| `headers` | table | Optional dictionary of custom HTTP headers sent with every request (e.g. `apim-o2-endpoint = "dev"` for API gateways). |
 | `username` | string | Optional username for Basic Authentication against Collibra's REST API. |
 | `password` | string | Optional password for Basic Authentication against Collibra's REST API. |
 | `timeout` | float | Request timeout in seconds (defaults to `10.0`). |
@@ -209,6 +213,7 @@ documents. Supported types are:
 | `filesystem` | Persists each version as JSON files compatible with the ODPS schema. |
 | `delta` | Persists products in a Delta table or Unity Catalog object via `DeltaDataProductServiceBackend`. Requires `pyspark`. |
 | `collibra_stub` | Leverages the Collibra stub adapter to emulate remote data product catalogues. |
+| `collibra_http` | Connects directly to Collibra Data Product REST endpoints (supports `base_url`, `token`, `client_id`, `client_secret`, `token_endpoint`, `headers`). |
 
 Common keys include:
 

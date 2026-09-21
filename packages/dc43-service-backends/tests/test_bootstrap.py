@@ -228,3 +228,56 @@ def test_build_governance_store_delta_with_dsn(monkeypatch: pytest.MonkeyPatch, 
 
     assert isinstance(store, SQLGovernanceStore)
     assert calls and calls[0]["kwargs"].get("echo") is True
+
+
+def test_build_contract_store_collibra_http_forwards_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class DummyAdapter:
+        def __init__(self, base_url: str, **kwargs: object) -> None:
+            captured["base_url"] = base_url
+            captured.update(kwargs)
+
+    monkeypatch.setattr("dc43_service_backends.bootstrap.HttpCollibraContractAdapter", DummyAdapter)
+
+    cfg = ContractStoreConfig(
+        type="collibra_http",
+        base_url="https://apim.example.com/t/api",
+        client_id="cid",
+        client_secret="sec",
+        token_endpoint="/token",
+        headers={"apim-o2-endpoint": "dev"},
+    )
+    store = build_contract_store(cfg)
+    assert captured["base_url"] == "https://apim.example.com/t/api"
+    assert captured["client_id"] == "cid"
+    assert captured["client_secret"] == "sec"
+    assert captured["token_endpoint"] == "/token"
+    assert captured["headers"] == {"apim-o2-endpoint": "dev"}
+
+
+def test_build_data_product_backend_collibra_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class DummyAdapter:
+        def __init__(self, base_url: str, **kwargs: object) -> None:
+            captured["base_url"] = base_url
+            captured.update(kwargs)
+
+    monkeypatch.setattr("dc43_service_backends.bootstrap.HttpCollibraDataProductAdapter", DummyAdapter)
+
+    cfg = DataProductStoreConfig(
+        type="collibra_http",
+        base_url="https://apim.example.com/t/api",
+        client_id="cid",
+        client_secret="sec",
+        token_endpoint="/token",
+        headers={"apim-o2-endpoint": "dev"},
+    )
+    backend = build_data_product_backend(cfg)
+    assert captured["base_url"] == "https://apim.example.com/t/api"
+    assert captured["client_id"] == "cid"
+    assert captured["client_secret"] == "sec"
+    assert captured["token_endpoint"] == "/token"
+    assert captured["headers"] == {"apim-o2-endpoint": "dev"}
+
