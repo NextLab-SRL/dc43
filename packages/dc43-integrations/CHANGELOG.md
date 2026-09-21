@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Integrated `ContractDDLBuilder` into `merge_with_governance` to ensure target Delta tables and storage paths are automatically pre-created with strict contract schema, constraints (`NOT NULL`, `PRIMARY KEY`), clustering/partitioning, and table properties before merge execution.
+
 ## [0.43.0.0] - 2026-08-31
 
 ### Added

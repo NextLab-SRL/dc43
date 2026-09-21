@@ -983,6 +983,77 @@ class BaseWriteExecutor:
             if i == 0: primary_status = status
         return primary_status, streaming_queries
 
+def _ensure_sink_table_exists(
+    request: Any,
+    spark: Any = None,
+    df: Any = None,
+    *,
+    default_format: str = "delta",
+    is_merge: bool = False,
+) -> None:
+    """Pre-create sink table using ContractDDLBuilder to ensure contract DDL conformity."""
+    if not getattr(request, "contract", None):
+        return
+
+    try:
+        if df is None:
+            df = getattr(request, "df", None)
+        if spark is None and df is not None:
+            spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+
+        tgt_fmt = (getattr(request, "format", None) or default_format).lower()
+        if spark is None or tgt_fmt in ("memory", "console", "socket", "rate", "noop"):
+            return
+
+        streaming = bool(getattr(request, "streaming", False))
+        table = getattr(request, "table", None)
+        path = getattr(request, "path", None)
+
+        if not (table or (path and (streaming or is_merge))):
+            return
+
+        table_exists = False
+        if table:
+            try:
+                table_exists = bool(spark.catalog.tableExists(table))
+            except Exception:
+                table_exists = False
+        elif path and is_merge:
+            try:
+                from delta.tables import DeltaTable  # type: ignore
+
+                table_exists = bool(DeltaTable.isDeltaTable(spark, path))
+            except Exception:
+                table_exists = False
+
+        if not table_exists:
+            try:
+                from dc43_integrations.spark.ddl import ContractDDLBuilder
+
+                ddl_builder = ContractDDLBuilder(
+                    contract=request.contract,
+                    table=table,
+                    path=path,
+                    format=tgt_fmt,
+                    table_properties=getattr(request, "table_properties", None),
+                    ddl_modifier=getattr(request, "ddl_modifier", None),
+                )
+                ddl_builder.execute(spark)
+            except Exception as ddl_err:
+                logger.warning(
+                    "ContractDDLBuilder execution failed, falling back to DataFrame pre-creation: %s",
+                    ddl_err,
+                )
+                if table:
+                    empty_df = spark.createDataFrame([], getattr(df, "schema", None))
+                    empty_df.write.format(tgt_fmt).mode("append").saveAsTable(table)
+                elif path and (streaming or is_merge):
+                    empty_df = spark.createDataFrame([], getattr(df, "schema", None))
+                    empty_df.write.format(tgt_fmt).mode("append").save(path)
+    except Exception as e:
+        logger.warning("Failed to pre-create sink table: %s", e)
+
+
 def _execute_write_request(
     request: WriteRequest,
     *,
@@ -1001,41 +1072,8 @@ def _execute_write_request(
             pass
 
     if governance_client and request.contract and request.dataset_id:
-        # Pre-create sink table using ContractDDLBuilder to ensure contract DDL conformity
-        try:
-            spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
-            tgt_fmt = (request.format or "delta").lower()
-            if spark is not None and tgt_fmt not in ("memory", "console", "socket", "rate", "noop") and (request.table or (request.path and request.streaming)):
-                table_exists = False
-                if request.table:
-                    try:
-                        table_exists = spark.catalog.tableExists(request.table)
-                    except Exception:
-                        table_exists = False
-                if not table_exists:
-                    try:
-                        from dc43_integrations.spark.ddl import ContractDDLBuilder
-                        ddl_builder = ContractDDLBuilder(
-                            contract=request.contract,
-                            table=request.table,
-                            path=request.path,
-                            format=tgt_fmt,
-                            table_properties=request.table_properties,
-                            ddl_modifier=request.ddl_modifier,
-                        )
-                        ddl_builder.execute(spark)
-                    except Exception as ddl_err:
-                        import logging
-                        logging.getLogger(__name__).warning("ContractDDLBuilder execution failed, falling back to DataFrame pre-creation: %s", ddl_err)
-                        if request.table:
-                            empty_df = spark.createDataFrame([], getattr(df, "schema", None))
-                            empty_df.write.format(tgt_fmt).mode("append").saveAsTable(request.table)
-                        elif request.path and request.streaming:
-                            empty_df = spark.createDataFrame([], getattr(df, "schema", None))
-                            empty_df.write.format(tgt_fmt).mode("append").save(request.path)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Failed to pre-create sink table: %s", e)
+        spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+        _ensure_sink_table_exists(request, spark=spark, df=df, is_merge=False)
         
         try:
             governance_client.link_dataset_contract(
@@ -1046,8 +1084,7 @@ def _execute_write_request(
             )
         except Exception:
             # Defensive logging for linkage failure
-            import logging
-            logging.getLogger(__name__).exception(
+            logger.exception(
                 "Failed to link dataset %s to contract %s",
                 request.dataset_id, request.contract.id
             )

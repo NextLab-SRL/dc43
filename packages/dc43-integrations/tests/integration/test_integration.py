@@ -1225,7 +1225,10 @@ def test_contract_version_locator_latest_respects_active_alias(tmp_path: Path) -
 
     latest_target = base_dir / "2024-01-01"
     latest_link = base_dir / "latest"
-    latest_link.symlink_to(latest_target)
+    try:
+        latest_link.symlink_to(latest_target)
+    except OSError:
+        pytest.skip("Creating symlinks is not supported or permitted on this platform/user privilege")
 
     resolution = DatasetResolution(
         path=str(base_dir),

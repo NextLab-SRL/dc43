@@ -16,6 +16,7 @@ from dc43_integrations.spark.io.common import (
 from dc43_integrations.spark.io.base import (
     BaseWriteExecutor,
     WriteExecutionResult,
+    _ensure_sink_table_exists,
 )
 from dc43_service_clients.governance.client.interface import GovernanceServiceClient
 from dc43_service_clients.governance.models import GovernanceWriteContext, GovernancePolicy
@@ -52,7 +53,11 @@ class BaseMergeExecutor(BaseWriteExecutor):
                         result.warnings.append(w)
             
             df = req.df
-            
+            spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+
+            # Pre-create sink table using ContractDDLBuilder to ensure contract DDL conformity
+            _ensure_sink_table_exists(req, spark=spark, df=df, default_format="delta", is_merge=True)
+
             # Setup Governance dataset linking before execution
             if governance_client and req.contract and req.dataset_id:
                 try:
