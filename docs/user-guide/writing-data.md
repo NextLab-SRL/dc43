@@ -407,4 +407,42 @@ When `merge_with_governance` runs:
 2. If the target Delta table or path does not exist, `ContractDDLBuilder` executes the `CREATE TABLE IF NOT EXISTS` DDL before the merge initiates, preventing Delta Lake missing-table exceptions.
 3. The merge executes cleanly on the contract-compliant table.
 
+### Streaming Merges and Triggers (`availableNow`)
+
+`merge_with_governance` (and its alias `merge_stream_with_governance`) natively supports Spark Structured Streaming DataFrames (`source_df.isStreaming == True`). Under the hood, DC43 manages `writeStream.foreachBatch` to execute the Delta Lake upsert on each micro-batch, skipping empty micro-batches and returning active `StreamingQuery` handles in `exec_result.streaming_queries`.
+
+You can configure streaming triggers (such as `availableNow=True` for incremental batch runs, or `processingTime="10 seconds"` for continuous processing) via `writer_modifier`:
+
+```python
+from dc43_integrations.spark.io import merge_with_governance, GovernanceSparkWriteRequest
+from dc43_service_clients.governance.models import GovernanceWriteContext, ContractReference
+
+streaming_df = spark.readStream.format("cloudFiles").load("/landing/orders")
+
+request = GovernanceSparkWriteRequest(
+    context=GovernanceWriteContext(
+        contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
+    ),
+    table="catalog.sales.orders",
+    options={
+        "checkpointLocation": "/checkpoints/orders_merge",
+    },
+    # Trigger availableNow: processes all available new data in micro-batches and then shuts down cleanly
+    writer_modifier=lambda writer: writer.trigger(availableNow=True),
+    observation_writer_modifier=lambda writer: writer.trigger(availableNow=True),
+)
+
+exec_result = merge_with_governance(
+    source_df=streaming_df,
+    condition="target.order_id = source.order_id",
+    request=request,
+    governance_service=my_governance_client,
+    merge_builder_modifier=lambda b: b.whenMatchedUpdateAll().whenNotMatchedInsertAll(),
+)
+
+# Wait for completion (for availableNow=True, this exits once all available data has been merged)
+query = exec_result.streaming_queries[0]
+query.awaitTermination()
+```
+
 

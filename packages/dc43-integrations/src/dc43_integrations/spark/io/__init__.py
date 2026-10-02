@@ -56,6 +56,7 @@ from .declare import (
 
 from .merge import (
     merge_with_governance,
+    merge_stream_with_governance,
 )
 
 from .interceptors import (
@@ -96,6 +97,7 @@ __all__ = [
     "write_with_governance",
     "declare_with_governance",
     "merge_with_governance",
+    "merge_stream_with_governance",
     "GovernanceInterceptor",
     "InterceptorContext",
     "BaseGovernanceInterceptor",

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added native streaming support to `merge_with_governance` (and alias `merge_stream_with_governance`) in `dc43-integrations`, automatically managing `writeStream.foreachBatch` for Delta Lake upserts, skipping empty micro-batches, supporting observation tracking, and returning active `StreamingQuery` handles in `WriteExecutionResult.streaming_queries`.
 - Integrated `ContractDDLBuilder` into `merge_with_governance` in `dc43-integrations` to ensure target Delta tables and storage paths are automatically pre-created with strict contract schema, constraints (`NOT NULL`, `PRIMARY KEY`), clustering/partitioning, and table properties before merge execution.
 - Added custom HTTP headers support (`headers = { ... }`), APIM context path preservation, and automated OAuth2 client credentials token acquisition to `ContractStoreConfig`, `DataProductStoreConfig`, `HttpCollibraContractAdapter`, and `HttpCollibraDataProductAdapter` in `dc43-service-backends`.
 - Added `CompositeGovernanceStore` in `dc43-service-backends` to orchestrate multi-store fan-out and selective role-based routing across multiple backends.

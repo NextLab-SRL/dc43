@@ -73,16 +73,73 @@ class BaseMergeExecutor(BaseWriteExecutor):
                         req.dataset_id, req.contract.id
                     )
 
-            if req.table:
-                dt = DeltaTable.forName(df.sparkSession, req.table)
+            validation = req.validation_factory() if getattr(req, "validation_factory", None) else None
+            observation_writer = getattr(req, "streaming_observation_writer", None)
+            if observation_writer is not None and validation is not None:
+                try:
+                    observation_writer.attach_validation(validation)
+                except RuntimeError:
+                    pass
+
+            is_streaming = bool(getattr(req, "streaming", False) or getattr(df, "isStreaming", False))
+
+            if is_streaming:
+                condition = self.condition
+                builder_modifier = self.merge_builder_modifier
+
+                def _merge_micro_batch(batch_df: DataFrame, batch_id: int) -> None:
+                    from delta.tables import DeltaTable  # type: ignore
+
+                    try:
+                        if hasattr(batch_df, "isEmpty") and batch_df.isEmpty():
+                            return
+                    except Exception:
+                        pass
+
+                    batch_spark = getattr(
+                        batch_df,
+                        "sparkSession",
+                        getattr(getattr(batch_df, "sql_ctx", None), "sparkSession", None),
+                    )
+                    if req.table:
+                        dt = DeltaTable.forName(batch_spark, req.table)
+                    else:
+                        dt = DeltaTable.forPath(batch_spark, req.path)
+
+                    builder = dt.alias("target").merge(batch_df.alias("source"), condition)
+                    builder = builder_modifier(builder)
+                    builder.execute()
+
+                writer = df.writeStream.foreachBatch(_merge_micro_batch)
+                if req.mode:
+                    writer = writer.outputMode(req.mode)
+                if req.options:
+                    writer = writer.options(**req.options)
+                if req.writer_modifier:
+                    writer = req.writer_modifier(writer)
+                query = writer.start()
+                streaming_queries.append(query)
+
+                if observation_writer is not None and not observation_writer.active:
+                    metrics_mode = req.mode or "append"
+                    metrics_query = observation_writer.start(
+                        df,
+                        output_mode=metrics_mode,
+                        modifier=req.observation_writer_modifier,
+                    )
+                    streaming_queries.append(metrics_query)
+                    observation_writer.watch_sink_query(query)
             else:
-                dt = DeltaTable.forPath(df.sparkSession, req.path)
+                if req.table:
+                    dt = DeltaTable.forName(df.sparkSession, req.table)
+                else:
+                    dt = DeltaTable.forPath(df.sparkSession, req.path)
+                
+                builder = dt.alias("target").merge(df.alias("source"), self.condition)
+                builder = self.merge_builder_modifier(builder)
+                builder.execute()
             
-            builder = dt.alias("target").merge(df.alias("source"), self.condition)
-            builder = self.merge_builder_modifier(builder)
-            builder.execute()
-            
-            # No primary status for native merges since it's synchronous logic
+            # No primary status for native merges since it's synchronous logic or async stream
             if i == 0: primary_status = None
             
         return primary_status, streaming_queries
@@ -97,6 +154,7 @@ def merge_with_governance(
     merge_builder_modifier: Callable[[Any], Any],
     enforce: bool = True,
     auto_cast: bool = True,
+    streaming_batch_callback: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> WriteExecutionResult:
     """Merge a DataFrame into a Delta Lake table allowing governance service to resolve policy."""
     if not isinstance(request, GovernanceSparkWriteRequest):
@@ -128,6 +186,10 @@ def merge_with_governance(
         governance_service=governance_service,
         enforce=enforce,
         auto_cast=auto_cast,
+        streaming_batch_callback=streaming_batch_callback,
         plan=plan,
     )
     return executor.execute()
+
+
+merge_stream_with_governance = merge_with_governance
