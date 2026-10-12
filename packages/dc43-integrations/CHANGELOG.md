@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added native streaming support to `merge_with_governance` (and alias `merge_stream_with_governance`): automatically detects streaming DataFrames (`df.isStreaming`), encapsulates `writeStream.foreachBatch` for Delta Lake upserts, skips empty micro-batches, supports `streaming_batch_callback`, and returns running `StreamingQuery` handles in `WriteExecutionResult.streaming_queries`.
 - Integrated `ContractDDLBuilder` into `merge_with_governance` to ensure target Delta tables and storage paths are automatically pre-created with strict contract schema, constraints (`NOT NULL`, `PRIMARY KEY`), clustering/partitioning, and table properties before merge execution.
 
 ## [0.43.0.0] - 2026-08-31
