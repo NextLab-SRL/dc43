@@ -31,23 +31,28 @@ If `draft_on_violation=True`, when the framework detects a new column injected b
 
 Contract enforcement often needs to react differently depending on the severity of the issues or the downstream consumer. Instead of a simple pass/fail, you can pass a `violation_strategy` to `write_with_governance` to orchestrate advanced remediation:
 
-- **`SplitWriteViolationStrategy`**: Filters the aligned rows based on the data-quality expectations. It automatically splits the data and creates two derivative datasets: a `valid` subset (clean records) and a `reject` subset (bad records). Data stewards can triage the discarded records without blocking the entire run from flowing downstream.
+- **`SplitWriteViolationStrategy`**: Filters the aligned rows based on the data-quality expectations. It automatically splits the data and creates two derivative datasets: a `valid` subset (clean records) and a `reject` subset (bad records). By default, the `reject` dataset uses a relaxed constraint policy (`DDLConstraintPolicy.relaxed()`), removing `NOT NULL` and `PRIMARY KEY` invariants so rejected records do not trigger storage-level failures.
+- **`FlagWriteViolationStrategy`**: Appends an internal corruption flag column (e.g., `_corrupted_data`) rather than splitting data. To conform to ODCS governance and prevent runtime schema mismatches, this flag column must be declared in the contract schema (or enabled via `allow_shadow_columns=True`).
 - **`StrictWriteViolationStrategy`**: Wraps another strategy (like split) and forcefully flips the final validation result to `ok=False` if any violations occurred, ensuring that job orchestrators (like Airflow or Databricks) mark the run as failed, even though the data was correctly written and split into remediation queues.
 
 ```python
 from dc43_integrations.spark.violation_strategy import SplitWriteViolationStrategy, StrictWriteViolationStrategy
+from dc43_integrations.spark.ddl_constraints import DDLConstraintPolicy
 
 # Inside write_with_governance
 violation_strategy=StrictWriteViolationStrategy(
     strategy=SplitWriteViolationStrategy(
         valid_suffix="valid",
-        reject_suffix="reject"
+        reject_suffix="reject",
+        # Reject tables automatically use DDLConstraintPolicy.relaxed() by default
+        reject_constraint_policy=DDLConstraintPolicy.relaxed(),
     )
 )
 ```
 
 > [!NOTE]
 > When using a split strategy, the integration layer automatically reports the `valid` and `reject` subsets as distinct pipeline observations back to the Governance Service. Ensure these derivative datasets are correctly registered in your Data Product definitions or Metadata Catalog.
+> For details on pre-flight write compatibility checks and fine-grained constraint tuning, see [DDL Constraints and Strategy Compatibility](file:///docs/user-guide/ddl-constraints-and-compatibility.md).
 
 ## Streaming Intervention
 

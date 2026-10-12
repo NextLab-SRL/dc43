@@ -37,6 +37,10 @@
   notes alongside the auto-generated commit list.
 - Use `python scripts/release.py` to preview releases and `python
   scripts/release.py --apply --push` to publish tags once validated.
+- For pre-release / RC validation on Test PyPI, apply the `publish-test-pypi`
+  label to the pull request (or run the `ci` workflow with `publish_test_pypi: true`).
+  CI automatically publishes packages with an `rc<RUN_NUMBER>` suffix (e.g.
+  `0.43.0.0rc42`) and rewrites internal dependencies for testing before final release.
 - Internal packages live under `packages/` and rely on their own `pyproject.toml`
   files. Update their metadata and changelogs alongside code changes.
 

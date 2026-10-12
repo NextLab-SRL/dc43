@@ -147,6 +147,8 @@ class GovernanceSparkWriteRequest:
     table_properties: Optional[Mapping[str, str]] = None
     interceptors: Optional[Sequence[Any]] = None
     contract_interceptors: Optional[Sequence[Any]] = None
+    constraint_policy: Optional[Any] = None
+    compatibility_mode: Optional[str] = "raise"
 
     def __post_init__(self) -> None:
         if not isinstance(self.context, GovernanceWriteContext):
