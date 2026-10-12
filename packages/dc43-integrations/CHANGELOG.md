@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- Introduced `DDLConstraintRegistry` and `DDLConstraintPolicy` in `dc43_integrations.spark.ddl_constraints` to support declarative extraction and fine-grained tuning of DDL constraints (`NOT_NULL`, `PRIMARY KEY`, `UNIQUE`, `CHECK`), replacing all-or-nothing boolean enforcement ([#247](https://github.com/NextLab-SRL/dc43/issues/247)).
+- Added column-level constraint overrides via `DDLConstraintPolicy.with_column_override(...)` and built-in policy presets (`strict()`, `relaxed()`, `no_nullability()`).
+- Added pre-flight write compatibility detection (`analyze_write_compatibility`) in `dc43_integrations.spark.io.compatibility` to flag structural and governance conflicts between target table DDL invariants, contract schemas, and violation strategies (raising `IncompatibleGovernanceStrategyError` under `compatibility_mode="raise"` or logging structured warnings under `"warn"`).
+- Added `constraint_policy` and `compatibility_mode` parameters to `GovernanceSparkWriteRequest` and `BaseWriteExecutor`.
+- Enhanced `SplitWriteViolationStrategy` to automatically default `reject_constraint_policy` to `DDLConstraintPolicy.relaxed()`, preventing Delta Lake `DeltaInvariantViolationException` when quarantine records with nulls/invalid keys are written to reject tables.
+- Enhanced `FlagWriteViolationStrategy` with contract schema verification (`allow_shadow_columns=False` by default) to eliminate ungoverned shadow columns per ODCS principles.
 - Added native streaming support to `merge_with_governance` (and alias `merge_stream_with_governance`): automatically detects streaming DataFrames (`df.isStreaming`), encapsulates `writeStream.foreachBatch` for Delta Lake upserts, skips empty micro-batches, supports `streaming_batch_callback`, and returns running `StreamingQuery` handles in `WriteExecutionResult.streaming_queries`.
 - Integrated `ContractDDLBuilder` into `merge_with_governance` to ensure target Delta tables and storage paths are automatically pre-created with strict contract schema, constraints (`NOT NULL`, `PRIMARY KEY`), clustering/partitioning, and table properties before merge execution.
 
