@@ -12,6 +12,16 @@ from dc43_service_backends.core.odcs import (
     list_properties,
 )
 from .data_quality import spark_type_name
+from .ddl_constraints import (
+    CheckConstraint,
+    DDLConstraint,
+    DDLConstraintPolicy,
+    DDLConstraintRegistry,
+    DDLConstraintType,
+    NotNullConstraint,
+    PrimaryKeyConstraint,
+    UniqueConstraint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +54,8 @@ class ContractDDLBuilder:
         schema_object: Optional[str] = None,
         table_properties: Optional[Mapping[str, str]] = None,
         ddl_modifier: Optional[Callable[[str], str]] = None,
+        constraint_policy: Optional[Union[bool, DDLConstraintPolicy, Mapping[str, Any]]] = None,
+        extra_columns: Optional[Sequence[Tuple[str, str]] | Mapping[str, str]] = None,
     ) -> None:
         self.contract = contract
         self.table = table
@@ -52,6 +64,8 @@ class ContractDDLBuilder:
         self.schema_object = schema_object
         self.table_properties = dict(table_properties or {})
         self.ddl_modifier = ddl_modifier
+        self.constraint_policy = DDLConstraintPolicy.from_spec(constraint_policy)
+        self.extra_columns = extra_columns
 
     def build_create_table_sql(self) -> str:
         """Generate a CREATE TABLE IF NOT EXISTS statement representing the contract schema."""
@@ -74,8 +88,25 @@ class ContractDDLBuilder:
             elif c_path:
                 self.path = c_path
 
+        tbl_identifier = (self.table or "table").split(".")[-1].strip("`")
+
+        # Extract and apply declarative constraint registry
+        registry = DDLConstraintRegistry.from_contract(
+            self.contract,
+            schema_object=self.schema_object,
+            table=self.table,
+        )
+        active_constraints = registry.apply_policy(
+            self.constraint_policy,
+            target_format=self.format,
+        )
+        not_null_cols = {
+            c.column
+            for c in active_constraints
+            if isinstance(c, NotNullConstraint)
+        }
+
         column_defs: List[str] = []
-        pk_cols: List[str] = []
         partition_cols: List[str] = []
 
         for prop in props:
@@ -88,7 +119,7 @@ class ContractDDLBuilder:
 
             col_def = f"`{col_name}` {col_type}"
 
-            if bool(getattr(prop, "required", False)):
+            if col_name in not_null_cols:
                 col_def += " NOT NULL"
 
             desc = getattr(prop, "description", None)
@@ -97,16 +128,26 @@ class ContractDDLBuilder:
 
             column_defs.append(col_def)
 
-            if bool(getattr(prop, "primaryKey", False)):
-                pk_cols.append(f"`{col_name}`")
-
             if bool(getattr(prop, "partitioned", False)):
                 partition_cols.append(f"`{col_name}`")
 
-        # Add Primary Key constraint if present (Delta Lake / Databricks Unity Catalog)
-        if pk_cols and self.format in ("delta",):
-            tbl_identifier = (self.table or "table").split(".")[-1].strip("`")
-            column_defs.append(f"CONSTRAINT pk_{tbl_identifier} PRIMARY KEY ({', '.join(pk_cols)})")
+        # Append extra columns (e.g. corruption column) if provided
+        if self.extra_columns:
+            items = (
+                self.extra_columns.items()
+                if isinstance(self.extra_columns, Mapping)
+                else self.extra_columns
+            )
+            for extra_name, extra_type in items:
+                clean_extra_name = extra_name.strip("`")
+                if not any(getattr(p, "name", None) == clean_extra_name for p in props):
+                    column_defs.append(f"`{clean_extra_name}` {extra_type}")
+
+        # Add table-level constraints (Primary Key, Unique, Check) if supported by format
+        for constraint in active_constraints:
+            table_clause = constraint.render_table_clause(tbl_identifier)
+            if table_clause:
+                column_defs.append(table_clause)
 
         cols_clause = ",\n    ".join(column_defs)
 
@@ -189,4 +230,14 @@ class ContractDDLBuilder:
         spark.sql(ddl)
 
 
-__all__ = ["ContractDDLBuilder"]
+__all__ = [
+    "CheckConstraint",
+    "ContractDDLBuilder",
+    "DDLConstraint",
+    "DDLConstraintPolicy",
+    "DDLConstraintRegistry",
+    "DDLConstraintType",
+    "NotNullConstraint",
+    "PrimaryKeyConstraint",
+    "UniqueConstraint",
+]

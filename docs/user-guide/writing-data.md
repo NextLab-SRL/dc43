@@ -29,6 +29,8 @@ request = GovernanceSparkWriteRequest(
     # Advanced: Customize or extend generated DDL when creating a table for the first time
     # ddl_modifier=lambda ddl: ddl + "\nTBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true')",
     # table_properties={"delta.enableChangeDataFeed": "true"},
+    # constraint_policy=DDLConstraintPolicy.no_nullability(), # Fine-grained DDL constraint tuning
+    # compatibility_mode="raise", # "raise" or "warn" for strategy/constraint conflicts
     
     # Optional: Apply an ordered sequence of lifecycle interceptors
     # interceptors=["utils.pii:PrivacyInterceptor", "utils.enrichment:UnityCatalogInterceptor"]
@@ -104,6 +106,28 @@ customProperties:
 | `customProperties.clustering: [...]` | `CLUSTER BY (col1, ...)` *(Liquid Clustering)* | *(Falls back to `PARTITIONED BY` if defined)* |
 | `description: "..."` | `col_name type COMMENT '...'` | `col_name type COMMENT '...'` |
 | `path: "/mnt/lake/table"` (no table name) | `CREATE TABLE delta.\`/mnt/lake/table\`` | `CREATE TABLE \`table\` ... LOCATION '/mnt/lake/table'` |
+
+### 3. Declarative Constraint Tuning & Strategy Compatibility
+
+To selectively tune physical DDL constraints (instead of all-or-nothing generation), pass a `DDLConstraintPolicy` to `GovernanceSparkWriteRequest` or `ContractDDLBuilder`:
+
+```python
+from dc43_integrations.spark.ddl_constraints import DDLConstraintPolicy, DDLConstraintType
+
+# Disable NOT NULL constraints globally or on specific columns
+policy = (
+    DDLConstraintPolicy.strict()
+    .with_column_override("order_date", DDLConstraintType.NOT_NULL, enabled=False)
+)
+
+request = GovernanceSparkWriteRequest(
+    contract=contract,
+    constraint_policy=policy,
+    compatibility_mode="raise", # Detects conflicts between DDL invariants and violation strategies
+)
+```
+
+For complete details on constraint registries, column overrides, reject tables, and incompatibility detection, see the dedicated [DDL Constraints and Strategy Compatibility Guide](file:///docs/user-guide/ddl-constraints-and-compatibility.md).
 
 ## Streaming Writers
 

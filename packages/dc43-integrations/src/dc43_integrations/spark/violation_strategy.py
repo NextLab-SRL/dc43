@@ -14,6 +14,7 @@ from open_data_contract_standard.model import OpenDataContractStandard  # type: 
 from dc43_service_clients.odps import OpenDataProductStandard
 
 from dc43_service_clients.data_quality import ValidationResult
+from .ddl_constraints import DDLConstraintPolicy
 
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -71,6 +72,7 @@ class WriteRequest:
     observation_writer_modifier: Optional[Callable[[Any], Any]] = None
     ddl_modifier: Optional[Callable[[str], str]] = None
     table_properties: Optional[Mapping[str, str]] = None
+    constraint_policy: Optional[DDLConstraintPolicy] = None
 
 
 @dataclass
@@ -106,6 +108,7 @@ class WriteStrategyContext:
     observation_writer_modifier: Optional[Callable[[Any], Any]] = None
     ddl_modifier: Optional[Callable[[str], str]] = None
     table_properties: Optional[Mapping[str, str]] = None
+    constraint_policy: Optional[DDLConstraintPolicy] = None
 
     def base_request(
         self,
@@ -148,6 +151,7 @@ class WriteStrategyContext:
             observation_writer_modifier=self.observation_writer_modifier,
             ddl_modifier=self.ddl_modifier,
             table_properties=self.table_properties,
+            constraint_policy=self.constraint_policy,
         )
 
 
@@ -235,6 +239,10 @@ class SplitWriteViolationStrategy:
     valid_writer_modifier: Optional[Callable[[Any], Any]] = None
     reject_writer_modifier: Optional[Callable[[Any], Any]] = None
     requires_micro_batch: bool = True
+    reject_constraint_policy: DDLConstraintPolicy = field(
+        default_factory=DDLConstraintPolicy.relaxed
+    )
+    valid_constraint_policy: Optional[DDLConstraintPolicy] = None
 
     def validate_contract_status(
         self,
@@ -336,6 +344,9 @@ class SplitWriteViolationStrategy:
                     streaming_observation_writer=context.streaming_observation_writer,
                     writer_modifier=self.valid_writer_modifier or (context.writer_modifier if not context.streaming else None),
                     observation_writer_modifier=context.observation_writer_modifier,
+                    ddl_modifier=context.ddl_modifier,
+                    table_properties=context.table_properties,
+                    constraint_policy=self.valid_constraint_policy or context.constraint_policy,
                 )
 
         if self.include_reject:
@@ -372,6 +383,9 @@ class SplitWriteViolationStrategy:
                     streaming_observation_writer=context.streaming_observation_writer,
                     writer_modifier=self.reject_writer_modifier or (context.writer_modifier if not context.streaming else None),
                     observation_writer_modifier=context.observation_writer_modifier,
+                    ddl_modifier=context.ddl_modifier,
+                    table_properties=context.table_properties,
+                    constraint_policy=self.reject_constraint_policy,
                 )
 
         for message in warnings:
@@ -480,6 +494,8 @@ class FlagWriteViolationStrategy:
     allow_missing_data_product_status: bool = True
     data_product_status_case_insensitive: bool = True
     data_product_status_failure_message: str | None = None
+    allow_shadow_columns: bool = False
+    constraint_policy: Optional[DDLConstraintPolicy] = None
 
     def validate_contract_status(
         self,
@@ -524,7 +540,10 @@ class FlagWriteViolationStrategy:
 
         predicates = context.expectation_predicates
         if not predicates:
-            return WritePlan(primary=context.base_request())
+            req = context.base_request()
+            if self.constraint_policy is not None:
+                req.constraint_policy = self.constraint_policy
+            return WritePlan(primary=req)
 
         df = context.aligned_df
         flag_columns = []
@@ -542,6 +561,8 @@ class FlagWriteViolationStrategy:
 
         request = context.base_request()
         request.df = df_flagged
+        if self.constraint_policy is not None:
+            request.constraint_policy = self.constraint_policy
         return WritePlan(primary=request)
 
 
@@ -559,6 +580,10 @@ class DeduplicateQuarantineWriteViolationStrategy:
     valid_writer_modifier: Optional[Callable[[Any], Any]] = None
     reject_writer_modifier: Optional[Callable[[Any], Any]] = None
     requires_micro_batch: bool = True
+    reject_constraint_policy: DDLConstraintPolicy = field(
+        default_factory=DDLConstraintPolicy.relaxed
+    )
+    valid_constraint_policy: Optional[DDLConstraintPolicy] = None
     allowed_contract_statuses: tuple[str, ...] = ("active",)
     allow_missing_contract_status: bool = True
     contract_status_case_insensitive: bool = True
@@ -640,6 +665,10 @@ class DeduplicateQuarantineWriteViolationStrategy:
             dataset_id=context.dataset_id,
             dataset_version=context.dataset_version,
             writer_modifier=self.valid_writer_modifier,
+            observation_writer_modifier=context.observation_writer_modifier,
+            ddl_modifier=context.ddl_modifier,
+            table_properties=context.table_properties,
+            constraint_policy=self.valid_constraint_policy or context.constraint_policy,
             pipeline_context=context.pipeline_context,
             streaming_observation_writer=context.streaming_observation_writer,
         )
@@ -658,6 +687,10 @@ class DeduplicateQuarantineWriteViolationStrategy:
             dataset_id=_extend_dataset_id(context.dataset_id, self.reject_suffix),
             dataset_version=context.dataset_version,
             writer_modifier=self.reject_writer_modifier,
+            observation_writer_modifier=context.observation_writer_modifier,
+            ddl_modifier=context.ddl_modifier,
+            table_properties=context.table_properties,
+            constraint_policy=self.reject_constraint_policy,
             pipeline_context=_merge_pipeline_context(
                 context.pipeline_context,
                 {"subset": self.reject_suffix},

@@ -690,6 +690,8 @@ class BaseWriteExecutor:
         self.observation_writer_modifier = getattr(self.request, 'observation_writer_modifier', None)
         self.ddl_modifier = getattr(self.request, 'ddl_modifier', None)
         self.table_properties = getattr(self.request, 'table_properties', None)
+        self.constraint_policy = getattr(self.request, 'constraint_policy', None)
+        self.compatibility_mode = getattr(self.request, 'compatibility_mode', 'raise') or 'raise'
         self.streaming_batch_callback = streaming_batch_callback
         self.use_micro_batch = getattr(self.request, 'use_micro_batch', None)
         self.pipeline_context = getattr(self.request.context, 'pipeline_context', None) or (plan.pipeline_context if plan else None)
@@ -912,10 +914,57 @@ class BaseWriteExecutor:
             observation_writer_modifier=self.observation_writer_modifier,
             ddl_modifier=self.ddl_modifier,
             table_properties=self.table_properties,
+            constraint_policy=self.constraint_policy,
         )
         use_micro_batch = self.use_micro_batch
         if use_micro_batch is None:
             use_micro_batch = bool(getattr(strategy, "requires_micro_batch", False))
+
+        def _check_compatibility(requests_to_check: Sequence[Any]) -> None:
+            spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+            for req in requests_to_check:
+                req_table = getattr(req, "table", None)
+                req_path = getattr(req, "path", None)
+                table_exists = False
+                if spark is not None and req_table:
+                    try:
+                        table_exists = bool(spark.catalog.tableExists(req_table))
+                    except Exception:
+                        table_exists = False
+                elif spark is not None and req_path and (streaming_active or getattr(self, "is_merge", False)):
+                    try:
+                        from delta.tables import DeltaTable  # type: ignore
+                        table_exists = bool(DeltaTable.isDeltaTable(spark, req_path))
+                    except Exception:
+                        table_exists = False
+
+                from dc43_integrations.spark.io.compatibility import (
+                    analyze_write_compatibility,
+                    IncompatibleGovernanceStrategyError,
+                )
+                has_errs = bool(getattr(assessment.validation, "errors", None)) if assessment and hasattr(assessment, "validation") else False
+                broken = [err.split()[0] for err in getattr(assessment.validation, "errors", []) if err] if assessment and hasattr(assessment, "validation") else None
+                report = analyze_write_compatibility(
+                    req,
+                    strategy=self.strategy,
+                    contract=req.contract or contract,
+                    table_exists=table_exists,
+                    is_merge=getattr(self, "is_merge", False),
+                    enforce=enforce,
+                    observations_have_violations=has_errs,
+                    broken_columns=broken,
+                )
+                if not report.is_compatible:
+                    diag = report.format_diagnostic(target_ref=req_table or req_path)
+                    if self.compatibility_mode == "raise":
+                        raise IncompatibleGovernanceStrategyError(report, target_ref=req_table or req_path)
+                    else:
+                        logger.warning("%s", diag)
+                        result.warnings.append(diag)
+                elif report.issues:
+                    diag = report.format_diagnostic(target_ref=req_table or req_path)
+                    logger.warning("%s", diag)
+                    result.warnings.append(diag)
 
         streaming_queries = []
         primary_status = None
@@ -923,6 +972,7 @@ class BaseWriteExecutor:
         if streaming_active and use_micro_batch:
             spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
             primary_base_req = context.base_request()
+            _check_compatibility([primary_base_req])
             _ensure_sink_table_exists(primary_base_req, spark=spark, df=df, is_merge=False)
             if governance_client and primary_base_req.contract and primary_base_req.dataset_id:
                 try:
@@ -943,6 +993,7 @@ class BaseWriteExecutor:
             obs_writer_modifier = self.observation_writer_modifier
             ddl_modifier = self.ddl_modifier
             table_props = self.table_properties
+            constraint_policy = self.constraint_policy
             batch_callback = self.streaming_batch_callback
 
             def _micro_batch_sink(batch_df: DataFrame, batch_id: int) -> None:
@@ -979,6 +1030,7 @@ class BaseWriteExecutor:
                     observation_writer_modifier=obs_writer_modifier,
                     ddl_modifier=ddl_modifier,
                     table_properties=table_props,
+                    constraint_policy=constraint_policy,
                 )
 
                 batch_plan = strategy.plan(batch_ctx)
@@ -1042,6 +1094,7 @@ class BaseWriteExecutor:
         else:
             violation_plan = strategy.plan(context)
             requests = ([violation_plan.primary] if violation_plan.primary else []) + list(violation_plan.additional)
+            _check_compatibility(requests)
             primary_status, streaming_queries = self._perform_writes(
                 requests, governance_client, enforce, result, assessment
             )
@@ -1162,6 +1215,7 @@ def _ensure_sink_table_exists(
                     format=tgt_fmt,
                     table_properties=getattr(request, "table_properties", None),
                     ddl_modifier=getattr(request, "ddl_modifier", None),
+                    constraint_policy=getattr(request, "constraint_policy", None),
                 )
                 ddl_builder.execute(spark)
             except Exception as ddl_err:
