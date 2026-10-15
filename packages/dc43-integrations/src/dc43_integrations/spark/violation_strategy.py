@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Any, Callable, Dict, Literal, Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 try:  # pragma: no cover - optional dependency at runtime
     from pyspark.sql import DataFrame
@@ -232,6 +232,9 @@ class SplitWriteViolationStrategy:
     allow_missing_data_product_status: bool = True
     data_product_status_case_insensitive: bool = True
     data_product_status_failure_message: str | None = None
+    valid_writer_modifier: Optional[Callable[[Any], Any]] = None
+    reject_writer_modifier: Optional[Callable[[Any], Any]] = None
+    requires_micro_batch: bool = True
 
     def validate_contract_status(
         self,
@@ -274,10 +277,10 @@ class SplitWriteViolationStrategy:
     def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401 - short docstring
         result = context.validation
         has_violations = self._has_violations(result)
-        if not has_violations:
+        if not has_violations and result.metrics:
             return WritePlan(primary=context.base_request())
 
-        if context.streaming:
+        if context.streaming and not self.requires_micro_batch:
             # Structured streaming pipelines do not support the synchronous
             # dataframe actions required to materialise split subsets.  Fallback
             # to the default behaviour so the write can proceed.
@@ -331,7 +334,7 @@ class SplitWriteViolationStrategy:
                         {"subset": self.valid_suffix},
                     ),
                     streaming_observation_writer=context.streaming_observation_writer,
-                    writer_modifier=context.writer_modifier,
+                    writer_modifier=self.valid_writer_modifier or (context.writer_modifier if not context.streaming else None),
                     observation_writer_modifier=context.observation_writer_modifier,
                 )
 
@@ -367,7 +370,7 @@ class SplitWriteViolationStrategy:
                         {"subset": self.reject_suffix},
                     ),
                     streaming_observation_writer=context.streaming_observation_writer,
-                    writer_modifier=context.writer_modifier,
+                    writer_modifier=self.reject_writer_modifier or (context.writer_modifier if not context.streaming else None),
                     observation_writer_modifier=context.observation_writer_modifier,
                 )
 
@@ -542,6 +545,128 @@ class FlagWriteViolationStrategy:
         return WritePlan(primary=request)
 
 
+@dataclass
+class DeduplicateQuarantineWriteViolationStrategy:
+    """Strategy that deduplicates records on compound keys and routes rejected duplicates to quarantine."""
+
+    key_properties: Sequence[str]
+    sort_column: str
+    keep: Literal["first", "last"] = "first"
+    aggregate_quarantine: bool = False
+    valid_suffix: str = "valid"
+    reject_suffix: str = "reject"
+    dataset_suffix_separator: str = "::"
+    valid_writer_modifier: Optional[Callable[[Any], Any]] = None
+    reject_writer_modifier: Optional[Callable[[Any], Any]] = None
+    requires_micro_batch: bool = True
+    allowed_contract_statuses: tuple[str, ...] = ("active",)
+    allow_missing_contract_status: bool = True
+    contract_status_case_insensitive: bool = True
+    contract_status_failure_message: str | None = None
+    allowed_data_product_statuses: tuple[str, ...] = ("active",)
+    allow_missing_data_product_status: bool = True
+    data_product_status_case_insensitive: bool = True
+    data_product_status_failure_message: str | None = None
+
+    def validate_contract_status(
+        self,
+        *,
+        contract: OpenDataContractStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io.validation import _validate_contract_status
+
+        _validate_contract_status(
+            contract=contract,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_contract_statuses,
+            allow_missing=self.allow_missing_contract_status,
+            case_insensitive=self.contract_status_case_insensitive,
+            failure_message=self.contract_status_failure_message,
+        )
+
+    def validate_data_product_status(
+        self,
+        *,
+        data_product: OpenDataProductStandard,
+        enforce: bool,
+        operation: str,
+    ) -> None:
+        from .io.validation import _validate_data_product_status
+
+        _validate_data_product_status(
+            data_product=data_product,
+            enforce=enforce,
+            operation=operation,
+            allowed_statuses=self.allowed_data_product_statuses,
+            allow_missing=self.allow_missing_data_product_status,
+            case_insensitive=self.data_product_status_case_insensitive,
+            failure_message=self.data_product_status_failure_message,
+        )
+
+    def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401
+        from pyspark.sql import Window
+        from pyspark.sql import functions as F
+
+        df = context.aligned_df
+        sort_order = F.col(self.sort_column).desc() if self.keep == "first" else F.col(self.sort_column).asc()
+        window_spec = Window.partitionBy(*self.key_properties).orderBy(sort_order)
+        df_ranked = df.withColumn("_row_num", F.row_number().over(window_spec))
+        valid_df = df_ranked.filter(F.col("_row_num") == 1).drop("_row_num")
+        reject_df = df_ranked.filter(F.col("_row_num") > 1).drop("_row_num")
+
+        if self.aggregate_quarantine:
+            other_cols = [c for c in df.columns if c not in self.key_properties]
+            reject_df = reject_df.groupBy(*self.key_properties).agg(
+                F.collect_list(F.struct(*other_cols)).alias("quarantined_duplicates"),
+                F.count("*").alias("duplicate_count"),
+            )
+
+        def _extend_dataset_id(base: Optional[str], suffix: str) -> Optional[str]:
+            if not base:
+                return None
+            return f"{base}{self.dataset_suffix_separator}{suffix}"
+
+        primary_request = WriteRequest(
+            df=valid_df,
+            path=context.path,
+            table=context.table,
+            format=context.format,
+            options=dict(context.options),
+            mode=context.mode,
+            contract=context.contract,
+            dataset_id=context.dataset_id,
+            dataset_version=context.dataset_version,
+            writer_modifier=self.valid_writer_modifier,
+            pipeline_context=context.pipeline_context,
+            streaming_observation_writer=context.streaming_observation_writer,
+        )
+
+        reject_path = f"{context.path}_{self.reject_suffix}" if context.path else None
+        reject_table = f"{context.table}_{self.reject_suffix}" if context.table else None
+
+        reject_request = WriteRequest(
+            df=reject_df,
+            path=reject_path,
+            table=reject_table,
+            format=context.format,
+            options=dict(context.options),
+            mode=context.mode,
+            contract=context.contract,
+            dataset_id=_extend_dataset_id(context.dataset_id, self.reject_suffix),
+            dataset_version=context.dataset_version,
+            writer_modifier=self.reject_writer_modifier,
+            pipeline_context=_merge_pipeline_context(
+                context.pipeline_context,
+                {"subset": self.reject_suffix},
+            ),
+            streaming_observation_writer=context.streaming_observation_writer,
+        )
+
+        return WritePlan(primary=primary_request, additional=(reject_request,))
+
 
 @dataclass
 class StrictWriteViolationStrategy:
@@ -554,6 +679,10 @@ class StrictWriteViolationStrategy:
     allow_missing_contract_status: bool | None = None
     contract_status_case_insensitive: bool | None = None
     contract_status_failure_message: str | None = None
+
+    @property
+    def requires_micro_batch(self) -> bool:
+        return bool(getattr(self.base, "requires_micro_batch", False))
 
     def _contract_status_option(self, name: str, default: Any) -> Any:
         value = getattr(self, name, None)
@@ -647,6 +776,8 @@ __all__ = [
     "NoOpWriteViolationStrategy",
     "StrictWriteViolationStrategy",
     "SplitWriteViolationStrategy",
+    "FlagWriteViolationStrategy",
+    "DeduplicateQuarantineWriteViolationStrategy",
     "WritePlan",
     "WriteRequest",
     "WriteStrategyContext",

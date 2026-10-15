@@ -110,3 +110,6 @@ def write_with_governance(
     )
     return executor.execute()
 
+
+write_stream_with_governance = write_with_governance
+

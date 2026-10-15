@@ -256,110 +256,36 @@ request = GovernanceSparkWriteRequest(
 )
 ```
 
-### Custom Duplicate Quarantine Strategy (`DeduplicateQuarantineWriteViolationStrategy`)
+### Built-in Duplicate Quarantine Strategy (`DeduplicateQuarantineWriteViolationStrategy`)
 
 In the `dc43` architecture, metrics collect contract violation counts (`ValidationResult`), while `WriteViolationStrategy` implementations decide how to process, split, or quarantine violating records.
 
-To handle `duplicateValues` rules, you can create a custom `WriteViolationStrategy` that deduplicates the primary dataset based on a sorter instruction (e.g. keeping `first` or `last` record according to an ordering column like `updated_at`), while routing all rejected duplicates to a quarantine sink.
+To handle `duplicateValues` rules, `dc43-integrations` provides a built-in `DeduplicateQuarantineWriteViolationStrategy` exported from `dc43_integrations.spark.violation_strategy`. It deduplicates the primary dataset based on a sort instruction (e.g. keeping `first` or `last` record according to an ordering column like `updated_at`), while routing all rejected duplicates to a quarantine sink.
 
 Optionally, the strategy can **aggregate** all quarantined duplicates for a given key into a single row containing a list column (`quarantined_duplicates`) and the count of duplicates (`duplicate_count`).
 
 ```python
-from dataclasses import dataclass
-from typing import Literal, Sequence, Optional
-from pyspark.sql import Window
-from pyspark.sql import functions as F
+from dc43_integrations.spark.io import write_with_governance, write_stream_with_governance, GovernanceSparkWriteRequest
+from dc43_integrations.spark.violation_strategy import DeduplicateQuarantineWriteViolationStrategy
+from dc43_service_clients.governance.models import GovernanceWriteContext, ContractReference
 
-from dc43_integrations.spark.violation_strategy import (
-    WriteViolationStrategy,
-    WriteStrategyContext,
-    WritePlan,
-    WriteRequest,
+# Configure the deduplication and quarantine strategy
+violation_strategy = DeduplicateQuarantineWriteViolationStrategy(
+    key_properties=["tenant_id", "order_id"],
+    sort_column="updated_at",
+    keep="first",                 # Keeps the latest record (newest updated_at)
+    aggregate_quarantine=True,    # Groups quarantined duplicates into a list column + duplicate_count
+    reject_suffix="reject",
+    # Optional: Customize the DataFrameWriter for each split dataset (e.g. partitioning or format options)
+    valid_writer_modifier=lambda writer: writer.partitionBy("order_date"),
+    reject_writer_modifier=lambda writer: writer.option("compression", "snappy"),
 )
 
-@dataclass
-class DeduplicateQuarantineWriteViolationStrategy:
-    """Strategy that deduplicates records on compound keys and routes rejected duplicates to quarantine."""
-
-    key_properties: Sequence[str]
-    sort_column: str
-    keep: Literal["first", "last"] = "first"
-    aggregate_quarantine: bool = False
-    valid_suffix: str = "valid"
-    reject_suffix: str = "reject"
-    dataset_suffix_separator: str = "::"
-
-    def plan(self, context: WriteStrategyContext) -> WritePlan:
-        df = context.aligned_df
-        
-        # 1. Define window ordering (first -> descending, last -> ascending)
-        sort_order = F.col(self.sort_column).desc() if self.keep == "first" else F.col(self.sort_column).asc()
-        window_spec = Window.partitionBy(*self.key_properties).orderBy(sort_order)
-        
-        # 2. Assign rank per composite key
-        df_ranked = df.withColumn("_row_num", F.row_number().over(window_spec))
-        
-        # Primary valid records (rank == 1)
-        valid_df = df_ranked.filter(F.col("_row_num") == 1).drop("_row_num")
-        
-        # Quarantined duplicate records (rank > 1)
-        reject_df = df_ranked.filter(F.col("_row_num") > 1).drop("_row_num")
-
-        # 3. Optional: Combine all quarantined duplicates into a single aggregated row per key
-        if self.aggregate_quarantine:
-            other_cols = [c for c in df.columns if c not in self.key_properties]
-            reject_df = reject_df.groupBy(*self.key_properties).agg(
-                F.collect_list(F.struct(*other_cols)).alias("quarantined_duplicates"),
-                F.count("*").alias("duplicate_count")
-            )
-
-        def _extend_dataset_id(base: Optional[str], suffix: str) -> Optional[str]:
-            return f"{base}{self.dataset_suffix_separator}{suffix}" if base else None
-
-        # Build Primary WriteRequest (clean dataset written to primary sink)
-        primary_request = WriteRequest(
-            df=valid_df,
-            path=context.path,
-            table=context.table,
-            format=context.format,
-            options=dict(context.options),
-            mode=context.mode,
-            contract=context.contract,
-            dataset_id=context.dataset_id,
-            dataset_version=context.dataset_version,
-            validation_factory=lambda df=valid_df: context.revalidate(df),
-        )
-
-        # Build Additional WriteRequest (rejected duplicates written to quarantine sink)
-        reject_request = WriteRequest(
-            df=reject_df,
-            path=f"{context.path}_{self.reject_suffix}" if context.path else None,
-            table=f"{context.table}_{self.reject_suffix}" if context.table else None,
-            format=context.format,
-            options=dict(context.options),
-            mode=context.mode,
-            contract=context.contract,
-            dataset_id=_extend_dataset_id(context.dataset_id, self.reject_suffix),
-            dataset_version=context.dataset_version,
-        )
-
-        return WritePlan(primary=primary_request, additional=[reject_request])
-```
-
-### Using the Custom Strategy
-
-```python
-# Pass the custom strategy to write_with_governance
 request = GovernanceSparkWriteRequest(
     context=GovernanceWriteContext(
         contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
     ),
-    violation_strategy=DeduplicateQuarantineWriteViolationStrategy(
-        key_properties=["tenant_id", "order_id"],
-        sort_column="updated_at",
-        keep="first",                 # Keeps the latest record (newest updated_at)
-        aggregate_quarantine=True,    # Groups quarantined duplicates into a list column + duplicate_count
-    ),
+    violation_strategy=violation_strategy,
 )
 
 execution_result = write_with_governance(
@@ -367,6 +293,53 @@ execution_result = write_with_governance(
     request=request,
     governance_service=my_governance_client,
 )
+```
+
+### Streaming Micro-Batch Deduplication & Quarantine (`writeStream.foreachBatch`)
+
+When running on Spark Structured Streaming DataFrames (`df.isStreaming == True`), `write_with_governance` (and its dedicated alias `write_stream_with_governance`) automatically detects strategies requiring micro-batch isolation (`strategy.requires_micro_batch == True`, such as `DeduplicateQuarantineWriteViolationStrategy` and `SplitWriteViolationStrategy`), or when `request.use_micro_batch = True`.
+
+Under the hood:
+1. `dc43` wires `df.writeStream.foreachBatch(...)` as the stream sink.
+2. For each micro-batch, empty batches are skipped automatically.
+3. Non-empty micro-batches execute the violation strategy on the batch slice (`streaming=False`), splitting the batch into clean records and quarantined duplicates.
+4. Target tables or paths (resolved automatically from the contract) are pre-created if they do not exist via `ContractDDLBuilder`.
+5. Primary records and quarantined duplicates are written via `saveAsTable` or `save` with their respective `valid_writer_modifier` / `reject_writer_modifier` configurations.
+6. The stream writer accepts stream-level modifiers via `request.writer_modifier` (e.g. `trigger(availableNow=True)` or `processingTime="10 seconds"`).
+7. `execution_result.streaming_queries` holds active `StreamingQuery` handles for monitoring and termination management.
+
+```python
+streaming_df = (
+    spark.readStream.format("cloudFiles")
+    .option("cloudFiles.format", "json")
+    .load("/landing/orders")
+    .withWatermark("event_time", "10 minutes")
+)
+
+request = GovernanceSparkWriteRequest(
+    context=GovernanceWriteContext(
+        contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
+    ),
+    options={"checkpointLocation": "/checkpoints/orders_streaming_dedup"},
+    violation_strategy=DeduplicateQuarantineWriteViolationStrategy(
+        key_properties=["tenant_id", "order_id"],
+        sort_column="updated_at",
+        keep="first",
+        reject_suffix="reject",
+    ),
+    # Stream-level configuration:
+    writer_modifier=lambda writer: writer.trigger(availableNow=True),
+)
+
+execution_result = write_stream_with_governance(
+    df=streaming_df,
+    request=request,
+    governance_service=my_governance_client,
+)
+
+# Await completion when using availableNow=True
+for query in execution_result.streaming_queries:
+    query.awaitTermination()
 ```
 
 ---
@@ -383,7 +356,6 @@ request = GovernanceSparkWriteRequest(
     context=GovernanceWriteContext(
         contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
     ),
-    table="catalog.sales.orders",
     table_properties={"delta.autoOptimize.optimizeWrite": "true"},
 )
 
@@ -404,7 +376,7 @@ exec_result = merge_with_governance(
 
 When `merge_with_governance` runs:
 1. It validates and casts `incoming_df` against the ODCS contract.
-2. If the target Delta table or path does not exist, `ContractDDLBuilder` executes the `CREATE TABLE IF NOT EXISTS` DDL before the merge initiates, preventing Delta Lake missing-table exceptions.
+2. If the target Delta table or path (resolved from the contract) does not exist, `ContractDDLBuilder` executes the `CREATE TABLE IF NOT EXISTS` DDL before the merge initiates, preventing Delta Lake missing-table exceptions.
 3. The merge executes cleanly on the contract-compliant table.
 
 ### Streaming Merges and Triggers (`availableNow`)
@@ -423,7 +395,6 @@ request = GovernanceSparkWriteRequest(
     context=GovernanceWriteContext(
         contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
     ),
-    table="catalog.sales.orders",
     options={
         "checkpointLocation": "/checkpoints/orders_merge",
     },

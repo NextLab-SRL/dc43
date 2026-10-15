@@ -35,8 +35,21 @@
   when you touch the code and promote entries into a dated version heading as
   part of the release commit so the GitHub Releases surface package-specific
   notes alongside the auto-generated commit list.
-- Use `python scripts/release.py` to preview releases and `python
-  scripts/release.py --apply --push` to publish tags once validated.
+- Use `python scripts/release.py` strictly in read-only mode to preview releases
+  and validate package changes locally. NEVER run `python scripts/release.py --apply --push`
+  or manually create/push release tags locally: release tagging, PyPI builds,
+  GitHub releases, and Docker publishing are handled entirely by the GitHub
+  Actions workflow (`.github/workflows/release.yml`) on `main`.
+- **Publishing Release Candidates (RC) to Test PyPI**: NEVER manually bump
+  `VERSION`, `pyproject.toml`, or `CHANGELOG.md` headings to an `rc` suffix
+  (keep entries under `## [Unreleased]`). The `.github/workflows/ci.yml`
+  workflow uses `scripts/test_pypi_versions.py` to dynamically inject
+  `rc<RUN_NUMBER>` (e.g. `0.43.0.0rc214`) and rewrite internal dependency floors.
+  Trigger an RC build on Test PyPI either by adding the `publish-test-pypi`
+  label to a Pull Request, or by running:
+  ```bash
+  gh workflow run ci.yml --ref dev -f publish_test_pypi=true
+  ```
 - Internal packages live under `packages/` and rely on their own `pyproject.toml`
   files. Update their metadata and changelogs alongside code changes.
 

@@ -175,64 +175,11 @@ def test_flag_strategy_adds_corrupted_data_column(spark):
     assert results[2]["_corrupted_data"] is None
 
 
-def test_custom_deduplicate_quarantine_strategy(spark):
-    from dataclasses import dataclass
-    from typing import Literal, Sequence, Optional
-    from pyspark.sql import Window
-    from pyspark.sql import functions as F
+def test_deduplicate_quarantine_strategy(spark):
     from dc43_integrations.spark.violation_strategy import (
-        WriteViolationStrategy,
+        DeduplicateQuarantineWriteViolationStrategy,
         WriteStrategyContext,
-        WritePlan,
-        WriteRequest,
     )
-
-    @dataclass
-    class DeduplicateQuarantineWriteViolationStrategy:
-        key_properties: Sequence[str]
-        sort_column: str
-        keep: Literal["first", "last"] = "first"
-        aggregate_quarantine: bool = False
-        reject_suffix: str = "reject"
-
-        def plan(self, context: WriteStrategyContext) -> WritePlan:
-            df = context.aligned_df
-            sort_order = F.col(self.sort_column).desc() if self.keep == "first" else F.col(self.sort_column).asc()
-            window_spec = Window.partitionBy(*self.key_properties).orderBy(sort_order)
-            df_ranked = df.withColumn("_row_num", F.row_number().over(window_spec))
-            valid_df = df_ranked.filter(F.col("_row_num") == 1).drop("_row_num")
-            reject_df = df_ranked.filter(F.col("_row_num") > 1).drop("_row_num")
-
-            if self.aggregate_quarantine:
-                other_cols = [c for c in df.columns if c not in self.key_properties]
-                reject_df = reject_df.groupBy(*self.key_properties).agg(
-                    F.collect_list(F.struct(*other_cols)).alias("quarantined_duplicates"),
-                    F.count("*").alias("duplicate_count"),
-                )
-
-            primary_request = WriteRequest(
-                df=valid_df,
-                path=context.path,
-                table=context.table,
-                format=context.format,
-                options=dict(context.options),
-                mode=context.mode,
-                contract=context.contract,
-                dataset_id=context.dataset_id,
-                dataset_version=context.dataset_version,
-            )
-            reject_request = WriteRequest(
-                df=reject_df,
-                path=f"{context.path}_{self.reject_suffix}" if context.path else None,
-                table=f"{context.table}_{self.reject_suffix}" if context.table else None,
-                format=context.format,
-                options=dict(context.options),
-                mode=context.mode,
-                contract=context.contract,
-                dataset_id=f"{context.dataset_id}::{self.reject_suffix}" if context.dataset_id else None,
-                dataset_version=context.dataset_version,
-            )
-            return WritePlan(primary=primary_request, additional=[reject_request])
 
     # Sample data with duplicates for (tenant_id="t1", order_id="o1")
     df = spark.createDataFrame(

@@ -31,3 +31,10 @@ For detailed information on configuring and deploying dc43 services and backends
 ## 5. 🎓 Advanced Tutorials & Use Cases
 End-to-end scenarios and automation guides:
 - [Delta Live Tables (DLT) Integration](tutorials/spark-dlt.md)
+
+## 6. 💡 Reference Pipelines & Examples
+Runnable script templates located in [`examples/`](../examples/):
+- **[Incremental Streaming Ingestion with Deduplication & Quarantine](../examples/streaming_deduplicate_quarantine_available_now.py)**: Window-based deduplication with `availableNow` trigger and quarantine routing.
+- **[Streaming Delta Lake Merges](../examples/streaming_merge_with_governance.py)**: Governed CDC / stream-to-table upserts with automated table pre-creation.
+- **[Governed Permanent Views](../examples/declare_with_governance_databricks.py)**: Declaring validated SQL views in Databricks Unity Catalog with input gating.
+

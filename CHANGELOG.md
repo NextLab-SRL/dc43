@@ -4,11 +4,17 @@
 
 ### Added
 - Added native streaming support to `merge_with_governance` (and alias `merge_stream_with_governance`) in `dc43-integrations`, automatically managing `writeStream.foreachBatch` for Delta Lake upserts, skipping empty micro-batches, supporting observation tracking, and returning active `StreamingQuery` handles in `WriteExecutionResult.streaming_queries`.
+- Added native `writeStream.foreachBatch` micro-batch streaming support to `write_with_governance` (and dedicated alias `write_stream_with_governance`) in `dc43-integrations` when executing violation strategies requiring micro-batch isolation (`requires_micro_batch=True`) or when `use_micro_batch=True` is configured on `GovernanceSparkWriteRequest`. Automatically executes violation strategy planning per micro-batch, pre-creates target tables via `ContractDDLBuilder`, writes primary and reject datasets via `saveAsTable` / `save`, supports `valid_writer_modifier` and `reject_writer_modifier`, skips empty micro-batches, hooks streaming progress callbacks (`streaming_batch_callback`), and returns active `StreamingQuery` handles in `WriteExecutionResult.streaming_queries`.
+- Added `DeduplicateQuarantineWriteViolationStrategy` as an exported first-class strategy in `dc43-integrations` (`dc43_integrations.spark.violation_strategy`) supporting window ranking deduplication (`ROW_NUMBER()`), optional aggregation (`quarantined_duplicates`, `duplicate_count`), per-sink DataFrameWriter modifiers, and status validation support.
+- Added `requires_micro_batch: bool = True`, `valid_writer_modifier`, and `reject_writer_modifier` to `SplitWriteViolationStrategy`.
 - Integrated `ContractDDLBuilder` into `merge_with_governance` in `dc43-integrations` to ensure target Delta tables and storage paths are automatically pre-created with strict contract schema, constraints (`NOT NULL`, `PRIMARY KEY`), clustering/partitioning, and table properties before merge execution.
 - Added custom HTTP headers support (`headers = { ... }`), APIM context path preservation, and automated OAuth2 client credentials token acquisition to `ContractStoreConfig`, `DataProductStoreConfig`, `HttpCollibraContractAdapter`, and `HttpCollibraDataProductAdapter` in `dc43-service-backends`.
 - Added `CompositeGovernanceStore` in `dc43-service-backends` to orchestrate multi-store fan-out and selective role-based routing across multiple backends.
 - Added `type = "composite"` support in `GovernanceStoreConfig` and service configuration loaders, supporting named backend blocks (`[governance_store.backends.<name>]`) and routing tables (`[governance_store.routes]`) with catch-all keys (`all`, `*`) and specific signal routes (`status`, `links`, `metrics`, `activity`).
 - Updated documentation and sequence flow diagrams covering the Control Plane vs. Telemetry Store split and composite routing architecture.
+
+### Fixed
+- Fixed serialization / closure capture in streaming `foreachBatch` sinks (`dc43-integrations`): decoupled outer `self`, `req`, `table`, and `path` variables in both `BaseMergeExecutor._perform_writes` and `BaseWriteExecutor.execute` (`_micro_batch_sink`), preventing unpicklable `SparkSession` / `SparkContext` objects from being captured in closures and resolving `PySparkRuntimeError: [CONTEXT_ONLY_VALID_ON_DRIVER]` on Spark Connect, Databricks Connect, and distributed workers.
 
 ## [0.43.0.0] - 2026-08-31
 

@@ -691,6 +691,7 @@ class BaseWriteExecutor:
         self.ddl_modifier = getattr(self.request, 'ddl_modifier', None)
         self.table_properties = getattr(self.request, 'table_properties', None)
         self.streaming_batch_callback = streaming_batch_callback
+        self.use_micro_batch = getattr(self.request, 'use_micro_batch', None)
         self.pipeline_context = getattr(self.request.context, 'pipeline_context', None) or (plan.pipeline_context if plan else None)
 
     def execute(self) -> WriteExecutionResult:
@@ -912,14 +913,138 @@ class BaseWriteExecutor:
             ddl_modifier=self.ddl_modifier,
             table_properties=self.table_properties,
         )
-        violation_plan = strategy.plan(context)
-        requests = ([violation_plan.primary] if violation_plan.primary else []) + list(violation_plan.additional)
-        
+        use_micro_batch = self.use_micro_batch
+        if use_micro_batch is None:
+            use_micro_batch = bool(getattr(strategy, "requires_micro_batch", False))
+
         streaming_queries = []
         primary_status = None
-        primary_status, streaming_queries = self._perform_writes(
-            requests, governance_client, enforce, result, assessment
-        )
+
+        if streaming_active and use_micro_batch:
+            spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+            primary_base_req = context.base_request()
+            _ensure_sink_table_exists(primary_base_req, spark=spark, df=df, is_merge=False)
+            if governance_client and primary_base_req.contract and primary_base_req.dataset_id:
+                try:
+                    governance_client.link_dataset_contract(
+                        dataset_id=primary_base_req.dataset_id,
+                        dataset_version=primary_base_req.dataset_version or "",
+                        contract_id=primary_base_req.contract.id,
+                        contract_version=primary_base_req.contract.version,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to link dataset %s to contract %s",
+                        primary_base_req.dataset_id, primary_base_req.contract.id
+                    )
+
+            # Decouple attributes from self to ensure _micro_batch_sink is serializable by cloudpickle
+            # (referencing self captures SparkSession / DataFrame which fails serialization on workers / Connect)
+            obs_writer_modifier = self.observation_writer_modifier
+            ddl_modifier = self.ddl_modifier
+            table_props = self.table_properties
+            batch_callback = self.streaming_batch_callback
+
+            def _micro_batch_sink(batch_df: DataFrame, batch_id: int) -> None:
+                try:
+                    if hasattr(batch_df, "isEmpty") and batch_df.isEmpty():
+                        return
+                except Exception:
+                    pass
+
+                batch_spark = getattr(
+                    batch_df,
+                    "sparkSession",
+                    getattr(getattr(batch_df, "sql_ctx", None), "sparkSession", None),
+                )
+
+                batch_ctx = WriteStrategyContext(
+                    df=batch_df,
+                    aligned_df=batch_df,
+                    contract=contract,
+                    path=path,
+                    table=table,
+                    format=format,
+                    options=options,
+                    mode=mode,
+                    validation=result,
+                    dataset_id=dataset_id,
+                    dataset_version=preflight_version,
+                    revalidate=revalidator,
+                    expectation_predicates=expectation_predicates,
+                    pipeline_context=normalise_pipeline_context(pipeline_context),
+                    streaming=False,
+                    streaming_observation_writer=observation_writer,
+                    writer_modifier=None,
+                    observation_writer_modifier=obs_writer_modifier,
+                    ddl_modifier=ddl_modifier,
+                    table_properties=table_props,
+                )
+
+                batch_plan = strategy.plan(batch_ctx)
+                batch_requests = ([batch_plan.primary] if batch_plan.primary else []) + list(batch_plan.additional)
+
+                for req in batch_requests:
+                    try:
+                        if hasattr(req.df, "isEmpty") and req.df.isEmpty():
+                            continue
+                    except Exception:
+                        pass
+
+                    req_spark = getattr(
+                        req.df,
+                        "sparkSession",
+                        getattr(getattr(req.df, "sql_ctx", None), "sparkSession", batch_spark),
+                    )
+                    if governance_client and req.contract and req.dataset_id:
+                        _ensure_sink_table_exists(req, spark=req_spark, df=req.df, is_merge=False)
+
+                    w = req.df.write.mode(req.mode or "append")
+                    if req.format:
+                        w = w.format(req.format)
+                    if req.options:
+                        w = w.options(**req.options)
+                    if req.writer_modifier:
+                        w = req.writer_modifier(w)
+                    if req.table:
+                        w.saveAsTable(req.table)
+                    elif req.path:
+                        w.save(req.path)
+
+                if batch_callback:
+                    try:
+                        batch_callback(
+                            {"type": "batch", "batch_id": batch_id, "row_count": batch_df.count()}
+                        )
+                    except Exception:
+                        logger.exception("Error executing streaming_batch_callback in micro-batch sink")
+
+            stream_writer = df.writeStream.foreachBatch(_micro_batch_sink)
+            if mode:
+                stream_writer = stream_writer.outputMode(mode)
+            if options:
+                stream_writer = stream_writer.options(**options)
+            if self.writer_modifier:
+                stream_writer = self.writer_modifier(stream_writer)
+
+            query = stream_writer.start()
+            streaming_queries.append(query)
+
+            if observation_writer is not None and not observation_writer.active:
+                metrics_mode = mode or "append"
+                metrics_query = observation_writer.start(
+                    df,
+                    output_mode=metrics_mode,
+                    modifier=self.observation_writer_modifier,
+                )
+                streaming_queries.append(metrics_query)
+                observation_writer.watch_sink_query(query)
+        else:
+            violation_plan = strategy.plan(context)
+            requests = ([violation_plan.primary] if violation_plan.primary else []) + list(violation_plan.additional)
+            primary_status, streaming_queries = self._perform_writes(
+                requests, governance_client, enforce, result, assessment
+            )
 
         if governance_plan and governance_client and assessment and not self._skip_governance_activity:
             governance_client.register_write_activity(plan=governance_plan, assessment=assessment)
