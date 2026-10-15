@@ -921,8 +921,9 @@ def test_write_with_governance_streaming_deduplicate_quarantine_foreach_batch(
 
     # Verify that the callback does not capture unpicklable SparkSession / DataFrame / self in its closure
     # (checked outside patch.object so DataFrame class descriptor is restored)
-    import cloudpickle
-    assert cloudpickle.dumps(micro_batch_fn) is not None
+    from pyspark.serializers import CloudPickleSerializer
+    assert "self" not in micro_batch_fn.__code__.co_freevars
+    assert CloudPickleSerializer().dumps(micro_batch_fn) is not None
 
     with patch("dc43_integrations.spark.io.base._ensure_sink_table_exists"), \
          patch.object(type(sample_df), "write", WriterProp()):
