@@ -47,6 +47,7 @@ from .read import (
 
 from .write import (
     write_with_governance,
+    write_stream_with_governance,
 )
 
 from .declare import (
@@ -95,6 +96,7 @@ __all__ = [
     "BaseDeclareExecutor",
     "WriteExecutionResult",
     "write_with_governance",
+    "write_stream_with_governance",
     "declare_with_governance",
     "merge_with_governance",
     "merge_stream_with_governance",

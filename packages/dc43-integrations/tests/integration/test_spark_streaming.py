@@ -9,7 +9,9 @@ import pytest
 pytest.importorskip(
     "openlineage.client.run", reason="openlineage-python is required for lineage streaming tests"
 )
+from pyspark.sql import DataFrame
 from pyspark.sql.utils import StreamingQueryException
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from open_data_contract_standard.model import (  # type: ignore
     Description,
@@ -31,8 +33,12 @@ from dc43_integrations.spark.io import (
     read_with_governance,
     read_stream_with_governance,
     write_with_governance,
+    write_stream_with_governance,
     GovernanceSparkReadRequest,
     GovernanceSparkWriteRequest,
+)
+from dc43_integrations.spark.violation_strategy import (
+    DeduplicateQuarantineWriteViolationStrategy,
 )
 from dc43_service_clients.governance.models import (
     ContractReference,
@@ -775,5 +781,192 @@ def test_streaming_dataset_version_resolves_templates(spark, tmp_path: Path) -> 
     batch_evals = [v for v in governance.dataset_versions_seen if str(v) != "plan:init"]
     assert len(batch_evals) >= 2, f"metrics loop should evaluate at least 2 distinct batches, got {batch_evals}"
     assert all(str(v).isdigit() for v in batch_evals), f"batch dataset_version templates should properly resolve to integers: {batch_evals}"
+
+
+def test_write_with_governance_streaming_deduplicate_quarantine_foreach_batch(
+    spark, tmp_path: Path
+):
+    contract = OpenDataContractStandard(
+        id="streaming.orders",
+        version="1.0.0",
+        schema=[
+            SchemaObject(
+                name="orders",
+                properties=[
+                    SchemaProperty(name="id", type="integer"),
+                    SchemaProperty(name="customer_id", type="integer"),
+                    SchemaProperty(name="amount", type="double"),
+                ],
+            )
+        ],
+    )
+    store = FSContractStore(str(tmp_path / "contracts_dedup"))
+    store.put(contract)
+    service = LocalContractServiceClient(store)
+    governance = RecordingGovernanceService(
+        contracts={(contract.id, contract.version): contract},
+        contract_service=service,
+    )
+
+    sample_df = spark.createDataFrame(
+        [
+            (1, 101, 10.0),
+            (1, 102, 12.0),
+            (2, 201, 20.0),
+        ],
+        ["id", "customer_id", "amount"],
+    )
+
+    # Setup mock streaming DataFrame
+    mock_df = MagicMock()
+    mock_df.sparkSession = spark
+    mock_df.sql_ctx.sparkSession = spark
+    mock_df.isStreaming = True
+    mock_df.schema = sample_df.schema
+    mock_df.columns = sample_df.columns
+    mock_df.select.return_value = mock_df
+
+    mock_writer = MagicMock()
+    mock_df.writeStream.foreachBatch.return_value = mock_writer
+    mock_writer.outputMode.return_value = mock_writer
+    mock_writer.options.return_value = mock_writer
+    mock_writer.option.return_value = mock_writer
+    mock_writer.queryName.return_value = mock_writer
+    mock_writer.trigger.return_value = mock_writer
+    mock_query = MagicMock()
+    mock_writer.start.return_value = mock_query
+
+    primary_path = str(tmp_path / "orders_valid")
+    reject_path = str(tmp_path / "orders_valid_reject")
+    ckpt_path = str(tmp_path / "ckpt_dedup")
+
+    modifier_called = []
+
+    def custom_reject_modifier(df_writer):
+        modifier_called.append("reject_modifier_called")
+        return df_writer
+
+    violation_strategy = DeduplicateQuarantineWriteViolationStrategy(
+        key_properties=["id"],
+        sort_column="customer_id",
+        keep="first",
+        reject_suffix="reject",
+        reject_writer_modifier=custom_reject_modifier,
+    )
+
+    request = GovernanceSparkWriteRequest(
+        context=GovernanceWriteContext(
+            contract=ContractReference(
+                contract_id=contract.id,
+                contract_version=contract.version,
+            )
+        ),
+        path=primary_path,
+        format="parquet",
+        options={"checkpointLocation": ckpt_path},
+        violation_strategy=violation_strategy,
+        writer_modifier=lambda writer: writer.trigger(availableNow=True),
+    )
+
+    saved_writes = []
+
+    mock_batch_writer = MagicMock()
+
+    def mock_mode(m):
+        return mock_batch_writer
+
+    def mock_format(f):
+        return mock_batch_writer
+
+    def mock_options(**opts):
+        return mock_batch_writer
+
+    def mock_save(path):
+        saved_writes.append(("save", path))
+
+    def mock_save_as_table(table):
+        saved_writes.append(("saveAsTable", table))
+
+    mock_batch_writer.mode.side_effect = mock_mode
+    mock_batch_writer.format.side_effect = mock_format
+    mock_batch_writer.options.side_effect = mock_options
+    mock_batch_writer.save.side_effect = mock_save
+    mock_batch_writer.saveAsTable.side_effect = mock_save_as_table
+
+    captured_dfs = []
+
+    class WriterProp:
+        def __get__(self, obj, objtype=None):
+            if obj is not None:
+                captured_dfs.append(obj)
+            return mock_batch_writer
+
+    with patch("dc43_integrations.spark.io.base._ensure_sink_table_exists"), \
+         patch.object(type(sample_df), "write", WriterProp()):
+        result = write_stream_with_governance(
+            df=mock_df,
+            request=request,
+            governance_service=governance,
+            enforce=False,
+        )
+
+        queries = result.streaming_queries
+        assert mock_query in queries
+        assert mock_df.writeStream.foreachBatch.called
+        mock_writer.trigger.assert_called_once_with(availableNow=True)
+        assert mock_writer.start.call_count == 2
+
+        # Extract the micro-batch sink callback passed to foreachBatch
+        micro_batch_fn = mock_df.writeStream.foreachBatch.call_args_list[0][0][0]
+
+    # Verify that the callback does not capture unpicklable SparkSession / DataFrame / self in its closure
+    # (checked outside patch.object so DataFrame class descriptor is restored)
+    from pyspark.serializers import CloudPickleSerializer
+    assert "self" not in micro_batch_fn.__code__.co_freevars
+    assert CloudPickleSerializer().dumps(micro_batch_fn) is not None
+
+    with patch("dc43_integrations.spark.io.base._ensure_sink_table_exists"), \
+         patch.object(type(sample_df), "write", WriterProp()):
+        # Test invoking the micro-batch callback with duplicate data
+        batch_df = spark.createDataFrame(
+            [
+                (1, 101, 10.0),
+                (1, 102, 12.0),
+                (2, 201, 20.0),
+            ],
+            ["id", "customer_id", "amount"],
+        )
+
+        saved_writes.clear()
+        captured_dfs.clear()
+        micro_batch_fn(batch_df, 1)
+
+        assert ("save", primary_path) in saved_writes
+        assert ("save", reject_path) in saved_writes
+        assert "reject_modifier_called" in modifier_called
+
+        # Verify the actual deduplication performed on the micro-batch
+        assert len(captured_dfs) == 2
+        primary_rows = captured_dfs[0].collect()
+        reject_rows = captured_dfs[1].collect()
+        assert len(primary_rows) == 2
+        assert len(reject_rows) == 1
+
+        primary_id_1 = [r for r in primary_rows if r["id"] == 1][0]
+        assert primary_id_1["customer_id"] == 102
+        assert primary_id_1["amount"] == 12.0
+
+        assert reject_rows[0]["id"] == 1
+        assert reject_rows[0]["customer_id"] == 101
+
+        # Test empty batch is skipped
+        saved_writes.clear()
+        captured_dfs.clear()
+        empty_df = MagicMock()
+        empty_df.isEmpty.return_value = True
+        micro_batch_fn(empty_df, 2)
+        assert len(saved_writes) == 0
+        assert len(captured_dfs) == 0
+
 
 

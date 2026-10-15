@@ -147,6 +147,7 @@ class GovernanceSparkWriteRequest:
     table_properties: Optional[Mapping[str, str]] = None
     interceptors: Optional[Sequence[Any]] = None
     contract_interceptors: Optional[Sequence[Any]] = None
+    use_micro_batch: Optional[bool] = None
     constraint_policy: Optional[Any] = None
     compatibility_mode: Optional[str] = "raise"
 

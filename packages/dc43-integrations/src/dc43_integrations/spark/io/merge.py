@@ -86,6 +86,8 @@ class BaseMergeExecutor(BaseWriteExecutor):
             if is_streaming:
                 condition = self.condition
                 builder_modifier = self.merge_builder_modifier
+                table = req.table
+                path = req.path
 
                 def _merge_micro_batch(batch_df: DataFrame, batch_id: int) -> None:
                     from delta.tables import DeltaTable  # type: ignore
@@ -101,13 +103,14 @@ class BaseMergeExecutor(BaseWriteExecutor):
                         "sparkSession",
                         getattr(getattr(batch_df, "sql_ctx", None), "sparkSession", None),
                     )
-                    if req.table:
-                        dt = DeltaTable.forName(batch_spark, req.table)
+                    if table:
+                        dt = DeltaTable.forName(batch_spark, table)
                     else:
-                        dt = DeltaTable.forPath(batch_spark, req.path)
+                        dt = DeltaTable.forPath(batch_spark, path)
 
                     builder = dt.alias("target").merge(batch_df.alias("source"), condition)
-                    builder = builder_modifier(builder)
+                    if builder_modifier is not None:
+                        builder = builder_modifier(builder)
                     builder.execute()
 
                 writer = df.writeStream.foreachBatch(_merge_micro_batch)

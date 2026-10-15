@@ -157,6 +157,12 @@ def test_merge_with_governance_streaming(mock_delta_tables_module, spark, tmp_pa
     # Extract the micro-batch callback passed to foreachBatch (first call is the merge sink)
     micro_batch_fn = mock_df.writeStream.foreachBatch.call_args_list[0][0][0]
 
+    # Verify that the callback does not capture unpicklable SparkSession/DataFrame in its closure
+    from pyspark.serializers import CloudPickleSerializer
+    assert "self" not in micro_batch_fn.__code__.co_freevars
+    assert "req" not in micro_batch_fn.__code__.co_freevars
+    assert CloudPickleSerializer().dumps(micro_batch_fn) is not None
+
     # Test executing a normal micro-batch
     batch_df = spark.createDataFrame([
         (1, 101, datetime(2024, 1, 1, 11, 0, 0), 20.0, "EUR")
