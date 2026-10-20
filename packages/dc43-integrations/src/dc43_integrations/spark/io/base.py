@@ -642,6 +642,7 @@ class BaseWriteExecutor:
     """Shared implementation for batch and streaming contract writes."""
 
     streaming: bool = False
+    is_merge: bool = False
 
     def __init__(
         self,
@@ -904,6 +905,7 @@ class BaseWriteExecutor:
             def revalidator(new_df: DataFrame) -> ValidationResult:  # type: ignore[misc]
                 return ValidationResult(ok=True, errors=[], warnings=[], metrics={}, schema={})
 
+        is_merge = bool(getattr(self, "is_merge", False))
         context = WriteStrategyContext(
             df=self.df, aligned_df=df, contract=contract, path=path, table=table, format=format, options=options, mode=mode,
             validation=result, dataset_id=dataset_id, dataset_version=preflight_version,
@@ -915,6 +917,7 @@ class BaseWriteExecutor:
             ddl_modifier=self.ddl_modifier,
             table_properties=self.table_properties,
             constraint_policy=self.constraint_policy,
+            is_merge=is_merge,
         )
         use_micro_batch = self.use_micro_batch
         if use_micro_batch is None:
@@ -931,7 +934,7 @@ class BaseWriteExecutor:
                         table_exists = bool(spark.catalog.tableExists(req_table))
                     except Exception:
                         table_exists = False
-                elif spark is not None and req_path and (streaming_active or getattr(self, "is_merge", False)):
+                elif spark is not None and req_path and (streaming_active or is_merge):
                     try:
                         from delta.tables import DeltaTable  # type: ignore
                         table_exists = bool(DeltaTable.isDeltaTable(spark, req_path))
@@ -949,7 +952,7 @@ class BaseWriteExecutor:
                     strategy=self.strategy,
                     contract=req.contract or contract,
                     table_exists=table_exists,
-                    is_merge=getattr(self, "is_merge", False),
+                    is_merge=is_merge,
                     enforce=enforce,
                     observations_have_violations=has_errs,
                     broken_columns=broken,
@@ -973,7 +976,7 @@ class BaseWriteExecutor:
             spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
             primary_base_req = context.base_request()
             _check_compatibility([primary_base_req])
-            _ensure_sink_table_exists(primary_base_req, spark=spark, df=df, is_merge=False)
+            _ensure_sink_table_exists(primary_base_req, spark=spark, df=df, is_merge=is_merge)
             if governance_client and primary_base_req.contract and primary_base_req.dataset_id:
                 try:
                     governance_client.link_dataset_contract(
@@ -995,6 +998,10 @@ class BaseWriteExecutor:
             table_props = self.table_properties
             constraint_policy = self.constraint_policy
             batch_callback = self.streaming_batch_callback
+            merge_condition = getattr(self, "condition", None)
+            merge_builder_modifier = getattr(self, "merge_builder_modifier", None)
+            primary_dataset_id = primary_base_req.dataset_id
+            norm_pipeline_context = normalise_pipeline_context(pipeline_context)
 
             def _micro_batch_sink(batch_df: DataFrame, batch_id: int) -> None:
                 try:
@@ -1023,14 +1030,15 @@ class BaseWriteExecutor:
                     dataset_version=preflight_version,
                     revalidate=revalidator,
                     expectation_predicates=expectation_predicates,
-                    pipeline_context=normalise_pipeline_context(pipeline_context),
+                    pipeline_context=norm_pipeline_context,
                     streaming=False,
-                    streaming_observation_writer=observation_writer,
+                    streaming_observation_writer=None,
                     writer_modifier=None,
                     observation_writer_modifier=obs_writer_modifier,
                     ddl_modifier=ddl_modifier,
                     table_properties=table_props,
                     constraint_policy=constraint_policy,
+                    is_merge=is_merge,
                 )
 
                 batch_plan = strategy.plan(batch_ctx)
@@ -1048,20 +1056,46 @@ class BaseWriteExecutor:
                         "sparkSession",
                         getattr(getattr(req.df, "sql_ctx", None), "sparkSession", batch_spark),
                     )
+                    req_is_merge = is_merge and not bool(getattr(req, "is_reject", False))
                     if governance_client and req.contract and req.dataset_id:
-                        _ensure_sink_table_exists(req, spark=req_spark, df=req.df, is_merge=False)
+                        _ensure_sink_table_exists(req, spark=req_spark, df=req.df, is_merge=req_is_merge)
+                        if req.dataset_id != primary_dataset_id:
+                            try:
+                                governance_client.link_dataset_contract(
+                                    dataset_id=req.dataset_id,
+                                    dataset_version=req.dataset_version or "",
+                                    contract_id=req.contract.id,
+                                    contract_version=req.contract.version,
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Failed to link dataset %s to contract %s",
+                                    req.dataset_id, req.contract.id
+                                )
 
-                    w = req.df.write.mode(req.mode or "append")
-                    if req.format:
-                        w = w.format(req.format)
-                    if req.options:
-                        w = w.options(**req.options)
-                    if req.writer_modifier:
-                        w = req.writer_modifier(w)
-                    if req.table:
-                        w.saveAsTable(req.table)
-                    elif req.path:
-                        w.save(req.path)
+                    if req_is_merge:
+                        from delta.tables import DeltaTable  # type: ignore
+
+                        if req.table:
+                            dt = DeltaTable.forName(req_spark, req.table)
+                        else:
+                            dt = DeltaTable.forPath(req_spark, req.path)
+                        builder = dt.alias("target").merge(req.df.alias("source"), merge_condition)
+                        if merge_builder_modifier is not None:
+                            builder = merge_builder_modifier(builder)
+                        builder.execute()
+                    else:
+                        w = req.df.write.mode(req.mode or "append")
+                        if req.format:
+                            w = w.format(req.format)
+                        if req.options:
+                            w = w.options(**req.options)
+                        if req.writer_modifier:
+                            w = req.writer_modifier(w)
+                        if req.table:
+                            w.saveAsTable(req.table)
+                        elif req.path:
+                            w.save(req.path)
 
                 if batch_callback:
                     try:

@@ -73,6 +73,7 @@ class WriteRequest:
     ddl_modifier: Optional[Callable[[str], str]] = None
     table_properties: Optional[Mapping[str, str]] = None
     constraint_policy: Optional[DDLConstraintPolicy] = None
+    is_reject: bool = False
 
 
 @dataclass
@@ -109,6 +110,7 @@ class WriteStrategyContext:
     ddl_modifier: Optional[Callable[[str], str]] = None
     table_properties: Optional[Mapping[str, str]] = None
     constraint_policy: Optional[DDLConstraintPolicy] = None
+    is_merge: bool = False
 
     def base_request(
         self,
@@ -308,6 +310,8 @@ class SplitWriteViolationStrategy:
         def _extend_dataset_id(base: Optional[str], suffix: str) -> Optional[str]:
             if not base:
                 return None
+            if not suffix:
+                return base
             return f"{base}{self.dataset_suffix_separator}{suffix}"
 
         if self.include_valid:
@@ -321,19 +325,20 @@ class SplitWriteViolationStrategy:
                 valid_df = None
 
             if has_valid and valid_df is not None:
+                eff_valid_suffix = "" if context.is_merge else self.valid_suffix
                 valid_warning = (
-                    f"Valid subset written to dataset suffix '{self.valid_suffix}'"
+                    f"Valid subset written to dataset suffix '{eff_valid_suffix or 'primary'}'"
                 )
                 warnings.append(valid_warning)
                 valid_request = WriteRequest(
                     df=valid_df,
-                    path=self._extend_path(context.path, self.valid_suffix),
-                    table=self._extend_table(context.table, self.valid_suffix),
+                    path=self._extend_path(context.path, eff_valid_suffix),
+                    table=self._extend_table(context.table, eff_valid_suffix),
                     format=context.format,
                     options=dict(context.options),
                     mode=context.mode,
                     contract=context.contract,
-                    dataset_id=_extend_dataset_id(context.dataset_id, self.valid_suffix),
+                    dataset_id=_extend_dataset_id(context.dataset_id, eff_valid_suffix),
                     dataset_version=context.dataset_version,
                     validation_factory=lambda df=valid_df: context.revalidate(df),
                     warnings=(valid_warning,),
@@ -347,6 +352,7 @@ class SplitWriteViolationStrategy:
                     ddl_modifier=context.ddl_modifier,
                     table_properties=context.table_properties,
                     constraint_policy=self.valid_constraint_policy or context.constraint_policy,
+                    is_reject=False,
                 )
 
         if self.include_reject:
@@ -360,6 +366,7 @@ class SplitWriteViolationStrategy:
                 reject_df = None
 
             if has_reject and reject_df is not None:
+                has_violations = True
                 reject_warning = (
                     f"Rejected subset written to dataset suffix '{self.reject_suffix}'"
                 )
@@ -386,7 +393,11 @@ class SplitWriteViolationStrategy:
                     ddl_modifier=context.ddl_modifier,
                     table_properties=context.table_properties,
                     constraint_policy=self.reject_constraint_policy,
+                    is_reject=True,
                 )
+
+        if not has_violations:
+            return WritePlan(primary=context.base_request())
 
         for message in warnings:
             if message not in result.warnings:
@@ -433,6 +444,8 @@ class SplitWriteViolationStrategy:
     def _extend_path(path: Optional[str], suffix: str) -> Optional[str]:
         if not path:
             return None
+        if not suffix:
+            return path
         stripped = path.rstrip("/")
         return f"{stripped}/{suffix}"
 
@@ -440,6 +453,8 @@ class SplitWriteViolationStrategy:
     def _extend_table(table: Optional[str], suffix: str) -> Optional[str]:
         if not table:
             return None
+        if not suffix:
+            return table
         return f"{table}_{suffix}"
 
     @staticmethod
@@ -691,6 +706,7 @@ class DeduplicateQuarantineWriteViolationStrategy:
             ddl_modifier=context.ddl_modifier,
             table_properties=context.table_properties,
             constraint_policy=self.reject_constraint_policy,
+            is_reject=True,
             pipeline_context=_merge_pipeline_context(
                 context.pipeline_context,
                 {"subset": self.reject_suffix},

@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class BaseMergeExecutor(BaseWriteExecutor):
+    is_merge: bool = True
+
     def __init__(
         self,
         *,
@@ -54,9 +56,10 @@ class BaseMergeExecutor(BaseWriteExecutor):
             
             df = req.df
             spark = getattr(df, "sparkSession", getattr(getattr(df, "sql_ctx", None), "sparkSession", None))
+            req_is_merge = not bool(getattr(req, "is_reject", False))
 
             # Pre-create sink table using ContractDDLBuilder to ensure contract DDL conformity
-            _ensure_sink_table_exists(req, spark=spark, df=df, default_format="delta", is_merge=True)
+            _ensure_sink_table_exists(req, spark=spark, df=df, default_format="delta", is_merge=req_is_merge)
 
             # Setup Governance dataset linking before execution
             if governance_client and req.contract and req.dataset_id:
@@ -83,7 +86,25 @@ class BaseMergeExecutor(BaseWriteExecutor):
 
             is_streaming = bool(getattr(req, "streaming", False) or getattr(df, "isStreaming", False))
 
-            if is_streaming:
+            if not req_is_merge:
+                # Quarantine / reject subset in a merge operation: write (append) instead of merging
+                try:
+                    if hasattr(df, "isEmpty") and df.isEmpty():
+                        continue
+                except Exception:
+                    pass
+                w = df.write.mode(req.mode or "append")
+                if req.format:
+                    w = w.format(req.format)
+                if req.options:
+                    w = w.options(**req.options)
+                if req.writer_modifier:
+                    w = req.writer_modifier(w)
+                if req.table:
+                    w.saveAsTable(req.table)
+                elif req.path:
+                    w.save(req.path)
+            elif is_streaming:
                 condition = self.condition
                 builder_modifier = self.merge_builder_modifier
                 table = req.table
