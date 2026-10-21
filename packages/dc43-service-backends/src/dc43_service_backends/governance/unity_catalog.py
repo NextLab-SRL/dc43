@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import warnings
-from typing import Any, Callable, Mapping, MutableMapping, Optional, Protocol, Sequence
+from typing import Any, Callable, Iterable, Mapping, MutableMapping, Optional, Protocol, Sequence
 
-from open_data_contract_standard.model import OpenDataContractStandard  # type: ignore
+from open_data_contract_standard.model import OpenDataContractStandard, SchemaObject  # type: ignore
 
 from dc43_service_backends.config import ServiceBackendsConfig, UnityCatalogConfig
+from dc43_service_backends.core.odcs import resolve_table_name
 
 from .hooks import DatasetContractLinkHook
 from .bootstrap import LinkHookContext
@@ -38,6 +39,8 @@ DatasetToTable = Callable[[str], Optional[str]]
 EngineBuilder = Callable[[str], Any]
 ContractLoader = Callable[[str, str], OpenDataContractStandard | None]
 ContractTableResolver = Callable[[OpenDataContractStandard], Sequence[str]]
+ContractTagHandler = Callable[[OpenDataContractStandard, str, Optional[SchemaObject]], Mapping[str, str]]
+SchemaObjectResolver = Callable[[OpenDataContractStandard, str], Optional[SchemaObject]]
 
 
 _RESERVED_PROPERTY_KEYS = frozenset({"owner"})
@@ -234,6 +237,76 @@ def contract_servers_table_resolver(contract: OpenDataContractStandard) -> Seque
     return tuple(tables)
 
 
+def find_table_schema_object(
+    contract: OpenDataContractStandard,
+    table_name: str,
+) -> SchemaObject | None:
+    """Return the ``SchemaObject`` matching ``table_name`` using contract server definitions."""
+
+    target_canonical = _normalise_table_identifier(table_name)
+    if not target_canonical:
+        return None
+
+    schema_objects = getattr(contract, "schema_", getattr(contract, "schema", None)) or []
+    servers = list(contract.servers or []) or [None]
+
+    # 1. Primary: match through resolve_table_name for all configured servers
+    for server in servers:
+        for obj in schema_objects:
+            resolved = resolve_table_name(server, obj)
+            if resolved and _normalise_table_identifier(resolved) == target_canonical:
+                return obj
+
+    # 2. Secondary fallback: exact match on physicalName or name without server prefix
+    for obj in schema_objects:
+        obj_name = getattr(obj, "physicalName", None) or getattr(obj, "name", None)
+        if obj_name and _normalise_table_identifier(str(obj_name)) == target_canonical:
+            return obj
+
+    # 3. Tertiary fallback: leaf table segment match if table_name was qualified externally
+    target_leaf = target_canonical.split(".")[-1]
+    for obj in schema_objects:
+        obj_name = getattr(obj, "physicalName", None) or getattr(obj, "name", None)
+        if obj_name and _normalise_table_identifier(str(obj_name)) == target_leaf:
+            return obj
+
+    return None
+
+
+def parse_colon_tags(raw_tags: Iterable[str] | None) -> dict[str, str]:
+    """Parse tag strings using the ``key:value`` convention.
+
+    Entries without a colon are mapped to an empty string value (e.g. ``"certified"`` -> ``{"certified": ""}``).
+    """
+
+    tags: dict[str, str] = {}
+    for tag in raw_tags or []:
+        key, _, value = str(tag).partition(":")
+        clean_key = key.strip()
+        if clean_key:
+            tags[clean_key] = value.strip()
+    return tags
+
+
+def colon_tag_handler(
+    contract: OpenDataContractStandard,
+    table_name: str,
+    schema_object: SchemaObject | None = None,
+) -> Mapping[str, str]:
+    """Tag handler applying ``key:value`` tags from both contract root and schema object.
+
+    Table-specific schema object tags override root contract tags with the same key.
+    """
+
+    tags: dict[str, str] = {}
+    root_tags = getattr(contract, "tags", None)
+    if root_tags:
+        tags.update(parse_colon_tags(root_tags))
+    if schema_object is not None and schema_object.tags:
+        tags.update(parse_colon_tags(schema_object.tags))
+    return tags
+
+
 @dataclass(slots=True)
 class UnityCatalogLinker:
     """Apply Unity Catalog table properties after governance link operations."""
@@ -243,6 +316,8 @@ class UnityCatalogLinker:
     table_resolver: DatasetToTable = prefix_table_resolver()
     contract_loader: ContractLoader | None = None
     contract_table_resolver: ContractTableResolver | None = None
+    contract_tag_handler: ContractTagHandler | None = None
+    schema_object_resolver: SchemaObjectResolver = find_table_schema_object
     metadata_provider: MetadataProvider = _default_metadata
     static_properties: Mapping[str, str] = field(default_factory=dict)
     static_tags: Mapping[str, str] = field(default_factory=dict)
@@ -303,11 +378,6 @@ class UnityCatalogLinker:
             contract_version,
         )
         properties = _build_properties(metadata, dict(self.static_properties))
-        tags: Mapping[str, str] = {}
-        tag_keys: Sequence[str] = ()
-        if self.apply_table_tags:
-            tags, keys = _build_tags(metadata, dict(self.static_tags))
-            tag_keys = tuple(sorted(keys))
 
         for table_name in targets:
             if properties and self.apply_table_properties:
@@ -320,9 +390,16 @@ class UnityCatalogLinker:
                         stacklevel=2,
                     )
             if self.apply_table_tags:
+                extra_tags = dict(self.static_tags)
+                if contract is not None and self.contract_tag_handler is not None:
+                    schema_obj = self.schema_object_resolver(contract, table_name)
+                    contract_tags = self.contract_tag_handler(contract, table_name, schema_obj)
+                    if contract_tags:
+                        extra_tags.update(contract_tags)
+                tags, keys = _build_tags(metadata, extra_tags)
                 unset: tuple[str, ...] = ()
-                if not tags and tag_keys:
-                    unset = tuple(tag_keys)
+                if not tags and keys:
+                    unset = tuple(sorted(keys))
                 try:
                     self.apply_table_tags(table_name, tags, unset)
                 except Exception as exc:  # pragma: no cover - runtime guard
@@ -418,6 +495,8 @@ def build_linker_from_config(
     *,
     contract_loader: ContractLoader | None = None,
     contract_table_resolver: ContractTableResolver | None = None,
+    contract_tag_handler: ContractTagHandler | None = None,
+    schema_object_resolver: SchemaObjectResolver | None = None,
     skip_tables: Sequence[str] | None = None,
 ) -> UnityCatalogLinker | None:
     """Return a Unity Catalog linker configured from backend settings."""
@@ -493,6 +572,8 @@ def build_linker_from_config(
         table_resolver=resolver,
         contract_loader=contract_loader,
         contract_table_resolver=contract_table_resolver or contract_servers_table_resolver,
+        contract_tag_handler=contract_tag_handler,
+        schema_object_resolver=schema_object_resolver or find_table_schema_object,
         static_properties=static_properties,
         static_tags=static_tags,
         skip_tables=skip,
@@ -502,6 +583,9 @@ def build_linker_from_config(
 def build_link_hooks(
     config: ServiceBackendsConfig,
     context: LinkHookContext | None = None,
+    *,
+    contract_tag_handler: ContractTagHandler | None = None,
+    schema_object_resolver: SchemaObjectResolver | None = None,
 ) -> Sequence[DatasetContractLinkHook] | None:
     """Return Unity Catalog link hooks derived from ``config``.
 
@@ -521,6 +605,8 @@ def build_link_hooks(
             config.unity_catalog,
             contract_loader=contract_loader,
             contract_table_resolver=contract_servers_table_resolver,
+            contract_tag_handler=contract_tag_handler,
+            schema_object_resolver=schema_object_resolver,
             skip_tables=reserved_tables,
         )
     except Exception as exc:  # pragma: no cover - defensive guard
@@ -564,6 +650,11 @@ __all__ = [
     "UnityCatalogLinker",
     "TablePropertyUpdater",
     "TableTagUpdater",
+    "ContractTagHandler",
+    "SchemaObjectResolver",
+    "find_table_schema_object",
+    "parse_colon_tags",
+    "colon_tag_handler",
     "contract_servers_table_resolver",
     "sql_table_property_updater",
     "sql_table_tag_updater",

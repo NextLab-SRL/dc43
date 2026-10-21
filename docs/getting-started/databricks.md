@@ -343,7 +343,8 @@ table with:
 - Any static properties defined in the configuration (for example,
   `dc43.catalog_synced` or ownership tags)
 - Matching Unity Catalog tags when `tags_enabled = true` (including any values
-  from `[unity_catalog.static_tags]`). Tag keys that contain Unity-reserved
+  from `[unity_catalog.static_tags]`, plus contract tags extracted when a
+  `contract_tag_handler` such as `colon_tag_handler` is configured). Tag keys that contain Unity-reserved
   characters such as `.`, `-`, or `/` are automatically converted to
   underscore-separated names (for example, `dc43.contract_id` becomes
   `dc43_contract_id`).

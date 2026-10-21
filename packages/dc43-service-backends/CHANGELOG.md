@@ -10,6 +10,7 @@
 - Added `CompositeGovernanceStore` implementing multi-store fan-out and selective role-based routing across multiple backends.
 - Added `type = "composite"` configuration support in `GovernanceStoreConfig` and `load_config`, allowing declaration of child backends (`[governance_store.backends.<name>]`) and flexible routing tables (`[governance_store.routes]`) supporting catch-all keys (`all`, `*`) and signal overrides (`status`, `links`, `metrics`, `activity`).
 - Added comprehensive unit test suite in `test_composite_governance_store.py`.
+- Added pluggable contract tag propagation to `UnityCatalogLinker` via `ContractTagHandler` and `SchemaObjectResolver` (`find_table_schema_object`), including the ready-to-inject `colon_tag_handler` (and `parse_colon_tags`) supporting both root `contract.tags` and table-specific `schema_object.tags`.
 
 ## [0.43.0.0] - 2026-08-31
 

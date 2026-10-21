@@ -152,7 +152,12 @@ helper reuses `sql_dsn` (or the dedicated `tags_sql_dsn`) to issue `ALTER TABLE
 property updater. Use `[unity_catalog.static_tags]` to bake in ownership or
 classification labels that should accompany the built-in `dc43.contract_id`
 tags, and remove the tags later with `ALTER TABLE … UNSET TAGS ('dc43.contract_id', …)`
-through the same DSN when cleaning up demos. If Unity Catalog rejects a
+through the same DSN when cleaning up demos. When a `contract_tag_handler`
+is injected (such as the built-in `colon_tag_handler`), tags declared at the
+root of the ODCS contract and on each schema object (for example
+`["processingLayer:Silver", "frequenceMaj:Daily"]`) are applied to the matching
+table and override `static_tags` with the same key. Custom handlers can also be
+injected to support alternate conventions (such as `key=value`). If Unity Catalog rejects a
 property or tag update (for example, due to reserved names or insufficient
 privileges) the backend logs a `RuntimeWarning` and continues processing the
 governance request.

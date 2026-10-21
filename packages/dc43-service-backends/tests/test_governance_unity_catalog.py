@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from open_data_contract_standard.model import OpenDataContractStandard, Server  # type: ignore
+from open_data_contract_standard.model import OpenDataContractStandard, SchemaObject, Server  # type: ignore
 
 from dc43_service_backends.config import (
     ContractStoreConfig,
@@ -17,10 +17,14 @@ from dc43_service_backends.config import (
 )
 from dc43_service_backends.governance.backend.local import LocalGovernanceServiceBackend
 from dc43_service_backends.governance.unity_catalog import (
+    ContractTagHandler,
     UnityCatalogLinker,
+    colon_tag_handler,
     contract_servers_table_resolver,
     build_link_hooks,
     build_linker_from_config,
+    find_table_schema_object,
+    parse_colon_tags,
     prefix_table_resolver,
     sql_table_property_updater,
     sql_table_tag_updater,
@@ -328,6 +332,221 @@ def test_linker_converts_invalid_tag_names() -> None:
             (),
         )
     ]
+
+
+_DC43_TAGS = {"dc43_contract_id": "sales.orders", "dc43_contract_version": "0.1.0", "dc43_dataset_version": "1"}
+
+
+def _contract_with(*schema_objects: SchemaObject, servers: bool = True) -> OpenDataContractStandard:
+    return OpenDataContractStandard(
+        id="sales.orders",
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        servers=[Server(server="unity", type="databricks", catalog="governed", schema="analytics")] if servers else None,
+        schema=list(schema_objects),
+    )
+
+
+def _link_tags(
+    contract: OpenDataContractStandard,
+    *,
+    dataset_id: str = "ignored.dataset",
+    static_tags: Mapping[str, str] | None = None,
+    contract_tag_handler: ContractTagHandler | None = colon_tag_handler,
+) -> list[tuple[str, dict[str, str]]]:
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def _tags(table_name: str, tags: Mapping[str, str], unset_tags: Sequence[str] = ()) -> None:
+        calls.append((table_name, dict(tags)))
+
+    linker = UnityCatalogLinker(
+        apply_table_tags=_tags,
+        contract_loader=lambda *_: contract,
+        contract_table_resolver=contract_servers_table_resolver,
+        contract_tag_handler=contract_tag_handler,
+        static_tags=static_tags or {},
+    )
+    linker.link_dataset_contract(
+        dataset_id=dataset_id,
+        dataset_version="1",
+        contract_id="sales.orders",
+        contract_version="0.1.0",
+    )
+    return calls
+
+
+def test_linker_without_contract_tag_handler_ignores_contract_tags() -> None:
+    contract = _contract_with(
+        SchemaObject(name="orders", physicalName="orders", tags=["processingLayer:Silver"]),
+    )
+    contract.tags = ["domain:sales"]
+
+    calls = _link_tags(contract, static_tags={"team": "sales"}, contract_tag_handler=None)
+
+    assert calls == [
+        ("governed.analytics.orders", {**_DC43_TAGS, "team": "sales"}),
+    ]
+
+
+def test_linker_applies_contract_tags_per_table() -> None:
+    contract = _contract_with(
+        SchemaObject(name="orders_v1", physicalName="orders", tags=["processingLayer:Silver", "environnement:prd01"]),
+        SchemaObject(name="order_items", physicalName="order_items"),
+    )
+
+    calls = _link_tags(contract, static_tags={"environnement": "dev01", "team": "sales"})
+
+    assert calls == [
+        (
+            "governed.analytics.orders",
+            {**_DC43_TAGS, "environnement": "prd01", "team": "sales", "processingLayer": "Silver"},
+        ),
+        ("governed.analytics.order_items", {**_DC43_TAGS, "environnement": "dev01", "team": "sales"}),
+    ]
+
+
+def test_linker_applies_root_contract_tags_and_schema_overrides() -> None:
+    contract = _contract_with(
+        SchemaObject(name="orders", physicalName="orders", tags=["layer:Silver", "env:prd"]),
+        SchemaObject(name="order_items", physicalName="order_items"),
+    )
+    contract.tags = ["domain:sales", "layer:Bronze", "sla:daily"]
+
+    calls = _link_tags(contract)
+
+    assert calls == [
+        (
+            "governed.analytics.orders",
+            {
+                **_DC43_TAGS,
+                "domain": "sales",
+                "sla": "daily",
+                "layer": "Silver",
+                "env": "prd",
+            },
+        ),
+        (
+            "governed.analytics.order_items",
+            {
+                **_DC43_TAGS,
+                "domain": "sales",
+                "sla": "daily",
+                "layer": "Bronze",
+            },
+        ),
+    ]
+
+
+def test_linker_supports_custom_tag_handler() -> None:
+    contract = _contract_with(
+        SchemaObject(name="orders", physicalName="orders", tags=["zone=eu-west-1", "confidential"]),
+    )
+    contract.tags = ["tier=gold"]
+
+    def custom_eq_parser(
+        c: OpenDataContractStandard,
+        table_name: str,
+        obj: SchemaObject | None = None,
+    ) -> Mapping[str, str]:
+        tags: dict[str, str] = {}
+        for item in (c.tags or []) + (obj.tags or [] if obj else []):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                tags[k.strip()] = v.strip()
+            else:
+                tags[item.strip()] = "true"
+        return tags
+
+    calls = _link_tags(contract, contract_tag_handler=custom_eq_parser)
+
+    assert calls == [
+        (
+            "governed.analytics.orders",
+            {
+                **_DC43_TAGS,
+                "tier": "gold",
+                "zone": "eu-west-1",
+                "confidential": "true",
+            },
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("raw_tags", "expected"),
+    [
+        ([" frequenceMaj : Daily "], {"frequenceMaj": "Daily"}),
+        (["certified"], {"certified": ""}),
+        (["steward:"], {"steward": ""}),
+        (["source:crm:salesforce"], {"source": "crm:salesforce"}),
+        ([":orphan", "  "], {}),
+        (["layer:Bronze", "layer:Silver"], {"layer": "Silver"}),
+    ],
+)
+def test_linker_parses_contract_tags(raw_tags: list[str], expected: dict[str, str]) -> None:
+    calls = _link_tags(_contract_with(SchemaObject(name="orders", tags=raw_tags)))
+
+    assert calls == [("governed.analytics.orders", {**_DC43_TAGS, **expected})]
+
+
+def test_linker_matches_contract_tags_ignoring_case_and_backticks() -> None:
+    contract = _contract_with(SchemaObject(name="orders", tags=["processingLayer:Gold"]), servers=False)
+
+    calls = _link_tags(contract, dataset_id="table:`governed`.`analytics`.`ORDERS`")
+
+    assert calls == [("`governed`.`analytics`.`ORDERS`", {**_DC43_TAGS, "processingLayer": "Gold"})]
+
+
+def test_linker_ignores_tags_of_other_schema_objects() -> None:
+    contract = _contract_with(SchemaObject(name="orders", tags=["processingLayer:Gold"]), servers=False)
+
+    calls = _link_tags(contract, dataset_id="table:governed.analytics.customers")
+
+    assert calls == [("governed.analytics.customers", _DC43_TAGS)]
+
+
+def test_linker_keeps_dc43_tags_over_contract_tags() -> None:
+    contract = _contract_with(SchemaObject(name="orders", tags=["dc43.contract_id:other", "data-owner:sales"]))
+
+    with pytest.warns(RuntimeWarning):
+        calls = _link_tags(contract)
+
+    assert calls == [("governed.analytics.orders", {**_DC43_TAGS, "data_owner": "sales"})]
+
+
+def test_find_table_schema_object_uses_resolvers() -> None:
+    obj_orders = SchemaObject(name="orders_v1", physicalName="orders")
+    obj_items = SchemaObject(name="items")
+    contract = OpenDataContractStandard(
+        id="sales.orders",
+        version="0.1.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        servers=[Server(server="unity", type="databricks", catalog="governed", schema="analytics")],
+        schema=[obj_orders, obj_items],
+    )
+
+    assert find_table_schema_object(contract, "governed.analytics.orders") is obj_orders
+    assert find_table_schema_object(contract, "`governed`.`analytics`.`ORDERS`") is obj_orders
+    assert find_table_schema_object(contract, "governed.analytics.items") is obj_items
+    assert find_table_schema_object(contract, "governed.analytics.unknown") is None
+
+
+def test_parse_colon_tags_edge_cases() -> None:
+    assert parse_colon_tags(None) == {}
+    assert parse_colon_tags([]) == {}
+    assert parse_colon_tags(["k:v", "k:override", "no_val", ":no_key", "   "]) == {
+        "k": "override",
+        "no_val": "",
+    }
+
+
+def test_build_linker_from_config_passes_contract_tag_handler() -> None:
+    config = UnityCatalogConfig(enabled=True, tags_enabled=True, tags_sql_dsn="sqlite:///:memory:")
+    linker = build_linker_from_config(config, contract_tag_handler=colon_tag_handler)
+    assert linker is not None
+    assert linker.contract_tag_handler is colon_tag_handler
 
 
 def test_linker_handles_property_errors() -> None:

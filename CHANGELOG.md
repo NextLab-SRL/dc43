@@ -18,6 +18,7 @@
 - Added `CompositeGovernanceStore` in `dc43-service-backends` to orchestrate multi-store fan-out and selective role-based routing across multiple backends.
 - Added `type = "composite"` support in `GovernanceStoreConfig` and service configuration loaders, supporting named backend blocks (`[governance_store.backends.<name>]`) and routing tables (`[governance_store.routes]`) with catch-all keys (`all`, `*`) and specific signal routes (`status`, `links`, `metrics`, `activity`).
 - Updated documentation and sequence flow diagrams covering the Control Plane vs. Telemetry Store split and composite routing architecture.
+- Added pluggable contract tag propagation to `UnityCatalogLinker` in `dc43-service-backends` via `ContractTagHandler` and `find_table_schema_object`, with the built-in `colon_tag_handler` supporting root `contract.tags` and table `schema_object.tags`.
 
 ### Fixed
 - Fixed serialization / closure capture in streaming `foreachBatch` sinks (`dc43-integrations`): decoupled outer `self`, `req`, `table`, and `path` variables in both `BaseMergeExecutor._perform_writes` and `BaseWriteExecutor.execute` (`_micro_batch_sink`), preventing unpicklable `SparkSession` / `SparkContext` objects from being captured in closures and resolving `PySparkRuntimeError: [CONTEXT_ONLY_VALID_ON_DRIVER]` on Spark Connect, Databricks Connect, and distributed workers.
