@@ -275,7 +275,11 @@ CREATE TABLE dq_activity (
 );
 ```
 
-### C. Composite Stores & Multi-Store Fan-Out Architecture
+### C. Optimistic Concurrency & Retry Behavior (Delta Lake / Databricks SQL)
+
+When multiple concurrent Spark jobs or streaming micro-batches update the same `(dataset_id, dataset_version)` simultaneously, `SQLGovernanceStore` and `DeltaGovernanceStore` automatically retry transient optimistic concurrency conflicts (such as `DELTA_CONCURRENT_DELETE_READ.ROW_LEVEL_CHANGES` or `ConcurrentModificationException`) using exponential backoff with jitter (`max_retries = 5` and `retry_backoff = 0.2` by default, configurable in `[governance_store]` or via `DC43_GOVERNANCE_STORE_MAX_RETRIES` / `DC43_GOVERNANCE_STORE_RETRY_BACKOFF`). For `record_pipeline_event`, the entire read-modify-write cycle is retried so concurrent events are preserved.
+
+### D. Composite Stores & Multi-Store Fan-Out Architecture
 
 In enterprise environments, governance and observability artefacts often need to land in **different specialized backends** or be **broadcast simultaneously across multiple stores** (e.g. status in Delta Lake for fast lakehouse gating, metrics in TimescaleDB/PostgreSQL for Grafana dashboards, and audit logs in S3/Filesystem for compliance archive):
 

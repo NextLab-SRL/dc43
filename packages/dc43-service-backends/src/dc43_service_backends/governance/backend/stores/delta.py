@@ -11,6 +11,12 @@ from typing import Mapping, Optional, Sequence, TYPE_CHECKING
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._concurrency import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_BACKOFF,
+    is_concurrency_error,
+    retry_on_concurrency_conflict,
+)
 from ._metrics import extract_metrics, normalise_metric_value
 from ._table_names import (
     derive_related_table_basename,
@@ -74,6 +80,8 @@ class DeltaGovernanceStore(GovernanceStore):
         metrics_table: str | None = None,
         bootstrap_tables: bool = True,
         log_sql: bool = False,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff: float = DEFAULT_RETRY_BACKOFF,
     ) -> None:
         if not base_path and not (status_table and activity_table and link_table):
             raise ValueError(
@@ -86,6 +94,8 @@ class DeltaGovernanceStore(GovernanceStore):
         self._link_table = link_table
         self._metrics_table = metrics_table
         self._log_sql = log_sql
+        self._max_retries = max(0, int(max_retries))
+        self._retry_backoff = max(0.0, float(retry_backoff))
         if not self._metrics_table and self._base_path is None:
             reference_table = status_table or activity_table or link_table
             if reference_table:
@@ -204,7 +214,9 @@ class DeltaGovernanceStore(GovernanceStore):
         statement = f"DELETE FROM {target} WHERE {condition}"
         try:
             self._execute_sql(statement)
-        except Exception:  # pragma: no cover - delta deletes may fail on legacy runtimes
+        except Exception as exc:  # pragma: no cover - delta deletes may fail on legacy runtimes
+            if is_concurrency_error(exc):
+                raise
             logger.exception(
                 "Failed to purge existing status rows for %s@%s",
                 dataset_id,
@@ -324,6 +336,7 @@ class DeltaGovernanceStore(GovernanceStore):
     # ------------------------------------------------------------------
     # Status persistence
     # ------------------------------------------------------------------
+    @retry_on_concurrency_conflict
     def save_status(
         self,
         *,
@@ -483,6 +496,7 @@ class DeltaGovernanceStore(GovernanceStore):
     # ------------------------------------------------------------------
     # Dataset links
     # ------------------------------------------------------------------
+    @retry_on_concurrency_conflict
     def link_dataset_contract(
         self,
         *,
@@ -536,6 +550,7 @@ class DeltaGovernanceStore(GovernanceStore):
     # ------------------------------------------------------------------
     # Pipeline activity
     # ------------------------------------------------------------------
+    @retry_on_concurrency_conflict
     def record_pipeline_event(
         self,
         *,

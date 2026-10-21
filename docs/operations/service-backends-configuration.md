@@ -365,6 +365,14 @@ Set `log_sql = true` (or `DC43_GOVERNANCE_STORE_LOG_SQL=1`) to log every
 statement executed by the SQL/Delta governance stores. This makes it easier to
 trace which dataset view triggered a specific query when debugging slow pages.
 
+SQL and Delta governance stores automatically retry transient optimistic
+concurrency conflicts (such as Databricks `DELTA_CONCURRENT_DELETE_READ` or
+`ConcurrentModificationException`) using exponential backoff with jitter. Tune
+`max_retries` (default `5`, or `DC43_GOVERNANCE_STORE_MAX_RETRIES`) and
+`retry_backoff` in seconds (default `0.2`, or
+`DC43_GOVERNANCE_STORE_RETRY_BACKOFF`) when high-concurrency pipelines update
+the same dataset version simultaneously.
+
 When `metrics_table` is omitted, SQL and Delta stores derive a companion name
 from the configured status table. Identifiers ending with `_dq_status` swap that
 suffix for `_dq_metrics`; other names fall back to appending `_metrics` (for

@@ -22,6 +22,7 @@
 
 ### Fixed
 - Fixed serialization / closure capture in streaming `foreachBatch` sinks (`dc43-integrations`): decoupled outer `self`, `req`, `table`, and `path` variables in both `BaseMergeExecutor._perform_writes` and `BaseWriteExecutor.execute` (`_micro_batch_sink`), preventing unpicklable `SparkSession` / `SparkContext` objects from being captured in closures and resolving `PySparkRuntimeError: [CONTEXT_ONLY_VALID_ON_DRIVER]` on Spark Connect, Databricks Connect, and distributed workers.
+- Fixed Delta Lake optimistic concurrency conflicts (`DELTA_CONCURRENT_DELETE_READ.ROW_LEVEL_CHANGES` / `ConcurrentModificationException`) in `SQLGovernanceStore` and `DeltaGovernanceStore` (`dc43-service-backends`) by adding `@retry_on_concurrency_conflict` with exponential backoff and jitter across `record_pipeline_event`, `save_status`, and `link_dataset_contract` (configurable via `max_retries` / `DC43_GOVERNANCE_STORE_MAX_RETRIES` and `retry_backoff` / `DC43_GOVERNANCE_STORE_RETRY_BACKOFF`).
 
 ## [0.43.0.0] - 2026-08-31
 

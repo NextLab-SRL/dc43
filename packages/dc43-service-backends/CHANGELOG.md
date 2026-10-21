@@ -11,6 +11,10 @@
 - Added `type = "composite"` configuration support in `GovernanceStoreConfig` and `load_config`, allowing declaration of child backends (`[governance_store.backends.<name>]`) and flexible routing tables (`[governance_store.routes]`) supporting catch-all keys (`all`, `*`) and signal overrides (`status`, `links`, `metrics`, `activity`).
 - Added comprehensive unit test suite in `test_composite_governance_store.py`.
 - Added pluggable contract tag propagation to `UnityCatalogLinker` via `ContractTagHandler` and `SchemaObjectResolver` (`find_table_schema_object`), including the ready-to-inject `colon_tag_handler` (and `parse_colon_tags`) supporting both root `contract.tags` and table-specific `schema_object.tags`.
+- Added configurable concurrency retry settings (`max_retries`, `retry_backoff`, `DC43_GOVERNANCE_STORE_MAX_RETRIES`, `DC43_GOVERNANCE_STORE_RETRY_BACKOFF`) to `GovernanceStoreConfig`, `SQLGovernanceStore`, and `DeltaGovernanceStore`.
+
+### Fixed
+- Fixed Delta Lake optimistic concurrency conflicts (`DELTA_CONCURRENT_DELETE_READ.ROW_LEVEL_CHANGES` / `ConcurrentModificationException`) in `SQLGovernanceStore` and `DeltaGovernanceStore` by decorating `record_pipeline_event`, `save_status`, and `link_dataset_contract` with `@retry_on_concurrency_conflict` (exponential backoff + jitter).
 
 ## [0.43.0.0] - 2026-08-31
 

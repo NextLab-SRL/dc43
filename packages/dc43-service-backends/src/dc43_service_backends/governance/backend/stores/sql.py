@@ -23,6 +23,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from dc43_service_clients.data_quality import ValidationResult, coerce_details
 
+from ._concurrency import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_BACKOFF,
+    retry_on_concurrency_conflict,
+)
 from ._metrics import extract_metrics, normalise_metric_value
 from ._table_names import derive_related_table_name
 from .interface import GovernanceStore
@@ -43,8 +48,12 @@ class SQLGovernanceStore(GovernanceStore):
         activity_table: str = "dq_activity",
         link_table: str = "dq_dataset_contract_links",
         metrics_table: str | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff: float = DEFAULT_RETRY_BACKOFF,
     ) -> None:
         self._engine = engine
+        self._max_retries = max(0, int(max_retries))
+        self._retry_backoff = max(0.0, float(retry_backoff))
         metadata = MetaData(schema=schema)
         resolved_metrics_table = metrics_table
         if not resolved_metrics_table and status_table:
@@ -218,6 +227,7 @@ class SQLGovernanceStore(GovernanceStore):
     # ------------------------------------------------------------------
     # Status persistence
     # ------------------------------------------------------------------
+    @retry_on_concurrency_conflict
     def save_status(
         self,
         *,
@@ -373,6 +383,7 @@ class SQLGovernanceStore(GovernanceStore):
     # ------------------------------------------------------------------
     # Dataset links
     # ------------------------------------------------------------------
+    @retry_on_concurrency_conflict
     def link_dataset_contract(
         self,
         *,
@@ -479,6 +490,7 @@ class SQLGovernanceStore(GovernanceStore):
     # ------------------------------------------------------------------
     # Pipeline activity
     # ------------------------------------------------------------------
+    @retry_on_concurrency_conflict
     def record_pipeline_event(
         self,
         *,

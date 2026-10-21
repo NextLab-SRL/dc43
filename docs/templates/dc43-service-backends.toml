@@ -135,3 +135,6 @@ type = "memory"
 # token = "$GOVERNANCE_TOKEN"
 # Enable verbose SQL logging for Delta and relational stores.
 log_sql = false
+# Retry transient Delta/SQL optimistic concurrency conflicts automatically.
+# max_retries = 5
+# retry_backoff = 0.2
