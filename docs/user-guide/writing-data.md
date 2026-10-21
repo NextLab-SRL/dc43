@@ -284,7 +284,7 @@ request = GovernanceSparkWriteRequest(
 
 In the `dc43` architecture, metrics collect contract violation counts (`ValidationResult`), while `WriteViolationStrategy` implementations decide how to process, split, or quarantine violating records.
 
-To handle `duplicateValues` rules, `dc43-integrations` provides a built-in `DeduplicateQuarantineWriteViolationStrategy` exported from `dc43_integrations.spark.violation_strategy`. It deduplicates the primary dataset based on a sort instruction (e.g. keeping `first` or `last` record according to an ordering column like `updated_at`), while routing all rejected duplicates to a quarantine sink.
+To handle `duplicateValues` rules, `dc43-integrations` provides a built-in `DeduplicateQuarantineWriteViolationStrategy` exported from `dc43_integrations.spark.violation_strategy`. It deduplicates the primary dataset based on a sort instruction (e.g. keeping `first` or `last` record according to an ordering column like `updated_at` or `order_by=[("updated_at", "DESC")]`), while routing all rejected duplicates to a quarantine sink. If `key_properties` is omitted, the deduplication keys are inferred automatically from the contract (`primaryKey: true` properties or `duplicateValues` quality expectations).
 
 Optionally, the strategy can **aggregate** all quarantined duplicates for a given key into a single row containing a list column (`quarantined_duplicates`) and the count of duplicates (`duplicate_count`).
 
@@ -441,3 +441,50 @@ query.awaitTermination()
 ```
 
 
+### Deduplication & Quarantine in Batch and Streaming Merges
+
+Delta Lake requires that at most one source row matches a given target row during a `MERGE` operation (otherwise Spark raises `DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE`). Furthermore, invalid records violating contract expectations (`NOT NULL`, format, range, or key uniqueness) should be isolated before executing the upsert.
+
+Both `merge_with_governance` and `merge_stream_with_governance` natively support `DeduplicateQuarantineWriteViolationStrategy` and `SplitWriteViolationStrategy`:
+
+1. **Per-batch / micro-batch isolation**: In streaming mode (`foreachBatch`), the violation strategy runs on each micro-batch DataFrame before the Delta merge executes.
+2. **Automatic key inference**: `DeduplicateQuarantineWriteViolationStrategy` automatically resolves key columns from the contract (`primaryKey: true` properties or `duplicateValues` rules) when `key_properties` is not explicitly provided.
+3. **Dual-sink routing (`MERGE` + Quarantine `APPEND`)**:
+   - The **valid / deduplicated subset** is **merged** (`DeltaTable.merge(...)`) into the primary target Delta table using your `condition` and `merge_builder_modifier`.
+   - The **rejected / duplicate subset** (`is_reject=True`) is **appended** (`saveAsTable` / `save`) to the quarantine table or path (`<table_or_path>_reject`), which is automatically pre-created with `DDLConstraintPolicy.relaxed()` so malformed or null-key rows never fail Delta DDL invariant checks.
+4. **CloudPickle / Spark Connect safe**: The internal `foreachBatch` sink is decoupled from driver-only `SparkSession` and executor state, avoiding `PySparkRuntimeError: [CONTEXT_ONLY_VALID_ON_DRIVER]` on Databricks and Spark Connect.
+
+```python
+from dc43_integrations.spark.io import (
+    GovernanceSparkWriteRequest,
+    merge_stream_with_governance,
+)
+from dc43_integrations.spark.violation_strategy import (
+    DeduplicateQuarantineWriteViolationStrategy,
+)
+from dc43_service_clients.governance.models import GovernanceWriteContext, ContractReference
+
+request = GovernanceSparkWriteRequest(
+    context=GovernanceWriteContext(
+        contract=ContractReference(contract_id="sales.orders", version_selector="1.0.0"),
+    ),
+    options={"checkpointLocation": "/checkpoints/orders_merge"},
+    violation_strategy=DeduplicateQuarantineWriteViolationStrategy(
+        # key_properties is optional when primaryKey or duplicateValues is defined in the contract
+        order_by=[("updated_at", "DESC")],
+        reject_suffix="reject",
+    ),
+    writer_modifier=lambda writer: writer.trigger(availableNow=True),
+)
+
+exec_result = merge_stream_with_governance(
+    source_df=streaming_df,
+    condition="target.order_id = source.order_id",
+    request=request,
+    governance_service=my_governance_client,
+    merge_builder_modifier=lambda b: b.whenMatchedUpdateAll().whenNotMatchedInsertAll(),
+)
+
+for query in exec_result.streaming_queries:
+    query.awaitTermination()
+```
