@@ -284,7 +284,7 @@ request = GovernanceSparkWriteRequest(
 
 In the `dc43` architecture, metrics collect contract violation counts (`ValidationResult`), while `WriteViolationStrategy` implementations decide how to process, split, or quarantine violating records.
 
-To handle `duplicateValues` rules, `dc43-integrations` provides a built-in `DeduplicateQuarantineWriteViolationStrategy` exported from `dc43_integrations.spark.violation_strategy`. It deduplicates the primary dataset based on a sort instruction (e.g. keeping `first` or `last` record according to an ordering column like `updated_at` or `order_by=[("updated_at", "DESC")]`), while routing all rejected duplicates to a quarantine sink. If `key_properties` is omitted, the deduplication keys are inferred automatically from the contract (`primaryKey: true` properties or `duplicateValues` quality expectations).
+To handle `duplicateValues` rules, `dc43-integrations` provides a built-in `DeduplicateQuarantineWriteViolationStrategy` exported from `dc43_integrations.spark.violation_strategy`. It deduplicates the primary dataset based on a sort instruction (`sort_column` / `order_by` accepting either a single column name like `"updated_at"` or a multi-column `Sequence[tuple[str, str]]` such as `[("update_at", "desc"), ("create_at", "asc")]`), while routing all rejected duplicates to a quarantine sink. If `key_properties` is omitted, the deduplication keys are inferred automatically from the contract (`primaryKey: true` properties or `duplicateValues` quality expectations).
 
 Optionally, the strategy can **aggregate** all quarantined duplicates for a given key into a single row containing a list column (`quarantined_duplicates`) and the count of duplicates (`duplicate_count`).
 
@@ -471,7 +471,7 @@ request = GovernanceSparkWriteRequest(
     options={"checkpointLocation": "/checkpoints/orders_merge"},
     violation_strategy=DeduplicateQuarantineWriteViolationStrategy(
         # key_properties is optional when primaryKey or duplicateValues is defined in the contract
-        order_by=[("updated_at", "DESC")],
+        sort_column=[("update_at", "desc"), ("create_at", "asc")],
         reject_suffix="reject",
     ),
     writer_modifier=lambda writer: writer.trigger(availableNow=True),

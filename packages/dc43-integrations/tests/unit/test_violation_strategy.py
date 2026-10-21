@@ -242,3 +242,75 @@ def test_deduplicate_quarantine_strategy(spark):
     assert agg_reject_rows[0]["quarantined_duplicates"][0]["amount"] == 100
 
 
+def test_deduplicate_quarantine_multi_column_sort_and_contract_keys(spark) -> None:
+    from open_data_contract_standard.model import (
+        OpenDataContractStandard,
+        SchemaObject,
+        SchemaProperty,
+    )
+    from dc43_integrations.spark.violation_strategy import (
+        DeduplicateQuarantineWriteViolationStrategy,
+        WriteStrategyContext,
+    )
+
+    contract = OpenDataContractStandard(
+        version="1.0.0",
+        kind="DataContract",
+        apiVersion="3.0.2",
+        id="sales.orders",
+        name="Orders",
+        schema=[
+            SchemaObject(
+                name="orders",
+                properties=[
+                    SchemaProperty(name="tenant_id", physicalType="string", primaryKey=True, primaryKeyPosition=1),
+                    SchemaProperty(name="order_id", physicalType="string", primaryKey=True, primaryKeyPosition=2),
+                    SchemaProperty(name="amount", physicalType="int"),
+                    SchemaProperty(name="update_at", physicalType="int"),
+                    SchemaProperty(name="create_at", physicalType="int"),
+                ],
+            )
+        ],
+    )
+
+    # Tie on update_at=20, broken by create_at ASC (create_at=5 should win over create_at=9)
+    df = spark.createDataFrame(
+        [
+            ("t1", "o1", 100, 10, 1),
+            ("t1", "o1", 150, 20, 9),
+            ("t1", "o1", 175, 20, 5),
+        ],
+        ["tenant_id", "order_id", "amount", "update_at", "create_at"],
+    )
+
+    validation = FakeValidation()
+    context = WriteStrategyContext(
+        df=df,
+        aligned_df=df,
+        contract=contract,
+        path="/tmp/orders",
+        table="analytics.orders",
+        format="delta",
+        options={},
+        mode="append",
+        validation=validation,
+        dataset_id="orders",
+        dataset_version="v1",
+        revalidate=lambda _: validation,
+        expectation_predicates={},
+        pipeline_context=None,
+    )
+
+    strat = DeduplicateQuarantineWriteViolationStrategy(
+        sort_column=[("update_at", "desc"), ("create_at", "asc")],
+    )
+    plan = strat.plan(context)
+    primary_rows = plan.primary.df.collect()
+    assert len(primary_rows) == 1
+    assert primary_rows[0]["amount"] == 175
+    assert primary_rows[0]["update_at"] == 20
+    assert primary_rows[0]["create_at"] == 5
+
+    reject_rows = plan.additional[0].df.orderBy("amount").collect()
+    assert len(reject_rows) == 2
+    assert [r["amount"] for r in reject_rows] == [100, 150]
