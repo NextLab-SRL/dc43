@@ -73,6 +73,7 @@ class WriteRequest:
     ddl_modifier: Optional[Callable[[str], str]] = None
     table_properties: Optional[Mapping[str, str]] = None
     constraint_policy: Optional[DDLConstraintPolicy] = None
+    is_reject: bool = False
 
 
 @dataclass
@@ -109,6 +110,7 @@ class WriteStrategyContext:
     ddl_modifier: Optional[Callable[[str], str]] = None
     table_properties: Optional[Mapping[str, str]] = None
     constraint_policy: Optional[DDLConstraintPolicy] = None
+    is_merge: bool = False
 
     def base_request(
         self,
@@ -308,6 +310,8 @@ class SplitWriteViolationStrategy:
         def _extend_dataset_id(base: Optional[str], suffix: str) -> Optional[str]:
             if not base:
                 return None
+            if not suffix:
+                return base
             return f"{base}{self.dataset_suffix_separator}{suffix}"
 
         if self.include_valid:
@@ -321,19 +325,20 @@ class SplitWriteViolationStrategy:
                 valid_df = None
 
             if has_valid and valid_df is not None:
+                eff_valid_suffix = "" if context.is_merge else self.valid_suffix
                 valid_warning = (
-                    f"Valid subset written to dataset suffix '{self.valid_suffix}'"
+                    f"Valid subset written to dataset suffix '{eff_valid_suffix or 'primary'}'"
                 )
                 warnings.append(valid_warning)
                 valid_request = WriteRequest(
                     df=valid_df,
-                    path=self._extend_path(context.path, self.valid_suffix),
-                    table=self._extend_table(context.table, self.valid_suffix),
+                    path=self._extend_path(context.path, eff_valid_suffix),
+                    table=self._extend_table(context.table, eff_valid_suffix),
                     format=context.format,
                     options=dict(context.options),
                     mode=context.mode,
                     contract=context.contract,
-                    dataset_id=_extend_dataset_id(context.dataset_id, self.valid_suffix),
+                    dataset_id=_extend_dataset_id(context.dataset_id, eff_valid_suffix),
                     dataset_version=context.dataset_version,
                     validation_factory=lambda df=valid_df: context.revalidate(df),
                     warnings=(valid_warning,),
@@ -347,6 +352,7 @@ class SplitWriteViolationStrategy:
                     ddl_modifier=context.ddl_modifier,
                     table_properties=context.table_properties,
                     constraint_policy=self.valid_constraint_policy or context.constraint_policy,
+                    is_reject=False,
                 )
 
         if self.include_reject:
@@ -360,6 +366,7 @@ class SplitWriteViolationStrategy:
                 reject_df = None
 
             if has_reject and reject_df is not None:
+                has_violations = True
                 reject_warning = (
                     f"Rejected subset written to dataset suffix '{self.reject_suffix}'"
                 )
@@ -386,7 +393,11 @@ class SplitWriteViolationStrategy:
                     ddl_modifier=context.ddl_modifier,
                     table_properties=context.table_properties,
                     constraint_policy=self.reject_constraint_policy,
+                    is_reject=True,
                 )
+
+        if not has_violations:
+            return WritePlan(primary=context.base_request())
 
         for message in warnings:
             if message not in result.warnings:
@@ -433,6 +444,8 @@ class SplitWriteViolationStrategy:
     def _extend_path(path: Optional[str], suffix: str) -> Optional[str]:
         if not path:
             return None
+        if not suffix:
+            return path
         stripped = path.rstrip("/")
         return f"{stripped}/{suffix}"
 
@@ -440,6 +453,8 @@ class SplitWriteViolationStrategy:
     def _extend_table(table: Optional[str], suffix: str) -> Optional[str]:
         if not table:
             return None
+        if not suffix:
+            return table
         return f"{table}_{suffix}"
 
     @staticmethod
@@ -570,8 +585,9 @@ class FlagWriteViolationStrategy:
 class DeduplicateQuarantineWriteViolationStrategy:
     """Strategy that deduplicates records on compound keys and routes rejected duplicates to quarantine."""
 
-    key_properties: Sequence[str]
-    sort_column: str
+    key_properties: Optional[Sequence[str]] = None
+    sort_column: str | Sequence[tuple[str, str] | str] | None = None
+    order_by: Sequence[tuple[str, str] | str] | str | None = None
     keep: Literal["first", "last"] = "first"
     aggregate_quarantine: bool = False
     valid_suffix: str = "valid"
@@ -631,20 +647,84 @@ class DeduplicateQuarantineWriteViolationStrategy:
             failure_message=self.data_product_status_failure_message,
         )
 
+    @staticmethod
+    def _infer_keys_from_contract(contract: Optional[OpenDataContractStandard]) -> list[str]:
+        if contract is None:
+            return []
+        schema_objs = getattr(contract, "schema_", None) or getattr(contract, "schema", None) or []
+        if not isinstance(schema_objs, Sequence):
+            return []
+        pk_props: list[tuple[int, str]] = []
+        dup_props: list[str] = []
+        for obj in schema_objs:
+            props = getattr(obj, "properties", None) or []
+            for idx, prop in enumerate(props):
+                name = getattr(prop, "name", None)
+                if not name:
+                    continue
+                if bool(getattr(prop, "primaryKey", False)):
+                    pos = getattr(prop, "primaryKeyPosition", None)
+                    pk_props.append((int(pos) if isinstance(pos, int) else (1000 + idx), str(name)))
+                for q in getattr(prop, "quality", None) or []:
+                    if getattr(q, "metric", None) == "duplicateValues" and str(name) not in dup_props:
+                        dup_props.append(str(name))
+            for q in getattr(obj, "quality", None) or []:
+                if getattr(q, "metric", None) == "duplicateValues":
+                    args = getattr(q, "arguments", None)
+                    q_props = args.get("properties") if isinstance(args, Mapping) else getattr(args, "properties", None)
+                    if isinstance(q_props, Sequence) and not isinstance(q_props, (str, bytes)):
+                        for p in q_props:
+                            if p and str(p) not in dup_props:
+                                dup_props.append(str(p))
+        if pk_props:
+            pk_props.sort(key=lambda item: item[0])
+            return [name for _, name in pk_props]
+        return dup_props
+
+    def _resolve_sort_expressions(self, F: Any, key_cols: Sequence[str]) -> list[Any]:
+        raw_sort = self.sort_column if self.sort_column is not None else self.order_by
+        if raw_sort is None:
+            return [F.col(c).asc() if self.keep == "first" else F.col(c).desc() for c in key_cols]
+        if isinstance(raw_sort, str):
+            return [F.col(raw_sort).desc() if self.keep == "first" else F.col(raw_sort).asc()]
+        if isinstance(raw_sort, Sequence):
+            exprs: list[Any] = []
+            for item in raw_sort:
+                if isinstance(item, tuple) and len(item) == 2:
+                    col_name, direction = item
+                    dir_norm = str(direction).strip().lower()
+                    is_desc = dir_norm in ("desc", "descending")
+                    if self.keep == "last":
+                        is_desc = not is_desc
+                    exprs.append(F.col(str(col_name)).desc() if is_desc else F.col(str(col_name)).asc())
+                elif isinstance(item, str):
+                    exprs.append(F.col(item).desc() if self.keep == "first" else F.col(item).asc())
+                else:
+                    exprs.append(item)
+            if exprs:
+                return exprs
+        return [F.col(c).asc() if self.keep == "first" else F.col(c).desc() for c in key_cols]
+
     def plan(self, context: WriteStrategyContext) -> WritePlan:  # noqa: D401
         from pyspark.sql import Window
         from pyspark.sql import functions as F
 
         df = context.aligned_df
-        sort_order = F.col(self.sort_column).desc() if self.keep == "first" else F.col(self.sort_column).asc()
-        window_spec = Window.partitionBy(*self.key_properties).orderBy(sort_order)
+        key_cols = list(self.key_properties) if self.key_properties else self._infer_keys_from_contract(context.contract)
+        if not key_cols:
+            raise ValueError(
+                "DeduplicateQuarantineWriteViolationStrategy requires 'key_properties' "
+                "or a contract defining primaryKey / duplicateValues properties."
+            )
+        sort_orders = self._resolve_sort_expressions(F, key_cols)
+        window_spec = Window.partitionBy(*key_cols).orderBy(*sort_orders)
         df_ranked = df.withColumn("_row_num", F.row_number().over(window_spec))
         valid_df = df_ranked.filter(F.col("_row_num") == 1).drop("_row_num")
         reject_df = df_ranked.filter(F.col("_row_num") > 1).drop("_row_num")
 
         if self.aggregate_quarantine:
-            other_cols = [c for c in df.columns if c not in self.key_properties]
-            reject_df = reject_df.groupBy(*self.key_properties).agg(
+            other_cols = [c for c in df.columns if c not in key_cols]
+            reject_df = reject_df.groupBy(*key_cols).agg(
                 F.collect_list(F.struct(*other_cols)).alias("quarantined_duplicates"),
                 F.count("*").alias("duplicate_count"),
             )
@@ -691,6 +771,7 @@ class DeduplicateQuarantineWriteViolationStrategy:
             ddl_modifier=context.ddl_modifier,
             table_properties=context.table_properties,
             constraint_policy=self.reject_constraint_policy,
+            is_reject=True,
             pipeline_context=_merge_pipeline_context(
                 context.pipeline_context,
                 {"subset": self.reject_suffix},

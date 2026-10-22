@@ -152,7 +152,12 @@ helper reuses `sql_dsn` (or the dedicated `tags_sql_dsn`) to issue `ALTER TABLE
 property updater. Use `[unity_catalog.static_tags]` to bake in ownership or
 classification labels that should accompany the built-in `dc43.contract_id`
 tags, and remove the tags later with `ALTER TABLE … UNSET TAGS ('dc43.contract_id', …)`
-through the same DSN when cleaning up demos. If Unity Catalog rejects a
+through the same DSN when cleaning up demos. When a `contract_tag_handler`
+is injected (such as the built-in `colon_tag_handler`), tags declared at the
+root of the ODCS contract and on each schema object (for example
+`["processingLayer:Silver", "frequenceMaj:Daily"]`) are applied to the matching
+table and override `static_tags` with the same key. Custom handlers can also be
+injected to support alternate conventions (such as `key=value`). If Unity Catalog rejects a
 property or tag update (for example, due to reserved names or insufficient
 privileges) the backend logs a `RuntimeWarning` and continues processing the
 governance request.
@@ -359,6 +364,14 @@ table names also expose dedicated overrides such as
 Set `log_sql = true` (or `DC43_GOVERNANCE_STORE_LOG_SQL=1`) to log every
 statement executed by the SQL/Delta governance stores. This makes it easier to
 trace which dataset view triggered a specific query when debugging slow pages.
+
+SQL and Delta governance stores automatically retry transient optimistic
+concurrency conflicts (such as Databricks `DELTA_CONCURRENT_DELETE_READ` or
+`ConcurrentModificationException`) using exponential backoff with jitter. Tune
+`max_retries` (default `5`, or `DC43_GOVERNANCE_STORE_MAX_RETRIES`) and
+`retry_backoff` in seconds (default `0.2`, or
+`DC43_GOVERNANCE_STORE_RETRY_BACKOFF`) when high-concurrency pipelines update
+the same dataset version simultaneously.
 
 When `metrics_table` is omitted, SQL and Delta stores derive a companion name
 from the configured status table. Identifiers ending with `_dq_status` swap that

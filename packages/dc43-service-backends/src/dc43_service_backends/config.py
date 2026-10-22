@@ -209,6 +209,8 @@ class GovernanceStoreConfig:
     timeout: float = 10.0
     headers: dict[str, str] = field(default_factory=dict)
     log_sql: bool = False
+    max_retries: int = 5
+    retry_backoff: float = 0.2
     backends: dict[str, GovernanceStoreConfig] = field(default_factory=dict)
     routes: dict[str, list[str]] = field(default_factory=dict)
 
@@ -296,6 +298,13 @@ def _coerce_float(value: Any, default: float) -> float:
         return default
 
 
+def _coerce_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_catalog(section: Any) -> dict[str, tuple[str, str]]:
     catalog: dict[str, tuple[str, str]] = {}
     if not isinstance(section, MutableMapping):
@@ -377,6 +386,8 @@ def _parse_governance_store_payload(
     headers_raw = payload.get("headers")
     headers_value = _parse_str_dict(headers_raw) if headers_raw is not None else {}
     log_sql = _parse_bool(payload.get("log_sql"), False)
+    max_retries_value = max(0, _coerce_int(payload.get("max_retries"), 5))
+    retry_backoff_value = max(0.0, _coerce_float(payload.get("retry_backoff"), 0.2))
 
     backends_map: dict[str, GovernanceStoreConfig] = {}
     backends_raw = payload.get("backends")
@@ -416,6 +427,8 @@ def _parse_governance_store_payload(
         timeout=timeout_value,
         headers=headers_value,
         log_sql=log_sql,
+        max_retries=max_retries_value,
+        retry_backoff=retry_backoff_value,
         backends=backends_map,
         routes=routes_map,
     )
@@ -716,6 +729,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     gov_timeout_value = 10.0
     gov_headers_value: dict[str, str] = {}
     gov_log_sql = False
+    gov_max_retries_value = 5
+    gov_retry_backoff_value = 0.2
     gov_metrics_table_value = None
     gov_backends_value: dict[str, GovernanceStoreConfig] = {}
     gov_routes_value: dict[str, list[str]] = {}
@@ -763,6 +778,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
         if headers_raw is not None:
             gov_headers_value = _parse_str_dict(headers_raw)
         gov_log_sql = _parse_bool(governance_store_section.get("log_sql"), False)
+        gov_max_retries_value = max(
+            0, _coerce_int(governance_store_section.get("max_retries"), 5)
+        )
+        gov_retry_backoff_value = max(
+            0.0, _coerce_float(governance_store_section.get("retry_backoff"), 0.2)
+        )
 
         backends_raw = governance_store_section.get("backends")
         if isinstance(backends_raw, MutableMapping):
@@ -1019,6 +1040,18 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
     if env_gov_timeout:
         gov_timeout_value = _coerce_float(env_gov_timeout, gov_timeout_value)
 
+    env_gov_max_retries = os.getenv("DC43_GOVERNANCE_STORE_MAX_RETRIES")
+    if env_gov_max_retries is not None:
+        gov_max_retries_value = max(
+            0, _coerce_int(env_gov_max_retries, gov_max_retries_value)
+        )
+
+    env_gov_retry_backoff = os.getenv("DC43_GOVERNANCE_STORE_RETRY_BACKOFF")
+    if env_gov_retry_backoff is not None:
+        gov_retry_backoff_value = max(
+            0.0, _coerce_float(env_gov_retry_backoff, gov_retry_backoff_value)
+        )
+
     seen_transformers: set[str] = set()
     ordered_transformers: list[str] = []
     for spec in contract_transformer_specs:
@@ -1121,6 +1154,8 @@ def load_config(path: str | os.PathLike[str] | None = None) -> ServiceBackendsCo
             timeout=gov_timeout_value,
             headers=gov_headers_value,
             log_sql=gov_log_sql,
+            max_retries=gov_max_retries_value,
+            retry_backoff=gov_retry_backoff_value,
             backends=gov_backends_value,
             routes=gov_routes_value,
         ),
@@ -1319,6 +1354,10 @@ def _governance_store_mapping(config: GovernanceStoreConfig) -> dict[str, Any]:
         mapping["headers"] = dict(config.headers)
     if config.log_sql:
         mapping["log_sql"] = True
+    if config.max_retries != 5:
+        mapping["max_retries"] = config.max_retries
+    if config.retry_backoff != 0.2:
+        mapping["retry_backoff"] = config.retry_backoff
     if config.backends:
         mapping["backends"] = {
             name: _governance_store_mapping(b_conf) for name, b_conf in config.backends.items()

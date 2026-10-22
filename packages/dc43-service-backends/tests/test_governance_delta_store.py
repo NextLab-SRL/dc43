@@ -778,3 +778,41 @@ def test_load_metrics_filters_results(tmp_path: Path) -> None:
     entry = entries[0]
     assert entry["metric_key"] == "violations.total"
     assert entry["metric_numeric_value"] == 0.0
+
+
+def test_delta_store_retries_on_concurrent_delete_read_conflict(tmp_path: Path) -> None:
+    spark = _StubSpark()
+    store = DeltaGovernanceStore(
+        spark,
+        base_path=tmp_path,
+        max_retries=2,
+        retry_backoff=0.0,
+    )
+    attempts = 0
+    original_sql = spark.sql
+
+    def flaky_sql(query: str):
+        nonlocal attempts
+        if query.startswith("DELETE FROM "):
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError(
+                    "[DELTA_CONCURRENT_DELETE_READ.ROW_LEVEL_CHANGES] Transaction conflict detected"
+                )
+        return original_sql(query)
+
+    spark.sql = flaky_sql  # type: ignore[method-assign]
+
+    store.record_pipeline_event(
+        contract_id="contracts",
+        contract_version="1.0.0",
+        dataset_id="orders",
+        dataset_version="2024-04-01",
+        event={"operation": "write", "recorded_at": "2024-04-01T00:00:00Z"},
+    )
+
+    assert attempts == 2
+    append_writes = [
+        record for record in spark.records if record.get("mode") == "append"
+    ]
+    assert len(append_writes) == 1

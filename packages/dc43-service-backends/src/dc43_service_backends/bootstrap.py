@@ -453,6 +453,8 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
             activity_table=activity_table,
             link_table=link_table,
             metrics_table=metrics_table,
+            max_retries=config.max_retries,
+            retry_backoff=config.retry_backoff,
         )
 
     if store_type == "delta":
@@ -477,6 +479,8 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
                 activity_table=activity_table,
                 link_table=link_table,
                 metrics_table=metrics_table,
+                max_retries=config.max_retries,
+                retry_backoff=config.retry_backoff,
             )
         if DeltaGovernanceStore is None:
             raise RuntimeError(
@@ -496,6 +500,8 @@ def build_governance_store(config: GovernanceStoreConfig) -> GovernanceStore:
             link_table=config.link_table,
             metrics_table=config.metrics_table,
             log_sql=config.log_sql,
+            max_retries=config.max_retries,
+            retry_backoff=config.retry_backoff,
         )
 
     if store_type in {"http", "remote"}:

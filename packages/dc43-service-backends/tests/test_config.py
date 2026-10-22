@@ -672,3 +672,37 @@ def test_contract_store_client_credentials_env_overrides(tmp_path: Path, monkeyp
     assert config.contract_store.client_secret == "env-client-secret"
     assert config.contract_store.token_endpoint == "/oauth/token"
 
+
+
+def test_governance_store_retry_config_and_env_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "backends.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[governance_store]",
+                "type = 'sql'",
+                "dsn = 'sqlite:///governance.db'",
+                "max_retries = 8",
+                "retry_backoff = 0.5",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.governance_store.max_retries == 8
+    assert config.governance_store.retry_backoff == 0.5
+
+    mapping = config_to_mapping(config)
+    assert mapping["governance_store"]["max_retries"] == 8
+    assert mapping["governance_store"]["retry_backoff"] == 0.5
+
+    monkeypatch.setenv("DC43_GOVERNANCE_STORE_MAX_RETRIES", "10")
+    monkeypatch.setenv("DC43_GOVERNANCE_STORE_RETRY_BACKOFF", "0.75")
+
+    overridden = load_config(config_path)
+    assert overridden.governance_store.max_retries == 10
+    assert overridden.governance_store.retry_backoff == 0.75
